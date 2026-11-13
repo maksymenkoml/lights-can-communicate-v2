@@ -1,6 +1,6 @@
 # Local setup studio spike
 
-One schematic of the selected desk lights. Drag lamps onto a fixed 10 cm grid,
+One schematic of the selected desk lights. Drag lamps onto a fixed 5 cm grid,
 select one to adjust brightness, with automatic local saving. Known models supply form,
 segment template and color mapping. No physical lighting settings
 are changed.
@@ -16,7 +16,7 @@ public assets plus an optional sanitized read-only pilot status projection.
 Project/state files and credentials are never served. POST requests cannot
 control lights. The minimal frontend does not poll the running pilot.
 
-Version 3 stores centimeter coordinates and a fixed 10 cm step in browser
+Version 3 stores centimeter coordinates and a fixed 5 cm step in browser
 local storage. Earlier drafts retain position and brightness on migration.
 Keyboard arrows move one grid cell; form-specific bounds retain glyphs on the
 stage. The diagram is schematic, not a dimensioned CAD drawing. A new virtual
@@ -47,9 +47,13 @@ Owner-specified fixture dimensions are used at the same scale: Govee
 height 136 cm and Play length 25 cm, including when Play is vertical.
 
 The monitor itself supports pointer dragging and arrow movement on the
-10 cm grid, plus numeric center height from the floor and offset from the
+5 cm grid, plus numeric center height from the floor and offset from the
 desk center. The attached strip shares its position. Elevated placements
 persist without being pulled back into the initial viewport.
 
 Every edit (including undo) saves automatically to local storage. There is
 no Save button, reset action or persistent save/instruction footer.
+
+The desk uses solid, thicker blue-gray tabletop and legs. Width is printed
+on the tabletop and height directly along the right leg, without separate
+dimension lines. Moving to a 5 cm grid preserves saved centimeter positions.

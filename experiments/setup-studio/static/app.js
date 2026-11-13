@@ -3,7 +3,7 @@ const clone = value => structuredClone(value);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp = (v,min,max) => Math.min(max,Math.max(min,Number(v)||0));
 const KEY='light-studio-grid-v3';
-const GRID=50, STEP_CM=10, COLS=20;
+const GRID=25, STEP_CM=5, COLS=40;
 const STAGE_HEIGHT=900, FLOOR_Y=850, UNITS_PER_CM=GRID/STEP_CM;
 const deskDefaults={width:160,height:85};
 const GOVEE_HEIGHT_CM=136, PLAY_LENGTH_CM=25;
@@ -29,10 +29,10 @@ function load(){
   const saved=JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1'));
   if(![1,2,3].includes(saved?.version)||!Array.isArray(saved.devices))return defaults();
   const data=defaults();data.desk={width:clamp(saved.desk?.width??160,80,240),height:clamp(saved.desk?.height??85,50,120)};data.monitorInches=clamp(saved.monitorInches??32,19,55);data.room=String(saved.room||data.room).slice(0,40);
-  data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'?-100:12,88)}}:d;});
+  data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'?-100:0,100)}}:d;});
   for(const s of saved.devices.filter(x=>/^virtual-[a-z0-9]+$/.test(x.id||'')).slice(0,6)){
    const shape=Object.hasOwn(typeNames,s.shape)?s.shape:'bar';if(s.positionCm)s.pos=positionFromCm(s.positionCm);
-   data.devices.push({id:s.id,name:String(s.name||'Нова лампа').slice(0,35),short:'Нова лампа',model:'Макет',shape,zones:shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,12,88)}});
+   data.devices.push({id:s.id,name:String(s.name||'Нова лампа').slice(0,35),short:'Нова лампа',model:'Макет',shape,zones:shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,0,100)}});
   }
   data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;
  }catch{return defaults();}
@@ -56,10 +56,13 @@ function room(){
  const DESK_WIDTH=layout.desk.width*UNITS_PER_CM,DESK_Y=deskTop(layout.desk);
  const left=500-DESK_WIDTH/2,right=500+DESK_WIDTH/2;
  return `<path class="detail-line" d="M-1000 ${FLOOR_Y}H2000"/>
- <g class="desk-target" data-desk role="button" tabindex="0" aria-label="Розміри столу: ${layout.desk.width} на ${layout.desk.height} см"><rect class="desk-hit" x="${left-12}" y="${DESK_Y-12}" width="${DESK_WIDTH+24}" height="85"/><path class="desk" d="M${left} ${DESK_Y}H${right}M${left+20} ${DESK_Y+5}V${FLOOR_Y}M${right-20} ${DESK_Y+5}V${FLOOR_Y}"/>
- <path class="dimension" d="M${left} ${DESK_Y+40}H${right}M${left} ${DESK_Y+33}v14M${right} ${DESK_Y+33}v14M${right+35} ${DESK_Y}V${FLOOR_Y}M${right+28} ${DESK_Y}h14M${right+28} ${FLOOR_Y}h14"/>
- <text class="measurement" x="500" y="${DESK_Y+65}">${layout.desk.width} см · ✎</text>
- <text class="measurement" x="${right+52}" y="${(DESK_Y+FLOOR_Y)/2}" transform="rotate(-90 ${right+52} ${(DESK_Y+FLOOR_Y)/2})">${layout.desk.height} см</text></g>
+ <g class="desk-target" data-desk role="button" tabindex="0" aria-label="Розміри столу: ${layout.desk.width} на ${layout.desk.height} см">
+ <rect class="desk-hit" x="${left-12}" y="${DESK_Y-12}" width="${DESK_WIDTH+24}" height="85"/>
+ <rect class="desk-shape" x="${left+7.5}" y="${DESK_Y+25}" width="25" height="${FLOOR_Y-DESK_Y-25}" rx="3"/>
+ <rect class="desk-shape" x="${right-32.5}" y="${DESK_Y+25}" width="25" height="${FLOOR_Y-DESK_Y-25}" rx="3"/>
+ <rect class="desk-shape" x="${left}" y="${DESK_Y}" width="${DESK_WIDTH}" height="25" rx="4"/>
+ <text class="desk-measurement" x="500" y="${DESK_Y+12.5}">${layout.desk.width} см</text>
+ <text class="desk-measurement" x="${right-20}" y="${(DESK_Y+25+FLOOR_Y)/2}" transform="rotate(-90 ${right-20} ${(DESK_Y+25+FLOOR_Y)/2})">${layout.desk.height} см</text></g>
  <g data-monitor class="monitor-target ${selected==='monitor'?'selected':''}" role="button" tabindex="0" aria-label="Монітор: ${layout.monitorInches} дюйми, центр ${heightCm(monitor)} см від підлоги"><rect class="monitor" x="${cx-w/2}" y="${cy-h/2}" width="${w}" height="${h}" rx="7"/>
  <rect x="${cx-w/2+7}" y="${cy-h/2+7}" width="${w-14}" height="${h-14}" rx="4" fill="#1c282c"/>
  <text class="screen-copy" x="${cx}" y="${cy+4}">${layout.monitorInches}″ · 16:9 · ✎</text></g>
@@ -100,7 +103,7 @@ function renderStage(){
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
- if(selected==='monitor'){panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити параметри монітора">×</button><h2>Монітор</h2><p>Формат 16:9</p><label class="dimension-input">Діагональ, дюйми<input type="number" id="monitor-inches" min="19" max="55" step="0.1" value="${layout.monitorInches}"></label><label class="dimension-input">Центр від підлоги, см<input type="number" id="monitor-height" step="10" max="250" value="${heightCm(screen())}"></label><label class="dimension-input">Зсув від центру, см<input type="number" id="monitor-offset" min="-300" max="300" step="10" value="${Math.round(screen().pos.x/100*COLS)*STEP_CM-100}"></label><p class="position-hint">Мінус — ліворуч, плюс — праворуч.</p>`;return;}
+ if(selected==='monitor'){panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити параметри монітора">×</button><h2>Монітор</h2><p>Формат 16:9</p><label class="dimension-input">Діагональ, дюйми<input type="number" id="monitor-inches" min="19" max="55" step="0.1" value="${layout.monitorInches}"></label><label class="dimension-input">Центр від підлоги, см<input type="number" id="monitor-height" step="5" max="250" value="${heightCm(screen())}"></label><label class="dimension-input">Зсув від центру, см<input type="number" id="monitor-offset" min="-300" max="300" step="5" value="${Math.round(screen().pos.x/100*COLS)*STEP_CM-100}"></label><p class="position-hint">Мінус — ліворуч, плюс — праворуч.</p>`;return;}
  if(selected==='desk'){
   panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити розміри столу">×</button><h2>Розміри столу</h2><p>Схема масштабується автоматично.</p><label class="dimension-input">Ширина, см<input type="number" id="desk-width" min="80" max="240" step="1" value="${layout.desk.width}"></label><label class="dimension-input">Висота стільниці, см<input type="number" id="desk-height" min="50" max="120" step="1" value="${layout.desk.height}"></label>`;return;
  }
@@ -117,7 +120,7 @@ function autoSnap(d,desk=layout.desk,inches=layout.monitorInches){
  const attached=d.id==='hue-monitor',floor=d.shape==='floor';
  const monitorMaxY=Math.floor((deskTop(desk)-size.height/2-5)/GRID);
  d.pos.x=clamp(Math.round(d.pos.x*10/GRID),-COLS,COLS*2)*GRID/10;
- d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,-8):floor?Math.ceil((GOVEE_HEIGHT_CM*UNITS_PER_CM-300+20)/GRID):1,floor?11:attached?monitorMaxY:16)*GRID/STAGE_HEIGHT*100;
+ d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.floor((FLOOR_Y-250*UNITS_PER_CM)/GRID)):floor?Math.ceil((GOVEE_HEIGHT_CM*UNITS_PER_CM-300+20)/GRID):1,floor?(FLOOR_Y-300)/GRID:attached?monitorMaxY:Math.floor((FLOOR_Y-10*UNITS_PER_CM)/GRID))*GRID/STAGE_HEIGHT*100;
 }
 
 function save(){try{const saved={...layout,version:3,gridStepCm:STEP_CM,devices:layout.devices.map(({pos,...d})=>({...d,positionCm:{x:Math.round(pos.x/100*COLS)*STEP_CM,height:heightCm({pos})}}))};localStorage.setItem(KEY,JSON.stringify(saved));}catch{notify('Браузер не дозволив зберегти макет');}}
