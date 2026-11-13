@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from entertainment_stream import VideoLease  # noqa: E402
-from live_adapter import PilotController  # noqa: E402
+from live_adapter import PilotController, normalize_state  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 from video_output import VideoOutput, govee_stream_state  # noqa: E402
@@ -40,6 +40,16 @@ class FakeProxy:
 
 
 class VideoTests(unittest.TestCase):
+    def test_video_intensity_uses_rgb_with_fixed_calibrated_global_brightness(self):
+        self.assertEqual(
+            normalize_state(govee_stream_state((32768, 0, 65535)), 0.65),
+            {"on": True, "brightness": 65, "rgb": (128, 0, 255)},
+        )
+        self.assertEqual(
+            normalize_state(govee_stream_state((16384, 0, 32768)), 0.65),
+            {"on": True, "brightness": 65, "rgb": (64, 0, 128)},
+        )
+
     def setUp(self):
         self.now = 10.0
         self.relay = FakeRelay()
@@ -58,7 +68,9 @@ class VideoTests(unittest.TestCase):
         )
         self.lease = VideoLease(clock=lambda: self.now, wall_clock=lambda: 1000)
         self.proxies = [FakeProxy() for _ in range(4)]
-        self.output = VideoOutput(self.controller, self.relay, self.proxies, lease=self.lease)
+        self.output = VideoOutput(
+            self.controller, self.relay, self.proxies, lease=self.lease, clock=lambda: self.now
+        )
 
     def test_black_video_frame_is_color_black_without_power_command(self):
         self.lease.submit(envelope(colors=[[i, 0, 0, 0] for i in range(14)]))
@@ -149,3 +161,38 @@ class VideoTests(unittest.TestCase):
         self.output.process_once()
         self.assertFalse(self.output.cleanup_pending)
         self.assertEqual(self.relay.stopped, 1)
+
+    def test_handshake_stale_cache_waits_for_fresh_native_poll_without_blocking_session(self):
+        original = self.relay.start
+
+        def start():
+            for proxy in self.proxies:
+                proxy.value["native_age"] = 2.1
+            return original()
+
+        self.relay.start = start
+        self.lease.submit(envelope())
+        self.output.process_once()
+        self.assertEqual(self.relay.frames, [])
+        self.assertIsNone(self.output.blocked_session)
+        self.assertEqual(self.relay.stopped, 0)
+        for proxy in self.proxies:
+            proxy.value["native_age"] = 0
+        self.assertTrue(self.output.process_once())
+        self.assertEqual(len(self.relay.frames), 1)
+        self.assertEqual(self.relay.started, 1)
+
+    def test_temporary_stale_native_cache_retries_after_releasing_stream(self):
+        self.lease.submit(envelope())
+        self.output.process_once()
+        self.now += 3
+        self.lease.submit(envelope(sequence=2))
+        self.proxies[0].value["native_age"] = 3
+        self.output.process_once()
+        self.assertFalse(self.output.ready)
+        self.assertIsNone(self.output.blocked_session)
+        self.now += 2
+        self.proxies[0].value["native_age"] = 0
+        self.lease.submit(envelope(sequence=3))
+        self.assertTrue(self.output.process_once())
+        self.assertEqual(self.relay.started, 2)

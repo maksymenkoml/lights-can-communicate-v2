@@ -1,0 +1,144 @@
+{
+  "date": "2026-11-13",
+  "scope": "Pilot stopped, no color or power writes, sparse read-only right scan/status queries during LAN switch test",
+  "samples": [
+    {
+      "time": 1794604268.375891,
+      "identity": {
+        "ip": "192.168.10.103",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "sku": "H6076",
+        "bleVersionHard": "3.01.01",
+        "bleVersionSoft": "1.04.08",
+        "wifiVersionHard": "1.02.00",
+        "wifiVersionSoft": "2.05.08",
+        "_observed_at": 170709.270522
+      },
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0
+      }
+    },
+    {
+      "time": 1794604276.6669388,
+      "identity": {
+        "ip": "192.168.10.103",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "sku": "H6076",
+        "bleVersionHard": "3.01.01",
+        "bleVersionSoft": "1.04.08",
+        "wifiVersionHard": "1.02.00",
+        "wifiVersionSoft": "2.05.08",
+        "_observed_at": 170717.533808291
+      },
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0
+      }
+    },
+    {
+      "time": 1794604284.953631,
+      "identity": {
+        "ip": "192.168.10.103",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "sku": "H6076",
+        "bleVersionHard": "3.01.01",
+        "bleVersionSoft": "1.04.08",
+        "wifiVersionHard": "1.02.00",
+        "wifiVersionSoft": "2.05.08",
+        "_observed_at": 170725.823343708
+      },
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0
+      }
+    },
+    {
+      "time": 1794604293.2242181,
+      "identity": {
+        "ip": "192.168.10.103",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "sku": "H6076",
+        "bleVersionHard": "3.01.01",
+        "bleVersionSoft": "1.04.08",
+        "wifiVersionHard": "1.02.00",
+        "wifiVersionSoft": "2.05.08",
+        "_observed_at": 170734.111807833
+      },
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0
+      }
+    },
+    {
+      "time": 1794604301.50014,
+      "identity": {
+        "ip": "192.168.10.103",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "sku": "H6076",
+        "bleVersionHard": "3.01.01",
+        "bleVersionSoft": "1.04.08",
+        "wifiVersionHard": "1.02.00",
+        "wifiVersionSoft": "2.05.08",
+        "_observed_at": 170742.445346458
+      },
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0
+      }
+    },
+    {
+      "time": 1794604309.7706702,
+      "identity": {
+        "ip": "192.168.10.103",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "sku": "H6076",
+        "bleVersionHard": "3.01.01",
+        "bleVersionSoft": "1.04.08",
+        "wifiVersionHard": "1.02.00",
+        "wifiVersionSoft": "2.05.08",
+        "_observed_at": 170750.656506666
+      },
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0
+      }
+    }
+  ]
+}

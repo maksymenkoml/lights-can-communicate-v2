@@ -125,6 +125,13 @@ class PilotController:
         }:
             raise ValueError("The pilot requires exactly the selected left and right targets")
         self.by_side = {item["side"]: item for item in self.targets}
+        self.packet_rates = {
+            item["side"]: number(item["max_commands_per_second"], 1, 100)
+            if "max_commands_per_second" in item
+            else None
+            for item in self.targets
+        }
+        self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
         if len(self.ids) != 2:
             raise ValueError("Pinned IDs must be distinct")
@@ -222,7 +229,7 @@ class PilotController:
                     continue
                 old = self.last_sent.get(side, {})
                 refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
-                complete = True
+                updates = []
                 for name, data in lan.govee_commands(target):
                     changed = (
                         old.get("brightness") != target["brightness"]
@@ -231,19 +238,34 @@ class PilotController:
                         != (target.get("rgb"), target.get("kelvin"))
                     )
                     if changed or refresh:
+                        updates.append((name, data))
+                rate = self.packet_rates[side]
+                if (
+                    updates
+                    and rate is not None
+                    and now + 1e-9 < self.next_send.get(side, float("-inf"))
+                ):
+                    continue
+                complete = True
+                for name, data in updates:
+                    try:
                         success = self.sender(device, name, data)
-                        complete = success and complete
-                        self.commands_sent += int(success)
-                        if not success:
-                            self.rejected_sends[side] += 1
-                        elif name == "colorwc":
-                            self.color_samples[side].append(
-                                {
-                                    "time": now,
-                                    "color": data["color"],
-                                    "kelvin": data["colorTemInKelvin"],
-                                }
-                            )
+                    except OSError:
+                        success = False
+                    complete = success and complete
+                    self.commands_sent += int(success)
+                    if not success:
+                        self.rejected_sends[side] += 1
+                    elif name == "colorwc":
+                        self.color_samples[side].append(
+                            {
+                                "time": now,
+                                "color": data["color"],
+                                "kelvin": data["colorTemInKelvin"],
+                            }
+                        )
+                if updates and rate is not None:
+                    self.next_send[side] = now + len(updates) / rate
                 if complete:
                     self.last_sent[side] = target
                     if refresh:
@@ -264,6 +286,7 @@ class PilotController:
                         "side": item["side"],
                         "device": lan.device_key(item),
                         "brightness_scale": item.get("brightness_scale", 1),
+                        "max_commands_per_second": self.packet_rates[item["side"]],
                         "target": self.target(item["side"]),
                         "native": self.statuses.get(lan.device_key(item), (None, 0))[0],
                         "status_age": (

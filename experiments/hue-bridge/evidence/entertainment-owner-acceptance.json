@@ -1,0 +1,529 @@
+{
+  "date": "2026-11-13",
+  "owner_confirmed_video": {
+    "both_govee_react": true,
+    "smoothness_and_latency_acceptable": true,
+    "scope": "PS5 main menu and owner-launched game; game title not recorded"
+  },
+  "stop_api_samples": [
+    {
+      "time": 1794605491.7844212,
+      "video": {
+        "active": false,
+        "frames_received": 4470,
+        "sequence": 113271,
+        "max_frame_gap": 1.1455703339888714,
+        "frame_age": 34.659345458989264,
+        "ready": false,
+        "frames_sent": 4041,
+        "last_result": "idle",
+        "last_safety_failure": {
+          "phase": "start",
+          "native": [
+            {
+              "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7504625000001397,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7494583330117166,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 2.2543941659969278,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7487783340038732,
+              "last_result": "scene output paused"
+            }
+          ]
+        }
+      },
+      "scene_govee": [
+        {
+          "side": "left",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              217,
+              3,
+              212
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 189,
+              "g": 0,
+              "b": 238
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              205,
+              76,
+              168
+            ]
+          },
+          "native": {
+            "onOff": 0,
+            "identity_verified": false,
+            "lan_diagnostic": {
+              "reason": "identity_missing_or_ambiguous",
+              "resolved_ip": null,
+              "hint_scan_ids": [],
+              "hint_native_age": 0.17404229199746624,
+              "hint_native_on": 1
+            }
+          }
+        }
+      ],
+      "hue": {
+        "strip": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_left": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 10,
+          "last_result": "applied"
+        },
+        "hue_center": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "writes": 10,
+          "last_result": "applied"
+        },
+        "hue_right": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        }
+      }
+    },
+    {
+      "time": 1794605492.2934232,
+      "video": {
+        "active": false,
+        "frames_received": 4470,
+        "sequence": 113271,
+        "max_frame_gap": 1.1455703339888714,
+        "frame_age": 35.16307037498336,
+        "ready": false,
+        "frames_sent": 4041,
+        "last_result": "idle",
+        "last_safety_failure": {
+          "phase": "start",
+          "native": [
+            {
+              "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7504625000001397,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7494583330117166,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 2.2543941659969278,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7487783340038732,
+              "last_result": "scene output paused"
+            }
+          ]
+        }
+      },
+      "scene_govee": [
+        {
+          "side": "left",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              223,
+              23,
+              180
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 173,
+              "g": 0,
+              "b": 249
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              212,
+              65,
+              171
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 205,
+              "g": 75,
+              "b": 169
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ],
+      "hue": {
+        "strip": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_left": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_center": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "writes": 10,
+          "last_result": "applied"
+        },
+        "hue_right": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        }
+      }
+    },
+    {
+      "time": 1794605492.8047738,
+      "video": {
+        "active": false,
+        "frames_received": 4470,
+        "sequence": 113271,
+        "max_frame_gap": 1.1455703339888714,
+        "frame_age": 35.676733833999606,
+        "ready": false,
+        "frames_sent": 4041,
+        "last_result": "idle",
+        "last_safety_failure": {
+          "phase": "start",
+          "native": [
+            {
+              "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7504625000001397,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7494583330117166,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 2.2543941659969278,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7487783340038732,
+              "last_result": "scene output paused"
+            }
+          ]
+        }
+      },
+      "scene_govee": [
+        {
+          "side": "left",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              228,
+              44,
+              148
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 210,
+              "g": 0,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              220,
+              53,
+              175
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 215,
+              "g": 60,
+              "b": 173
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ],
+      "hue": {
+        "strip": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_left": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_center": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_right": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 12,
+          "last_result": "applied"
+        }
+      }
+    },
+    {
+      "time": 1794605493.311906,
+      "video": {
+        "active": false,
+        "frames_received": 4470,
+        "sequence": 113271,
+        "max_frame_gap": 1.1455703339888714,
+        "frame_age": 36.187041041994235,
+        "ready": false,
+        "frames_sent": 4041,
+        "last_result": "idle",
+        "last_safety_failure": {
+          "phase": "start",
+          "native": [
+            {
+              "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7504625000001397,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7494583330117166,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 2.2543941659969278,
+              "last_result": "scene output paused"
+            },
+            {
+              "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+              "healthy": true,
+              "native_on": true,
+              "native_mode": "normal",
+              "native_age": 0.7487783340038732,
+              "last_result": "scene output paused"
+            }
+          ]
+        }
+      },
+      "scene_govee": [
+        {
+          "side": "left",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              234,
+              64,
+              115
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 215,
+              "g": 0,
+              "b": 218
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "target": {
+            "on": true,
+            "brightness": 51,
+            "rgb": [
+              228,
+              41,
+              178
+            ]
+          },
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 225,
+              "g": 46,
+              "b": 177
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ],
+      "hue": {
+        "strip": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 12,
+          "last_result": "applied"
+        },
+        "hue_left": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_center": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "writes": 11,
+          "last_result": "applied"
+        },
+        "hue_right": {
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "writes": 12,
+          "last_result": "applied"
+        }
+      }
+    }
+  ],
+  "owner_confirmed_scene_return_after_stop": true,
+  "game_test": {
+    "owner_confirmed": true,
+    "report": "Everything works great",
+    "game_title": "not recorded",
+    "measured_optical_latency": false
+  }
+}

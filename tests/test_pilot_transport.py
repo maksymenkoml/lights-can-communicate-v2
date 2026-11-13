@@ -1,4 +1,7 @@
+import json
+import socket
 import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +18,62 @@ THIRD = "CC:CC:CC:CC:CC:CC:CC:CC"
 
 
 class PilotTransportTests(unittest.TestCase):
+    def test_new_candidate_ip_gets_read_only_status_before_control_is_authorized(self):
+        now = [10.0]
+        stop = threading.Event()
+        sent = []
+        queue = [(lan.udp_packet("scan", {"device": RIGHT}), ("192.168.10.80", 4002))]
+        case = self
+
+        class FakeSocket:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def setsockopt(self, *args):
+                pass
+
+            def bind(self, *args):
+                pass
+
+            def settimeout(self, *args):
+                pass
+
+            def sendto(self, raw, dest):
+                command = json.loads(raw)["msg"]["cmd"]
+                sent.append((command, dest))
+                if command == "devStatus" and dest[0] == "192.168.10.80":
+                    case.assertNotIn(RIGHT, lan.VERIFIED_GOVEE)
+                    queue.append(
+                        (lan.udp_packet("devStatus", {"onOff": 1}), ("192.168.10.80", 4002))
+                    )
+
+            def recvfrom(self, *args):
+                now[0] += 0.05
+                if queue:
+                    value = queue.pop(0)
+                    if json.loads(value[0])["msg"]["cmd"] == "devStatus":
+                        stop.set()
+                    return value
+                if now[0] >= 10.65:
+                    stop.set()
+                raise socket.timeout()
+
+        sock = FakeSocket()
+        with (
+            patch("pilot_transport.socket.socket", return_value=sock),
+            patch("pilot_transport.time.monotonic", side_effect=lambda: now[0]),
+            patch(
+                "pilot_transport.select.select",
+                side_effect=lambda *args: ([sock], [], []) if queue else ([], [], []),
+            ),
+        ):
+            self.transport.receive_loop(stop)
+        self.assertIn(("devStatus", ("192.168.10.80", 4003)), sent)
+        self.assertEqual(self.targets[1]["ip"], "192.168.10.80")
+
     def setUp(self):
         for name in ("GOVEE_ROUTES", "VERIFIED_GOVEE", "GOVEE_ROUTE_REVISIONS"):
             context = patch.dict(getattr(lan, name), {}, clear=True)

@@ -1,0 +1,1620 @@
+{
+  "date": "2026-11-13",
+  "scope": "Actual SyncBox input, corrected warmup/gap recovery, fixed-global-brightness RGB video, rightpacketbudget10/s",
+  "receiver": {
+    "active": true,
+    "area_id": "ea1c1665-0ff0-5aad-8885-6c1157135199",
+    "enabled": true,
+    "frames_received": 97812,
+    "last_result": "receiving",
+    "outbox": {
+      "forwarded": 8563,
+      "last_error": null,
+      "last_http_status": null,
+      "sequence": 97812
+    },
+    "version": 2
+  },
+  "samples": [
+    {
+      "time": 1794605178.987222,
+      "video": {
+        "active": true,
+        "frames_received": 713,
+        "sequence": 97226,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.09495466700172983,
+        "ready": true,
+        "frames_sent": 592,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.026654458983102813
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.14733300000079907
+        }
+      ],
+      "commands_sent": 22,
+      "skipped": {
+        "left": 0,
+        "right": 18
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605179.4918451,
+      "video": {
+        "active": true,
+        "frames_received": 722,
+        "sequence": 97257,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.035182207997422665,
+        "ready": true,
+        "frames_sent": 593,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.0031584170064888895
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.24127837500418536
+        }
+      ],
+      "commands_sent": 22,
+      "skipped": {
+        "left": 0,
+        "right": 18
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605179.995362,
+      "video": {
+        "active": true,
+        "frames_received": 731,
+        "sequence": 97287,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.009909124986734241,
+        "ready": true,
+        "frames_sent": 603,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.47896612499607727
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.2820181249990128
+        }
+      ],
+      "commands_sent": 22,
+      "skipped": {
+        "left": 0,
+        "right": 18
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605180.4990249,
+      "video": {
+        "active": true,
+        "frames_received": 739,
+        "sequence": 97317,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.03967295799520798,
+        "ready": true,
+        "frames_sent": 613,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.060059042007196695
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.4585238329891581
+        }
+      ],
+      "commands_sent": 22,
+      "skipped": {
+        "left": 0,
+        "right": 18
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605181.0024168,
+      "video": {
+        "active": true,
+        "frames_received": 748,
+        "sequence": 97347,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.020772916002897546,
+        "ready": true,
+        "frames_sent": 620,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.15685475000645965
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.36805854199337773
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605181.503647,
+      "video": {
+        "active": true,
+        "frames_received": 757,
+        "sequence": 97377,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.0071222499827854335,
+        "ready": true,
+        "frames_sent": 629,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.17401908300234936
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.41887674998724833
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605182.0064561,
+      "video": {
+        "active": true,
+        "frames_received": 765,
+        "sequence": 97403,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.054989750002278015,
+        "ready": true,
+        "frames_sent": 632,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.2289054590219166
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.042354167002486065
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605182.5093682,
+      "video": {
+        "active": true,
+        "frames_received": 774,
+        "sequence": 97433,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.04062849999172613,
+        "ready": true,
+        "frames_sent": 638,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.21815062500536442
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.09236333298031241
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605183.013335,
+      "video": {
+        "active": true,
+        "frames_received": 783,
+        "sequence": 97463,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.020796458993572742,
+        "ready": true,
+        "frames_sent": 648,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.2506931669777259
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.1252827919961419
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605183.516989,
+      "video": {
+        "active": true,
+        "frames_received": 792,
+        "sequence": 97493,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.0006348330061882734,
+        "ready": true,
+        "frames_sent": 652,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.13866587498341687
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.6289725420065224
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605184.019176,
+      "video": {
+        "active": true,
+        "frames_received": 796,
+        "sequence": 97521,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.01055891701253131,
+        "ready": true,
+        "frames_sent": 658,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.22994183300761506
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.10393287497572601
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605184.5203881,
+      "video": {
+        "active": true,
+        "frames_received": 804,
+        "sequence": 97548,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.045929124986287206,
+        "ready": true,
+        "frames_sent": 667,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.0900142079917714
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.18684174999361858
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605185.022203,
+      "video": {
+        "active": true,
+        "frames_received": 813,
+        "sequence": 97578,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.029256291018100455,
+        "ready": true,
+        "frames_sent": 674,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.18187587498687208
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.6832332090125419
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 19
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605185.5241039,
+      "video": {
+        "active": true,
+        "frames_received": 822,
+        "sequence": 97608,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.010332959005609155,
+        "ready": true,
+        "frames_sent": 684,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.0986903749871999
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 0,
+            "identity_verified": false,
+            "lan_diagnostic": {
+              "reason": "identity_missing_or_ambiguous",
+              "resolved_ip": null,
+              "hint_scan_ids": [],
+              "hint_native_age": 0.05888658299227245,
+              "hint_native_on": 1
+            }
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.012692292017163709
+        }
+      ],
+      "commands_sent": 24,
+      "skipped": {
+        "left": 0,
+        "right": 28
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605186.025594,
+      "video": {
+        "active": true,
+        "frames_received": 830,
+        "sequence": 97635,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.04962133298977278,
+        "ready": true,
+        "frames_sent": 691,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.14981791700120084
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.1350204169866629
+        }
+      ],
+      "commands_sent": 26,
+      "skipped": {
+        "left": 0,
+        "right": 35
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605186.529075,
+      "video": {
+        "active": true,
+        "frames_received": 839,
+        "sequence": 97665,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.03773645797627978,
+        "ready": true,
+        "frames_sent": 699,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.1482145829941146
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.6316523339773994
+        }
+      ],
+      "commands_sent": 26,
+      "skipped": {
+        "left": 0,
+        "right": 35
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605187.034912,
+      "video": {
+        "active": true,
+        "frames_received": 848,
+        "sequence": 97693,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.03579024999635294,
+        "ready": true,
+        "frames_sent": 708,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.17464012498385273
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.46045879198936746
+        }
+      ],
+      "commands_sent": 26,
+      "skipped": {
+        "left": 0,
+        "right": 35
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605187.537208,
+      "video": {
+        "active": true,
+        "frames_received": 856,
+        "sequence": 97722,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.030347249994520098,
+        "ready": true,
+        "frames_sent": 714,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.06345370801864192
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.09481150002102368
+        }
+      ],
+      "commands_sent": 26,
+      "skipped": {
+        "left": 0,
+        "right": 35
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605188.042758,
+      "video": {
+        "active": true,
+        "frames_received": 864,
+        "sequence": 97751,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.05016300000716001,
+        "ready": true,
+        "frames_sent": 724,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.2655150000064168
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.1494549169728998
+        }
+      ],
+      "commands_sent": 26,
+      "skipped": {
+        "left": 0,
+        "right": 35
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    },
+    {
+      "time": 1794605188.547179,
+      "video": {
+        "active": true,
+        "frames_received": 872,
+        "sequence": 97780,
+        "max_frame_gap": 1.1404514170135371,
+        "frame_age": 0.04777433301205747,
+        "ready": true,
+        "frames_sent": 730,
+        "last_result": "streaming"
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "max_commands_per_second": null,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.14440391698735766
+        },
+        {
+          "side": "right",
+          "max_commands_per_second": 10,
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 5,
+              "g": 5,
+              "b": 5
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "target": {
+            "on": true,
+            "brightness": 65,
+            "rgb": [
+              5,
+              5,
+              5
+            ]
+          },
+          "status_age": 0.014491832989733666
+        }
+      ],
+      "commands_sent": 26,
+      "skipped": {
+        "left": 0,
+        "right": 35
+      },
+      "rejected": {
+        "left": 0,
+        "right": 0
+      },
+      "hue_modes": {
+        "strip": "streaming",
+        "hue_left": "streaming",
+        "hue_center": "streaming",
+        "hue_right": "streaming"
+      }
+    }
+  ]
+}

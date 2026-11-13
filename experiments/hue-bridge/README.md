@@ -24,7 +24,7 @@ after Sync stopped. The owner also confirmed visual return and continued
 animation. Sync Box reliability remains a separate investigation. This remains
 a local reference experiment.
 
-See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for the opt-in video relay, verified boundaries, and pending Sync Box checks.
+See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for actual Sync Box video relay, PS5 menu/game/Stop acceptance, right-lamp pacing, and remaining hardware coverage limits. [FEATURES.md](FEATURES.md) separates verified pilot features from Homebridge work.
 
 ## Phase 1: simulated compatibility result
 

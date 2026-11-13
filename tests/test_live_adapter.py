@@ -198,6 +198,75 @@ class PilotTests(unittest.TestCase):
         self.assertEqual({row[0] for row in self.sent}, {LEFT})
         self.assertTrue(all(row[1] in {"colorwc", "brightness"} for row in self.sent))
 
+    def test_udp_send_error_keeps_renderer_alive_and_retries_next_frame(self):
+        self.controller.submit(command(transitiontime=0))
+        self.controller.sender = lambda *args: (_ for _ in ()).throw(OSError("temporary UDP error"))
+        self.controller.render()
+        self.assertGreater(self.controller.rejected_sends["left"], 0)
+        self.controller.sender = self.send
+        self.controller.render()
+        self.assertTrue(self.sent)
+
+    def test_per_device_packet_budget_counts_brightness_and_color_together(self):
+        calibrated = targets()
+        calibrated[0]["max_commands_per_second"] = 10
+        sent = []
+        controller = pilot.PilotController(
+            calibrated,
+            sender=lambda device, cmd, data: sent.append((self.now, cmd)) or True,
+            clock=lambda: self.now,
+            wall_clock=lambda: 1000,
+        )
+        controller.update_statuses(self.controller.statuses)
+        state = command(xy=(0.15, 0.06))["state"]
+        state["bri"] = 127
+        controller.submit(command(state=state))
+        for tick in range(13):
+            self.now = tick * 0.05
+            controller.render()
+        self.assertEqual(sorted({round(t, 2) for t, _ in sent}), [0, 0.2, 0.4, 0.6])
+        self.assertTrue(
+            all(sum(t == stamp for t, _ in sent) == 2 for stamp in {t for t, _ in sent})
+        )
+
+    def test_invalid_per_device_packet_budget_is_rejected(self):
+        for limit in (0, -1, True, float("nan")):
+            values = targets()
+            values[0]["max_commands_per_second"] = limit
+            with self.assertRaises(ValueError):
+                pilot.PilotController(values)
+
+    def test_packet_budget_survives_flapping_power_and_shared_pause(self):
+        for mode in ("power", "pause"):
+            with self.subTest(mode=mode):
+                configured = targets()
+                configured[0]["max_commands_per_second"] = 10
+                sent = []
+                controller = pilot.PilotController(
+                    configured,
+                    sender=lambda device, cmd, data: sent.append((self.now, cmd)) or True,
+                    clock=lambda: self.now,
+                    wall_clock=lambda: 1000,
+                )
+                controller.submit(command(transitiontime=0))
+                for tick in range(20):
+                    self.now = tick * 0.05
+                    controller.update_statuses(
+                        {
+                            LEFT: (
+                                {
+                                    "onOff": int(mode != "power" or tick % 2 == 0),
+                                    "brightness": 65,
+                                    "color": {"r": 255, "g": 0, "b": 0},
+                                },
+                                self.now,
+                            )
+                        }
+                    )
+                    controller.pause_gate = lambda: mode != "pause" or tick % 2 == 0
+                    controller.render()
+                self.assertLessEqual(len(sent), 10)
+
     def test_unknown_side_and_stale_or_replayed_commands_are_rejected(self):
         with self.assertRaises(ValueError):
             self.controller.submit(command(side="third"))

@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-13",
+  "boundary": "Local matched color-variation experiments, same5Hz read polling and original ID/on/freshness write gate. This suggests load sensitivity of the older controller; it does not establish a vendor firmware limit.",
+  "cases": [
+    {
+      "case": "right-persistent-output-socket.json",
+      "hz": 20,
+      "persistent_output": true,
+      "sent": 399,
+      "blocked": 201,
+      "samples": 57,
+      "verified_samples": 38,
+      "duration_seconds": 29.55
+    },
+    {
+      "case": "right-output-rate-10-persistent.json",
+      "hz": 10,
+      "persistent_output": true,
+      "sent": 384,
+      "blocked": 16,
+      "samples": 72,
+      "verified_samples": 70,
+      "duration_seconds": 39.7
+    },
+    {
+      "case": "right-output-rate-10-ephemeral.json",
+      "hz": 10,
+      "persistent_output": false,
+      "sent": 394,
+      "blocked": 6,
+      "samples": 72,
+      "verified_samples": 71,
+      "duration_seconds": 39.8
+    }
+  ],
+  "chosen_policy": {
+    "right_max_commands_per_second": 10,
+    "left": "existing renderer target20Hz, no extra budget",
+    "video_intensity": "RGB values carry frame intensity; calibrated global brightness stays65%, avoiding separate dimming packets on every frame"
+  }
+}

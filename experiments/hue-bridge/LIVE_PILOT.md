@@ -44,9 +44,7 @@ delivery resumed. The owner separately confirmed that all lights visually
 returned as before and the shared animation continues. See
 `evidence/desk-sync-observation.json`.
 
-Govee video synchronization is not implemented: they hold their last color
-during observed streaming. Correction of native Hue brightness is applied to
-our scene commands; it is not injected into Sync Box streaming.
+That initial test used native-only Sync and held Govee at their last color. The subsequent opt-in video relay now receives actual Sync Box frames and forwards them to both Govee and the selected native Hue area, with per-lamp calibration. See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for menu acceptance, gameplay status and pacing measurements.
 
 The owner resumed hardware testing on 2026-11-13. The selected two-lamp pilot
 was restarted with the saved 0.65 calibration. The owner confirmed smooth
@@ -159,9 +157,7 @@ These tests made no physical network requests.
   state in any selected Hue pauses Govee rendering. This is a polling guard,
   not proof of HDMI Sync compatibility.
 - The old palette follower is stopped to prevent competing commands.
-- NAS deployment, a Homebridge package, and Govee video synchronization
-  are outside this pilot. The Sync priority observation above covers one
-  live streaming and resume path, not general Sync Box reliability.
+- NAS deployment and a Homebridge package remain outside this pilot. Video relay support and its evidence boundaries are recorded separately in ENTERTAINMENT_PILOT.md; none of these checks establish general Sync Box reliability.
 
 ## Optional native Hue output
 

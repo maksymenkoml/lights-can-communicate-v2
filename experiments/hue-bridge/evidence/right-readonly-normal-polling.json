@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-13",
+  "scope": "Same persistent transport at normal5Hz scan/status polling; zero color/brightness/power writes",
+  "samples": 591,
+  "verified_samples": {
+    "left": 577,
+    "right": 571
+  },
+  "last": {
+    "time": 1794604406.743399,
+    "states": {
+      "19:FE:DA:C3:40:86:6A:7B": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 106,
+          "b": 42
+        },
+        "colorTemInKelvin": 0,
+        "identity_verified": true
+      },
+      "D4:A5:D2:21:C0:46:4F:55": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 0,
+          "b": 189
+        },
+        "colorTemInKelvin": 0,
+        "identity_verified": true
+      }
+    }
+  }
+}

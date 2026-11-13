@@ -79,7 +79,7 @@ class StreamTests(unittest.TestCase):
         self.assertFalse(lease.submit(envelope("stop", session="foreign")))
         now[0] += 0.6
         self.assertFalse(lease.active())
-        self.assertFalse(lease.submit(envelope(sequence=2)))
+        self.assertFalse(lease.submit(envelope()))
         self.assertTrue(lease.submit(envelope(session="new-session")))
         self.assertTrue(lease.submit(envelope("stop", sequence=2, session="new-session")))
         self.assertFalse(lease.active())
@@ -102,3 +102,13 @@ class StreamTests(unittest.TestCase):
         lease.close()
         self.assertFalse(lease.active())
         self.assertFalse(lease.submit(envelope(sequence=2)))
+
+    def test_fresh_higher_sequence_recovers_after_transport_gap(self):
+        now = [10.0]
+        lease = VideoLease(clock=lambda: now[0], wall_clock=lambda: 1000)
+        lease.submit(envelope())
+        now[0] += 0.6
+        self.assertFalse(lease.active())
+        self.assertFalse(lease.submit(envelope()))
+        self.assertTrue(lease.submit(envelope(sequence=2)))
+        self.assertTrue(lease.active())

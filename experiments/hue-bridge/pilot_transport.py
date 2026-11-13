@@ -68,7 +68,33 @@ class PilotTransport:
                 )
                 if not valid:
                     lan.VERIFIED_GOVEE.pop(key, None)
-                    updates[key] = ({"onOff": 0, "identity_verified": False}, now)
+                    hinted_native, hinted_seen = self.native.get(device["ip"], (None, None))
+                    updates[key] = (
+                        {
+                            "onOff": 0,
+                            "identity_verified": False,
+                            "lan_diagnostic": {
+                                "reason": "identity_missing_or_ambiguous"
+                                if ip is None
+                                else "identity_blocked"
+                                if ip in self.blocked
+                                else "native_status_missing",
+                                "resolved_ip": ip,
+                                "hint_scan_ids": [
+                                    found
+                                    for (found, address) in self.observed
+                                    if address == device["ip"]
+                                ],
+                                "hint_native_age": now - hinted_seen
+                                if hinted_seen is not None
+                                else None,
+                                "hint_native_on": hinted_native.get("onOff")
+                                if hinted_native
+                                else None,
+                            },
+                        },
+                        now,
+                    )
                     continue
                 identity_seen = self.observed[(key, ip)]
                 proof_seen = min(identity_seen, seen)
@@ -100,8 +126,16 @@ class PilotTransport:
             while not stop.is_set():
                 now = time.monotonic()
                 if now >= next_poll:
+                    candidates = lan.resolve_govee_targets(
+                        self.targets,
+                        [
+                            {"device": key, "ip": address}
+                            for (key, address), seen in self.observed.items()
+                            if 0 <= now - seen <= 0.75
+                        ],
+                    )
                     for device in self.targets:
-                        ip = lan.local_ip(device["ip"])
+                        ip = lan.local_ip(candidates.get(lan.device_key(device), device["ip"]))
                         sock.sendto(
                             lan.udp_packet("scan", {"account_topic": "reserve"}), (ip, 4001)
                         )

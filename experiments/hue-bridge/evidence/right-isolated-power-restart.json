@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-13",
+  "scope": "Pilot stopped; owner restarted complete right power/controller assembly; isolated read-only queries",
+  "selected_discovery": [
+    {
+      "ip": "192.168.10.116",
+      "device": "19:FE:DA:C3:40:86:6A:7B",
+      "sku": "H6076",
+      "bleVersionHard": "3.05.00",
+      "bleVersionSoft": "1.04.05",
+      "wifiVersionHard": "4.01.00",
+      "wifiVersionSoft": "1.00.29"
+    },
+    {
+      "ip": "192.168.10.103",
+      "device": "D4:A5:D2:21:C0:46:4F:55",
+      "sku": "H6076",
+      "bleVersionHard": "3.01.01",
+      "bleVersionSoft": "1.04.08",
+      "wifiVersionHard": "1.02.00",
+      "wifiVersionSoft": "2.05.08"
+    }
+  ],
+  "right_identity": {
+    "ip": "192.168.10.103",
+    "device": "D4:A5:D2:21:C0:46:4F:55",
+    "sku": "H6076",
+    "bleVersionHard": "3.01.01",
+    "bleVersionSoft": "1.04.08",
+    "wifiVersionHard": "1.02.00",
+    "wifiVersionSoft": "2.05.08",
+    "_observed_at": 169714.306496708
+  },
+  "right_status": {
+    "onOff": 1,
+    "brightness": 51,
+    "color": {
+      "r": 255,
+      "g": 90,
+      "b": 64
+    },
+    "colorTemInKelvin": 0
+  }
+}

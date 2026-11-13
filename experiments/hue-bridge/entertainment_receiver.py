@@ -23,6 +23,7 @@ class StreamOutbox:
         self.sequence = 0
         self.forwarded = 0
         self.last_error = None
+        self.last_http_status = None
 
     def submit(self, action, colors=None):
         with self.lock:
@@ -62,12 +63,23 @@ class StreamOutbox:
             return False
         try:
             self.sender(message)
-        except (OSError, ValueError):
-            self.last_error = "host frame delivery unavailable"
+        except (OSError, ValueError) as error:
+            self.last_error = type(error).__name__
+            self.last_http_status = getattr(error, "code", None)
             return False
         self.forwarded += 1
         self.last_error = None
+        self.last_http_status = None
         return True
+
+    def snapshot(self):
+        with self.lock:
+            return {
+                "sequence": self.sequence,
+                "forwarded": self.forwarded,
+                "last_error": self.last_error,
+                "last_http_status": self.last_http_status,
+            }
 
     def run(self, done):
         while not done.is_set():
@@ -86,10 +98,14 @@ class EntertainmentReceiver:
             "frames_received": 0,
             "last_result": "waiting",
         }
+        self.current_outbox = None
 
     def snapshot(self):
         with self.lock:
-            return copy.deepcopy(self.status)
+            result = copy.deepcopy(self.status)
+            if self.current_outbox is not None:
+                result["outbox"] = self.current_outbox.snapshot()
+            return result
 
     def serve(self, group, user):
         from services.entertainment import _psk_value
@@ -107,8 +123,10 @@ class EntertainmentReceiver:
                 self.status["last_result"] = "stream client has no key"
             return
         outbox = StreamOutbox(self.url, self.token)
+        self.current_outbox = outbox
         done = threading.Event()
         process = None
+        end_reason = "source stopped"
         try:
             process = subprocess.Popen(
                 [
@@ -149,12 +167,14 @@ class EntertainmentReceiver:
                 and process.poll() is None
             ):
                 if time.monotonic() - last_data > (2 if received else 45):
+                    end_reason = "source timeout"
                     break
                 readable, _, _ = select.select([process.stdout], [], [], 0.25)
                 if not readable:
                     continue
                 chunk = os.read(process.stdout.fileno(), 65536)
                 if not chunk:
+                    end_reason = "DTLS EOF"
                     break
                 for packet in parser.feed(chunk):
                     frame = decode_frame(packet)
@@ -166,7 +186,23 @@ class EntertainmentReceiver:
                             active=True, last_result="receiving", version=packet[9], area_id=AREA_ID
                         )
                         self.status["frames_received"] += 1
-        except (OSError, ValueError, KeyError, IndexError, TypeError):
+        except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
+            known = {
+                "Invalid HueStream header",
+                "Unexpected area or frame size",
+                "Unexpected v1 frame size",
+                "Unexpected v1 light",
+                "Unsupported HueStream version",
+                "Unexpected or duplicate channel",
+                "Invalid xyY stream color",
+                "Expected fourteen desk channels",
+                "Invalid channel color",
+            }
+            end_reason = (
+                str(error)
+                if isinstance(error, ValueError) and str(error) in known
+                else type(error).__name__
+            )
             with self.lock:
                 self.status["last_result"] = "DTLS or frame reception ended"
         finally:
@@ -190,3 +226,4 @@ class EntertainmentReceiver:
                 self.status.update(
                     active=False, forwarded=outbox.forwarded, last_error=outbox.last_error
                 )
+                self.status["last_result"] = end_reason

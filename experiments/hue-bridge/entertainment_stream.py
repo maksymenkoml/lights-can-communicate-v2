@@ -161,6 +161,7 @@ class VideoLease:
         self.frame = None
         self.received = 0
         self.stopping = False
+        self.max_frame_gap = 0
 
     def close(self):
         with self.lock:
@@ -170,9 +171,8 @@ class VideoLease:
     def active(self):
         with self.lock:
             if self.session and self.clock() - self.seen > 0.5:
-                self.closed.append(self.session)
-                self.session, self.frame = None, None
-            return self.session is not None
+                self.frame = None
+            return self.session is not None and self.frame is not None
 
     def submit(self, message):
         if not isinstance(message, dict) or message.get("action") not in ("frame", "stop"):
@@ -198,14 +198,14 @@ class VideoLease:
             raise ValueError("Expired frame")
         frame = validate_colors(message["colors"]) if message["action"] == "frame" else None
         with self.lock:
-            self.active()
+            active = self.active()
             if self.stopping:
                 return False
             if (
                 session in self.closed
-                or (self.session and session != self.session)
+                or (active and session != self.session)
                 or (session == self.session and sequence <= self.sequence)
-                or (not self.session and issued < self.issued)
+                or issued < self.issued
             ):
                 return False
             if frame is None:
@@ -214,6 +214,10 @@ class VideoLease:
                 self.closed.append(session)
                 self.session, self.frame = None, None
                 return True
+            if self.session and self.session != session:
+                self.closed.append(self.session)
+            if math.isfinite(self.seen):
+                self.max_frame_gap = max(self.max_frame_gap, self.clock() - self.seen)
             self.session, self.sequence, self.issued, self.seen = (
                 session,
                 sequence,
@@ -236,5 +240,6 @@ class VideoLease:
                 "active": self.active(),
                 "frames_received": self.received,
                 "sequence": self.sequence,
+                "max_frame_gap": self.max_frame_gap,
                 "frame_age": self.clock() - self.seen if math.isfinite(self.seen) else None,
             }

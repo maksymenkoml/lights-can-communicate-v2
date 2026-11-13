@@ -7,17 +7,16 @@ from entertainment_stream import VideoLease
 
 
 def govee_stream_state(rgb):
-    peak = max(rgb)
     return {
         "on": True,
         "colormode": "rgb",
-        "rgb": [round(v / peak * 255) for v in rgb] if peak else [0, 0, 0],
-        "bri": peak / 65535 * 254,
+        "rgb": [round(v / 65535 * 255) for v in rgb],
+        "bri": 254,
     }
 
 
 class VideoOutput:
-    def __init__(self, controller, relay, proxies, lease=None):
+    def __init__(self, controller, relay, proxies, lease=None, clock=time.monotonic):
         self.controller, self.relay, self.proxies = controller, relay, list(proxies)
         self.lease = lease or VideoLease()
         self.ready = False
@@ -27,6 +26,9 @@ class VideoOutput:
         self.blocked_session = None
         self.next_retry = 0
         self.cleanup_pending = False
+        self.last_safety_failure = None
+        self.clock = clock
+        self.warmup_until = 0
 
     def active(self):
         return self.lease.active() or self.cleanup_pending
@@ -36,7 +38,7 @@ class VideoOutput:
 
     def safe(self, starting=False):
         snapshots = [proxy.snapshot() for proxy in self.proxies]
-        return len(snapshots) == 4 and all(
+        allowed = len(snapshots) == 4 and all(
             s.get("healthy")
             and s.get("native_on") is True
             and s.get("native_age") is not None
@@ -44,6 +46,25 @@ class VideoOutput:
             and s.get("native_mode") in (("normal",) if starting else ("normal", "streaming"))
             for s in snapshots
         )
+        if not allowed:
+            self.last_safety_failure = {
+                "phase": "start" if starting else "stream",
+                "native": [
+                    {
+                        key: s.get(key)
+                        for key in (
+                            "resource_id",
+                            "healthy",
+                            "native_on",
+                            "native_mode",
+                            "native_age",
+                            "last_result",
+                        )
+                    }
+                    for s in snapshots
+                ],
+            }
+        return allowed
 
     def release(self):
         self.ready = False
@@ -70,7 +91,7 @@ class VideoOutput:
             if self.blocked_session == session:
                 return False
             if not self.ready:
-                if time.monotonic() < self.next_retry:
+                if self.clock() < self.next_retry:
                     return False
                 if self.cleanup_pending:
                     self.release()
@@ -83,21 +104,38 @@ class VideoOutput:
                 if not started:
                     self.cleanup_pending = False
                     self.last_result = "foreign native stream"
-                    self.next_retry = time.monotonic() + 1
+                    self.next_retry = self.clock() + 1
                     return False
                 if not self.lease.active():
                     self.release()
                     return False
                 self.ready = True
+                self.warmup_until = self.clock() + 2
             latest = self.lease.latest()
             if latest is None:
                 self.release()
                 return False
             session, sequence, frame = latest
             if not self.safe():
-                self.blocked_session = session
+                fresh_off = any(
+                    s.get("healthy")
+                    and s.get("native_on") is False
+                    and s.get("native_age") is not None
+                    and s["native_age"] <= 2
+                    for s in (proxy.snapshot() for proxy in self.proxies)
+                )
+                if not fresh_off and self.clock() < self.warmup_until:
+                    self.last_result = "waiting for fresh native state after handshake"
+                    return False
+                if fresh_off:
+                    self.blocked_session = session
                 self.release()
-                self.last_result = "native off or unavailable; source restart required"
+                self.next_retry = self.clock() + 1
+                self.last_result = (
+                    "native off; source restart required"
+                    if fresh_off
+                    else "native state stale; waiting to retry"
+                )
                 return False
             self.relay.send(frame)
             for side, channel in (("left", 0), ("right", 1)):
@@ -120,7 +158,7 @@ class VideoOutput:
                 self.release()
             except (OSError, ValueError, KeyError, IndexError, TypeError):
                 pass
-            self.next_retry = time.monotonic() + 1
+            self.next_retry = self.clock() + 1
             self.last_result = "native relay unavailable"
             return False
 
@@ -151,5 +189,6 @@ class VideoOutput:
             "ready": self.ready,
             "frames_sent": self.frames_sent,
             "last_result": self.last_result,
+            "last_safety_failure": self.last_safety_failure,
             "govee": self.controller.snapshot(),
         }
