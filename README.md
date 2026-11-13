@@ -26,6 +26,24 @@ animation phase.
    both bars receive the center color. The basic LAN API cannot independently
    address segments or bars attached to the same controller.
 
+Configuration pins the unique LAN device ID returned by each selected
+controller. IP addresses are saved only as discovery hints. A target without
+a pinned ID is rejected; old configurations must be configured again rather
+than silently trusting the current occupant of an address.
+
+Before control is allowed, the program reads the controller's identity at its
+address and confirms its power state. Every color/brightness command passes
+through an ID-to-address binding valid for at most 0.75 seconds. Observing a
+different ID revokes that binding immediately. Cached power information alone
+cannot authorize a command.
+
+If a target is missing or its address belongs to a different device, local
+discovery runs again, with searches limited to once per five seconds. Only
+the already pinned IDs can receive new addresses; other Govee replies do not
+add targets. Ambiguous IDs/addresses are rejected. New addresses are checked
+again before control and saved without changing the side or calibration.
+If no matching target is found, its updates are skipped.
+
 ## Try it
 
 ```sh
@@ -50,7 +68,7 @@ With a 0.5 multiplier, Hue at 80% gives Govee 40%. Each side can use a different
 value greater than 0 and up to 1; 1 restores full brightness copying. For a
 single controller use `calibrate --govee 0.5`. Calibration is stored locally
 alongside the device selection and applies to static and animated scenes.
-The current desk's two Govee were visually balanced at 0.5 each.
+The desk's current saved multipliers are 0.65 for each of its two Govee.
 
 For static scenes, the left Govee gets the first stored Hue gradient point and the right Govee
 gets the last. For a solid Hue color they get the same color. Hue brightness
@@ -69,7 +87,7 @@ only when the target changes, plus a periodic refresh because UDP delivery is
 not guaranteed. For dynamic scenes it interpolates between palette colors
 with eased transitions, targeting twenty color frames per second. Hue's speed
 setting controls approximate pacing; its internal timing is not known.
-Hue and Govee status reads run outside the frame loop. A single status reader
+Hue and Govee identity/status reads run outside the frame loop. A single reader
 owns the Govee UDP reply port; it refreshes both controllers sequentially.
 Each frame checks a recent power snapshot. A single missed reply does not
 extend that snapshot's lifetime: snapshots expire after 0.75 seconds, and an

@@ -9,6 +9,7 @@ import os
 import socket
 import ssl
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -17,6 +18,11 @@ from pathlib import Path
 
 CONFIG = Path(__file__).with_name(".lighting.json")
 MULTICAST = "239.255.255.250"
+GOVEE_ROUTES = {}
+VERIFIED_GOVEE = {}
+GOVEE_ROUTE_REVISIONS = {}
+GOVEE_ROUTE_LOCK = threading.Lock()
+NEXT_GOVEE_DISCOVERY = 0
 
 
 def load_config():
@@ -95,9 +101,10 @@ def govee_discover(timeout=5):
                 raw, address = sock.recvfrom(8192)
                 message = json.loads(raw).get("msg", {})
                 if message.get("cmd") == "scan":
-                    device = message["data"]
-                    found[address[0]] = {**device, "ip": address[0]}
-            except (socket.timeout, json.JSONDecodeError, KeyError, TypeError):
+                    device = {**message["data"], "ip": address[0]}
+                    invalidate_govee_observations([device])
+                    found[(address[0], device_key(device))] = device
+            except (socket.timeout, ValueError, KeyError, TypeError, AttributeError):
                 continue
     return list(found.values())
 
@@ -107,7 +114,165 @@ def govee_send(ip, command, data):
         sock.sendto(udp_packet(command, data), (local_ip(ip), 4003))
 
 
-def govee_status(ip, timeout=3):
+def device_key(device):
+    value = device.get("device", "")
+    compact = value.replace(":", "").upper()
+    if len(compact) != 16 or any(char not in "0123456789ABCDEF" for char in compact):
+        raise ValueError("Govee target has no valid pinned device ID; run configure first")
+    return ":".join(compact[index : index + 2] for index in range(0, 16, 2))
+
+
+def resolve_govee_targets(targets, discovered):
+    candidates = {}
+    addresses = {}
+    for item in discovered:
+        try:
+            key, ip = device_key(item), local_ip(item["ip"])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        candidates.setdefault(key, set()).add(ip)
+        addresses.setdefault(ip, set()).add(key)
+    resolved = {}
+    for target in targets:
+        key = device_key(target)
+        matches = candidates.get(key, set())
+        if len(matches) == 1:
+            ip = next(iter(matches))
+            if len(addresses[ip]) == 1:
+                resolved[key] = ip
+    return resolved
+
+
+def invalidate_govee_observations(discovered):
+    with GOVEE_ROUTE_LOCK:
+        for item in discovered:
+            try:
+                ip = local_ip(item["ip"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            try:
+                observed = device_key(item)
+            except (ValueError, AttributeError, TypeError):
+                observed = None
+            known = dict(GOVEE_ROUTES)
+            known.update({key: binding[0] for key, binding in VERIFIED_GOVEE.items()})
+            for key, address in known.items():
+                if (ip == address and observed != key) or (observed == key and ip != address):
+                    GOVEE_ROUTE_REVISIONS[key] = GOVEE_ROUTE_REVISIONS.get(key, 0) + 1
+                    VERIFIED_GOVEE.pop(key, None)
+                    GOVEE_ROUTES.pop(key, None)
+
+
+def govee_scan_at(ip, timeout=0.15):
+    ip = local_ip(ip)
+    identities = {}
+    invalid_identity = False
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("", 4002))
+        sock.sendto(udp_packet("scan", {"account_topic": "reserve"}), (ip, 4001))
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            sock.settimeout(max(0.01, end - time.monotonic()))
+            try:
+                raw, peer = sock.recvfrom(8192)
+                message = json.loads(raw).get("msg", {})
+                if message.get("cmd") == "scan":
+                    identity = {**message["data"], "ip": peer[0], "_observed_at": time.monotonic()}
+                    invalidate_govee_observations([identity])
+                    if peer[0] != ip:
+                        continue
+                    try:
+                        key = device_key(identity)
+                    except (ValueError, TypeError, AttributeError):
+                        invalid_identity = True
+                        continue
+                    identities[key] = identity
+            except (socket.timeout, ValueError, KeyError, TypeError, AttributeError):
+                continue
+    if len(identities) == 1 and not invalid_identity:
+        return next(iter(identities.values()))
+    return None
+
+
+def verified_status(device, timeout=0.15, targets=None):
+    global NEXT_GOVEE_DISCOVERY
+    key = device_key(device)
+    with GOVEE_ROUTE_LOCK:
+        ip = GOVEE_ROUTES.get(key, device["ip"])
+    identity = govee_scan_at(ip, timeout=min(timeout, 0.15))
+    verified_at = identity.get("_observed_at", time.monotonic()) if identity else time.monotonic()
+    matches = identity is not None and resolve_govee_targets([device], [identity]).get(key) == ip
+    if not matches:
+        with GOVEE_ROUTE_LOCK:
+            if identity is not None:
+                VERIFIED_GOVEE.pop(key, None)
+                GOVEE_ROUTES.pop(key, None)
+            search = time.monotonic() >= NEXT_GOVEE_DISCOVERY
+            if search:
+                NEXT_GOVEE_DISCOVERY = time.monotonic() + 5
+        if not search:
+            return None
+        discovered = govee_discover(timeout=0.6)
+        invalidate_govee_observations(discovered)
+        routes = resolve_govee_targets(targets or [device], discovered)
+        with GOVEE_ROUTE_LOCK:
+            for found_key, found_ip in routes.items():
+                if GOVEE_ROUTES.get(found_key) != found_ip:
+                    VERIFIED_GOVEE.pop(found_key, None)
+                GOVEE_ROUTES[found_key] = found_ip
+        if key not in routes:
+            return None
+        ip = routes[key]
+        identity = govee_scan_at(ip, timeout=min(timeout, 0.15))
+        verified_at = (
+            identity.get("_observed_at", time.monotonic()) if identity else time.monotonic()
+        )
+        if identity is None or resolve_govee_targets([device], [identity]).get(key) != ip:
+            with GOVEE_ROUTE_LOCK:
+                VERIFIED_GOVEE.pop(key, None)
+            return None
+    with GOVEE_ROUTE_LOCK:
+        GOVEE_ROUTES[key] = ip
+        revision = GOVEE_ROUTE_REVISIONS.get(key, 0)
+    status = govee_status(ip, timeout=timeout, expected_device=key)
+    with GOVEE_ROUTE_LOCK:
+        if GOVEE_ROUTE_REVISIONS.get(key, 0) != revision or GOVEE_ROUTES.get(key) != ip:
+            return None
+        GOVEE_ROUTES[key] = ip
+        if status is not None:
+            if status.get("onOff") == 1:
+                VERIFIED_GOVEE[key] = (ip, verified_at)
+            else:
+                VERIFIED_GOVEE.pop(key, None)
+    return status
+
+
+def send_to_target(device, command, data):
+    key = device_key(device)
+    with GOVEE_ROUTE_LOCK:
+        binding = VERIFIED_GOVEE.get(key)
+        if binding is None or not 0 <= time.monotonic() - binding[1] <= 0.75:
+            return False
+        govee_send(binding[0], command, data)
+    return True
+
+
+def remember_govee_routes(config):
+    changed = False
+    with GOVEE_ROUTE_LOCK:
+        routes = dict(GOVEE_ROUTES)
+    for device in config["targets"]:
+        ip = routes.get(device_key(device))
+        if ip is not None and ip != device["ip"]:
+            print(f"{device['side']} Govee address changed: {device['ip']} -> {ip}", flush=True)
+            device["ip"] = ip
+            changed = True
+    if changed:
+        save_config(config)
+
+
+def govee_status(ip, timeout=3, expected_device=None):
     ip = local_ip(ip)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -119,9 +284,20 @@ def govee_status(ip, timeout=3):
             try:
                 raw, address = sock.recvfrom(8192)
                 message = json.loads(raw).get("msg", {})
+                if message.get("cmd") == "scan":
+                    identity = {**message["data"], "ip": address[0]}
+                    invalidate_govee_observations([identity])
+                    if address[0] == ip and expected_device is not None:
+                        try:
+                            matches = device_key(identity) == expected_device
+                        except (ValueError, TypeError, AttributeError):
+                            matches = False
+                        if not matches:
+                            return None
+                    continue
                 if address[0] == ip and message.get("cmd") == "devStatus":
                     return message["data"]
-            except (socket.timeout, json.JSONDecodeError, KeyError, TypeError):
+            except (socket.timeout, ValueError, KeyError, TypeError, AttributeError):
                 continue
     return None
 
@@ -217,35 +393,38 @@ def govee_commands(target):
 
 def animate_frame(light, devices, elapsed, previous, statuses=None):
     for device in devices:
+        key = device_key(device)
         status = (
-            govee_status(device["ip"], timeout=0.2)
+            verified_status(device, timeout=0.2, targets=devices)
             if statuses is None
-            else statuses.get(device["ip"])
+            else statuses.get(key)
         )
         if status is None or status.get("onOff") != 1:
-            previous.pop(device["ip"], None)
+            previous.pop(key, None)
             continue
         target = target_for(light, device["side"], elapsed, device.get("brightness_scale", 1))
-        if target["on"] and target != previous.get(device["ip"]):
+        if target["on"] and target != previous.get(key):
+            sent = False
             for command, data in govee_commands(target):
                 if command == "colorwc":
-                    govee_send(device["ip"], command, data)
-            previous[device["ip"]] = target
+                    sent = send_to_target(device, command, data)
+            if sent:
+                previous[key] = target
 
 
 def read_govee_states(devices):
     # A single worker owns UDP receive port 4002; parallel readers steal replies.
     states = {}
     for device in devices:
-        status = govee_status(device["ip"], timeout=0.15)
-        states[device["ip"]] = (status, time.monotonic())
+        status = verified_status(device, timeout=0.15, targets=devices)
+        states[device_key(device)] = (status, time.monotonic())
     return states
 
 
 def run_dynamic(config, light, previous, interval, started, initial_statuses):
     now = time.monotonic()
     source_seen = now
-    key = animation_settings(light)
+    palette_key = animation_settings(light)
     states = {ip: (status, now) for ip, status in initial_statuses.items()}
     next_source, next_status, deadline = now + interval, now, now
     source_future = status_future = None
@@ -265,8 +444,8 @@ def run_dynamic(config, light, previous, interval, started, initial_statuses):
                 settings = animation_settings(light)
                 if not settings:
                     return light
-                if settings != key:
-                    key, started = settings, now
+                if settings != palette_key:
+                    palette_key, started = settings, now
                     print("Dynamic palette changed; starting its local cycle.", flush=True)
             if status_future is not None and status_future.done():
                 try:
@@ -279,6 +458,7 @@ def run_dynamic(config, light, previous, interval, started, initial_statuses):
                     )
                 except OSError:
                     states.clear()
+                remember_govee_routes(config)
                 status_future = None
                 next_status = now + 0.2
             if source_future is None and now >= next_source:
@@ -292,15 +472,16 @@ def run_dynamic(config, light, previous, interval, started, initial_statuses):
             }
             if now - source_seen <= interval + 1:
                 for device in config["targets"]:
-                    status = fresh.get(device["ip"])
+                    key = device_key(device)
+                    status = fresh.get(key)
                     if status is None or status.get("onOff") != 1:
                         continue
                     target = target_for(
                         light, device["side"], now - started, device.get("brightness_scale", 1)
                     )
-                    old = previous.get(device["ip"], {})
+                    old = previous.get(key, {})
                     if old.get("brightness") != target["brightness"] or now >= brightness_refresh:
-                        govee_send(device["ip"], "brightness", {"value": target["brightness"]})
+                        send_to_target(device, "brightness", {"value": target["brightness"]})
                 animate_frame(light, config["targets"], now - started, previous, statuses=fresh)
                 if now >= brightness_refresh:
                     brightness_refresh = now + 30
@@ -316,6 +497,9 @@ def run_dynamic(config, light, previous, interval, started, initial_statuses):
 def run_sync(config, once=False, dry_run=False, interval=2):
     if not config.get("light") or not config.get("targets"):
         raise ValueError("Run lights and configure first; no Hue source or Govee targets selected")
+    keys = [device_key(device) for device in config["targets"]]
+    if len(set(keys)) != len(keys):
+        raise ValueError("Each selected Govee must have a distinct pinned device ID")
     previous = {}
     last_refresh = 0
     paused = False
@@ -353,6 +537,7 @@ def run_sync(config, once=False, dry_run=False, interval=2):
         changed = []
         active_devices = []
         for device in config["targets"]:
+            key = device_key(device)
             target = target_for(
                 light,
                 device["side"],
@@ -360,44 +545,50 @@ def run_sync(config, once=False, dry_run=False, interval=2):
                 device.get("brightness_scale", 1),
             )
             if not target["on"]:
-                previous.pop(device["ip"], None)
+                previous.pop(key, None)
                 continue
             if not dry_run:
-                status = govee_status(device["ip"])
+                status = verified_status(device, targets=config["targets"])
+                remember_govee_routes(config)
                 if status is None:
                     if once:
                         raise ValueError(f"Govee {device['ip']} did not reply; no color sent to it")
-                    if device["ip"] not in unavailable:
+                    if key not in unavailable:
                         print(
                             f"Govee {device['ip']} did not reply; retrying next cycle.",
                             file=sys.stderr,
                             flush=True,
                         )
-                    unavailable.add(device["ip"])
-                    previous.pop(device["ip"], None)
+                    unavailable.add(key)
+                    previous.pop(key, None)
                     continue
-                if device["ip"] in unavailable:
+                if key in unavailable:
                     print(f"Govee {device['ip']} is responding again.", flush=True)
-                    unavailable.remove(device["ip"])
+                    unavailable.remove(key)
                 if status.get("onOff") != 1:
-                    previous.pop(device["ip"], None)
+                    previous.pop(key, None)
                     continue
             active_devices.append(device)
-            if target != previous.get(device["ip"]) or refresh:
+            if target != previous.get(key) or refresh:
                 print(f"{device['side']} {device['ip']}: {json.dumps(target)}", flush=True)
                 if not dry_run:
+                    sent_all = True
                     for command, data in govee_commands(target):
-                        govee_send(device["ip"], command, data)
+                        sent_all = send_to_target(device, command, data) and sent_all
                         time.sleep(0.08)
-                    changed.append(device)
-                previous[device["ip"]] = target
+                    if sent_all:
+                        changed.append(device)
+                    else:
+                        previous.pop(key, None)
+                        continue
+                previous[key] = target
         if refresh:
             last_refresh = time.monotonic()
         if once:
             if not dry_run:
                 time.sleep(0.3)
                 for device in changed:
-                    status = govee_status(device["ip"])
+                    status = verified_status(device, targets=config["targets"])
                     print(f"Readback {device['ip']}: {json.dumps(status)}", flush=True)
                     if status is None:
                         raise ValueError(
@@ -411,7 +602,7 @@ def run_sync(config, once=False, dry_run=False, interval=2):
                 previous,
                 interval,
                 animation_started,
-                initial_statuses={device["ip"]: {"onOff": 1} for device in active_devices},
+                initial_statuses={device_key(device): {"onOff": 1} for device in active_devices},
             )
         else:
             time.sleep(interval)
@@ -537,17 +728,33 @@ def main():
         lights = hue_request(config, "/clip/v2/resource/light")["data"]
         if not any(light["id"] == args.light for light in lights):
             raise ValueError("Selected Hue light was not found on this bridge")
-        config["light"] = args.light
-        config["targets"] = (
+        targets = (
             [{"ip": args.govee, "side": "center"}]
             if args.govee
             else [{"ip": args.left, "side": "left"}, {"ip": args.right, "side": "right"}]
         )
+        found = govee_discover()
+        old_scales = {
+            item["side"]: item.get("brightness_scale", 1) for item in config.get("targets", [])
+        }
+        for device in targets:
+            matches = [item for item in found if item.get("ip") == device["ip"]]
+            if len(matches) != 1:
+                raise ValueError("Selected Govee address did not return one unambiguous device ID")
+            device["device"] = device_key(matches[0])
+            if resolve_govee_targets([device], found).get(device["device"]) != device["ip"]:
+                raise ValueError("Selected Govee identity is ambiguous; no configuration saved")
+            device["brightness_scale"] = old_scales.get(device["side"], 1)
+        if len({device["device"] for device in targets}) != len(targets):
+            raise ValueError("Left and right must be different Govee device IDs")
+        config["light"], config["targets"] = args.light, targets
         save_config(config)
         print("Saved selection. Try sync --once --dry-run before sync --once.")
     elif args.command == "status":
         for device in config.get("targets", []):
-            print(device["side"], device["ip"], json.dumps(govee_status(device["ip"])))
+            status = verified_status(device, targets=config["targets"])
+            remember_govee_routes(config)
+            print(device["side"], device["ip"], device_key(device), json.dumps(status))
     elif args.command == "sync":
         if not math.isfinite(args.interval) or args.interval < 1:
             parser.error("--interval must be at least 1 second")

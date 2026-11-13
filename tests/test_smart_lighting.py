@@ -8,6 +8,25 @@ from unittest.mock import patch
 
 import smart_lighting as lighting
 
+LEFT_ID = "AA:AA:AA:AA:AA:AA:AA:AA"
+RIGHT_ID = "BB:BB:BB:BB:BB:BB:BB:BB"
+
+
+class LightingTestCase(unittest.TestCase):
+    def setUp(self):
+        approvals = {
+            LEFT_ID: ("192.168.10.50", lighting.time.monotonic()),
+            RIGHT_ID: ("192.168.10.51", lighting.time.monotonic()),
+        }
+        for name, values in (
+            ("VERIFIED_GOVEE", approvals),
+            ("GOVEE_ROUTES", {}),
+            ("GOVEE_ROUTE_REVISIONS", {}),
+        ):
+            context = patch.dict(getattr(lighting, name), values, clear=True)
+            context.start()
+            self.addCleanup(context.stop)
+
 
 def gradient_light():
     return {
@@ -23,7 +42,7 @@ def gradient_light():
     }
 
 
-class PaletteTests(unittest.TestCase):
+class PaletteTests(LightingTestCase):
     def test_gradient_endpoints_produce_red_left_and_blue_right(self):
         left = lighting.target_for(gradient_light(), "left")
         right = lighting.target_for(gradient_light(), "right")
@@ -81,7 +100,7 @@ class PaletteTests(unittest.TestCase):
                 lighting.xy_to_rgb(x, y)
 
 
-class CalibrationTests(unittest.TestCase):
+class CalibrationTests(LightingTestCase):
     def test_calibration_command_persists_each_side_and_preserves_pairing(self):
         with (
             TemporaryDirectory(prefix="tmp_lighting_test_") as directory,
@@ -95,8 +114,8 @@ class CalibrationTests(unittest.TestCase):
                 {
                     "hue_key": "test-key",
                     "targets": [
-                        {"ip": "192.168.10.50", "side": "left"},
-                        {"ip": "192.168.10.51", "side": "right"},
+                        {"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"},
+                        {"device": RIGHT_ID, "ip": "192.168.10.51", "side": "right"},
                     ],
                 }
             )
@@ -126,14 +145,19 @@ class CalibrationTests(unittest.TestCase):
         config = {
             "light": "test-strip",
             "targets": [
-                {"ip": "192.168.10.50", "side": "left", "brightness_scale": 0.5},
-                {"ip": "192.168.10.51", "side": "right", "brightness_scale": 0.25},
+                {"device": LEFT_ID, "ip": "192.168.10.50", "side": "left", "brightness_scale": 0.5},
+                {
+                    "device": RIGHT_ID,
+                    "ip": "192.168.10.51",
+                    "side": "right",
+                    "brightness_scale": 0.25,
+                },
             ],
         }
         sent = []
         with (
             patch.object(lighting, "hue_request", return_value={"data": [gradient_light()]}),
-            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "verified_status", return_value={"onOff": 1}),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
             redirect_stdout(io.StringIO()),
         ):
@@ -150,17 +174,19 @@ class CalibrationTests(unittest.TestCase):
     def test_dynamic_frames_keep_the_calibrated_brightness(self):
         light = gradient_light()
         light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
-        targets = [{"ip": "192.168.10.50", "side": "left", "brightness_scale": 0.5}]
+        targets = [
+            {"device": LEFT_ID, "ip": "192.168.10.50", "side": "left", "brightness_scale": 0.5}
+        ]
         previous = {}
         with (
-            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "verified_status", return_value={"onOff": 1}),
             patch.object(lighting, "govee_send"),
         ):
             lighting.animate_frame(light, targets, elapsed=2, previous=previous)
-        self.assertEqual(previous["192.168.10.50"]["brightness"], 21)
+        self.assertEqual(previous[LEFT_ID]["brightness"], 21)
 
 
-class DynamicPaletteTests(unittest.TestCase):
+class DynamicPaletteTests(LightingTestCase):
     def test_dynamic_palette_visits_both_colors_and_wraps(self):
         light = gradient_light()
         light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
@@ -192,10 +218,10 @@ class DynamicPaletteTests(unittest.TestCase):
     def test_animation_frame_skips_off_and_unreachable_govee(self):
         light = gradient_light()
         light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
-        targets = [{"ip": "192.168.10.50", "side": "left"}]
+        targets = [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}]
         sent = []
         with (
-            patch.object(lighting, "govee_status", side_effect=[{"onOff": 0}, None]),
+            patch.object(lighting, "verified_status", side_effect=[{"onOff": 0}, None]),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
         ):
             lighting.animate_frame(light, targets, elapsed=1, previous={})
@@ -205,10 +231,10 @@ class DynamicPaletteTests(unittest.TestCase):
     def test_animation_frame_only_changes_color(self):
         light = gradient_light()
         light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
-        targets = [{"ip": "192.168.10.50", "side": "left"}]
+        targets = [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}]
         sent = []
         with (
-            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "verified_status", return_value={"onOff": 1}),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
         ):
             lighting.animate_frame(light, targets, elapsed=2, previous={})
@@ -241,11 +267,53 @@ class DeferredDeviceIO:
         return future
 
 
-class FramePacingTests(unittest.TestCase):
+class FramePacingTests(LightingTestCase):
+    def test_unchanged_hue_poll_does_not_restart_the_animation_cycle(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        device = {"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}
+        config = {"light": "strip", "targets": [device]}
+        now, sent = [10.0], []
+
+        class ReadyIO(DeferredDeviceIO):
+            def submit(self, function, *args, **kwargs):
+                future = Future()
+                if function is lighting.hue_request:
+                    future.set_result({"data": [light]})
+                else:
+                    lighting.VERIFIED_GOVEE[LEFT_ID] = (device["ip"], now[0])
+                    future.set_result({LEFT_ID: ({"onOff": 1}, now[0])})
+                return future
+
+        def sleep(delay):
+            now[0] += delay
+            if now[0] >= 12.3:
+                raise KeyboardInterrupt
+
+        def send(ip, command, data):
+            if command == "colorwc":
+                sent.append((now[0] - 10, data["color"]))
+
+        with (
+            patch.object(lighting, "ThreadPoolExecutor", return_value=ReadyIO()),
+            patch.object(lighting.time, "monotonic", side_effect=lambda: now[0]),
+            patch.object(lighting.time, "sleep", side_effect=sleep),
+            patch.dict(lighting.VERIFIED_GOVEE, {LEFT_ID: (device["ip"], 10)}, clear=True),
+            patch.object(lighting, "govee_send", side_effect=send),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            lighting.run_dynamic(config, light, {}, 2, 10, {LEFT_ID: {"onOff": 1}})
+        color = next(color for elapsed, color in sent if elapsed >= 2.1)
+        self.assertGreaterEqual(color["b"], 240)
+
     def run_with_pending_io(self, duration, status_result=None):
         light = gradient_light()
         light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
-        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        config = {
+            "light": "test-strip",
+            "targets": [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}],
+        }
         now = [10.0]
         ticks = []
         sent_at = []
@@ -265,6 +333,7 @@ class FramePacingTests(unittest.TestCase):
                 lighting, "ThreadPoolExecutor", return_value=DeferredDeviceIO(status_result)
             ),
             patch.object(lighting.time, "monotonic", side_effect=lambda: now[0]),
+            patch.dict(lighting.VERIFIED_GOVEE, {LEFT_ID: ("192.168.10.50", 10)}, clear=True),
             patch.object(lighting.time, "sleep", side_effect=sleep),
             patch.object(lighting, "animate_frame", side_effect=frame),
             patch.object(
@@ -278,7 +347,7 @@ class FramePacingTests(unittest.TestCase):
                 {},
                 interval=2,
                 started=10,
-                initial_statuses={"192.168.10.50": {"onOff": 1}},
+                initial_statuses={LEFT_ID: {"onOff": 1}},
             )
         return ticks, sent_at
 
@@ -293,14 +362,17 @@ class FramePacingTests(unittest.TestCase):
         self.assertLessEqual(max(sent_at), 0.75)
 
     def test_one_missed_reply_keeps_recent_power_state_without_extending_its_lifetime(self):
-        _, sent_at = self.run_with_pending_io(1.1, {"192.168.10.50": (None, 10.0)})
+        _, sent_at = self.run_with_pending_io(1.1, {LEFT_ID: (None, 10.0)})
         self.assertGreater(max(sent_at), 0.4)
         self.assertLessEqual(max(sent_at), 0.75)
 
 
-class HomebridgeTests(unittest.TestCase):
+class HomebridgeTests(LightingTestCase):
     def test_following_recovers_after_one_missing_udp_reply(self):
-        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        config = {
+            "light": "test-strip",
+            "targets": [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}],
+        }
         sent = []
         with (
             patch.object(
@@ -312,7 +384,7 @@ class HomebridgeTests(unittest.TestCase):
                     KeyboardInterrupt,
                 ],
             ),
-            patch.object(lighting, "govee_status", side_effect=[None, {"onOff": 1}]),
+            patch.object(lighting, "verified_status", side_effect=[None, {"onOff": 1}]),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
             patch.object(lighting.time, "sleep"),
             redirect_stdout(io.StringIO()),
@@ -335,8 +407,8 @@ class HomebridgeTests(unittest.TestCase):
         config = {
             "light": "test-strip",
             "targets": [
-                {"ip": "192.168.10.50", "side": "left"},
-                {"ip": "192.168.10.51", "side": "right"},
+                {"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"},
+                {"device": RIGHT_ID, "ip": "192.168.10.51", "side": "right"},
             ],
         }
         sent = []
@@ -346,7 +418,7 @@ class HomebridgeTests(unittest.TestCase):
                 "hue_request",
                 side_effect=[{"data": [gradient_light()]}, KeyboardInterrupt],
             ),
-            patch.object(lighting, "govee_status", side_effect=[None, {"onOff": 1}]),
+            patch.object(lighting, "verified_status", side_effect=[None, {"onOff": 1}]),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
             patch.object(lighting.time, "sleep"),
             redirect_stdout(io.StringIO()),
@@ -368,7 +440,10 @@ class HomebridgeTests(unittest.TestCase):
     def test_streaming_hue_is_skipped_without_touching_govee(self):
         light = gradient_light()
         light["mode"] = "streaming"
-        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        config = {
+            "light": "test-strip",
+            "targets": [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}],
+        }
         sent = []
         with (
             patch.object(lighting, "hue_request", return_value={"data": [light]}),
@@ -381,7 +456,10 @@ class HomebridgeTests(unittest.TestCase):
     def test_following_resumes_when_hue_sync_ends(self):
         streaming = gradient_light()
         streaming["mode"] = "streaming"
-        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        config = {
+            "light": "test-strip",
+            "targets": [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}],
+        }
         sent = []
         with (
             patch.object(
@@ -393,7 +471,7 @@ class HomebridgeTests(unittest.TestCase):
                     KeyboardInterrupt,
                 ],
             ),
-            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "verified_status", return_value={"onOff": 1}),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
             patch.object(lighting.time, "sleep"),
             redirect_stdout(io.StringIO()),
@@ -413,11 +491,14 @@ class HomebridgeTests(unittest.TestCase):
         )
 
     def test_off_govee_receives_no_commands_even_when_hue_is_on(self):
-        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        config = {
+            "light": "test-strip",
+            "targets": [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}],
+        }
         sent = []
         with (
             patch.object(lighting, "hue_request", return_value={"data": [gradient_light()]}),
-            patch.object(lighting, "govee_status", return_value={"onOff": 0}),
+            patch.object(lighting, "verified_status", return_value={"onOff": 0}),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
             redirect_stdout(io.StringIO()),
         ):
@@ -425,11 +506,14 @@ class HomebridgeTests(unittest.TestCase):
         self.assertEqual(sent, [])
 
     def test_unknown_govee_state_never_receives_color_commands(self):
-        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        config = {
+            "light": "test-strip",
+            "targets": [{"device": LEFT_ID, "ip": "192.168.10.50", "side": "left"}],
+        }
         sent = []
         with (
             patch.object(lighting, "hue_request", return_value={"data": [gradient_light()]}),
-            patch.object(lighting, "govee_status", return_value=None),
+            patch.object(lighting, "verified_status", return_value=None),
             patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
             redirect_stdout(io.StringIO()),
             self.assertRaises(ValueError),
