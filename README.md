@@ -67,14 +67,21 @@ the left/right IP selection.
 The program polls Hue every two seconds. For a static scene it sends updates
 only when the target changes, plus a periodic refresh because UDP delivery is
 not guaranteed. For dynamic scenes it interpolates between palette colors
-with eased transitions, targeting five color frames per second. Hue's speed
+with eased transitions, targeting twenty color frames per second. Hue's speed
 setting controls approximate pacing; its internal timing is not known.
-Each animation frame rechecks Govee power with a short timeout. Unknown/off
-controllers are skipped; brightness is sent during the main polling cycle.
+Hue and Govee status reads run outside the frame loop. A single status reader
+owns the Govee UDP reply port; it refreshes both controllers sequentially.
+Each frame checks a recent power snapshot. A single missed reply does not
+extend that snapshot's lifetime: snapshots expire after 0.75 seconds, and an
+explicit off reply stops writes immediately when received. Missing/stale
+states are skipped. Animation also pauses if the Hue snapshot becomes stale.
+Brightness updates use the per-device calibration and are sent when changed,
+with periodic refreshes. Network waits do not block frame deadlines.
 Changing the palette or speed restarts the local cycle; stopping Play restores
 static following. Hue Sync pauses both static and animated updates.
 `--once` prints the Govee status readback; a missing reply returns an error.
 Readback alone does not prove the colors look right: compare the physical lamps.
+Measured command pacing and its limits are recorded in `archive/smoothing/`.
 
 ## Limits
 

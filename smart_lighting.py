@@ -12,6 +12,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 CONFIG = Path(__file__).with_name(".lighting.json")
@@ -214,10 +215,13 @@ def govee_commands(target):
     ]
 
 
-def animate_frame(light, devices, elapsed, previous):
+def animate_frame(light, devices, elapsed, previous, statuses=None):
     for device in devices:
-        # Recheck power before every frame so Homebridge can switch a lamp off.
-        status = govee_status(device["ip"], timeout=0.2)
+        status = (
+            govee_status(device["ip"], timeout=0.2)
+            if statuses is None
+            else statuses.get(device["ip"])
+        )
         if status is None or status.get("onOff") != 1:
             previous.pop(device["ip"], None)
             continue
@@ -227,6 +231,86 @@ def animate_frame(light, devices, elapsed, previous):
                 if command == "colorwc":
                     govee_send(device["ip"], command, data)
             previous[device["ip"]] = target
+
+
+def read_govee_states(devices):
+    # A single worker owns UDP receive port 4002; parallel readers steal replies.
+    states = {}
+    for device in devices:
+        status = govee_status(device["ip"], timeout=0.15)
+        states[device["ip"]] = (status, time.monotonic())
+    return states
+
+
+def run_dynamic(config, light, previous, interval, started, initial_statuses):
+    now = time.monotonic()
+    source_seen = now
+    key = animation_settings(light)
+    states = {ip: (status, now) for ip, status in initial_statuses.items()}
+    next_source, next_status, deadline = now + interval, now, now
+    source_future = status_future = None
+    brightness_refresh = now + 30
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="lighting-io") as reader:
+        while True:
+            now = time.monotonic()
+            if source_future is not None and source_future.done():
+                try:
+                    light = source_future.result()["data"][0]
+                    source_seen = now
+                except OSError as error:
+                    source_seen = float("-inf")
+                    print(f"Hue read failed; animation paused: {error}", file=sys.stderr)
+                source_future = None
+                next_source = now + interval
+                settings = animation_settings(light)
+                if not settings:
+                    return light
+                if settings != key:
+                    key, started = settings, now
+                    print("Dynamic palette changed; starting its local cycle.", flush=True)
+            if status_future is not None and status_future.done():
+                try:
+                    states.update(
+                        {
+                            ip: value
+                            for ip, value in status_future.result().items()
+                            if value[0] is not None
+                        }
+                    )
+                except OSError:
+                    states.clear()
+                status_future = None
+                next_status = now + 0.2
+            if source_future is None and now >= next_source:
+                source_future = reader.submit(
+                    hue_request, config, f"/clip/v2/resource/light/{config['light']}"
+                )
+            if status_future is None and now >= next_status:
+                status_future = reader.submit(read_govee_states, config["targets"])
+            fresh = {
+                ip: status if now - seen <= 0.75 else None for ip, (status, seen) in states.items()
+            }
+            if now - source_seen <= interval + 1:
+                for device in config["targets"]:
+                    status = fresh.get(device["ip"])
+                    if status is None or status.get("onOff") != 1:
+                        continue
+                    target = target_for(
+                        light, device["side"], now - started, device.get("brightness_scale", 1)
+                    )
+                    old = previous.get(device["ip"], {})
+                    if old.get("brightness") != target["brightness"] or now >= brightness_refresh:
+                        govee_send(device["ip"], "brightness", {"value": target["brightness"]})
+                animate_frame(light, config["targets"], now - started, previous, statuses=fresh)
+                if now >= brightness_refresh:
+                    brightness_refresh = now + 30
+            # Fixed deadlines avoid adding network/work duration to each frame.
+            deadline += 1 / 20
+            delay = deadline - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                deadline = time.monotonic()
 
 
 def run_sync(config, once=False, dry_run=False, interval=2):
@@ -321,10 +405,14 @@ def run_sync(config, once=False, dry_run=False, interval=2):
                         )
             return
         if settings and active_devices and not dry_run:
-            end = time.monotonic() + interval
-            while time.monotonic() < end:
-                time.sleep(min(0.2, max(0, end - time.monotonic())))
-                animate_frame(light, active_devices, time.monotonic() - animation_started, previous)
+            run_dynamic(
+                config,
+                light,
+                previous,
+                interval,
+                animation_started,
+                initial_statuses={device["ip"]: {"onOff": 1} for device in active_devices},
+            )
         else:
             time.sleep(interval)
 

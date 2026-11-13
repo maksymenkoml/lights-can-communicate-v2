@@ -1,5 +1,6 @@
 import io
 import unittest
+from concurrent.futures import Future
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -221,6 +222,80 @@ class DynamicPaletteTests(unittest.TestCase):
                 )
             ],
         )
+
+
+class DeferredDeviceIO:
+    def __init__(self, status_result=None):
+        self.status_result = status_result
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def submit(self, *args, **kwargs):
+        future = Future()
+        if self.status_result is not None:
+            future.set_result(self.status_result)
+        return future
+
+
+class FramePacingTests(unittest.TestCase):
+    def run_with_pending_io(self, duration, status_result=None):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        now = [10.0]
+        ticks = []
+        sent_at = []
+        real_frame = lighting.animate_frame
+
+        def sleep(delay):
+            now[0] += delay
+            if now[0] >= 10 + duration:
+                raise KeyboardInterrupt
+
+        def frame(*args, **kwargs):
+            ticks.append(round(now[0] - 10, 4))
+            return real_frame(*args, **kwargs)
+
+        with (
+            patch.object(
+                lighting, "ThreadPoolExecutor", return_value=DeferredDeviceIO(status_result)
+            ),
+            patch.object(lighting.time, "monotonic", side_effect=lambda: now[0]),
+            patch.object(lighting.time, "sleep", side_effect=sleep),
+            patch.object(lighting, "animate_frame", side_effect=frame),
+            patch.object(
+                lighting, "govee_send", side_effect=lambda *args: sent_at.append(now[0] - 10)
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            lighting.run_dynamic(
+                config,
+                light,
+                {},
+                interval=2,
+                started=10,
+                initial_statuses={"192.168.10.50": {"onOff": 1}},
+            )
+        return ticks, sent_at
+
+    def test_pending_network_queries_do_not_block_animation_frames(self):
+        ticks, _ = self.run_with_pending_io(0.6)
+        self.assertGreaterEqual(len(ticks), 10)
+        self.assertLessEqual(max(b - a for a, b in zip(ticks, ticks[1:])), 0.051)
+
+    def test_animation_stops_using_expired_power_state(self):
+        _, sent_at = self.run_with_pending_io(1.1)
+        self.assertGreater(len(sent_at), 0)
+        self.assertLessEqual(max(sent_at), 0.75)
+
+    def test_one_missed_reply_keeps_recent_power_state_without_extending_its_lifetime(self):
+        _, sent_at = self.run_with_pending_io(1.1, {"192.168.10.50": (None, 10.0)})
+        self.assertGreater(max(sent_at), 0.4)
+        self.assertLessEqual(max(sent_at), 0.75)
 
 
 class HomebridgeTests(unittest.TestCase):
