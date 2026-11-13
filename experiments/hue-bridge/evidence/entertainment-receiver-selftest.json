@@ -1,0 +1,14 @@
+{
+  "date": "2026-11-13",
+  "scope": "Synthetic encrypted receiver-only check; native stream output not enabled",
+  "frames_sent": 30,
+  "frames_received_delta": 30,
+  "receiver": {
+    "active": true,
+    "area_id": "ea1c1665-0ff0-5aad-8885-6c1157135199",
+    "enabled": true,
+    "frames_received": 30,
+    "last_result": "receiving",
+    "version": 2
+  }
+}

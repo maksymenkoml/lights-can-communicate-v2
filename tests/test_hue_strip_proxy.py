@@ -57,6 +57,15 @@ class FakeHue:
 
 
 class HueStripTests(unittest.TestCase):
+    def test_scene_gate_keeps_pending_target_until_video_releases_output(self):
+        self.proxy.write_gate = lambda: False
+        self.proxy.submit(command())
+        self.assertFalse(self.proxy.process_once())
+        self.assertEqual(self.client.writes, [])
+        self.proxy.write_gate = lambda: True
+        self.assertTrue(self.proxy.process_once())
+        self.assertEqual(len(self.client.writes), 1)
+
     def test_center_play_halves_each_scene_brightness_and_restores_without_double_scaling(self):
         client = FakeHue()
         client.resource_id = PLAY_IDS["hue_center"]

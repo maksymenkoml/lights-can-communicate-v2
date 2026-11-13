@@ -14,14 +14,18 @@ services:
       PROBE_ADAPTER_URL: "${PROBE_ADAPTER_URL:-http://host.docker.internal:19880}"
       PROBE_HUE_STRIP: "${PROBE_HUE_STRIP:-false}"
       PROBE_HUE_PLAY: "${PROBE_HUE_PLAY:-false}"
+      PROBE_ENTERTAINMENT: "${PROBE_ENTERTAINMENT:-false}"
     ports:
       - "80:80/tcp"
       - "443:443/tcp"
       - "1900:1900/udp"
+      - "2100:2100/udp"
     volumes:
       - ./state:/opt/hue-emulator/config
       - ./bootstrap.py:/probe/bootstrap.py:ro
       - ./bridge_output.py:/probe/bridge_output.py:ro
+      - ./entertainment_stream.py:/probe/entertainment_stream.py:ro
+      - ./entertainment_receiver.py:/probe/entertainment_receiver.py:ro
     networks:
       - probe
 networks:

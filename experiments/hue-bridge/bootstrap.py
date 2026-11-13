@@ -15,8 +15,9 @@ logging.disable(logging.CRITICAL)
 sys.path.insert(0, "/opt/hue-emulator")
 
 import configManager  # noqa: E402
+from entertainment_stream import GROUP_ID, POSITIONS, SLOT_CHANNELS  # noqa: E402
 from flask import abort, jsonify, request  # noqa: E402
-from HueObjects import ApiUser, Group, Light, Scene  # noqa: E402
+from HueObjects import ApiUser, EntertainmentConfiguration, Group, Light, Scene  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
@@ -68,6 +69,7 @@ settings["hue"] = {}
 settings["tradfri"] = {}
 include_strip = os.environ.get("PROBE_HUE_STRIP", "false").lower() == "true"
 include_hue_play = os.environ.get("PROBE_HUE_PLAY", "false").lower() == "true"
+include_entertainment = os.environ.get("PROBE_ENTERTAINMENT", "false").lower() == "true"
 selected_slots = (
     {"1", "2"}
     | ({"3"} if include_strip else set())
@@ -147,14 +149,85 @@ if include_hue_play:
         room = config["groups"]["1"]
         if not any(reference() is config["lights"][identifier] for reference in room.lights):
             room.add_light(config["lights"][identifier])
+if include_entertainment:
+    if not include_strip or not include_hue_play:
+        raise RuntimeError("Desk Entertainment requires all six virtual lights")
+    identifier = "90"
+    if identifier not in config["groups"]:
+        config["groups"][identifier] = EntertainmentConfiguration.EntertainmentConfiguration(
+            {
+                "id_v1": identifier,
+                "id_v2": GROUP_ID,
+                "name": "Desk Sync PILOT",
+                "configuration_type": "monitor",
+            }
+        )
+    area = config["groups"][identifier]
+    if area.id_v2 != GROUP_ID:
+        raise RuntimeError("Desk Entertainment group ID is occupied")
+    area.lights = []
+    for slot, channels in SLOT_CHANNELS.items():
+        lamp = config["lights"][slot]
+        area.add_light(lamp)
+        area.locations[lamp] = [
+            dict(zip(("x", "y", "z"), POSITIONS[channel])) for channel in channels
+        ]
+
+    original_area_api = EntertainmentConfiguration.EntertainmentConfiguration.getV2Api
+
+    def desk_area_api(area):
+        result = original_area_api(area)
+        if area.id_v2 == GROUP_ID:
+            result["channels"] = []
+            for slot, channels in SLOT_CHANNELS.items():
+                lamp = config["lights"][slot]
+                service = {
+                    "rtype": "entertainment",
+                    "rid": str(uuid.uuid5(uuid.NAMESPACE_URL, lamp.id_v2 + "entertainment")),
+                }
+                for index, channel in enumerate(channels):
+                    result["channels"].append(
+                        {
+                            "channel_id": channel,
+                            "members": [{"index": index, "service": dict(service)}],
+                            "position": dict(zip(("x", "y", "z"), POSITIONS[channel])),
+                        }
+                    )
+        return result
+
+    EntertainmentConfiguration.EntertainmentConfiguration.getV2Api = desk_area_api
+    original_light_entertainment = Light.Light.getV2Entertainment
+
+    def desk_light_entertainment(lamp):
+        result = original_light_entertainment(lamp)
+        if lamp.id_v1 == "3":
+            result["segments"] = {
+                "configurable": False,
+                "max_segments": 10,
+                "segments": [{"start": i, "length": 1} for i in range(9)],
+            }
+        return result
+
+    Light.Light.getV2Entertainment = desk_light_entertainment
+
 if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
 configManager.bridgeConfig.save_config(backup=False)
 
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
+from entertainment_receiver import EntertainmentReceiver  # noqa: E402
+from flaskUI import restful, v2restapi  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from services import updateManager  # noqa: E402
+
+entertainment_receiver = EntertainmentReceiver(
+    os.environ.get("PROBE_ADAPTER_URL", "http://host.docker.internal:19880"),
+    local_secret("adapter-token", 24),
+    enabled=include_entertainment and not (state / "live-output-hold").exists(),
+)
+restful.entertainmentService = entertainment_receiver.serve
+v2restapi.entertainmentService = entertainment_receiver.serve
 
 
 def hold_probe_capability_versions():
@@ -289,6 +362,7 @@ def probe_status():
             "simulation_only": live_output is None,
             "live_output_hold": (state / "live-output-hold").exists(),
             "live_output": live_output.snapshot() if live_output else {"enabled": False},
+            "entertainment": entertainment_receiver.snapshot(),
             "clients": [
                 getattr(client, "name", "unknown") for client in config["apiUsers"].values()
             ],

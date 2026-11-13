@@ -16,8 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
+from video_output import VideoOutput  # noqa: E402
 
 import smart_lighting as lan  # noqa: E402
 
@@ -41,7 +43,12 @@ def normalize_state(state, scale):
         "brightness": max(1, round(brightness / 254 * 100 * lan.parse_brightness_scale(scale))),
     }
     mode = state.get("colormode", "xy")
-    if mode == "ct":
+    if mode == "rgb":
+        rgb = state.get("rgb")
+        if not isinstance(rgb, list) or len(rgb) != 3:
+            raise ValueError("Expected RGB triple")
+        result["rgb"] = tuple(round(number(value, 0, 255)) for value in rgb)
+    elif mode == "ct":
         mirek = number(state.get("ct"), 100, 1000)
         result["kelvin"] = max(2000, min(9000, round(1_000_000 / mirek)))
     elif mode == "hs":
@@ -270,7 +277,7 @@ class PilotController:
             }
 
 
-def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None):
+def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None):
     hue_proxies = dict(hue_play_proxies or {})
     if hue_proxy is not None:
         hue_proxies["strip"] = hue_proxy
@@ -302,19 +309,25 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None):
                 result["hue_play"] = {
                     role: proxy.snapshot() for role, proxy in hue_play_proxies.items()
                 }
+            if video_output is not None:
+                result["video"] = video_output.snapshot()
             self.respond(200, result)
 
         def do_POST(self):
             if not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
-            if self.path != "/command":
+            if self.path not in ("/command", "/stream") or (
+                self.path == "/stream" and video_output is None
+            ):
                 return self.respond(404, {"error": "not found"})
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 8192:
                     raise ValueError("Invalid request size")
                 payload = json.loads(self.rfile.read(size))
-                if isinstance(payload, dict) and payload.get("side") in hue_proxies:
+                if self.path == "/stream":
+                    accepted = video_output.submit(payload)
+                elif isinstance(payload, dict) and payload.get("side") in hue_proxies:
                     accepted = hue_proxies[payload["side"]].submit(payload)
                 else:
                     accepted = controller.submit(payload)
@@ -332,9 +345,12 @@ def main():
     parser.add_argument("--port", type=int, default=19880)
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
+    parser.add_argument("--hue-stream-config", type=Path)
     args = parser.parse_args()
     if args.hue_play and not args.hue_config:
         parser.error("--hue-play requires --hue-config")
+    if args.hue_stream_config and not args.hue_play:
+        parser.error("--hue-stream-config requires --hue-play and --hue-config")
     if (args.targets.parent / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     config = json.loads(args.targets.read_text())
@@ -354,6 +370,19 @@ def main():
                     PinnedHueClient(hue_config, resource_id=resource), role=role
                 )
         controller.pause_gate = lambda: all(proxy.govee_allowed() for proxy in hue_proxies.values())
+    video = None
+    if args.hue_stream_config:
+        stream_config = json.loads(args.hue_stream_config.read_text())
+        if stream_config.get("bridge") != hue_config["bridge"]:
+            raise ValueError("Stream and scene bridge must match")
+        video = VideoOutput(
+            PilotController(config["targets"]),
+            HueEntertainmentRelay(stream_config),
+            hue_proxies.values(),
+        )
+        for proxy in hue_proxies.values():
+            proxy.output_lock = video.lock
+            proxy.write_gate = lambda: not video.active()
     lan.CONFIG = args.targets
     stop = threading.Event()
     server = ThreadingHTTPServer(
@@ -363,14 +392,25 @@ def main():
             token,
             hue_proxies.get("strip"),
             {role: proxy for role, proxy in hue_proxies.items() if role != "strip"},
+            video_output=video,
         ),
     )
     for role, proxy in hue_proxies.items():
         threading.Thread(target=proxy.run, args=(stop,), daemon=True, name="pilot-" + role).start()
 
+    def publish_statuses(statuses):
+        controller.update_statuses(statuses)
+        if video is not None:
+            video.controller.update_statuses(statuses)
+
+    video_thread = None
+    video_stop = threading.Event()
+    if video is not None:
+        video_thread = threading.Thread(target=video.run, args=(video_stop,), name="pilot-video")
+        video_thread.start()
     transport = PilotTransport(
         controller.targets,
-        controller.update_statuses,
+        publish_statuses,
         remember=lambda: lan.save_config({"targets": controller.targets}),
     )
     threading.Thread(target=transport.run, args=(stop,), daemon=True, name="pilot-status").start()
@@ -382,7 +422,12 @@ def main():
     deadline = time.monotonic()
     try:
         while not stop.is_set():
-            controller.render()
+            if video is not None and video.active():
+                video.render()
+                with controller.lock:
+                    controller.last_sent.clear()
+            else:
+                controller.render()
             deadline += 0.05
             delay = deadline - time.monotonic()
             if delay < 0:
@@ -391,9 +436,18 @@ def main():
     except KeyboardInterrupt:
         print("Pilot adapter stopped.", flush=True)
     finally:
-        stop.set()
         server.shutdown()
         server.server_close()
+        if video_thread is not None:
+            video.lease.close()
+            video_stop.set()
+            video_thread.join()
+            for proxy in hue_proxies.values():
+                proxy.process_once()
+            with controller.lock:
+                controller.last_sent.clear()
+            controller.render()
+        stop.set()
 
 
 if __name__ == "__main__":

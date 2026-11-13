@@ -155,6 +155,8 @@ class HueStripProxy:
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
         self.state_lock = threading.RLock()
+        self.output_lock = threading.RLock()
+        self.write_gate = lambda: True
         self.wake = threading.Event()
         self.desired = None
         self.pending_body = None
@@ -227,6 +229,11 @@ class HueStripProxy:
                 and 0 <= self.clock() - self.native_seen <= 2
             )
 
+    def restore_scene(self):
+        with self.command_lock:
+            self.restore = True
+            self.wake.set()
+
     def process_once(self):
         try:
             native = self.client.read()
@@ -263,7 +270,13 @@ class HueStripProxy:
                 body["dynamics"]["duration"] = (
                     max(0, remaining) if remaining > 0 or duration == 0 else 400
                 )
-                self.client.write(body)
+                with self.output_lock:
+                    if not self.write_gate():
+                        self.restore = True
+                        self.healthy = True
+                        self.last_result = "scene output paused"
+                        return False
+                    self.client.write(body)
                 self.applied = self.generation
                 self.restore = False
                 self.pending_body = None

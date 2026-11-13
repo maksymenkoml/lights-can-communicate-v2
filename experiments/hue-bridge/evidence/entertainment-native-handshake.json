@@ -1,0 +1,9 @@
+{
+  "date": "2026-11-13",
+  "native_dtls_handshake": true,
+  "selected_lights": 4,
+  "native_channels": 12,
+  "video_frames_sent": 0,
+  "owned_stream_released": true,
+  "identity": "native application UUID resolved via /auth/v1; secret omitted"
+}

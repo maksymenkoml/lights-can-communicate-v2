@@ -47,14 +47,30 @@ class PilotTests(unittest.TestCase):
             client.resource_id = resource
             client.native["id"] = resource
             proxies[role] = HueStripProxy(client, wall_clock=lambda: 1000, role=role)
+        from entertainment_stream import VideoLease
+        from test_entertainment_stream import envelope
+
+        lease = VideoLease(wall_clock=lambda: 1000)
         server = ThreadingHTTPServer(
-            ("127.0.0.1", 0), pilot.handler_for(self.controller, "test", hue_play_proxies=proxies)
+            ("127.0.0.1", 0),
+            pilot.handler_for(
+                self.controller, "test", hue_play_proxies=proxies, video_output=lease
+            ),
         )
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
             url = "http://127.0.0.1:" + str(server.server_port)
+            request = urllib.request.Request(
+                url + "/stream",
+                data=json.dumps(envelope()).encode(),
+                headers={"X-Adapter-Token": "test"},
+                method="POST",
+            )
+            with opener.open(request) as response:
+                self.assertTrue(json.load(response)["accepted"])
+            self.assertTrue(lease.active())
             for role in PLAY_IDS:
                 request = urllib.request.Request(
                     url + "/command",

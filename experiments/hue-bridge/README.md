@@ -24,6 +24,8 @@ after Sync stopped. The owner also confirmed visual return and continued
 animation. Sync Box reliability remains a separate investigation. This remains
 a local reference experiment.
 
+See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for the opt-in video relay, verified boundaries, and pending Sync Box checks.
+
 ## Phase 1: simulated compatibility result
 
 Tested on 2026-11-13 with the owner's installed official Philips Hue app on
