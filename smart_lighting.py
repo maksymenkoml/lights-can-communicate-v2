@@ -172,6 +172,7 @@ def govee_commands(target):
             "colorwc",
             {"color": dict(zip(("r", "g", "b"), rgb)), "colorTemInKelvin": target.get("kelvin", 0)},
         ),
+        ("brightness", {"value": target["brightness"]}),
     ]
 
 

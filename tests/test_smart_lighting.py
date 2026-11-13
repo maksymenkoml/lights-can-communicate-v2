@@ -60,9 +60,17 @@ class PaletteTests(unittest.TestCase):
             commands,
         )
 
-    def test_palette_update_preserves_homebridge_power_and_brightness(self):
+    def test_palette_update_copies_brightness_without_switching_power(self):
         commands = lighting.govee_commands({"on": True, "brightness": 30, "rgb": (20, 60, 255)})
-        self.assertEqual([name for name, _ in commands], ["colorwc"])
+        self.assertEqual([name for name, _ in commands], ["colorwc", "brightness"])
+        self.assertIn(("brightness", {"value": 30}), commands)
+
+    def test_low_hue_brightness_uses_minimum_govee_brightness_without_turning_off(self):
+        light = gradient_light()
+        light["dimming"]["brightness"] = 0.1
+        commands = lighting.govee_commands(lighting.target_for(light, "left"))
+        self.assertIn(("brightness", {"value": 1}), commands)
+        self.assertNotIn("turn", [name for name, _ in commands])
 
     def test_invalid_chromaticity_is_rejected(self):
         for x, y in ((0.1, 0), (float("nan"), 0.3), (-0.1, 0.3)):
@@ -98,7 +106,8 @@ class HomebridgeTests(unittest.TestCase):
                     "192.168.10.50",
                     "colorwc",
                     {"color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
-                )
+                ),
+                ("192.168.10.50", "brightness", {"value": 42}),
             ],
         )
 
@@ -131,7 +140,8 @@ class HomebridgeTests(unittest.TestCase):
                     "192.168.10.51",
                     "colorwc",
                     {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0},
-                )
+                ),
+                ("192.168.10.51", "brightness", {"value": 42}),
             ],
         )
 
@@ -177,7 +187,8 @@ class HomebridgeTests(unittest.TestCase):
                     "192.168.10.50",
                     "colorwc",
                     {"color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
-                )
+                ),
+                ("192.168.10.50", "brightness", {"value": 42}),
             ],
         )
 

@@ -35,11 +35,12 @@ Ctrl+C stops the program; the lights keep their last state. `status` reads
 the selected Govee controllers without changing them.
 
 The left Govee gets the first stored Hue gradient point and the right Govee
-gets the last. For a solid Hue color they get the same color. Govee brightness
-and on/off are left to Homebridge and its existing automations. Only colors
-are sent. Off Govee controllers are skipped. A missed UDP status reply skips
+gets the last. For a solid Hue color they get the same color. Hue brightness
+is copied as an integer percentage (minimum 1%). The program never sends
+power commands: on/off stays with Homebridge and its existing automations.
+Off Govee controllers are skipped. A missed UDP status reply skips
 only that controller and retries on the next cycle; other lamps keep updating.
-No color is sent to a controller whose state could not be read. The one-shot
+No color or brightness is sent to a controller whose state could not be read. The one-shot
 command still returns an error if a controller is unreachable. When Hue is off,
 palette updates pause. Active white temperature takes priority over stale
 color/gradient fields. If the physical gradient direction is reversed, swap
@@ -64,9 +65,9 @@ Readback alone does not prove the colors look right: compare the physical lamps.
 - RGB conversion is an approximation; different LEDs, walls, and brightness
   mean a visual match may need later calibration.
 - No automatic startup, cloud control, UI, changes to the Hue light, or changes
-  to Homebridge/HomeKit/Matter configuration. A concurrent Homebridge color
-  automation can overwrite the prototype's color and vice versa; use one
-  source for colors while testing. A power-off racing with a color write
+  to Homebridge/HomeKit/Matter configuration. Concurrent Homebridge color or
+  brightness automations can overwrite the prototype and vice versa; use one
+  source for palette and brightness while testing. A power-off racing with a color write
   still needs physical verification on the actual lamps.
 - Pairing and discovered addresses live in ignored `.lighting.json`, written
   with owner-only permissions. Do not share this file. Local Hue HTTPS uses a
