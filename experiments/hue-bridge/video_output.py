@@ -3,16 +3,19 @@
 import threading
 import time
 
-from entertainment_stream import VideoLease
+from entertainment_stream import GOVEE_CHANNELS, VideoLease
 
 
-def govee_stream_state(rgb):
-    return {
+def govee_stream_state(rgb, stops=None):
+    state = {
         "on": True,
         "colormode": "rgb",
         "rgb": [round(v / 65535 * 255) for v in rgb],
         "bri": 254,
     }
+    if stops is not None:
+        state["segments"] = [[round(value / 65535 * 255) for value in color] for color in stops]
+    return state
 
 
 class VideoOutput:
@@ -138,7 +141,7 @@ class VideoOutput:
                 )
                 return False
             self.relay.send(frame)
-            for side, channel in (("left", 0), ("right", 1)):
+            for side, channels in GOVEE_CHANNELS.items():
                 self.controller.submit(
                     {
                         "side": side,
@@ -146,7 +149,10 @@ class VideoOutput:
                         "sequence": sequence,
                         "issued_at": self.controller.wall_clock(),
                         "transitiontime": 0,
-                        "state": govee_stream_state(frame[channel]),
+                        "state": govee_stream_state(
+                            frame[channels[0]],
+                            [frame[channel] for channel in channels] if len(channels) > 1 else None,
+                        ),
                     }
                 )
             self.frames_sent += 1

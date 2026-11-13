@@ -155,6 +155,93 @@ class PilotTests(unittest.TestCase):
         self.assertEqual(target["brightness"], 65)
         self.assertEqual(target["rgb"], (255, 0, 0))
 
+    def test_gradient_requires_explicit_segment_capability_and_keeps_calibration(self):
+        state = {
+            "on": True,
+            "bri": 254,
+            "colormode": "rgb",
+            "segments": [[120, 0, 0], [0, 120, 0], [0, 0, 120]],
+        }
+        with self.assertRaises(ValueError):
+            pilot.normalize_state(state, 0.65)
+        target = pilot.normalize_state(state, 0.65, segment_count=7)
+        self.assertEqual(target["brightness"], 65)
+        self.assertEqual(len(target["segments"]), 7)
+        self.assertEqual(target["segments"][0], (120, 0, 0))
+        self.assertEqual(target["segments"][3], (0, 120, 0))
+        self.assertEqual(target["segments"][6], (0, 0, 120))
+
+    def test_gradient_transitions_interpolate_every_zone(self):
+        first = {"on": True, "brightness": 65, "rgb": (120, 0, 0)}
+        last = {"on": True, "brightness": 65, "segments": [(0, 0, 120)] * 7}
+        middle = pilot.blend(first, last, 0.5)
+        self.assertEqual(middle["segments"], [(60, 0, 60)] * 7)
+        self.assertEqual(pilot.blend(first, last, 1), last)
+
+    def test_scene_gradient_validates_points_and_respects_explicit_single_color(self):
+        state = {
+            "on": True,
+            "bri": 127,
+            "colormode": "xy",
+            "_color_kind": "gradient",
+            "gradient": {
+                "points": [
+                    {"color": {"xy": {"x": 0.7, "y": 0.299}}},
+                    {"color": {"xy": {"x": 0.15, "y": 0.06}}},
+                ]
+            },
+        }
+        target = pilot.normalize_state(state, 0.65, segment_count=7)
+        self.assertEqual(target["brightness"], 32)
+        self.assertEqual(target["segments"][0], (255, 0, 0))
+        self.assertEqual(target["segments"][-1], (0, 0, 255))
+        for points in (None, [], [None], [True], [{"color": {"xy": {"x": 1, "y": 1}}}]):
+            with self.subTest(points=points), self.assertRaises(ValueError):
+                pilot.normalize_state({**state, "gradient": {"points": points}}, 0.65, 7)
+        single = pilot.normalize_state(
+            {**state, "_color_kind": "xy", "xy": [0.7, 0.299]}, 0.65, segment_count=7
+        )
+        self.assertEqual(single["rgb"], (255, 0, 0))
+        self.assertNotIn("segments", single)
+
+    def test_gradient_batches_zones_and_deduplicates_without_power_commands(self):
+        selected = targets()
+        selected[0]["segment_count"] = 7
+        selected[0]["max_commands_per_second"] = 10
+        controller = pilot.PilotController(
+            selected,
+            sender=self.send,
+            clock=lambda: self.now,
+            wall_clock=lambda: 1000,
+        )
+        controller.update_statuses(self.controller.statuses)
+        state = {
+            "on": True,
+            "bri": 254,
+            "colormode": "rgb",
+            "segments": [[120, 0, 0], [0, 120, 0], [0, 0, 120]],
+        }
+        controller.submit(command(state=state, transitiontime=0))
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent], ["ptReal", "brightness"])
+        self.assertEqual(len(self.sent[0][2]["command"]), 7)
+        self.sent.clear()
+        controller.render()
+        self.assertEqual(self.sent, [])
+        controller.submit(
+            command(sequence=2, state={**state, "segments": [[0, 0, 120]]}, transitiontime=0)
+        )
+        self.now = 0.1
+        controller.render()
+        self.assertEqual(self.sent, [])
+        self.now = 0.2
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent], ["ptReal"])
+        self.sent.clear()
+        controller.update_statuses({LEFT: ({"onOff": 0}, self.now)})
+        controller.render()
+        self.assertEqual(self.sent, [])
+
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
         self.now = 1.0

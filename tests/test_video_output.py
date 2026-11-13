@@ -2,6 +2,7 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from entertainment_stream import VideoLease  # noqa: E402
@@ -40,6 +41,39 @@ class FakeProxy:
 
 
 class VideoTests(unittest.TestCase):
+    def test_gradient_stream_routes_three_anchors_per_govee_and_keeps_native_ids(self):
+        from test_govee_gradient import gradient_stream
+
+        stream = gradient_stream()
+        self.output.lease = stream.VideoLease(clock=lambda: self.now, wall_clock=lambda: 1000)
+        for device in self.controller.targets:
+            device["segment_count"] = 7
+        colors = {i: (0, 0, 0) for i in range(18)}
+        colors.update(
+            {
+                0: (65535, 0, 0),
+                14: (0, 65535, 0),
+                15: (0, 0, 65535),
+                1: (0, 0, 65535),
+                16: (65535, 0, 0),
+                17: (0, 65535, 0),
+            }
+        )
+        message = envelope(colors=[[k, *v] for k, v in colors.items()])
+        with patch("video_output.GOVEE_CHANNELS", stream.GOVEE_CHANNELS):
+            self.assertTrue(self.output.submit(message))
+            self.assertTrue(self.output.process_once())
+            self.output.render()
+        left, right = self.controller.target("left"), self.controller.target("right")
+        self.assertEqual(left["segments"][0], (255, 0, 0))
+        self.assertEqual(left["segments"][3], (0, 255, 0))
+        self.assertEqual(left["segments"][6], (0, 0, 255))
+        self.assertEqual(right["segments"][0], (0, 0, 255))
+        self.assertEqual(right["segments"][6], (0, 255, 0))
+        self.assertEqual(left["brightness"], 65)
+        self.assertEqual([cmd for cmd, _ in self.sent].count("ptReal"), 2)
+        self.assertTrue(all(cmd != "turn" for cmd, _ in self.sent))
+
     def test_video_intensity_uses_rgb_with_fixed_calibrated_global_brightness(self):
         self.assertEqual(
             normalize_state(govee_stream_state((32768, 0, 65535)), 0.65),

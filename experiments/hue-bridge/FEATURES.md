@@ -11,6 +11,10 @@ optical timing were not recorded.
 | Static shared palette on six lights | Owner accepted | Two Govee, one monitor strip, three under-desk Play |
 | Gallery Vapor wave, Play and Stop | Owner accepted | Smooth shared animation; other gallery scenes not individually accepted |
 | Govee brightness calibration | Owner accepted | Both at 0.65 of scene brightness |
+| Govee LAN zoned color | Owner accepted on both lamps | Correct bottom/middle/top pattern; batched reverse also accepted on left |
+| Virtual Signe Gradient profiles | Owner accepted on left; API verified on both | Existing IDs retained; three scene points and three Entertainment anchors per Govee |
+| Zoned Vapor wave Play | Owner accepted separately on both lamps | Multicolor gradient and smooth animation; current runtime uses explicit gradient mode |
+| Eighteen-channel Sync with zoned Govee | Implemented; physical acceptance pending | Original native channel IDs retained; six logical lights |
 | Native Hue calibration | Owner accepted | Center Play 0.50; strip/other Play 1.00 |
 | Native-only Sync priority and scene return | Owner accepted | Original path pauses our writes during foreign streaming |
 | Actual Sync Box 8K video relay | Owner accepted in PS5 menu and game | Real v2 RGB input; two Govee LAN outputs plus native Hue DTLS relay |
@@ -26,8 +30,8 @@ optical timing were not recorded.
 | Xbox, HDR and refresh-rate combinations | Not separately tested | Do not infer complete coverage from one game |
 | Optical latency and fully black frames | Not measured/accepted separately | Packet timing and black-without-power behavior have offline coverage |
 | Owner off/on during our native video relay | Offline verified only | Fresh native off releases relay and requires source restart |
-| Local setup UI sketch | Implemented as a draft | Simple schematic, automatic model defaults and fixed 10 cm placement; no physical apply |
-| Applying arbitrary topology and zoned Govee output | Not implemented | Current physical driver and native IDs remain pinned |
+| Local setup UI sketch | Implemented as a draft | Simple schematic, automatic model defaults and fixed 5 cm placement; no physical apply |
+| Applying arbitrary topology from setup UI | Not implemented | Current physical driver and native IDs remain pinned; zoned output is a separate explicit pilot mode |
 | NAS service and own Homebridge package | Not implemented | Runtime is still on the Mac with a pinned reference bridge |
 
 ## What the Homebridge version must retain

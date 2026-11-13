@@ -1,0 +1,38 @@
+{
+  "observed_at": "2026-11-13T23:59:09.751933+00:00",
+  "mode": "opt-in Signe gradient pilot",
+  "source_lights": 6,
+  "source_channels": 18,
+  "physical_segment_addresses_per_govee": 7,
+  "owner_acceptance": {
+    "left_single_frame_zone_pattern": "red bottom, green middle, blue top",
+    "left_batched_reverse": "blue bottom, green middle, red top",
+    "right_batched_zone_pattern": "red bottom, green middle, blue top",
+    "hue_editor_left": "gradient color points visible",
+    "hue_api_to_left_zones": true,
+    "vapor_wave_play_left": "multicolor gradient and smooth",
+    "vapor_wave_play_right": "multicolor gradient and smooth"
+  },
+  "api_checks": {
+    "signe_models": 2,
+    "gradient_points_capable": 3,
+    "entertainment_channels": 18,
+    "malformed_gradient_http_status": 400,
+    "valid_resource_after_rejection": true
+  },
+  "offline": {
+    "tests_passed": 156,
+    "ruff": "pass"
+  },
+  "not_yet_accepted": [
+    "eighteen-channel Sync",
+    "optical latency measurement",
+    "setup UI topology apply",
+    "NAS deployment"
+  ],
+  "power_isolation": "Owner explicitly authorized temporarily turning off other five selected desk sources; original power states restored. Production drivers still send no power commands.",
+  "exclusions": [
+    "third Govee",
+    "unrelated native Hue"
+  ]
+}

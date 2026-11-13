@@ -16,8 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from entertainment_stream import GRADIENT_MODE  # noqa: E402
+from govee_segments import interpolate, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient  # noqa: E402
+from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
@@ -32,7 +34,7 @@ def number(value, low, high):
     return value
 
 
-def normalize_state(state, scale):
+def normalize_state(state, scale, segment_count=0):
     if not isinstance(state, dict) or not isinstance(state.get("on"), bool):
         raise ValueError("Expected a light state with boolean on")
     if not state["on"]:
@@ -43,7 +45,26 @@ def normalize_state(state, scale):
         "brightness": max(1, round(brightness / 254 * 100 * lan.parse_brightness_scale(scale))),
     }
     mode = state.get("colormode", "xy")
-    if mode == "rgb":
+    if "segments" in state or state.get("_color_kind") == "gradient":
+        if segment_count != 7:
+            raise ValueError("Zoned output requires an explicitly enabled H6076 profile")
+        if "segments" in state:
+            stops = state["segments"]
+        else:
+            gradient = state.get("gradient")
+            if not isinstance(gradient, dict):
+                raise ValueError("Expected a gradient object")
+            points = gradient.get("points")
+            if not isinstance(points, list) or not 1 <= len(points) <= 5:
+                raise ValueError("Expected a bounded gradient palette")
+            stops = []
+            for point in points:
+                if not isinstance(point, dict) or not isinstance(point.get("color"), dict):
+                    raise ValueError("Expected a gradient color point")
+                color = xy_color(point["color"].get("xy"))
+                stops.append(lan.xy_to_rgb(color["x"], color["y"]))
+        result["segments"] = interpolate(stops)
+    elif mode == "rgb":
         rgb = state.get("rgb")
         if not isinstance(rgb, list) or len(rgb) != 3:
             raise ValueError("Expected RGB triple")
@@ -66,6 +87,8 @@ def normalize_state(state, scale):
 
 
 def as_rgb(target):
+    if "segments" in target:
+        return target["segments"][3]
     if "rgb" in target:
         return target["rgb"]
     # Approximate CT only while crossing color modes. Final CT uses the white channel.
@@ -93,7 +116,14 @@ def blend(first, last, fraction):
             first["brightness"] + (last["brightness"] - first["brightness"]) * fraction
         ),
     }
-    if "kelvin" in first and "kelvin" in last:
+    if "segments" in first or "segments" in last:
+        start = first.get("segments") or [as_rgb(first)] * 7
+        end = last.get("segments") or [as_rgb(last)] * 7
+        result["segments"] = [
+            tuple(round(a + (b - a) * fraction) for a, b in zip(left, right))
+            for left, right in zip(start, end)
+        ]
+    elif "kelvin" in first and "kelvin" in last:
         result["kelvin"] = round(first["kelvin"] + (last["kelvin"] - first["kelvin"]) * fraction)
     else:
         result["rgb"] = tuple(
@@ -186,7 +216,9 @@ class PilotController:
         issued = number(payload["issued_at"], self.wall_clock() - 5, self.wall_clock() + 5)
         duration = number(payload["transitiontime"], 0, 1200) / 10
         device = self.by_side[side]
-        desired = normalize_state(payload["state"], device.get("brightness_scale", 1))
+        desired = normalize_state(
+            payload["state"], device.get("brightness_scale", 1), device.get("segment_count", 0)
+        )
         with self.lock:
             previous = self.accepted.get(side)
             if previous and (
@@ -230,12 +262,20 @@ class PilotController:
                 old = self.last_sent.get(side, {})
                 refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
                 updates = []
-                for name, data in lan.govee_commands(target):
+                commands = (
+                    [
+                        ("ptReal", segment_data(target["segments"])),
+                        ("brightness", {"value": target["brightness"]}),
+                    ]
+                    if "segments" in target
+                    else lan.govee_commands(target)
+                )
+                for name, data in commands:
                     changed = (
                         old.get("brightness") != target["brightness"]
                         if name == "brightness"
-                        else (old.get("rgb"), old.get("kelvin"))
-                        != (target.get("rgb"), target.get("kelvin"))
+                        else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
+                        != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
                     )
                     if changed or refresh:
                         updates.append((name, data))
@@ -286,6 +326,7 @@ class PilotController:
                         "side": item["side"],
                         "device": lan.device_key(item),
                         "brightness_scale": item.get("brightness_scale", 1),
+                        "segment_count": item.get("segment_count", 0),
                         "max_commands_per_second": self.packet_rates[item["side"]],
                         "target": self.target(item["side"]),
                         "native": self.statuses.get(lan.device_key(item), (None, 0))[0],
@@ -377,6 +418,8 @@ def main():
     if (args.targets.parent / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     config = json.loads(args.targets.read_text())
+    for device in config["targets"]:
+        device["segment_count"] = 7 if GRADIENT_MODE else 0
     if not args.token_file.exists():
         descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:

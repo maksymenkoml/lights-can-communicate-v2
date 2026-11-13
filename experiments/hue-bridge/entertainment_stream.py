@@ -2,6 +2,7 @@
 
 import copy
 import math
+import os
 import struct
 import threading
 import time
@@ -12,8 +13,10 @@ MAGIC = b"HueStream"
 GROUP_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/DeskEntertainment"))
 AREA_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, GROUP_ID + "entertainment_configuration"))
 NATIVE_AREA_ID = "10c81079-56a6-45c4-8149-55185f703083"
-CHANNELS = set(range(14))
+GRADIENT_MODE = os.environ.get("PROBE_GOVEE_GRADIENT", "false").lower() == "true"
+CHANNELS = set(range(18 if GRADIENT_MODE else 14))
 SLOT_CHANNELS = {"1": [0], "2": [1], "3": list(range(2, 11)), "4": [11], "5": [12], "6": [13]}
+GOVEE_CHANNELS = {"left": [0], "right": [1]}
 STRIP_POSITIONS = [
     (-0.4, 0.8, -0.4),
     (-0.4, 0.8, 0),
@@ -33,11 +36,16 @@ POSITIONS = [
     (-0.09803, 1, -1),
     (0.43061, 1, -1),
 ]
+if GRADIENT_MODE:
+    SLOT_CHANNELS.update({"1": [0, 14, 15], "2": [1, 16, 17]})
+    GOVEE_CHANNELS = {"left": SLOT_CHANNELS["1"], "right": SLOT_CHANNELS["2"]}
+    POSITIONS[0], POSITIONS[1] = (-0.7, 0.8, -0.8), (0.7, 0.8, -0.8)
+    POSITIONS.extend([(-0.7, 0.8, 0), (-0.7, 0.8, 0.8), (0.7, 0.8, 0), (0.7, 0.8, 0.8)])
 
 
 def validate_colors(rows):
-    if not isinstance(rows, list) or len(rows) != 14:
-        raise ValueError("Expected fourteen desk channels")
+    if not isinstance(rows, list) or len(rows) != len(CHANNELS):
+        raise ValueError(f"Expected {len(CHANNELS)} desk channels")
     result = {}
     for row in rows:
         if (
@@ -68,10 +76,12 @@ def decode_frame(data):
     if len(data) < 16 or data[:9] != MAGIC or data[10] != 0 or data[14] not in (0, 1):
         raise ValueError("Invalid HueStream header")
     if data[9] == 2:
-        if len(data) != 52 + 14 * 7 or data[16:52] != AREA_ID.encode():
+        if len(data) != 52 + len(CHANNELS) * 7 or data[16:52] != AREA_ID.encode():
             raise ValueError("Unexpected area or frame size")
         rows = [list(struct.unpack("!BHHH", data[i : i + 7])) for i in range(52, len(data), 7)]
     elif data[9] == 1:
+        if GRADIENT_MODE:
+            raise ValueError("Gradient desk requires HueStream v2 segment addressing")
         if len(data) != 16 + 14 * 9:
             raise ValueError("Unexpected v1 frame size")
         rows = []
@@ -137,7 +147,13 @@ class FrameBuffer:
             self.buffer = self.buffer[start:]
             if len(self.buffer) < 16:
                 break
-            size = 52 + 14 * 7 if self.buffer[9] == 2 else 16 + 14 * 9 if self.buffer[9] == 1 else 0
+            size = (
+                52 + len(CHANNELS) * 7
+                if self.buffer[9] == 2
+                else 16 + 14 * 9
+                if self.buffer[9] == 1
+                else 0
+            )
             if not size:
                 self.buffer = self.buffer[9:]
                 continue
@@ -238,6 +254,7 @@ class VideoLease:
         with self.lock:
             return {
                 "active": self.active(),
+                "channel_count": len(CHANNELS),
                 "frames_received": self.received,
                 "sequence": self.sequence,
                 "max_frame_gap": self.max_frame_gap,

@@ -15,8 +15,9 @@ logging.disable(logging.CRITICAL)
 sys.path.insert(0, "/opt/hue-emulator")
 
 import configManager  # noqa: E402
-from entertainment_stream import GROUP_ID, POSITIONS, SLOT_CHANNELS  # noqa: E402
+from entertainment_stream import GRADIENT_MODE, GROUP_ID, POSITIONS, SLOT_CHANNELS  # noqa: E402
 from flask import abort, jsonify, request  # noqa: E402
+from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 from HueObjects import ApiUser, EntertainmentConfiguration, Group, Light, Scene  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
@@ -92,6 +93,7 @@ for index, side in enumerate(("Left", "Right"), start=1):
         lamp.state.update({"on": True, "bri": 200, "reachable": True})
         config["lights"][identifier] = lamp
         config["groups"]["0"].add_light(lamp)
+    configure_signe(config["lights"][identifier], GRADIENT_MODE)
 if "1" not in config["groups"]:
     room = Group.Group(
         {"id_v1": "1", "name": "Probe Office TEST", "type": "Room", "class": "Office"}
@@ -285,6 +287,11 @@ Scene.Scene.activate = serialized_activate
 
 
 def forward_selected_state(lamp, values, advertise=True):
+    if GRADIENT_MODE and lamp.id_v1 in {"1", "2"} and "gradient" in values:
+        try:
+            validate_gradient(values["gradient"])
+        except ValueError:
+            abort(400)
     transitiontime = values.get("transitiontime", 4)
     changed = bool(set(values) & {"on", "bri", "xy", "ct", "hue", "sat", "gradient"})
     with play_guard.lock:
@@ -300,7 +307,9 @@ def forward_selected_state(lamp, values, advertise=True):
                 for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
                 if key in lamp.state
             }
-            if lamp.id_v1 in {"3", "4", "5", "6"}:
+            if lamp.id_v1 in {"3", "4", "5", "6"} or (
+                GRADIENT_MODE and lamp.id_v1 in {"1", "2"}
+            ):
                 selected["_changed"] = sorted(values)
                 for field, kind in (
                     ("gradient", "gradient"),
