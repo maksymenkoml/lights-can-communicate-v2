@@ -26,7 +26,8 @@ optical timing were not recorded.
 | Xbox, HDR and refresh-rate combinations | Not separately tested | Do not infer complete coverage from one game |
 | Optical latency and fully black frames | Not measured/accepted separately | Packet timing and black-without-power behavior have offline coverage |
 | Owner off/on during our native video relay | Offline verified only | Fresh native off releases relay and requires source restart |
-| Arbitrary lamp/area layout and setup UI | Not implemented | Current topology and native IDs are pinned for this pilot |
+| Local setup UI sketch | Implemented as a draft | Simple schematic, automatic model defaults and fixed 10 cm placement; no physical apply |
+| Applying arbitrary topology and zoned Govee output | Not implemented | Current physical driver and native IDs remain pinned |
 | NAS service and own Homebridge package | Not implemented | Runtime is still on the Mac with a pinned reference bridge |
 
 ## What the Homebridge version must retain
