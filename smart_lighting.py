@@ -162,10 +162,18 @@ def animation_settings(light):
     return colors, 12 - 10 * speed
 
 
-def target_for(light, side, elapsed=0):
+def parse_brightness_scale(value):
+    scale = float(value)
+    if not math.isfinite(scale) or not 0 < scale <= 1:
+        raise ValueError("Brightness scale must be greater than 0 and no more than 1")
+    return scale
+
+
+def target_for(light, side, elapsed=0, brightness_scale=1):
     if not light["on"]["on"]:
         return {"on": False}
-    brightness = round(light.get("dimming", {}).get("brightness", 100))
+    scale = parse_brightness_scale(brightness_scale)
+    brightness = round(light.get("dimming", {}).get("brightness", 100) * scale)
     target = {"on": True, "brightness": max(1, min(100, brightness))}
     temperature = light.get("color_temperature", {})
     if temperature.get("mirek_valid") and temperature.get("mirek"):
@@ -213,7 +221,7 @@ def animate_frame(light, devices, elapsed, previous):
         if status is None or status.get("onOff") != 1:
             previous.pop(device["ip"], None)
             continue
-        target = target_for(light, device["side"], elapsed)
+        target = target_for(light, device["side"], elapsed, device.get("brightness_scale", 1))
         if target["on"] and target != previous.get(device["ip"]):
             for command, data in govee_commands(target):
                 if command == "colorwc":
@@ -261,7 +269,12 @@ def run_sync(config, once=False, dry_run=False, interval=2):
         changed = []
         active_devices = []
         for device in config["targets"]:
-            target = target_for(light, device["side"], time.monotonic() - animation_started)
+            target = target_for(
+                light,
+                device["side"],
+                time.monotonic() - animation_started,
+                device.get("brightness_scale", 1),
+            )
             if not target["on"]:
                 previous.pop(device["ip"], None)
                 continue
@@ -338,6 +351,12 @@ def main():
         "--dry-run", action="store_true", help="Read Hue and print targets without changing Govee"
     )
     sync.add_argument("--interval", type=float, default=2)
+    calibrate = sub.add_parser("calibrate", help="Save a brightness multiplier for each Govee")
+    calibrate.add_argument("--left", type=parse_brightness_scale)
+    calibrate.add_argument("--right", type=parse_brightness_scale)
+    calibrate.add_argument(
+        "--govee", type=parse_brightness_scale, help="Single controller multiplier"
+    )
     sub.add_parser("status", help="Read selected Govee controllers without changing them")
     args = parser.parse_args()
     config = load_config()
@@ -405,6 +424,19 @@ def main():
                     indent=2,
                 )
             )
+    elif args.command == "calibrate":
+        scales = {"left": args.left, "right": args.right, "center": args.govee}
+        updates = {side: scale for side, scale in scales.items() if scale is not None}
+        if not updates:
+            parser.error("Supply --left SCALE, --right SCALE, or --govee SCALE (e.g. 0.5)")
+        sides = {device["side"] for device in config.get("targets", [])}
+        if updates.keys() - sides:
+            parser.error("Calibration side is not configured; run configure first")
+        for device in config["targets"]:
+            if device["side"] in updates:
+                device["brightness_scale"] = updates[device["side"]]
+        save_config(config)
+        print("Brightness calibration saved. Restart sync to apply it.")
     elif args.command == "configure":
         if args.govee and (args.left or args.right):
             parser.error("Use --govee for one controller, or --left and --right for two")

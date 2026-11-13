@@ -1,6 +1,8 @@
 import io
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import smart_lighting as lighting
@@ -76,6 +78,85 @@ class PaletteTests(unittest.TestCase):
         for x, y in ((0.1, 0), (float("nan"), 0.3), (-0.1, 0.3)):
             with self.subTest(x=x, y=y), self.assertRaises(ValueError):
                 lighting.xy_to_rgb(x, y)
+
+
+class CalibrationTests(unittest.TestCase):
+    def test_calibration_command_persists_each_side_and_preserves_pairing(self):
+        with (
+            TemporaryDirectory(prefix="tmp_lighting_test_") as directory,
+            patch.object(lighting, "CONFIG", Path(directory) / ".lighting.json"),
+            patch(
+                "sys.argv", ["smart_lighting.py", "calibrate", "--left", "0.5", "--right", "0.4"]
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
+            lighting.save_config(
+                {
+                    "hue_key": "test-key",
+                    "targets": [
+                        {"ip": "192.168.10.50", "side": "left"},
+                        {"ip": "192.168.10.51", "side": "right"},
+                    ],
+                }
+            )
+            lighting.main()
+            config = lighting.load_config()
+            self.assertEqual(
+                [device["brightness_scale"] for device in config["targets"]], [0.5, 0.4]
+            )
+            self.assertEqual(config["hue_key"], "test-key")
+
+    def test_calibration_scales_hue_brightness_proportionally(self):
+        light = gradient_light()
+        for source, expected in ((100, 50), (80, 40), (20, 10), (0.1, 1)):
+            with self.subTest(source=source):
+                light["dimming"]["brightness"] = source
+                target = lighting.target_for(light, "left", brightness_scale=0.5)
+                self.assertEqual(target["brightness"], expected)
+                self.assertEqual(target["rgb"], (255, 0, 0))
+                self.assertTrue(target["on"])
+
+    def test_invalid_scale_is_rejected(self):
+        for scale in (0, -0.5, 1.1, float("nan"), float("inf")):
+            with self.subTest(scale=scale), self.assertRaises(ValueError):
+                lighting.target_for(gradient_light(), "left", brightness_scale=scale)
+
+    def test_each_govee_can_have_a_different_scale(self):
+        config = {
+            "light": "test-strip",
+            "targets": [
+                {"ip": "192.168.10.50", "side": "left", "brightness_scale": 0.5},
+                {"ip": "192.168.10.51", "side": "right", "brightness_scale": 0.25},
+            ],
+        }
+        sent = []
+        with (
+            patch.object(lighting, "hue_request", return_value={"data": [gradient_light()]}),
+            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
+            redirect_stdout(io.StringIO()),
+        ):
+            lighting.run_sync(config, once=True)
+        self.assertEqual(
+            [packet for packet in sent if packet[1] == "brightness"],
+            [
+                ("192.168.10.50", "brightness", {"value": 21}),
+                ("192.168.10.51", "brightness", {"value": 11}),
+            ],
+        )
+        self.assertNotIn("turn", [packet[1] for packet in sent])
+
+    def test_dynamic_frames_keep_the_calibrated_brightness(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        targets = [{"ip": "192.168.10.50", "side": "left", "brightness_scale": 0.5}]
+        previous = {}
+        with (
+            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "govee_send"),
+        ):
+            lighting.animate_frame(light, targets, elapsed=2, previous=previous)
+        self.assertEqual(previous["192.168.10.50"]["brightness"], 21)
 
 
 class DynamicPaletteTests(unittest.TestCase):

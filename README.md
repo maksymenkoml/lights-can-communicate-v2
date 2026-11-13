@@ -38,9 +38,23 @@ Pick a scene in Hue and leave the last command running to follow changes.
 Ctrl+C stops the program; the lights keep their last state. `status` reads
 the selected Govee controllers without changing them.
 
+If Govee look brighter on the wall, save a separate brightness multiplier for
+each side. Stop the running sync, calibrate, and start sync again:
+
+```sh
+python3 smart_lighting.py calibrate --left 0.5 --right 0.5
+python3 smart_lighting.py sync
+```
+
+With a 0.5 multiplier, Hue at 80% gives Govee 40%. Each side can use a different
+value greater than 0 and up to 1; 1 restores full brightness copying. For a
+single controller use `calibrate --govee 0.5`. Calibration is stored locally
+alongside the device selection and applies to static and animated scenes.
+The current desk's two Govee were visually balanced at 0.5 each.
+
 For static scenes, the left Govee gets the first stored Hue gradient point and the right Govee
 gets the last. For a solid Hue color they get the same color. Hue brightness
-is copied as an integer percentage (minimum 1%). The program never sends
+is copied as an integer percentage after the per-device multiplier (minimum 1%). The program never sends
 power commands: on/off stays with Homebridge and its existing automations.
 Off Govee controllers are skipped. A missed UDP status reply skips
 only that controller and retries on the next cycle; other lamps keep updating.
