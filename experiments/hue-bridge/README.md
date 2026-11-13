@@ -17,8 +17,11 @@ See [LIVE_PILOT.md](LIVE_PILOT.md) for scope, implementation, and evidence limit
 strip and the owner's three confirmed Hue Play lamps through a host-side,
 color-only proxy. The separate `Vapor wave DESK` scene aligns palette edges
 and center; Govee retain 0.65 brightness calibration. Static native readback
-is recorded in `evidence/live-desk-static.json`. Dynamic visual acceptance
-and HDMI Sync are separate checks. This remains a local reference experiment.
+is recorded in `evidence/live-desk-static.json`. The owner confirmed smooth
+six-light Play, intended colors, Stop, and Center calibration. A live Sync
+priority check observed paused writes during streaming and resumed commands
+after Sync stopped. Visual resume and Sync Box reliability remain separate
+checks. This remains a local reference experiment.
 
 ## Phase 1: simulated compatibility result
 

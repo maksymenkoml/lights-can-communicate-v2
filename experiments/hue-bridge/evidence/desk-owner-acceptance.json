@@ -1,0 +1,158 @@
+{
+  "date": "2026-11-13",
+  "owner_confirmed": {
+    "six_light_play_smooth": true,
+    "six_light_colors_correct": true,
+    "six_light_stop": true,
+    "center_half_brightness": true
+  },
+  "boundary": "Owner visual observations; HDMI Sync not yet tested",
+  "before_sync": {
+    "time": 1794591546.0497332,
+    "hue": {
+      "strip": {
+        "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+        "brightness_scale": 1.0,
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 77.87,
+        "native_gradient_points": 5,
+        "native_age": 0.4024374580185395,
+        "writes": 22,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 400
+          },
+          "dimming": {
+            "brightness": 77.95275590551181
+          },
+          "gradient": {
+            "points": [
+              {
+                "color": {
+                  "xy": {
+                    "x": 0.17829999999999993,
+                    "y": 0.12119999999999992
+                  }
+                }
+              },
+              {
+                "color": {
+                  "xy": {
+                    "x": 0.2299,
+                    "y": 0.08619999999999994
+                  }
+                }
+              },
+              {
+                "color": {
+                  "xy": {
+                    "x": 0.4038999999999997,
+                    "y": 0.19139999999999985
+                  }
+                }
+              },
+              {
+                "color": {
+                  "xy": {
+                    "x": 0.5402840141803051,
+                    "y": 0.42187871727322523
+                  }
+                }
+              },
+              {
+                "color": {
+                  "xy": {
+                    "x": 0.47399999999999987,
+                    "y": 0.4378000000000002
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "hue_left": {
+        "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+        "brightness_scale": 1.0,
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 77.87,
+        "native_gradient_points": 0,
+        "native_age": 0.3907990829902701,
+        "writes": 22,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 36
+          },
+          "dimming": {
+            "brightness": 77.95275590551181
+          },
+          "color": {
+            "xy": {
+              "x": 0.17829999999999993,
+              "y": 0.12119999999999992
+            }
+          }
+        }
+      },
+      "hue_center": {
+        "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+        "brightness_scale": 0.5,
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 39.13,
+        "native_gradient_points": 0,
+        "native_age": 0.36734595798770897,
+        "writes": 22,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 29
+          },
+          "dimming": {
+            "brightness": 38.976377952755904
+          },
+          "color": {
+            "xy": {
+              "x": 0.4038999999999997,
+              "y": 0.19139999999999985
+            }
+          }
+        }
+      },
+      "hue_right": {
+        "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+        "brightness_scale": 1.0,
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 77.87,
+        "native_gradient_points": 0,
+        "native_age": 0.38005945799523033,
+        "writes": 22,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 400
+          },
+          "dimming": {
+            "brightness": 77.95275590551181
+          },
+          "color": {
+            "xy": {
+              "x": 0.47399999999999987,
+              "y": 0.4378000000000002
+            }
+          }
+        }
+      }
+    },
+    "govee_commands_sent": 1387
+  }
+}

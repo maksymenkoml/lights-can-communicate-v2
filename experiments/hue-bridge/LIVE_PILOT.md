@@ -19,9 +19,33 @@ Settled native readback after applying the change was 39.13% Center against
 Static desk recall reached both Govee at 51% and all four native Hue lights at
 77.87% readback (requested 78%, rounded through v1 brightness). Native Play
 color readback matched the three selected palette positions. Strip readback
-contained five gradient points. These are API observations; six-light visual
-balance, physical strip direction, and dynamic acceptance remain owner checks.
+contained five gradient points. The owner subsequently confirmed that all six
+lights animate smoothly with the intended colors, and that Stop works.
 See `evidence/live-desk-static.json`.
+
+## Desk acceptance and Sync priority
+
+The owner confirmed six-light Play, colors, Stop, and the Center brightness
+correction. See `evidence/desk-owner-acceptance.json` for those visual checks.
+
+During the console test, the owner reported that Sync worked, disconnected
+with Connecting, and reconnected; similar disconnects had occurred before.
+The following observation does not identify the cause of that disconnect.
+
+After reconnect, all four native lights reported streaming. Across a
+7-second observation their proxy write counters stayed at 61 each and the
+Govee command counter stayed at 3460, despite virtual Play remaining active.
+The pilot yielded physical output to Sync in this observed window.
+
+After the owner stopped Sync, all four lights reported normal mode. Across
+the next observation each native proxy wrote two updates and the Govee
+counter advanced by 278, with no rejected Govee sends. This confirms command
+delivery resumed; the visual return to the shared composition is a separate
+owner check. See `evidence/desk-sync-observation.json`.
+
+Govee video synchronization is not implemented: they hold their last color
+during observed streaming. Correction of native Hue brightness is applied to
+our scene commands; it is not injected into Sync Box streaming.
 
 The owner resumed hardware testing on 2026-11-13. The selected two-lamp pilot
 was restarted with the saved 0.65 calibration. The owner confirmed smooth
@@ -134,8 +158,9 @@ These tests made no physical network requests.
   state in any selected Hue pauses Govee rendering. This is a polling guard,
   not proof of HDMI Sync compatibility.
 - The old palette follower is stopped to prevent competing commands.
-- NAS deployment, a Homebridge package, and physical HDMI Sync validation
-  are outside this pilot.
+- NAS deployment, a Homebridge package, and Govee video synchronization
+  are outside this pilot. The Sync priority observation above covers one
+  live streaming and resume path, not general Sync Box reliability.
 
 ## Optional native Hue output
 

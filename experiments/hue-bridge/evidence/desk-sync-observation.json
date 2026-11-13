@@ -1,0 +1,2745 @@
+{
+  "date": "2026-11-13",
+  "owner_observation": "Sync initially worked, then Sync Box showed Connecting and reconnected. Owner reports similar disconnects occurred before.",
+  "boundary": "Observations after reported reconnect; no diagnosis of the preceding disconnect",
+  "samples": [
+    {
+      "time": 1794591802.060641,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.4091648749890737,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.3891837089904584,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.40704354099580087,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.40694062499096617,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591803.068536,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.36088470902177505,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.19025824998971075,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.360854707978433,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.3631864999770187,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591804.07666,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8467820830119308,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7869658750132658,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.847429125016788,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8475327499909326,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591805.081862,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7899125409894623,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7590952909959015,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.7732075410021935,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8016947080031969,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591806.092269,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7657049169938546,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7327294999849983,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.7430112090078183,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7681192500167526,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591807.097755,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8903985829965677,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.9280168749974109,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.9178798329958227,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.901244582986692,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591808.101779,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8868184160091914,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.925199583027279,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.9028579999867361,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8907020830083638,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": 1794591809.107745,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.6372300419898238,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2759
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7493906249874271,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3293
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.7265761249873322,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3368
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "streaming",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.7089228330005426,
+          "writes": 61,
+          "last_result": "native streaming",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2935
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 3460,
+      "govee_skipped_state": {
+        "left": 749,
+        "right": 2415
+      },
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      }
+    }
+  ],
+  "after_owner_stopped_sync": [
+    {
+      "time": 1794591889.317612,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.20702529198024422,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2879
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.2508511249907315,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3035
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.21642770900507458,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2884
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.23517525001079775,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2885
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.47399999999999975,
+                "y": 0.4378000000000003
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5150,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 255,
+              "g": 172,
+              "b": 47
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 255,
+              "g": 158,
+              "b": 28
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591890.322201,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.32160283299162984,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2879
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.3645918330003042,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3035
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.32926749999751337,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2884
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.3553832500183489,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2885
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.47399999999999975,
+                "y": 0.4378000000000003
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5186,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 200,
+              "g": 154,
+              "b": 113
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 255,
+              "g": 170,
+              "b": 44
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591891.326784,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.3002910829964094,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2879
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.4856033340038266,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3240
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.22990000000000022,
+                "y": 0.08620000000000001
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.3964471670042258,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2884
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.4766551250068005,
+          "writes": 78,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2885
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.47399999999999975,
+                "y": 0.4378000000000003
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5224,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 143,
+              "g": 128,
+              "b": 175
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 238,
+              "g": 171,
+              "b": 72
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591892.332753,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.3671462500060443,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3061
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.39770083301118575,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3240
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.22990000000000022,
+                "y": 0.08620000000000001
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.3875912499788683,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3153
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.3759054580004886,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3232
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5264,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 98,
+              "g": 108,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 183,
+              "g": 146,
+              "b": 131
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591893.3385952,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.4426374169997871,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3061
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.45689729100558907,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3240
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.22990000000000022,
+                "y": 0.08620000000000001
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.45696741598658264,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3153
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.45702137501211837,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3232
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5304,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 71,
+              "g": 92,
+              "b": 255
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 123,
+              "g": 119,
+              "b": 196
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591894.345842,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.5582934579870198,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3061
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.5447038749989588,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3240
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.22990000000000022,
+                "y": 0.08620000000000001
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.5234401669877116,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3153
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.5402840141803049,
+                "y": 0.4218787172732254
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.5306725839909632,
+          "writes": 79,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 3232
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.17829999999999993,
+                "y": 0.12119999999999992
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5344,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 94,
+              "g": 70,
+              "b": 255
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 73,
+              "g": 97,
+              "b": 249
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591895.350933,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.6577125839830842,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2795
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.8451781249896158,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2976
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.8342018339899369,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2967
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.47399999999999975,
+                "y": 0.4378000000000003
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.6620657500170637,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2799
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.22990000000000022,
+                "y": 0.08620000000000001
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5386,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 109,
+              "g": 55,
+              "b": 255
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 90,
+              "g": 74,
+              "b": 255
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    },
+    {
+      "time": 1794591896.3606231,
+      "hue": {
+        "strip": {
+          "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 5,
+          "native_age": 0.4437797089922242,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2795
+            },
+            "gradient": {
+              "points": [
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.40389999999999965,
+                      "y": 0.19139999999999985
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.5402840141803049,
+                      "y": 0.4218787172732254
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.47399999999999975,
+                      "y": 0.4378000000000003
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.17829999999999993,
+                      "y": 0.12119999999999992
+                    }
+                  }
+                },
+                {
+                  "color": {
+                    "xy": {
+                      "x": 0.22990000000000022,
+                      "y": 0.08620000000000001
+                    }
+                  }
+                }
+              ]
+            },
+            "dimming": {
+              "brightness": 78.0
+            }
+          }
+        },
+        "hue_left": {
+          "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.5112427919812035,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2976
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.40389999999999965,
+                "y": 0.19139999999999985
+              }
+            }
+          }
+        },
+        "hue_center": {
+          "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+          "brightness_scale": 0.5,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 39.13,
+          "native_gradient_points": 0,
+          "native_age": 0.45806966701638885,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2967
+            },
+            "dimming": {
+              "brightness": 38.976377952755904
+            },
+            "color": {
+              "xy": {
+                "x": 0.47399999999999975,
+                "y": 0.4378000000000003
+              }
+            }
+          }
+        },
+        "hue_right": {
+          "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+          "brightness_scale": 1.0,
+          "healthy": true,
+          "native_mode": "normal",
+          "native_on": true,
+          "native_brightness": 77.87,
+          "native_gradient_points": 0,
+          "native_age": 0.45466975000454113,
+          "writes": 80,
+          "last_result": "applied",
+          "last_payload": {
+            "dynamics": {
+              "duration": 2799
+            },
+            "dimming": {
+              "brightness": 77.95275590551181
+            },
+            "color": {
+              "xy": {
+                "x": 0.22990000000000022,
+                "y": 0.08620000000000001
+              }
+            }
+          }
+        }
+      },
+      "govee_commands_sent": 5428,
+      "govee_rejected_sends": {
+        "left": 0,
+        "right": 0
+      },
+      "govee_targets": [
+        {
+          "side": "left",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 145,
+              "g": 20,
+              "b": 255
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        },
+        {
+          "side": "right",
+          "brightness_scale": 0.65,
+          "native": {
+            "onOff": 1,
+            "brightness": 51,
+            "color": {
+              "r": 122,
+              "g": 42,
+              "b": 255
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          }
+        }
+      ]
+    }
+  ],
+  "resume_api_check": {
+    "modes": {
+      "strip": "normal",
+      "hue_left": "normal",
+      "hue_center": "normal",
+      "hue_right": "normal"
+    },
+    "hue_write_deltas": {
+      "strip": 2,
+      "hue_left": 2,
+      "hue_center": 2,
+      "hue_right": 2
+    },
+    "govee_command_delta": 278,
+    "boundary": "Native mode and host command counters; visual return not yet confirmed by owner"
+  }
+}
