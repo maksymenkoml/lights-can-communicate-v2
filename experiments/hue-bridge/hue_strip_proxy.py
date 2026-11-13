@@ -18,6 +18,7 @@ PLAY_IDS = {
     "hue_center": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
     "hue_right": "f8606c12-5d21-4087-846e-4eeafef905f6",
 }
+HUE_BRIGHTNESS_SCALES = {"strip": 1.0, "hue_left": 1.0, "hue_center": 0.5, "hue_right": 1.0}
 
 
 def finite(value, low, high):
@@ -150,6 +151,7 @@ class HueStripProxy:
         self.resource_id = getattr(client, "resource_id", STRIP_ID)
         if {"strip": STRIP_ID, **PLAY_IDS}.get(role) != self.resource_id:
             raise ValueError("Hue role does not match the selected resource")
+        self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
         self.state_lock = threading.RLock()
@@ -186,6 +188,10 @@ class HueStripProxy:
             raise ValueError("Invalid source ordering")
         issued = finite(payload["issued_at"], self.wall_clock() - 5, self.wall_clock() + 5)
         body = hue_payload(payload["state"], payload["transitiontime"])
+        if body is not None and "dimming" in body:
+            body["dimming"]["brightness"] = max(
+                0.1, body["dimming"]["brightness"] * self.brightness_scale
+            )
         with self.command_lock:
             previous = self.accepted
             if previous and (
@@ -284,6 +290,7 @@ class HueStripProxy:
         with self.state_lock:
             return {
                 "resource_id": self.resource_id,
+                "brightness_scale": self.brightness_scale,
                 "healthy": self.healthy,
                 "native_mode": self.native.get("mode") if self.native else None,
                 "native_on": self.native.get("on", {}).get("on") if self.native else None,

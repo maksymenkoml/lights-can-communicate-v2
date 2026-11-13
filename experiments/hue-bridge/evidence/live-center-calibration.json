@@ -1,0 +1,181 @@
+{
+  "date": "2026-11-13",
+  "phase": "center_calibration_settled",
+  "boundary": "Native reported brightness after settling; not an optical measurement",
+  "native": {
+    "strip": {
+      "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+      "brightness_scale": 1.0,
+      "healthy": true,
+      "native_mode": "normal",
+      "native_on": true,
+      "native_brightness": 77.87,
+      "native_gradient_points": 5,
+      "native_age": 0.5520102500158828,
+      "writes": 1,
+      "last_result": "applied",
+      "last_payload": {
+        "dynamics": {
+          "duration": 6
+        },
+        "dimming": {
+          "brightness": 77.95275590551181
+        },
+        "gradient": {
+          "points": [
+            {
+              "color": {
+                "xy": {
+                  "x": 0.17829999999999993,
+                  "y": 0.12119999999999992
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.2299,
+                  "y": 0.08619999999999994
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.4038999999999997,
+                  "y": 0.19139999999999985
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.5402840141803051,
+                  "y": 0.42187871727322523
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.47399999999999987,
+                  "y": 0.4378000000000002
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "hue_left": {
+      "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+      "brightness_scale": 1.0,
+      "healthy": true,
+      "native_mode": "normal",
+      "native_on": true,
+      "native_brightness": 77.87,
+      "native_gradient_points": 0,
+      "native_age": 0.5693380409793463,
+      "writes": 1,
+      "last_result": "applied",
+      "last_payload": {
+        "dynamics": {
+          "duration": 400
+        },
+        "dimming": {
+          "brightness": 77.95275590551181
+        },
+        "color": {
+          "xy": {
+            "x": 0.17829999999999993,
+            "y": 0.12119999999999992
+          }
+        }
+      }
+    },
+    "hue_center": {
+      "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+      "brightness_scale": 0.5,
+      "healthy": true,
+      "native_mode": "normal",
+      "native_on": true,
+      "native_brightness": 39.13,
+      "native_gradient_points": 0,
+      "native_age": 0.5568973750050645,
+      "writes": 1,
+      "last_result": "applied",
+      "last_payload": {
+        "dynamics": {
+          "duration": 400
+        },
+        "dimming": {
+          "brightness": 38.976377952755904
+        },
+        "color": {
+          "xy": {
+            "x": 0.4038999999999997,
+            "y": 0.19139999999999985
+          }
+        }
+      }
+    },
+    "hue_right": {
+      "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+      "brightness_scale": 1.0,
+      "healthy": true,
+      "native_mode": "normal",
+      "native_on": true,
+      "native_brightness": 77.87,
+      "native_gradient_points": 0,
+      "native_age": 0.583640541008208,
+      "writes": 1,
+      "last_result": "applied",
+      "last_payload": {
+        "dynamics": {
+          "duration": 400
+        },
+        "dimming": {
+          "brightness": 77.95275590551181
+        },
+        "color": {
+          "xy": {
+            "x": 0.47399999999999987,
+            "y": 0.4378000000000002
+          }
+        }
+      }
+    }
+  },
+  "govee": [
+    {
+      "side": "left",
+      "brightness_scale": 0.65,
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 68,
+          "g": 95,
+          "b": 255
+        },
+        "colorTemInKelvin": 0,
+        "identity_verified": true
+      }
+    },
+    {
+      "side": "right",
+      "brightness_scale": 0.65,
+      "native": {
+        "onOff": 1,
+        "brightness": 51,
+        "color": {
+          "r": 255,
+          "g": 178,
+          "b": 54
+        },
+        "colorTemInKelvin": 0,
+        "identity_verified": true
+      }
+    }
+  ]
+}

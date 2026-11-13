@@ -8,6 +8,14 @@ under-desk Hue Play lamps. The virtual room has six lights. A separate
 point to both left lights, the last point to both right lights, and the middle
 point to Hue Play Center. The existing gallery scene remains available.
 
+The owner subsequently set Hue Play Center to a 0.50 brightness multiplier,
+relative to the strip's unchanged 1.00 multiplier. The other two Play lamps
+remain at 1.00 and both Govee at 0.65. Calibration is applied once to each
+incoming scene brightness, including dynamic updates; native on recovery
+reuses the already calibrated desired state.
+Settled native readback after applying the change was 39.13% Center against
+77.87% strip (native rounding); see `evidence/live-center-calibration.json`.
+
 Static desk recall reached both Govee at 51% and all four native Hue lights at
 77.87% readback (requested 78%, rounded through v1 brightness). Native Play
 color readback matched the three selected palette positions. Strip readback

@@ -57,6 +57,40 @@ class FakeHue:
 
 
 class HueStripTests(unittest.TestCase):
+    def test_center_play_halves_each_scene_brightness_and_restores_without_double_scaling(self):
+        client = FakeHue()
+        client.resource_id = PLAY_IDS["hue_center"]
+        client.native["id"] = client.resource_id
+        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000, role="hue_center")
+        value = {
+            "on": True,
+            "bri": 254,
+            "colormode": "xy",
+            "xy": [0.2, 0.3],
+            "_changed": ["on", "bri", "xy"],
+        }
+        proxy.submit(command(side="hue_center", state=value))
+        self.assertTrue(proxy.process_once())
+        self.assertEqual(client.writes[-1]["dimming"]["brightness"], 50)
+        self.assertEqual(client.writes[-1]["color"]["xy"], {"x": 0.2, "y": 0.3})
+        self.assertEqual(client.writes[-1]["dynamics"]["duration"], 4700)
+        value.update({"bri": 127, "_changed": ["bri"]})
+        proxy.submit(command(sequence=2, side="hue_center", state=value))
+        self.assertTrue(proxy.process_once())
+        self.assertEqual(client.writes[-1]["dimming"]["brightness"], 25)
+        self.assertNotIn("color", client.writes[-1])
+        client.native["on"]["on"] = False
+        self.assertFalse(proxy.process_once())
+        client.native["on"]["on"] = True
+        self.assertTrue(proxy.process_once())
+        self.assertEqual(client.writes[-1]["dimming"]["brightness"], 25)
+        self.assertNotIn("on", client.writes[-1])
+
+    def test_strip_keeps_full_scene_brightness(self):
+        self.proxy.submit(command(state={"on": True, "bri": 254, "_changed": ["bri"]}))
+        self.assertTrue(self.proxy.process_once())
+        self.assertEqual(self.client.writes[-1]["dimming"]["brightness"], 100)
+
     def test_confirmed_play_roles_pin_their_own_ids_without_allowing_other_hue_devices(self):
         requests = []
         selected = PLAY_IDS["hue_left"]
