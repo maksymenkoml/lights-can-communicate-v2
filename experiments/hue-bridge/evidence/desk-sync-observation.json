@@ -2740,6 +2740,8 @@
       "hue_right": 2
     },
     "govee_command_delta": 278,
-    "boundary": "Native mode and host command counters; visual return not yet confirmed by owner"
-  }
+    "boundary": "Native mode and host counters confirm delivery resumed; owner separately confirmed visual return and continued animation."
+  },
+  "owner_confirmed_visual_resume": true,
+  "owner_resume_observation": "All lights visually returned as before; animation continues."
 }

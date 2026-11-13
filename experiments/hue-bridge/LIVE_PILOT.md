@@ -40,8 +40,9 @@ The pilot yielded physical output to Sync in this observed window.
 After the owner stopped Sync, all four lights reported normal mode. Across
 the next observation each native proxy wrote two updates and the Govee
 counter advanced by 278, with no rejected Govee sends. This confirms command
-delivery resumed; the visual return to the shared composition is a separate
-owner check. See `evidence/desk-sync-observation.json`.
+delivery resumed. The owner separately confirmed that all lights visually
+returned as before and the shared animation continues. See
+`evidence/desk-sync-observation.json`.
 
 Govee video synchronization is not implemented: they hold their last color
 during observed streaming. Correction of native Hue brightness is applied to

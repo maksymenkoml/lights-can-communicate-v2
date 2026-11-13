@@ -4,9 +4,10 @@
     "six_light_play_smooth": true,
     "six_light_colors_correct": true,
     "six_light_stop": true,
-    "center_half_brightness": true
+    "center_half_brightness": true,
+    "visual_resume_after_sync": true
   },
-  "boundary": "Owner visual observations; HDMI Sync not yet tested",
+  "boundary": "Owner visual observations of six-light Play, Stop, calibration, and return after Sync. Sync Box disconnect cause not established.",
   "before_sync": {
     "time": 1794591546.0497332,
     "hue": {

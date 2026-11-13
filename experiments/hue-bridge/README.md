@@ -20,8 +20,9 @@ and center; Govee retain 0.65 brightness calibration. Static native readback
 is recorded in `evidence/live-desk-static.json`. The owner confirmed smooth
 six-light Play, intended colors, Stop, and Center calibration. A live Sync
 priority check observed paused writes during streaming and resumed commands
-after Sync stopped. Visual resume and Sync Box reliability remain separate
-checks. This remains a local reference experiment.
+after Sync stopped. The owner also confirmed visual return and continued
+animation. Sync Box reliability remains a separate investigation. This remains
+a local reference experiment.
 
 ## Phase 1: simulated compatibility result
 
