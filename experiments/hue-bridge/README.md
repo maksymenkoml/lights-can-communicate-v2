@@ -13,6 +13,13 @@ The hold mechanism remains available for later pauses. Do not remove a future
 
 See [LIVE_PILOT.md](LIVE_PILOT.md) for scope, implementation, and evidence limits.
 
+**Desk expansion:** an opt-in six-light pilot now adds the genuine monitor
+strip and the owner's three confirmed Hue Play lamps through a host-side,
+color-only proxy. The separate `Vapor wave DESK` scene aligns palette edges
+and center; Govee retain 0.65 brightness calibration. Static native readback
+is recorded in `evidence/live-desk-static.json`. Dynamic visual acceptance
+and HDMI Sync are separate checks. This remains a local reference experiment.
+
 ## Phase 1: simulated compatibility result
 
 Tested on 2026-11-13 with the owner's installed official Philips Hue app on

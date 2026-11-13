@@ -1,0 +1,302 @@
+"""Proxy only the selected monitor strip and confirmed Play lights through their bridge."""
+
+import copy
+import json
+import math
+import ssl
+import threading
+import time
+import urllib.request
+
+from bridge_output import strip_changes
+
+import smart_lighting as lan
+
+STRIP_ID = "98250ec6-d7fd-4b47-ace6-ff449ea3066f"
+PLAY_IDS = {
+    "hue_left": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+    "hue_center": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+    "hue_right": "f8606c12-5d21-4087-846e-4eeafef905f6",
+}
+
+
+def finite(value, low, high):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not low <= value <= high
+    ):
+        raise ValueError("Invalid numeric value")
+    return value
+
+
+def xy_color(value):
+    if not isinstance(value, dict):
+        raise ValueError("Expected xy color")
+    x = finite(value.get("x"), 0, 1)
+    y = finite(value.get("y"), 0.00001, 1)
+    if x + y > 1.0001:
+        raise ValueError("Invalid chromaticity")
+    return {"x": x, "y": y}
+
+
+def hue_payload(state, transitiontime):
+    if not isinstance(state, dict) or not isinstance(state.get("on"), bool):
+        raise ValueError("Expected boolean on in source state")
+    if not state["on"]:
+        return None
+    duration = round(finite(transitiontime, 0, 1200) * 100)
+    changed = strip_changes(state)
+    body = {"dynamics": {"duration": duration}}
+    if "bri" in changed:
+        body["dimming"] = {"brightness": max(0.1, finite(state.get("bri"), 0, 254) / 254 * 100)}
+    if "gradient" in changed:
+        points = state.get("gradient", {}).get("points", [])
+        if not isinstance(points, list) or not 2 <= len(points) <= 5:
+            raise ValueError("Expected two to five gradient points")
+        body["gradient"] = {
+            "points": [
+                {"color": {"xy": xy_color(point.get("color", {}).get("xy"))}} for point in points
+            ]
+        }
+        if "dimming" not in body and points[0].get("dimming"):
+            body["dimming"] = {
+                "brightness": max(0.1, finite(points[0]["dimming"].get("brightness"), 0, 100))
+            }
+    elif "ct" in changed and state.get("colormode") == "ct":
+        body["color_temperature"] = {"mirek": round(finite(state.get("ct"), 153, 500))}
+    elif "xy" in changed:
+        xy = state.get("xy")
+        if not isinstance(xy, list) or len(xy) != 2:
+            raise ValueError("Expected xy pair")
+        body["color"] = {"xy": xy_color({"x": xy[0], "y": xy[1]})}
+    elif ("hue" in changed or "sat" in changed) and state.get("colormode") == "hs":
+        # The reference v2 path supplies xy for color scenes; unsupported states fail closed.
+        raise ValueError("Hue strip proxy requires xy for colored output")
+    if len(body) == 1:
+        raise ValueError("No supported color or dimming command")
+    return body
+
+
+class PinnedHueClient:
+    def __init__(self, config, requester=None, resource_id=None):
+        self.resource_id = resource_id or STRIP_ID
+        if config.get("light") != STRIP_ID or self.resource_id not in {
+            STRIP_ID,
+            *PLAY_IDS.values(),
+        }:
+            raise ValueError("Only the selected desk Hue lights are allowed")
+        self.bridge = lan.local_ip(config["bridge"])
+        self.key = config["hue_key"]
+        self.path = "/clip/v2/resource/light/" + self.resource_id
+        self.requester = requester or self.request
+
+    def request(self, method, path, body):
+        if path != self.path:
+            raise ValueError("Unexpected Hue resource")
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context)
+        )
+        request = urllib.request.Request(
+            "https://" + self.bridge + path,
+            data=None if body is None else json.dumps(body).encode(),
+            method=method,
+            headers={"Content-Type": "application/json", "hue-application-key": self.key},
+        )
+        with opener.open(request, timeout=1.5) as response:
+            result = json.load(response)
+        if result.get("errors"):
+            raise ValueError("Native Hue rejected the selected strip command")
+        return result
+
+    def read(self):
+        result = self.requester("GET", self.path, None)
+        light = result["data"][0]
+        if light.get("id") != self.resource_id:
+            raise ValueError("Wrong native Hue resource")
+        return light
+
+    def write(self, body):
+        if (
+            not isinstance(body, dict)
+            or not body
+            or set(body) - {"gradient", "dimming", "color", "color_temperature", "dynamics"}
+        ):
+            raise ValueError("Unexpected or power-changing Hue write")
+        result = self.requester("PUT", self.path, body)
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native strip write not confirmed")
+
+
+def merge_hue_body(previous, update):
+    result = copy.deepcopy(previous or {})
+    colors = {"gradient", "color", "color_temperature"}
+    if colors & update.keys():
+        for key in colors:
+            result.pop(key, None)
+    result.update(copy.deepcopy(update))
+    return result
+
+
+class HueStripProxy:
+    def __init__(self, client, clock=time.monotonic, wall_clock=time.time, role="strip"):
+        self.role = role
+        self.resource_id = getattr(client, "resource_id", STRIP_ID)
+        if {"strip": STRIP_ID, **PLAY_IDS}.get(role) != self.resource_id:
+            raise ValueError("Hue role does not match the selected resource")
+        self.client, self.clock, self.wall_clock = client, clock, wall_clock
+        self.command_lock = threading.RLock()
+        self.state_lock = threading.RLock()
+        self.wake = threading.Event()
+        self.desired = None
+        self.pending_body = None
+        self.accepted = None
+        self.generation = 0
+        self.applied = 0
+        self.restore = False
+        self.native = None
+        self.native_seen = float("-inf")
+        self.healthy = False
+        self.writes = 0
+        self.last_result = "waiting"
+        self.last_payload = None
+
+    def submit(self, payload):
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {"side", "state", "transitiontime", "session", "sequence", "issued_at"}
+            or payload["side"] != self.role
+        ):
+            raise ValueError("Invalid strip command")
+        session = payload["session"]
+        sequence = payload["sequence"]
+        if (
+            not isinstance(session, str)
+            or not 1 <= len(session) <= 80
+            or type(sequence) is not int
+            or not 0 <= sequence < 2**63
+        ):
+            raise ValueError("Invalid source ordering")
+        issued = finite(payload["issued_at"], self.wall_clock() - 5, self.wall_clock() + 5)
+        body = hue_payload(payload["state"], payload["transitiontime"])
+        with self.command_lock:
+            previous = self.accepted
+            if previous and (
+                (session == previous[0] and sequence <= previous[1])
+                or (session != previous[0] and issued <= previous[2])
+            ):
+                return False
+            self.accepted = (session, sequence, issued)
+            previous_generation = self.generation
+            self.generation += 1
+            if body is not None:
+                previous_body = self.desired[0] if self.desired else None
+                self.desired = (merge_hue_body(previous_body, body), issued)
+                self.pending_body = (
+                    copy.deepcopy(body)
+                    if self.applied == previous_generation
+                    else merge_hue_body(self.pending_body, body)
+                )
+            else:
+                self.desired = None
+                self.pending_body = None
+            if body is None:
+                self.last_result = "stopped"
+            self.wake.set()
+        return True
+
+    def govee_allowed(self):
+        with self.state_lock:
+            return bool(
+                self.healthy
+                and self.native
+                and self.native.get("mode") == "normal"
+                and 0 <= self.clock() - self.native_seen <= 2
+            )
+
+    def process_once(self):
+        try:
+            native = self.client.read()
+            if native.get("id") != self.resource_id or native.get("mode") not in (
+                "normal",
+                "streaming",
+            ):
+                raise ValueError("Unexpected native strip state")
+            with self.state_lock:
+                self.native = copy.deepcopy(native)
+                self.native_seen = self.clock()
+            eligible = native.get("mode") == "normal" and native.get("on", {}).get("on") is True
+            with self.command_lock:
+                if not eligible:
+                    self.restore = True
+                    with self.state_lock:
+                        self.healthy = True
+                        self.last_result = (
+                            "native streaming" if native["mode"] == "streaming" else "native off"
+                        )
+                    return False
+                if self.desired is None or (self.applied == self.generation and not self.restore):
+                    with self.state_lock:
+                        self.healthy = True
+                    return False
+                desired_body, issued = self.desired
+                body = desired_body if self.restore else self.pending_body or desired_body
+                body = copy.deepcopy(body)
+                points = body.get("gradient", {}).get("points", [])
+                if points and len(points) > native.get("gradient", {}).get("points_capable", 0):
+                    raise ValueError("Native gradient capability mismatch")
+                duration = body["dynamics"]["duration"]
+                remaining = round(duration - max(0, self.wall_clock() - issued) * 1000)
+                body["dynamics"]["duration"] = (
+                    max(0, remaining) if remaining > 0 or duration == 0 else 400
+                )
+                self.client.write(body)
+                self.applied = self.generation
+                self.restore = False
+                self.pending_body = None
+                with self.state_lock:
+                    self.writes += 1
+                    self.last_result = "applied"
+                    self.last_payload = copy.deepcopy(body)
+                    self.healthy = True
+                return True
+        except (OSError, ValueError, KeyError, IndexError, TypeError):
+            with self.state_lock:
+                self.healthy = False
+                self.native_seen = float("-inf")
+                self.last_result = "native unavailable or rejected"
+            return False
+
+    def run(self, stop):
+        while not stop.is_set():
+            self.wake.clear()
+            self.process_once()
+            self.wake.wait(0.5)
+
+    def snapshot(self):
+        with self.state_lock:
+            return {
+                "resource_id": self.resource_id,
+                "healthy": self.healthy,
+                "native_mode": self.native.get("mode") if self.native else None,
+                "native_on": self.native.get("on", {}).get("on") if self.native else None,
+                "native_brightness": self.native.get("dimming", {}).get("brightness")
+                if self.native
+                else None,
+                "native_gradient_points": len(self.native.get("gradient", {}).get("points", []))
+                if self.native
+                else 0,
+                "native_age": self.clock() - self.native_seen
+                if math.isfinite(self.native_seen)
+                else None,
+                "writes": self.writes,
+                "last_result": self.last_result,
+                "last_payload": copy.deepcopy(self.last_payload),
+            }

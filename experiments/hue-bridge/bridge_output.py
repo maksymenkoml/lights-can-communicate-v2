@@ -8,6 +8,39 @@ import urllib.request
 import uuid
 from collections.abc import MutableMapping
 
+STRIP_COLOR_FIELDS = {"gradient", "xy", "ct", "hue", "sat"}
+
+
+def desk_palette_index(light_id, palette, fallback):
+    colors = palette.get("color", [])
+    offsets = {"1": 0, "2": 4, "3": 0, "4": 0, "5": 2, "6": 4}
+    return offsets[str(light_id)] % len(colors) if colors and str(light_id) in offsets else fallback
+
+
+def strip_changes(state):
+    changed = state.get("_changed")
+    if changed is None:
+        changed = [key for key in ("bri", "xy", "ct", "gradient", "hue", "sat") if key in state]
+    if not isinstance(changed, list) or not all(isinstance(key, str) for key in changed):
+        raise ValueError("Invalid changed fields")
+    changed = set(changed)
+    if state.get("on") is True and "on" in changed and not (changed & STRIP_COLOR_FIELDS):
+        if "bri" in state:
+            changed.add("bri")
+        kind = state.get("_color_kind")
+        if kind is None:
+            kind = (
+                "ct"
+                if state.get("colormode") == "ct"
+                else "gradient"
+                if state.get("gradient", {}).get("points")
+                else "xy"
+            )
+        if kind not in {"ct", "gradient", "xy", "hs"}:
+            raise ValueError("Invalid strip color kind")
+        changed.update({"hue", "sat"} if kind == "hs" else {kind})
+    return changed
+
 
 class _WorkerDynamics(MutableMapping):
     def __init__(self, guard, lamp, generation):
@@ -90,12 +123,14 @@ class PlayGuard:
     def run(self, lamp, palette, index, original):
         return self.prepare(lamp, palette, index, original)()
 
-    def thread_factory(self, constructor, dynamic_method):
+    def thread_factory(self, constructor, dynamic_method, index_selector=None):
         def create(*args, **kwargs):
             target = kwargs.get("target")
             if getattr(target, "__func__", None) is dynamic_method:
                 lamp = target.__self__
                 palette, index = kwargs["args"]
+                if index_selector is not None:
+                    index = index_selector(lamp.id_v1, palette, index)
                 kwargs = {
                     **kwargs,
                     "target": self.prepare(lamp, palette, index, dynamic_method),
@@ -107,20 +142,39 @@ class PlayGuard:
 
 
 class BridgeOutput:
-    def __init__(self, url, token, sender=None, clock=time.time):
+    def __init__(
+        self, url, token, sender=None, clock=time.time, include_strip=False, include_hue_play=False
+    ):
         self.url, self.token, self.clock = url.rstrip("/"), token, clock
         self.sender = sender or self.post
         self.session = str(uuid.uuid4())
         self.condition = threading.Condition()
         self.pending, self.sequences, self.latest = {}, {}, {}
+        self.inflight = {}
         self.forwarded = 0
         self.last_error = None
+        self.slots = {"1": "left", "2": "right"}
+        if include_strip:
+            self.slots["3"] = "strip"
+        if include_hue_play:
+            self.slots.update({"4": "hue_left", "5": "hue_center", "6": "hue_right"})
+        self.hue_roles = set(self.slots.values()) - {"left", "right"}
 
     def submit(self, light_id, state, transitiontime):
-        side = {"1": "left", "2": "right"}.get(str(light_id))
+        side = self.slots.get(str(light_id))
         if side is None:
             return False
         with self.condition:
+            state = copy.deepcopy(state)
+            if side in self.hue_roles and state.get("on") is True:
+                previous = self.pending.get(side) or self.inflight.get(side)
+                changed = strip_changes(state)
+                if previous and previous["state"].get("on") is True:
+                    old = strip_changes(previous["state"])
+                    if changed & STRIP_COLOR_FIELDS:
+                        old -= STRIP_COLOR_FIELDS
+                    changed |= old
+                state["_changed"] = sorted(changed)
             sequence = self.sequences.get(side, 0) + 1
             self.sequences[side] = sequence
             payload = {
@@ -157,8 +211,11 @@ class BridgeOutput:
                 return False
             side = next(iter(self.pending))
             payload = self.pending.pop(side)
+            self.inflight[side] = payload
         if self.clock() - payload["issued_at"] > 5:
             self.last_error = "expired command"
+            with self.condition:
+                self.inflight.pop(side, None)
             return False
         try:
             self.sender(payload)
@@ -166,9 +223,11 @@ class BridgeOutput:
             with self.condition:
                 if side not in self.pending:
                     self.pending[side] = payload
+                self.inflight.pop(side, None)
                 self.last_error = type(error).__name__
             return False
         with self.condition:
+            self.inflight.pop(side, None)
             self.forwarded += 1
             self.last_error = None
         return True

@@ -66,6 +66,13 @@ for protocol in (
     settings[protocol] = {"enabled": False}
 settings["hue"] = {}
 settings["tradfri"] = {}
+include_strip = os.environ.get("PROBE_HUE_STRIP", "false").lower() == "true"
+include_hue_play = os.environ.get("PROBE_HUE_PLAY", "false").lower() == "true"
+selected_slots = (
+    {"1", "2"}
+    | ({"3"} if include_strip else set())
+    | ({"4", "5", "6"} if include_hue_play else set())
+)
 if any(light.protocol != "dummy" for light in config["lights"].values()):
     raise RuntimeError("This probe refuses physical-device protocols")
 for index, side in enumerate(("Left", "Right"), start=1):
@@ -90,11 +97,61 @@ if "1" not in config["groups"]:
     for lamp in config["lights"].values():
         room.add_light(lamp)
     config["groups"]["1"] = room
+if include_strip:
+    if "3" not in config["lights"]:
+        lamp = Light.Light(
+            {
+                "id_v1": "3",
+                "id_v2": str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/HueMonitorStrip")
+                ),
+                "name": "Hue Monitor PROXY",
+                "modelid": "LCX006",
+                "protocol": "dummy",
+                "protocol_cfg": {"points_capable": 5, "proxy_color_kind": "gradient"},
+            }
+        )
+        neutral = {"x": 0.3127, "y": 0.3290}
+        lamp.state.update(
+            {
+                "on": True,
+                "bri": 200,
+                "colormode": "xy",
+                "xy": [neutral["x"], neutral["y"]],
+                "gradient": {"points": [{"color": {"xy": dict(neutral)}} for _ in range(5)]},
+            }
+        )
+        config["lights"]["3"] = lamp
+        config["groups"]["0"].add_light(lamp)
+    room = config["groups"]["1"]
+    if not any(reference() is config["lights"]["3"] for reference in room.lights):
+        room.add_light(config["lights"]["3"])
+if include_hue_play:
+    for identifier, side in (("4", "Left"), ("5", "Center"), ("6", "Right")):
+        if identifier not in config["lights"]:
+            lamp = Light.Light(
+                {
+                    "id_v1": identifier,
+                    "id_v2": str(
+                        uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/HuePlay" + side)
+                    ),
+                    "name": "Hue Play " + side + " PROXY",
+                    "modelid": "LCT015",
+                    "protocol": "dummy",
+                    "protocol_cfg": {"proxy_color_kind": "xy"},
+                }
+            )
+            lamp.state.update({"on": True, "bri": 200, "reachable": True})
+            config["lights"][identifier] = lamp
+            config["groups"]["0"].add_light(lamp)
+        room = config["groups"]["1"]
+        if not any(reference() is config["lights"][identifier] for reference in room.lights):
+            room.add_light(config["lights"][identifier])
 if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
 configManager.bridgeConfig.save_config(backup=False)
 
-from bridge_output import BridgeOutput, PlayGuard  # noqa: E402
+from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from services import updateManager  # noqa: E402
@@ -119,14 +176,23 @@ if (
     os.environ.get("PROBE_LIVE_OUTPUT", "false").lower() == "true"
     and not (state / "live-output-hold").exists()
 ):
-    live_output = BridgeOutput(os.environ["PROBE_ADAPTER_URL"], local_secret("adapter-token", 24))
+    live_output = BridgeOutput(
+        os.environ["PROBE_ADAPTER_URL"],
+        local_secret("adapter-token", 24),
+        include_strip=include_strip,
+        include_hue_play=include_hue_play,
+    )
 
 original_set_state = Light.Light._setV1State
 original_dynamic_play = Light.Light.dynamicScenePlay
 play_guard = PlayGuard()
 
 
-Scene.Thread = play_guard.thread_factory(Scene.Thread, original_dynamic_play)
+Scene.Thread = play_guard.thread_factory(
+    Scene.Thread,
+    original_dynamic_play,
+    index_selector=desk_palette_index if include_strip else None,
+)
 original_activate = Scene.Scene.activate
 
 
@@ -137,7 +203,7 @@ def serialized_activate(scene, values):
                 lamp = reference()
                 if lamp is not None:
                     play_guard.cancel(lamp)
-                    if live_output is not None and lamp.id_v1 in {"1", "2"}:
+                    if live_output is not None and lamp.id_v1 in selected_slots:
                         live_output.submit(lamp.id_v1, {"on": False}, 0)
         return original_activate(scene, values)
 
@@ -155,12 +221,27 @@ def forward_selected_state(lamp, values, advertise=True):
         if changed and generation is None:
             play_guard.cancel(lamp)
         result = original_set_state(lamp, values, advertise)
-        if changed and lamp.id_v1 in {"1", "2"} and live_output is not None:
+        if changed and lamp.id_v1 in selected_slots and live_output is not None:
             selected = {
                 key: lamp.state[key]
-                for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat")
+                for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
                 if key in lamp.state
             }
+            if lamp.id_v1 in {"3", "4", "5", "6"}:
+                selected["_changed"] = sorted(values)
+                for field, kind in (
+                    ("gradient", "gradient"),
+                    ("xy", "xy"),
+                    ("ct", "ct"),
+                    ("hue", "hs"),
+                    ("sat", "hs"),
+                ):
+                    if field in values:
+                        lamp.protocol_cfg["proxy_color_kind"] = kind
+                        break
+                selected["_color_kind"] = lamp.protocol_cfg.get(
+                    "proxy_color_kind", "ct" if lamp.state.get("colormode") == "ct" else "xy"
+                )
             live_output.submit(lamp.id_v1, selected, transitiontime)
         return result
 

@@ -2,6 +2,19 @@
 
 ## Current status
 
+The pilot now also includes the owner's confirmed monitor strip and three
+under-desk Hue Play lamps. The virtual room has six lights. A separate
+`Vapor wave DESK` scene supplies five gradient points to the strip, the first
+point to both left lights, the last point to both right lights, and the middle
+point to Hue Play Center. The existing gallery scene remains available.
+
+Static desk recall reached both Govee at 51% and all four native Hue lights at
+77.87% readback (requested 78%, rounded through v1 brightness). Native Play
+color readback matched the three selected palette positions. Strip readback
+contained five gradient points. These are API observations; six-light visual
+balance, physical strip direction, and dynamic acceptance remain owner checks.
+See `evidence/live-desk-static.json`.
+
 The owner resumed hardware testing on 2026-11-13. The selected two-lamp pilot
 was restarted with the saved 0.65 calibration. The owner confirmed smooth
 Vapor wave Play after the continuous receiver update.
@@ -25,6 +38,7 @@ active owner hold without explicit permission.
 ```text
 Hue app -> reference bridge scene engine -> coalescing output queue
         -> authenticated local HTTP -> our host adapter -> pinned Govee LAN output
+                                                      -> four pinned native Hue lights
 ```
 
 The bridge sends each target and its `transitiontime` in 100 ms units.
@@ -32,10 +46,21 @@ Vapor wave used a 4.7-second transition in the observed run. The host renders
 these transitions at a 20 Hz target rate. It does not infer a scene phase from
 the genuine Hue light's stored palette.
 
-The two slots retain their existing test resource IDs and room. Only slot 1
+The two Govee slots retain their existing test resource IDs and room. Slot 1
 maps to left and slot 2 maps to right. The host configuration contains exactly
 the two previously confirmed Govee IDs and a 0.65 multiplier for each side.
 No genuine Hue bridge key is copied into the container or pilot target file.
+
+Opt-in slot 3 maps to the genuine gradient strip. Opt-in slots 4, 5, and 6
+map to the explicitly confirmed Hue Play Left, Center, and Right. Each role
+has one fixed native v2 resource ID. Request bodies cannot choose another ID.
+The native client's write whitelist excludes power and all unrelated fields.
+
+The pinned reference engine stores the current group state when loading a
+group scene, so expanding a room can add default actions to older scenes.
+The new DESK scene explicitly defines all six actions and keeps the gallery
+palette and speed. Use DESK for this composition. Original scene IDs and
+their saved palette are retained; exact old action membership is not promised.
 
 The controller sends only color and brightness commands. Native off or stale
 state blocks output. Virtual off stops output without changing physical power.
@@ -95,9 +120,24 @@ These tests made no physical network requests.
 - `pilot_transport.py` owns UDP 4002 and publishes fresh pinned-ID state.
 - API key and adapter token values are never included in status output.
 - Native status checks and rendering use separate threads.
+- Each Hue proxy uses native transitions and checks its power and streaming
+  mode before writing. Observed off is never changed by the adapter. Accepted
+  color is retained for owner-operated on recovery. Streaming or unavailable
+  state in any selected Hue pauses Govee rendering. This is a polling guard,
+  not proof of HDMI Sync compatibility.
 - The old palette follower is stopped to prevent competing commands.
-- NAS deployment, a Homebridge package, monitor-strip proxying, and HDMI Sync
+- NAS deployment, a Homebridge package, and physical HDMI Sync validation
   are outside this pilot.
+
+## Optional native Hue output
+
+Set `PROBE_HUE_STRIP=true` and `PROBE_HUE_PLAY=true` in the private probe
+environment, then recreate only this project's bridge container. Start the
+host adapter with `--hue-config` pointing to the owner's private real-bridge
+configuration and `--hue-play`. Do not copy that configuration into Docker.
+The flags default off. Without them, the original two-Govee scope remains.
+The three confirmed native Play IDs are intentionally pinned for this pilot;
+generic discovery and configuration belong to later plugin work.
 
 ## Resume gate
 

@@ -1,0 +1,585 @@
+{
+  "phase": "static_desk_recall",
+  "date": "2026-11-13",
+  "scope": "two Govee and four selected native Hue; color and brightness only",
+  "adapter": {
+    "active_sides": [
+      "left",
+      "right"
+    ],
+    "commands_sent": 20,
+    "skipped_state": {
+      "left": 0,
+      "right": 0
+    },
+    "rejected_sends": {
+      "left": 0,
+      "right": 0
+    },
+    "color_samples": {
+      "left": [
+        {
+          "time": 157140.471395125,
+          "color": {
+            "r": 240,
+            "g": 134,
+            "b": 21
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.524739541,
+          "color": {
+            "r": 215,
+            "g": 128,
+            "b": 55
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.575515541,
+          "color": {
+            "r": 191,
+            "g": 123,
+            "b": 87
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.624061708,
+          "color": {
+            "r": 169,
+            "g": 118,
+            "b": 118
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.673929333,
+          "color": {
+            "r": 145,
+            "g": 112,
+            "b": 150
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.725175416,
+          "color": {
+            "r": 121,
+            "g": 107,
+            "b": 182
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.775511333,
+          "color": {
+            "r": 98,
+            "g": 102,
+            "b": 214
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.825217416,
+          "color": {
+            "r": 74,
+            "g": 96,
+            "b": 246
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.873388916,
+          "color": {
+            "r": 68,
+            "g": 95,
+            "b": 255
+          },
+          "kelvin": 0
+        }
+      ],
+      "right": [
+        {
+          "time": 157140.471395125,
+          "color": {
+            "r": 171,
+            "g": 11,
+            "b": 242
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.524739541,
+          "color": {
+            "r": 183,
+            "g": 35,
+            "b": 216
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.575515541,
+          "color": {
+            "r": 194,
+            "g": 57,
+            "b": 190
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.624061708,
+          "color": {
+            "r": 205,
+            "g": 79,
+            "b": 166
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.673929333,
+          "color": {
+            "r": 216,
+            "g": 101,
+            "b": 141
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.725175416,
+          "color": {
+            "r": 228,
+            "g": 124,
+            "b": 115
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.775511333,
+          "color": {
+            "r": 239,
+            "g": 146,
+            "b": 90
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.825217416,
+          "color": {
+            "r": 250,
+            "g": 169,
+            "b": 65
+          },
+          "kelvin": 0
+        },
+        {
+          "time": 157140.873388916,
+          "color": {
+            "r": 255,
+            "g": 178,
+            "b": 54
+          },
+          "kelvin": 0
+        }
+      ]
+    },
+    "targets": [
+      {
+        "side": "left",
+        "device": "19:FE:DA:C3:40:86:6A:7B",
+        "brightness_scale": 0.65,
+        "target": {
+          "on": true,
+          "brightness": 51,
+          "rgb": [
+            68,
+            95,
+            255
+          ]
+        },
+        "native": {
+          "onOff": 1,
+          "brightness": 51,
+          "color": {
+            "r": 68,
+            "g": 95,
+            "b": 255
+          },
+          "colorTemInKelvin": 0,
+          "identity_verified": true
+        },
+        "status_age": 0.13988629198865965
+      },
+      {
+        "side": "right",
+        "device": "D4:A5:D2:21:C0:46:4F:55",
+        "brightness_scale": 0.65,
+        "target": {
+          "on": true,
+          "brightness": 51,
+          "rgb": [
+            255,
+            178,
+            54
+          ]
+        },
+        "native": {
+          "onOff": 1,
+          "brightness": 51,
+          "color": {
+            "r": 255,
+            "g": 178,
+            "b": 54
+          },
+          "colorTemInKelvin": 0,
+          "identity_verified": true
+        },
+        "status_age": 0.25623629201436415
+      }
+    ],
+    "hue_strip": {
+      "resource_id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+      "healthy": true,
+      "native_mode": "normal",
+      "native_on": true,
+      "native_brightness": 77.87,
+      "native_gradient_points": 5,
+      "native_age": 0.09130783300497569,
+      "writes": 1,
+      "last_result": "applied",
+      "last_payload": {
+        "dynamics": {
+          "duration": 114
+        },
+        "dimming": {
+          "brightness": 77.95275590551181
+        },
+        "gradient": {
+          "points": [
+            {
+              "color": {
+                "xy": {
+                  "x": 0.17829999999999993,
+                  "y": 0.12119999999999992
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.2299,
+                  "y": 0.08619999999999994
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.4038999999999997,
+                  "y": 0.19139999999999985
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.5402840141803051,
+                  "y": 0.42187871727322523
+                }
+              }
+            },
+            {
+              "color": {
+                "xy": {
+                  "x": 0.47399999999999987,
+                  "y": 0.4378000000000002
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "hue_play": {
+      "hue_left": {
+        "resource_id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 77.87,
+        "native_gradient_points": 0,
+        "native_age": 0.0033403330016881227,
+        "writes": 1,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 400
+          },
+          "dimming": {
+            "brightness": 77.95275590551181
+          },
+          "color": {
+            "xy": {
+              "x": 0.17829999999999993,
+              "y": 0.12119999999999992
+            }
+          }
+        }
+      },
+      "hue_center": {
+        "resource_id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 77.87,
+        "native_gradient_points": 0,
+        "native_age": 0.0034659579978324473,
+        "writes": 1,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 400
+          },
+          "dimming": {
+            "brightness": 77.95275590551181
+          },
+          "color": {
+            "xy": {
+              "x": 0.4038999999999997,
+              "y": 0.19139999999999985
+            }
+          }
+        }
+      },
+      "hue_right": {
+        "resource_id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+        "healthy": true,
+        "native_mode": "normal",
+        "native_on": true,
+        "native_brightness": 77.87,
+        "native_gradient_points": 0,
+        "native_age": 0.00589541599038057,
+        "writes": 1,
+        "last_result": "applied",
+        "last_payload": {
+          "dynamics": {
+            "duration": 106
+          },
+          "dimming": {
+            "brightness": 77.95275590551181
+          },
+          "color": {
+            "xy": {
+              "x": 0.47399999999999987,
+              "y": 0.4378000000000002
+            }
+          }
+        }
+      }
+    }
+  },
+  "native_readback": {
+    "strip": {
+      "id": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+      "metadata": {
+        "name": "Lightstrip 32",
+        "archetype": "hue_lightstrip_pc",
+        "function": "decorative"
+      },
+      "on": {
+        "on": true
+      },
+      "mode": "normal",
+      "dimming": {
+        "brightness": 77.87,
+        "min_dim_level": 0.01
+      },
+      "color": {
+        "xy": {
+          "x": 0.1782,
+          "y": 0.1225
+        },
+        "gamut": {
+          "red": {
+            "x": 0.6915,
+            "y": 0.3083
+          },
+          "green": {
+            "x": 0.17,
+            "y": 0.7
+          },
+          "blue": {
+            "x": 0.1532,
+            "y": 0.0475
+          }
+        },
+        "gamut_type": "C"
+      },
+      "gradient": {
+        "points": [
+          {
+            "color": {
+              "xy": {
+                "x": 0.1781,
+                "y": 0.1212
+              }
+            }
+          },
+          {
+            "color": {
+              "xy": {
+                "x": 0.2298,
+                "y": 0.0862
+              }
+            }
+          },
+          {
+            "color": {
+              "xy": {
+                "x": 0.4039,
+                "y": 0.1913
+              }
+            }
+          },
+          {
+            "color": {
+              "xy": {
+                "x": 0.5381,
+                "y": 0.419
+              }
+            }
+          },
+          {
+            "color": {
+              "xy": {
+                "x": 0.4738,
+                "y": 0.4377
+              }
+            }
+          }
+        ],
+        "mode": "interpolated_palette",
+        "points_capable": 5,
+        "mode_values": [
+          "interpolated_palette",
+          "interpolated_palette_mirrored",
+          "random_pixelated",
+          "segmented_palette"
+        ],
+        "pixel_count": 9
+      }
+    },
+    "hue_left": {
+      "id": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
+      "metadata": {
+        "name": "Hue Play Left",
+        "archetype": "hue_play",
+        "function": "decorative"
+      },
+      "on": {
+        "on": true
+      },
+      "mode": "normal",
+      "dimming": {
+        "brightness": 77.87,
+        "min_dim_level": 0.1
+      },
+      "color": {
+        "xy": {
+          "x": 0.1783,
+          "y": 0.1212
+        },
+        "gamut": {
+          "red": {
+            "x": 0.6915,
+            "y": 0.3083
+          },
+          "green": {
+            "x": 0.17,
+            "y": 0.7
+          },
+          "blue": {
+            "x": 0.1532,
+            "y": 0.0475
+          }
+        },
+        "gamut_type": "C"
+      }
+    },
+    "hue_center": {
+      "id": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
+      "metadata": {
+        "name": "Hue Play Center",
+        "archetype": "hue_play",
+        "function": "decorative"
+      },
+      "on": {
+        "on": true
+      },
+      "mode": "normal",
+      "dimming": {
+        "brightness": 77.87,
+        "min_dim_level": 0.1
+      },
+      "color": {
+        "xy": {
+          "x": 0.4039,
+          "y": 0.1914
+        },
+        "gamut": {
+          "red": {
+            "x": 0.6915,
+            "y": 0.3083
+          },
+          "green": {
+            "x": 0.17,
+            "y": 0.7
+          },
+          "blue": {
+            "x": 0.1532,
+            "y": 0.0475
+          }
+        },
+        "gamut_type": "C"
+      }
+    },
+    "hue_right": {
+      "id": "f8606c12-5d21-4087-846e-4eeafef905f6",
+      "metadata": {
+        "name": "Hue Play Right",
+        "archetype": "hue_play",
+        "function": "decorative"
+      },
+      "on": {
+        "on": true
+      },
+      "mode": "normal",
+      "dimming": {
+        "brightness": 77.87,
+        "min_dim_level": 0.1
+      },
+      "color": {
+        "xy": {
+          "x": 0.474,
+          "y": 0.4378
+        },
+        "gamut": {
+          "red": {
+            "x": 0.6915,
+            "y": 0.3083
+          },
+          "green": {
+            "x": 0.17,
+            "y": 0.7
+          },
+          "blue": {
+            "x": 0.1532,
+            "y": 0.0475
+          }
+        },
+        "gamut_type": "C"
+      }
+    }
+  }
+}

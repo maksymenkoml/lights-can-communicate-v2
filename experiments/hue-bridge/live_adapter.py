@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 
 import smart_lighting as lan  # noqa: E402
@@ -130,6 +131,7 @@ class PilotController:
             {},
         )
         self.commands_sent = 0
+        self.pause_gate = None
         self.skipped_state = {side: 0 for side in self.by_side}
         self.rejected_sends = {side: 0 for side in self.by_side}
         self.color_samples = {side: deque(maxlen=500) for side in self.by_side}
@@ -197,6 +199,9 @@ class PilotController:
 
     def render(self):
         with self.lock:
+            if self.pause_gate is not None and not self.pause_gate():
+                self.last_sent.clear()
+                return
             now = self.clock()
             for side, device in self.by_side.items():
                 status, seen = self.statuses.get(lan.device_key(device), (None, float("-inf")))
@@ -265,7 +270,11 @@ class PilotController:
             }
 
 
-def handler_for(controller, token):
+def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None):
+    hue_proxies = dict(hue_play_proxies or {})
+    if hue_proxy is not None:
+        hue_proxies["strip"] = hue_proxy
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -286,7 +295,14 @@ def handler_for(controller, token):
                 return self.respond(403, {"error": "unauthorized"})
             if self.path != "/status":
                 return self.respond(404, {"error": "not found"})
-            self.respond(200, controller.snapshot())
+            result = controller.snapshot()
+            if hue_proxy is not None:
+                result["hue_strip"] = hue_proxy.snapshot()
+            if hue_play_proxies:
+                result["hue_play"] = {
+                    role: proxy.snapshot() for role, proxy in hue_play_proxies.items()
+                }
+            self.respond(200, result)
 
         def do_POST(self):
             if not self.authorized():
@@ -297,7 +313,11 @@ def handler_for(controller, token):
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 8192:
                     raise ValueError("Invalid request size")
-                accepted = controller.submit(json.loads(self.rfile.read(size)))
+                payload = json.loads(self.rfile.read(size))
+                if isinstance(payload, dict) and payload.get("side") in hue_proxies:
+                    accepted = hue_proxies[payload["side"]].submit(payload)
+                else:
+                    accepted = controller.submit(payload)
                 self.respond(200, {"accepted": accepted})
             except (ValueError, TypeError, KeyError):
                 self.respond(400, {"error": "invalid command"})
@@ -310,7 +330,11 @@ def main():
     parser.add_argument("--targets", type=Path, required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--port", type=int, default=19880)
+    parser.add_argument("--hue-config", type=Path)
+    parser.add_argument("--hue-play", action="store_true")
     args = parser.parse_args()
+    if args.hue_play and not args.hue_config:
+        parser.error("--hue-play requires --hue-config")
     if (args.targets.parent / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     config = json.loads(args.targets.read_text())
@@ -320,9 +344,29 @@ def main():
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
     controller = PilotController(config["targets"])
+    hue_proxies = {}
+    if args.hue_config:
+        hue_config = json.loads(args.hue_config.read_text())
+        hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config))
+        if args.hue_play:
+            for role, resource in PLAY_IDS.items():
+                hue_proxies[role] = HueStripProxy(
+                    PinnedHueClient(hue_config, resource_id=resource), role=role
+                )
+        controller.pause_gate = lambda: all(proxy.govee_allowed() for proxy in hue_proxies.values())
     lan.CONFIG = args.targets
     stop = threading.Event()
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), handler_for(controller, token))
+    server = ThreadingHTTPServer(
+        ("0.0.0.0", args.port),
+        handler_for(
+            controller,
+            token,
+            hue_proxies.get("strip"),
+            {role: proxy for role, proxy in hue_proxies.items() if role != "strip"},
+        ),
+    )
+    for role, proxy in hue_proxies.items():
+        threading.Thread(target=proxy.run, args=(stop,), daemon=True, name="pilot-" + role).start()
 
     transport = PilotTransport(
         controller.targets,

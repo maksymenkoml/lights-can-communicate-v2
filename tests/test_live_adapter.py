@@ -1,6 +1,11 @@
 import copy
+import json
 import sys
+import threading
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -32,6 +37,51 @@ def command(sequence=1, xy=(0.7, 0.299), **values):
 
 
 class PilotTests(unittest.TestCase):
+    def test_http_routes_each_confirmed_hue_play_role_and_rejects_unknown_role(self):
+        from hue_strip_proxy import PLAY_IDS, HueStripProxy
+        from test_hue_strip_proxy import FakeHue
+
+        proxies = {}
+        for role, resource in PLAY_IDS.items():
+            client = FakeHue()
+            client.resource_id = resource
+            client.native["id"] = resource
+            proxies[role] = HueStripProxy(client, wall_clock=lambda: 1000, role=role)
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), pilot.handler_for(self.controller, "test", hue_play_proxies=proxies)
+        )
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            url = "http://127.0.0.1:" + str(server.server_port)
+            for role in PLAY_IDS:
+                request = urllib.request.Request(
+                    url + "/command",
+                    data=json.dumps(command(side=role)).encode(),
+                    headers={"X-Adapter-Token": "test"},
+                    method="POST",
+                )
+                with opener.open(request) as response:
+                    self.assertTrue(json.load(response)["accepted"])
+                self.assertIsNotNone(proxies[role].desired)
+            request = urllib.request.Request(
+                url + "/command",
+                data=json.dumps(command(side="other_hue")).encode(),
+                headers={"X-Adapter-Token": "test"},
+                method="POST",
+            )
+            with self.assertRaises(urllib.error.HTTPError) as rejected:
+                opener.open(request)
+            self.assertEqual(rejected.exception.code, 400)
+            request = urllib.request.Request(url + "/status", headers={"X-Adapter-Token": "test"})
+            with opener.open(request) as response:
+                self.assertEqual(set(json.load(response)["hue_play"]), set(PLAY_IDS))
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+
     def test_owner_hold_prevents_adapter_start_before_any_network_setup(self):
         with TemporaryDirectory(prefix="tmp_pilot_hold_") as directory:
             folder = Path(directory)
@@ -112,6 +162,17 @@ class PilotTests(unittest.TestCase):
         self.now = 0.8
         self.controller.render()
         self.assertEqual(self.sent, [])
+
+    def test_shared_hue_sync_pause_blocks_output_and_reapplies_after_resume(self):
+        self.controller.submit(command(transitiontime=0))
+        self.controller.render()
+        self.sent.clear()
+        self.controller.pause_gate = lambda: False
+        self.controller.render()
+        self.assertEqual(self.sent, [])
+        self.controller.pause_gate = lambda: True
+        self.controller.render()
+        self.assertTrue(self.sent)
 
     def test_positive_render_uses_only_color_and_brightness_for_pinned_id(self):
         self.controller.submit(command(xy=(0.15, 0.06)))

@@ -4,10 +4,121 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-from bridge_output import BridgeOutput, PlayGuard  # noqa: E402
+from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
 
 
 class BridgeOutputTests(unittest.TestCase):
+    def test_desk_indices_align_edges_center_and_lower_play_lights(self):
+        palette = {"color": [{} for _ in range(5)]}
+        self.assertEqual(
+            [desk_palette_index(str(slot), palette, 99) for slot in range(1, 7)], [0, 4, 0, 0, 2, 4]
+        )
+        self.assertEqual(desk_palette_index("2", {"color": [{}, {}]}, 99), 0)
+
+    def test_confirmed_play_slots_are_separate_native_roles(self):
+        sent = []
+        output = BridgeOutput(
+            "http://adapter",
+            "token",
+            sender=lambda value: sent.append(value),
+            clock=lambda: 1000,
+            include_strip=True,
+            include_hue_play=True,
+        )
+        for slot in ("4", "5", "6"):
+            self.assertTrue(output.submit(slot, {"on": True, "bri": 198}, 4))
+        for _ in range(3):
+            output.forward_once()
+        self.assertEqual([item["side"] for item in sent], ["hue_left", "hue_center", "hue_right"])
+        self.assertFalse(output.submit("7", {"on": True}, 4))
+
+    def test_strip_slot_requires_explicit_opt_in_and_is_not_a_third_govee(self):
+        sent = []
+        output = BridgeOutput(
+            "http://adapter",
+            "token",
+            sender=lambda payload: sent.append(payload),
+            clock=lambda: 1000,
+            include_strip=True,
+        )
+        self.assertTrue(output.submit("3", {"on": True, "bri": 198}, 47))
+        self.assertFalse(output.submit("4", {"on": True}, 4))
+        output.forward_once()
+        self.assertEqual(sent[0]["side"], "strip")
+        self.assertNotIn("device", sent[0])
+
+    def test_strip_coalescing_keeps_unforwarded_gradient_on_brightness_update(self):
+        sent = []
+        output = BridgeOutput(
+            "http://adapter",
+            "token",
+            sender=lambda value: sent.append(value),
+            clock=lambda: 1000,
+            include_strip=True,
+        )
+        output.submit(
+            "3",
+            {"on": True, "bri": 198, "gradient": {"points": []}, "_changed": ["gradient", "bri"]},
+            47,
+        )
+        output.submit(
+            "3", {"on": True, "bri": 101, "gradient": {"points": []}, "_changed": ["bri"]}, 4
+        )
+        output.forward_once()
+        self.assertIn("gradient", sent[0]["state"]["_changed"])
+        self.assertEqual(sent[0]["state"]["bri"], 101)
+
+    def test_strip_coalescing_new_ct_mode_cancels_unforwarded_gradient(self):
+        sent = []
+        output = BridgeOutput(
+            "http://adapter",
+            "token",
+            sender=lambda value: sent.append(value),
+            clock=lambda: 1000,
+            include_strip=True,
+        )
+        output.submit("3", {"on": True, "gradient": {"points": []}, "_changed": ["gradient"]}, 47)
+        output.submit(
+            "3",
+            {
+                "on": True,
+                "ct": 250,
+                "colormode": "ct",
+                "gradient": {"points": []},
+                "_changed": ["ct"],
+            },
+            4,
+        )
+        output.forward_once()
+        self.assertNotIn("gradient", sent[0]["state"]["_changed"])
+        self.assertIn("ct", sent[0]["state"]["_changed"])
+
+    def test_inflight_strip_gradient_is_not_lost_when_delivery_fails(self):
+        sent = []
+        output = None
+
+        def sender(value):
+            if not sent:
+                sent.append(value)
+                output.submit(
+                    "3",
+                    {"on": True, "bri": 101, "gradient": {"points": []}, "_changed": ["bri"]},
+                    4,
+                )
+                raise OSError("simulated delivery failure")
+            sent.append(value)
+
+        output = BridgeOutput(
+            "http://adapter", "token", sender=sender, clock=lambda: 1000, include_strip=True
+        )
+        output.submit(
+            "3", {"on": True, "bri": 198, "gradient": {"points": []}, "_changed": ["gradient"]}, 47
+        )
+        self.assertFalse(output.forward_once())
+        self.assertTrue(output.forward_once())
+        self.assertIn("gradient", sent[-1]["state"]["_changed"])
+        self.assertEqual(sent[-1]["state"]["bri"], 101)
+
     def test_only_two_selected_light_slots_are_forwarded(self):
         sent = []
         output = BridgeOutput(
