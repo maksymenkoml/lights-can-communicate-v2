@@ -78,6 +78,70 @@ class PaletteTests(unittest.TestCase):
                 lighting.xy_to_rgb(x, y)
 
 
+class DynamicPaletteTests(unittest.TestCase):
+    def test_dynamic_palette_visits_both_colors_and_wraps(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        self.assertEqual(lighting.target_for(light, "left", elapsed=0)["rgb"], (255, 0, 0))
+        self.assertEqual(lighting.target_for(light, "left", elapsed=2)["rgb"], (0, 0, 255))
+        self.assertEqual(lighting.target_for(light, "left", elapsed=4)["rgb"], (255, 0, 0))
+
+    def test_transition_has_intermediate_colors_and_opposite_side_offset(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        middle = lighting.target_for(light, "left", elapsed=1)["rgb"]
+        self.assertEqual(middle[0], 255)
+        self.assertEqual(middle[1], 0)
+        self.assertGreater(middle[2], 100)
+        self.assertLess(middle[2], 250)
+        self.assertEqual(lighting.target_for(light, "right", elapsed=0)["rgb"], (0, 0, 255))
+        self.assertEqual(lighting.target_for(light, "right", elapsed=2)["rgb"], (255, 0, 0))
+
+    def test_stopping_play_restores_static_palette(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "none", "speed": 1, "speed_valid": True}
+        self.assertEqual(lighting.target_for(light, "left", elapsed=2)["rgb"], (255, 0, 0))
+
+    def test_hue_speed_controls_the_approximate_cycle(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 0, "speed_valid": True}
+        self.assertEqual(lighting.target_for(light, "left", elapsed=12)["rgb"], (0, 0, 255))
+
+    def test_animation_frame_skips_off_and_unreachable_govee(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        targets = [{"ip": "192.168.10.50", "side": "left"}]
+        sent = []
+        with (
+            patch.object(lighting, "govee_status", side_effect=[{"onOff": 0}, None]),
+            patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
+        ):
+            lighting.animate_frame(light, targets, elapsed=1, previous={})
+            lighting.animate_frame(light, targets, elapsed=2, previous={})
+        self.assertEqual(sent, [])
+
+    def test_animation_frame_only_changes_color(self):
+        light = gradient_light()
+        light["dynamics"] = {"status": "dynamic_palette", "speed": 1, "speed_valid": True}
+        targets = [{"ip": "192.168.10.50", "side": "left"}]
+        sent = []
+        with (
+            patch.object(lighting, "govee_status", return_value={"onOff": 1}),
+            patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
+        ):
+            lighting.animate_frame(light, targets, elapsed=2, previous={})
+        self.assertEqual(
+            sent,
+            [
+                (
+                    "192.168.10.50",
+                    "colorwc",
+                    {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0},
+                )
+            ],
+        )
+
+
 class HomebridgeTests(unittest.TestCase):
     def test_following_recovers_after_one_missing_udp_reply(self):
         config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}

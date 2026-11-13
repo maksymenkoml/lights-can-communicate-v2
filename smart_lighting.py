@@ -106,13 +106,13 @@ def govee_send(ip, command, data):
         sock.sendto(udp_packet(command, data), (local_ip(ip), 4003))
 
 
-def govee_status(ip):
+def govee_status(ip, timeout=3):
     ip = local_ip(ip)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("", 4002))
         sock.sendto(udp_packet("devStatus", {}), (ip, 4003))
-        end = time.monotonic() + 3
+        end = time.monotonic() + timeout
         while time.monotonic() < end:
             sock.settimeout(max(0.01, end - time.monotonic()))
             try:
@@ -144,7 +144,25 @@ def xy_to_rgb(x, y):
     )
 
 
-def target_for(light, side):
+def animation_settings(light):
+    dynamics = light.get("dynamics", {})
+    points = light.get("gradient", {}).get("points", [])
+    if (
+        not light["on"]["on"]
+        or light.get("mode") == "streaming"
+        or dynamics.get("status") != "dynamic_palette"
+        or light.get("color_temperature", {}).get("mirek_valid")
+        or len(points) < 2
+    ):
+        return None
+    speed = dynamics.get("speed", 0.5) if dynamics.get("speed_valid") else 0.5
+    speed = max(0, min(1, speed))
+    colors = tuple((point["color"]["xy"]["x"], point["color"]["xy"]["y"]) for point in points)
+    # Approximate pacing, not Hue's private animation timing or phase.
+    return colors, 12 - 10 * speed
+
+
+def target_for(light, side, elapsed=0):
     if not light["on"]["on"]:
         return {"on": False}
     brightness = round(light.get("dimming", {}).get("brightness", 100))
@@ -157,6 +175,18 @@ def target_for(light, side):
         if points:
             index = {"left": 0, "right": len(points) - 1, "center": len(points) // 2}[side]
             color = points[index]["color"]["xy"]
+            settings = animation_settings(light)
+            if settings:
+                colors, step_seconds = settings
+                position = (index + max(0, elapsed) / step_seconds) % len(colors)
+                start = int(position)
+                amount = position - start
+                amount = amount * amount * (3 - 2 * amount)
+                first, second = colors[start], colors[(start + 1) % len(colors)]
+                color = {
+                    "x": first[0] + (second[0] - first[0]) * amount,
+                    "y": first[1] + (second[1] - first[1]) * amount,
+                }
         else:
             color = light["color"]["xy"]
         target["rgb"] = xy_to_rgb(color["x"], color["y"])
@@ -176,6 +206,21 @@ def govee_commands(target):
     ]
 
 
+def animate_frame(light, devices, elapsed, previous):
+    for device in devices:
+        # Recheck power before every frame so Homebridge can switch a lamp off.
+        status = govee_status(device["ip"], timeout=0.2)
+        if status is None or status.get("onOff") != 1:
+            previous.pop(device["ip"], None)
+            continue
+        target = target_for(light, device["side"], elapsed)
+        if target["on"] and target != previous.get(device["ip"]):
+            for command, data in govee_commands(target):
+                if command == "colorwc":
+                    govee_send(device["ip"], command, data)
+            previous[device["ip"]] = target
+
+
 def run_sync(config, once=False, dry_run=False, interval=2):
     if not config.get("light") or not config.get("targets"):
         raise ValueError("Run lights and configure first; no Hue source or Govee targets selected")
@@ -183,6 +228,8 @@ def run_sync(config, once=False, dry_run=False, interval=2):
     last_refresh = 0
     paused = False
     unavailable = set()
+    animation_key = None
+    animation_started = 0
     print("Hue -> Govee. Ctrl+C stops following; lights keep their last state.", flush=True)
     while True:
         light = hue_request(config, f"/clip/v2/resource/light/{config['light']}")["data"][0]
@@ -190,6 +237,7 @@ def run_sync(config, once=False, dry_run=False, interval=2):
             if not paused:
                 print("Paused: Hue Sync is active. Govee keep their last colors.", flush=True)
             paused = True
+            animation_key = None
             previous.clear()
             if once:
                 return
@@ -198,10 +246,22 @@ def run_sync(config, once=False, dry_run=False, interval=2):
         if paused:
             print("Hue Sync ended. Following the stored palette again.", flush=True)
             paused = False
+        settings = animation_settings(light)
+        if settings != animation_key:
+            animation_started = time.monotonic()
+            animation_key = settings
+            if settings:
+                print(
+                    "Dynamic palette: animating Govee locally; Hue phase is unavailable.",
+                    flush=True,
+                )
+            else:
+                print("Static palette: stopped local animation.", flush=True)
         refresh = time.monotonic() - last_refresh >= 30
         changed = []
+        active_devices = []
         for device in config["targets"]:
-            target = target_for(light, device["side"])
+            target = target_for(light, device["side"], time.monotonic() - animation_started)
             if not target["on"]:
                 previous.pop(device["ip"], None)
                 continue
@@ -225,6 +285,7 @@ def run_sync(config, once=False, dry_run=False, interval=2):
                 if status.get("onOff") != 1:
                     previous.pop(device["ip"], None)
                     continue
+            active_devices.append(device)
             if target != previous.get(device["ip"]) or refresh:
                 print(f"{device['side']} {device['ip']}: {json.dumps(target)}", flush=True)
                 if not dry_run:
@@ -246,7 +307,13 @@ def run_sync(config, once=False, dry_run=False, interval=2):
                             "Govee did not confirm its state; physical result is unverified"
                         )
             return
-        time.sleep(interval)
+        if settings and active_devices and not dry_run:
+            end = time.monotonic() + interval
+            while time.monotonic() < end:
+                time.sleep(min(0.2, max(0, end - time.monotonic())))
+                animate_frame(light, active_devices, time.monotonic() - animation_started, previous)
+        else:
+            time.sleep(interval)
 
 
 def main():

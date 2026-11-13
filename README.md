@@ -4,6 +4,10 @@ Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
 This is a local experiment, not a background service.
 
+When Hue reports dynamic scene playback, Govee animate locally through that
+palette. This matches the scene's colors, not the instantaneous Hue colors or
+animation phase.
+
 ## Connect
 
 1. Enable **LAN Control** for each Govee device in Govee Home. The computer,
@@ -34,7 +38,7 @@ Pick a scene in Hue and leave the last command running to follow changes.
 Ctrl+C stops the program; the lights keep their last state. `status` reads
 the selected Govee controllers without changing them.
 
-The left Govee gets the first stored Hue gradient point and the right Govee
+For static scenes, the left Govee gets the first stored Hue gradient point and the right Govee
 gets the last. For a solid Hue color they get the same color. Hue brightness
 is copied as an integer percentage (minimum 1%). The program never sends
 power commands: on/off stays with Homebridge and its existing automations.
@@ -46,8 +50,15 @@ palette updates pause. Active white temperature takes priority over stale
 color/gradient fields. If the physical gradient direction is reversed, swap
 the left/right IP selection.
 
-The program polls Hue every two seconds and sends updates only when the target
-changes, plus a periodic refresh because UDP delivery is not guaranteed.
+The program polls Hue every two seconds. For a static scene it sends updates
+only when the target changes, plus a periodic refresh because UDP delivery is
+not guaranteed. For dynamic scenes it interpolates between palette colors
+with eased transitions, targeting five color frames per second. Hue's speed
+setting controls approximate pacing; its internal timing is not known.
+Each animation frame rechecks Govee power with a short timeout. Unknown/off
+controllers are skipped; brightness is sent during the main polling cycle.
+Changing the palette or speed restarts the local cycle; stopping Play restores
+static following. Hue Sync pauses both static and animated updates.
 `--once` prints the Govee status readback; a missing reply returns an error.
 Readback alone does not prove the colors look right: compare the physical lamps.
 
@@ -58,9 +69,11 @@ Readback alone does not prove the colors look right: compare the physical lamps.
   last colors. Following resumes when streaming ends. Some Hue Sync desktop
   presets may also be streamed: try a scene saved on the Hue Bridge instead.
   Pause/resume is unit-tested; console/Sync Box behavior needs a physical test.
-- Stored gradient points may not track every step of a dynamic effect. This
-  prototype copies the palette exposed by the REST API, not live LED output.
-- Govee gets one solid color per controller. Segment effects and exact dynamic
+- During a real Vapor wave Play check, all ten consecutive Hue API samples
+  reported dynamic playback but returned identical color/gradient values.
+  The local animation is an approximation using those stored palette colors;
+  it cannot reproduce the live Hue phase or eliminate phase drift.
+- Govee gets one color per controller at a time. Segment effects and exact dynamic
   scene reproduction are outside this experiment.
 - RGB conversion is an approximation; different LEDs, walls, and brightness
   mean a visual match may need later calibration.
