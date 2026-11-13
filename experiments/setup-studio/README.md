@@ -1,7 +1,7 @@
 # Local setup studio spike
 
 One schematic of the selected desk lights. Drag lamps onto a fixed 10 cm grid,
-select one to adjust brightness, and save the draft. Known models supply form,
+select one to adjust brightness, with automatic local saving. Known models supply form,
 segment template and color mapping. No physical lighting settings
 are changed.
 
@@ -45,3 +45,11 @@ The view expands after release and stays stable during pointer dragging.
 
 Owner-specified fixture dimensions are used at the same scale: Govee
 height 136 cm and Play length 25 cm, including when Play is vertical.
+
+The monitor itself supports pointer dragging and arrow movement on the
+10 cm grid, plus numeric center height from the floor and offset from the
+desk center. The attached strip shares its position. Elevated placements
+persist without being pulled back into the initial viewport.
+
+Every edit (including undo) saves automatically to local storage. There is
+no Save button, reset action or persistent save/instruction footer.

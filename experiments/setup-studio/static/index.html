@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>Light Studio — розташування світла</title><link rel="stylesheet" href="/style.css"></head>
 <body><main>
-<header><a class="brand" href="/" aria-label="Light Studio"><svg viewBox="0 0 28 28"><path d="M7 9v10M14 5v18M21 9v10"/></svg><span>Light Studio</span></a><span class="room">Mykola Office</span><span class="draft">Макет</span><div class="header-actions"><button class="button secondary" data-action="add">＋ Лампа</button><button class="button primary" data-action="save">Зберегти</button></div></header>
-<section class="intro"><h1>Розстав світло</h1><p>Розстав лампи на сітці з кроком 10 см. Решту підберемо автоматично.</p></section>
-<section class="workspace" aria-label="Розташування ламп"><svg id="stage" viewBox="0 0 1000 900" aria-label="Схема робочого місця та шести ламп" role="group"></svg><aside id="selection-panel" class="selection" hidden aria-label="Вибрана лампа"></aside><button class="reset" data-action="reset">↶ Початкове розташування</button><span class="canvas-label">СІТКА · 10 СМ</span></section>
-<footer><span id="save-state">Зміни поки зберігаються лише в макеті — світло не змінюється.</span><span class="shortcut">← ↑ ↓ → — крок 10 см</span></footer>
+<header><a class="brand" href="/" aria-label="Light Studio"><svg viewBox="0 0 28 28"><path d="M7 9v10M14 5v18M21 9v10"/></svg><span>Light Studio</span></a><span class="room">Mykola Office</span><span class="draft">Макет</span><div class="header-actions"><button class="button secondary" data-action="add">＋ Лампа</button></div></header>
+<section class="intro"><h1>Розстав світло</h1></section>
+<section class="workspace" aria-label="Розташування ламп"><svg id="stage" viewBox="0 0 1000 900" aria-label="Схема робочого місця та шести ламп" role="group"></svg><aside id="selection-panel" class="selection" hidden aria-label="Параметри вибраного об’єкта"></aside><span class="canvas-label">СІТКА · 10 СМ</span></section>
+
 </main><div id="toast" class="toast" role="status" aria-live="polite"></div><dialog id="modal"><button class="close" data-action="close-modal" aria-label="Закрити">×</button><div id="modal-content"></div></dialog><script type="module" src="/app.js"></script></body></html>

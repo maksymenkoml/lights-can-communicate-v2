@@ -29,7 +29,7 @@ function load(){
   const saved=JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1'));
   if(![1,2,3].includes(saved?.version)||!Array.isArray(saved.devices))return defaults();
   const data=defaults();data.desk={width:clamp(saved.desk?.width??160,80,240),height:clamp(saved.desk?.height??85,50,120)};data.monitorInches=clamp(saved.monitorInches??32,19,55);data.room=String(saved.room||data.room).slice(0,40);
-  data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,12,88)}}:d;});
+  data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'?-100:12,88)}}:d;});
   for(const s of saved.devices.filter(x=>/^virtual-[a-z0-9]+$/.test(x.id||'')).slice(0,6)){
    const shape=Object.hasOwn(typeNames,s.shape)?s.shape:'bar';if(s.positionCm)s.pos=positionFromCm(s.positionCm);
    data.devices.push({id:s.id,name:String(s.name||'Нова лампа').slice(0,35),short:'Нова лампа',model:'Макет',shape,zones:shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,12,88)}});
@@ -39,10 +39,10 @@ function load(){
 }
 let layout=load(),selected=null,dragging=null,history=[],toastTimer;
 const stage=$('#stage');
-const current=()=>layout.devices.find(d=>d.id===selected);
+const current=()=>layout.devices.find(d=>d.id===(selected==='monitor'?'hue-monitor':selected));
 const screen=()=>layout.devices.find(d=>d.id==='hue-monitor')||seed[2];
 function remember(){history.push(clone(layout));if(history.length>25)history.shift();}
-function dirty(){$('#save-state').textContent='Є незбережені зміни. На фізичне світло вони поки не впливають.';}
+function dirty(){save();}
 function notify(text){$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
 function point(event){return new DOMPoint(event.clientX,event.clientY).matrixTransform(stage.getScreenCTM().inverse());}
 function color(d,index){
@@ -60,7 +60,7 @@ function room(){
  <path class="dimension" d="M${left} ${DESK_Y+40}H${right}M${left} ${DESK_Y+33}v14M${right} ${DESK_Y+33}v14M${right+35} ${DESK_Y}V${FLOOR_Y}M${right+28} ${DESK_Y}h14M${right+28} ${FLOOR_Y}h14"/>
  <text class="measurement" x="500" y="${DESK_Y+65}">${layout.desk.width} см · ✎</text>
  <text class="measurement" x="${right+52}" y="${(DESK_Y+FLOOR_Y)/2}" transform="rotate(-90 ${right+52} ${(DESK_Y+FLOOR_Y)/2})">${layout.desk.height} см</text></g>
- <g data-monitor class="monitor-target" role="button" tabindex="0" aria-label="Розмір монітора: ${layout.monitorInches} дюйми"><rect class="monitor" x="${cx-w/2}" y="${cy-h/2}" width="${w}" height="${h}" rx="7"/>
+ <g data-monitor class="monitor-target ${selected==='monitor'?'selected':''}" role="button" tabindex="0" aria-label="Монітор: ${layout.monitorInches} дюйми, центр ${heightCm(monitor)} см від підлоги"><rect class="monitor" x="${cx-w/2}" y="${cy-h/2}" width="${w}" height="${h}" rx="7"/>
  <rect x="${cx-w/2+7}" y="${cy-h/2+7}" width="${w-14}" height="${h-14}" rx="4" fill="#1c282c"/>
  <text class="screen-copy" x="${cx}" y="${cy+4}">${layout.monitorInches}″ · 16:9 · ✎</text></g>
  <path class="desk" d="M${cx} ${cy+h/2+2}V${DESK_Y-3}M${cx-35} ${DESK_Y-3}h70"/>`;
@@ -100,7 +100,7 @@ function renderStage(){
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
- if(selected==='monitor'){panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити розмір монітора">×</button><h2>Розмір монітора</h2><p>Формат 16:9. Стрічка підлаштується.</p><label class="dimension-input">Діагональ, дюйми<input type="number" id="monitor-inches" min="19" max="55" step="0.1" value="${layout.monitorInches}"></label>`;return;}
+ if(selected==='monitor'){panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити параметри монітора">×</button><h2>Монітор</h2><p>Формат 16:9</p><label class="dimension-input">Діагональ, дюйми<input type="number" id="monitor-inches" min="19" max="55" step="0.1" value="${layout.monitorInches}"></label><label class="dimension-input">Центр від підлоги, см<input type="number" id="monitor-height" step="10" max="250" value="${heightCm(screen())}"></label><label class="dimension-input">Зсув від центру, см<input type="number" id="monitor-offset" min="-300" max="300" step="10" value="${Math.round(screen().pos.x/100*COLS)*STEP_CM-100}"></label><p class="position-hint">Мінус — ліворуч, плюс — праворуч.</p>`;return;}
  if(selected==='desk'){
   panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити розміри столу">×</button><h2>Розміри столу</h2><p>Схема масштабується автоматично.</p><label class="dimension-input">Ширина, см<input type="number" id="desk-width" min="80" max="240" step="1" value="${layout.desk.width}"></label><label class="dimension-input">Висота стільниці, см<input type="number" id="desk-height" min="50" max="120" step="1" value="${layout.desk.height}"></label>`;return;
  }
@@ -117,21 +117,28 @@ function autoSnap(d,desk=layout.desk,inches=layout.monitorInches){
  const attached=d.id==='hue-monitor',floor=d.shape==='floor';
  const monitorMaxY=Math.floor((deskTop(desk)-size.height/2-5)/GRID);
  d.pos.x=clamp(Math.round(d.pos.x*10/GRID),-COLS,COLS*2)*GRID/10;
- d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.ceil((size.height/2+40)/GRID)):floor?Math.ceil((GOVEE_HEIGHT_CM*UNITS_PER_CM-300+20)/GRID):1,floor?11:attached?monitorMaxY:16)*GRID/STAGE_HEIGHT*100;
+ d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,-8):floor?Math.ceil((GOVEE_HEIGHT_CM*UNITS_PER_CM-300+20)/GRID):1,floor?11:attached?monitorMaxY:16)*GRID/STAGE_HEIGHT*100;
 }
 
-function save(){try{const saved={...layout,version:3,gridStepCm:STEP_CM,devices:layout.devices.map(({pos,...d})=>({...d,positionCm:{x:Math.round(pos.x/100*COLS)*STEP_CM,height:heightCm({pos})}}))};localStorage.setItem(KEY,JSON.stringify(saved));$('#save-state').textContent='Макет збережено в цьому браузері. Фізичне світло не змінювалось.';notify('Розташування збережено');}catch{notify('Браузер не дозволив зберегти макет');}}
+function save(){try{const saved={...layout,version:3,gridStepCm:STEP_CM,devices:layout.devices.map(({pos,...d})=>({...d,positionCm:{x:Math.round(pos.x/100*COLS)*STEP_CM,height:heightCm({pos})}}))};localStorage.setItem(KEY,JSON.stringify(saved));}catch{notify('Браузер не дозволив зберегти макет');}}
 function add(){
  if(layout.devices.length>=12){notify('У цьому макеті вже 12 ламп');return;}
  $('#modal-content').innerHTML=`<h2>Яку лампу додати?</h2><p>Обери форму. Решту макет підбере автоматично.</p><div class="types"><button class="type" data-add="floor"><svg viewBox="0 0 40 50"><path d="M20 4v36M10 44h20"/></svg>Торшер</button><button class="type" data-add="strip"><svg viewBox="0 0 40 50"><path d="M5 42V9h30v33"/></svg>Стрічка</button><button class="type" data-add="bar"><svg viewBox="0 0 40 50"><rect x="7" y="16" width="26" height="14" rx="6"/></svg>Панель</button></div><div class="top-help">Новий об’єкт додається лише до макета.</div>`;$('#modal').showModal();
 }
-const actions={save,add,'close-modal':()=>$('#modal').close(),deselect:()=>{selected=null;render();},reset:()=>{remember();layout=defaults();selected=null;dirty();render();notify('Початкове розташування відновлено');},remove:()=>{if(!current()?.id.startsWith('virtual-'))return;remember();layout.devices=layout.devices.filter(d=>d.id!==selected);selected=null;dirty();render();}};
+const actions={add,'close-modal':()=>$('#modal').close(),deselect:()=>{selected=null;render();},remove:()=>{if(!current()?.id.startsWith('virtual-'))return;remember();layout.devices=layout.devices.filter(d=>d.id!==selected);selected=null;dirty();render();}};
 document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  if(button.dataset.action)actions[button.dataset.action]?.();
  if(button.dataset.add){const shape=button.dataset.add;remember();const d={id:'virtual-'+Date.now().toString(36),name:`${typeNames[shape]} ${layout.devices.filter(x=>x.shape===shape).length+1}`,short:typeNames[shape],model:'Макет',shape,zones:shape==='floor'?7:shape==='strip'?9:1,scale:80,rate:0,orientation:'horizontal',pos:{x:50,y:72}};autoSnap(d);layout.devices.push(d);selected=d.id;dirty();render();$('#modal').close();}
 });
 document.addEventListener('change',event=>{
+ if(['monitor-height','monitor-offset'].includes(event.target.id)){
+  if(!event.target.value||!Number.isFinite(event.target.valueAsNumber)){renderSelection();return;}
+  remember();const monitor=screen();
+  if(event.target.id==='monitor-height')monitor.pos.y=(FLOOR_Y-event.target.valueAsNumber*UNITS_PER_CM)/STAGE_HEIGHT*100;
+  else monitor.pos.x=(event.target.valueAsNumber+100)/(COLS*STEP_CM)*100;
+  autoSnap(monitor);dirty();render();return;
+ }
  if(event.target.name==='orientation'&&current()?.shape==='bar'){remember();current().orientation=event.target.value==='vertical'?'vertical':'horizontal';dirty();renderStage();return;}
  if(event.target.id==='monitor-inches'){if(!event.target.value||!Number.isFinite(event.target.valueAsNumber)){renderSelection();return;}remember();layout.monitorInches=Math.round(clamp(event.target.value,19,55)*10)/10;autoSnap(screen());dirty();render();return;}
  if(!['desk-width','desk-height'].includes(event.target.id))return;
@@ -145,27 +152,26 @@ document.addEventListener('change',event=>{
 document.addEventListener('pointerdown',event=>{if(event.target.id==='brightness')remember();});
 document.addEventListener('input',event=>{if(event.target.id!=='brightness'||!current())return;current().scale=clamp(event.target.value,0,100);$('#brightness-value').textContent=Math.round(current().scale)+'%';dirty();renderStage();});
 stage.addEventListener('pointerdown',event=>{
- if(event.target.closest('[data-monitor]')){selected='monitor';renderSelection();return;}
  if(event.target.closest('[data-desk]')){selected='desk';renderSelection();return;}
- const node=event.target.closest('[data-lamp]');
+ const node=event.target.closest('[data-lamp],[data-monitor]');
  if(!node){selected=null;render();return;}
- selected=node.dataset.lamp;const d=current();remember();dragging={id:d.id,start:point(event),pos:clone(d.pos),moved:false};stage.setPointerCapture(event.pointerId);render();
+ selected=node.hasAttribute('data-monitor')?'monitor':node.dataset.lamp;const d=current();remember();dragging={id:d.id,start:point(event),pos:clone(d.pos),moved:false};stage.setPointerCapture(event.pointerId);if(selected==='monitor'){stage.querySelectorAll('.selected').forEach(item=>item.classList.remove('selected'));node.classList.add('selected');renderSelection();}else render();
 });
 stage.addEventListener('pointermove',event=>{
  if(!dragging)return;const p=point(event),d=current();const dx=(p.x-dragging.start.x)/10,dy=(p.y-dragging.start.y)/STAGE_HEIGHT*100;
  d.pos={x:dragging.pos.x+dx,y:dragging.pos.y+dy};autoSnap(d);dragging.moved=d.pos.x!==dragging.pos.x||d.pos.y!==dragging.pos.y;renderStage();
 });
-function finishDrag(){if(!dragging)return;if(dragging.moved)dirty();else history.pop();dragging=null;renderStage();renderSelection();stage.querySelector(`[data-lamp="${selected}"]`)?.focus({preventScroll:true});}
+function finishDrag(){if(!dragging)return;const moved=dragging.moved;if(moved)dirty();else history.pop();dragging=null;if(moved)renderStage();renderSelection();stage.querySelector(selected==='monitor'?'[data-monitor]':`[data-lamp="${selected}"]`)?.focus({preventScroll:true});}
 stage.addEventListener('pointerup',finishDrag);stage.addEventListener('pointercancel',finishDrag);
-stage.addEventListener('click',event=>{const node=event.target.closest('[data-lamp]');if(node&&selected!==node.dataset.lamp)choose(node.dataset.lamp);});
+stage.addEventListener('click',event=>{if(event.target.closest('[data-monitor]')){selected='monitor';renderSelection();stage.querySelector('[data-monitor]')?.focus({preventScroll:true});return;}const node=event.target.closest('[data-lamp]');if(node&&selected!==node.dataset.lamp)choose(node.dataset.lamp);});
 stage.addEventListener('keydown',event=>{
- if(event.target.closest('[data-monitor]')&&(event.key==='Enter'||event.key===' ')){event.preventDefault();selected='monitor';renderSelection();return;}
  if(event.target.closest('[data-desk]')&&(event.key==='Enter'||event.key===' ')){event.preventDefault();selected='desk';renderSelection();return;}
- const node=event.target.closest('[data-lamp]');if(!node)return;
- if(event.key==='Enter'||event.key===' '){event.preventDefault();choose(node.dataset.lamp);return;}
- if(!event.key.startsWith('Arrow'))return;event.preventDefault();selected=node.dataset.lamp;remember();const d=current(),stepX=GRID/10,stepY=GRID/STAGE_HEIGHT*100;
- if(event.key==='ArrowLeft')d.pos.x-=stepX;if(event.key==='ArrowRight')d.pos.x+=stepX;if(event.key==='ArrowUp')d.pos.y-=stepY;if(event.key==='ArrowDown')d.pos.y+=stepY;autoSnap(d);dirty();render();stage.querySelector(`[data-lamp="${selected}"]`)?.focus({preventScroll:true});
+ const node=event.target.closest('[data-lamp],[data-monitor]');if(!node)return;
+ const id=node.hasAttribute('data-monitor')?'monitor':node.dataset.lamp;
+ if(event.key==='Enter'||event.key===' '){event.preventDefault();choose(id);return;}
+ if(!event.key.startsWith('Arrow'))return;event.preventDefault();selected=id;remember();const d=current(),stepX=GRID/10,stepY=GRID/STAGE_HEIGHT*100;
+ if(event.key==='ArrowLeft')d.pos.x-=stepX;if(event.key==='ArrowRight')d.pos.x+=stepX;if(event.key==='ArrowUp')d.pos.y-=stepY;if(event.key==='ArrowDown')d.pos.y+=stepY;autoSnap(d);dirty();render();stage.querySelector(selected==='monitor'?'[data-monitor]':`[data-lamp="${selected}"]`)?.focus({preventScroll:true});
 });
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){selected=null;render();}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'&&history.length&&document.activeElement?.tagName!=='INPUT'){event.preventDefault();layout=history.pop();if(!['desk','monitor'].includes(selected)&&!layout.devices.some(d=>d.id===selected))selected=null;dirty();render();}});
 render();
-try{if(localStorage.getItem(KEY))$('#save-state').textContent='Збережений макет. Фізичне світло працює незалежно від нього.';}catch{}
+save();

@@ -11,7 +11,7 @@ models supply form, zone template and mapping. There is no
 separate device list, navigation rail, zone editor or persistent inspector.
 The owner drags lamps or uses arrows; every move snaps to a 10 cm cell.
 Selecting a lamp reveals its model, position and brightness. Adding a virtual
-lamp asks only for its form. Save persists the local draft.
+lamp asks only for its form. Each edit automatically persists the local draft.
 
 Existing scale defaults remain 65% for Govee, 50% for native Center, and 100%
 for other native lamps. The hidden right-driver packet budget remains 10/s.
@@ -53,3 +53,11 @@ The view expands after release and stays stable during pointer dragging.
 
 Owner-specified fixture dimensions are used at the same scale: Govee
 height 136 cm and Play length 25 cm, including when Play is vertical.
+
+The monitor itself supports pointer dragging and arrow movement on the
+10 cm grid, plus numeric center height from the floor and offset from the
+desk center. The attached strip shares its position. Elevated placements
+persist without being pulled back into the initial viewport.
+
+Every edit (including undo) saves automatically to local storage. There is
+no Save button, reset action or persistent save/instruction footer.

@@ -10,3 +10,5 @@
 .lamp .hit.strip-hit{fill:none;stroke:transparent;stroke-width:25px;pointer-events:stroke}.monitor-target{cursor:pointer;outline:none}.monitor-target:hover .monitor,.monitor-target:focus-visible .monitor{stroke:#c9e9a8}.monitor-target .screen-copy{pointer-events:none}
 
 .orientation{border:0;border-top:1px solid #41523c;margin:16px 0 0;padding:14px 0 0}.orientation legend{float:left;width:100%;font-size:11px;color:#bacbb1;margin-bottom:10px}.orientation label{display:flex;gap:7px;align-items:center;font-size:11px;margin-top:8px;color:#bacbb1}.orientation input{accent-color:var(--accent);margin:0}
+
+.monitor-target{cursor:grab}.monitor-target:active{cursor:grabbing}.monitor-target.selected .monitor{stroke:#c9e9a8}.selection .position-hint{font-size:9px;margin-top:12px}
