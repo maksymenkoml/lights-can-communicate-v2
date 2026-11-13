@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-13",
+  "duration_seconds": 14.009,
+  "physical_lamps": 2,
+  "calibration": 0.65,
+  "source": "direct Hue scene transitions",
+  "sides": {
+    "left": {
+      "frames": 278,
+      "median_gap_ms": 50.01,
+      "p95_gap_ms": 53.75,
+      "max_gap_ms": 150.25,
+      "max_channel_step": 3,
+      "skipped_state": 0,
+      "rejected_sends": 0
+    },
+    "right": {
+      "frames": 180,
+      "median_gap_ms": 50.01,
+      "p95_gap_ms": 53.77,
+      "max_gap_ms": 100.93,
+      "max_channel_step": 3,
+      "skipped_state": 0,
+      "rejected_sends": 0
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "date": "2026-11-13",
+  "physical_stop_no_writes_after_old_worker_sleep": "PASS",
+  "brightness_virtual_percent": 40,
+  "brightness_native_percent": 26,
+  "brightness_both_selected_lamps": "PASS - native readback settled",
+  "static_scene_restore_native_percent": 51,
+  "power_commands_sent": false
+}

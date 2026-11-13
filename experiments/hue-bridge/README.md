@@ -6,10 +6,10 @@ An explicit live-pilot mode can forward these two slots to our host adapter.
 This is not the final Homebridge plugin. Upstream physical `set_light`
 drivers remain blocked. Our separate adapter uses the pinned Govee allowlist.
 
-**Owner hold, 2026-11-13:** physical output is stopped while the owner sleeps.
-Keep `state/live-output-hold` and `PROBE_LIVE_OUTPUT=false` in place.
-Do not resume hardware tests until the owner explicitly permits them.
-The adapter refuses startup during the hold. The bridge stays simulated.
+**Owner resume, 2026-11-13:** the owner explicitly resumed hardware testing.
+The sleep hold was released and the selected two-lamp pilot was restarted.
+The hold mechanism remains available for later pauses. Do not remove a future
+`state/live-output-hold` without explicit owner permission.
 
 See [LIVE_PILOT.md](LIVE_PILOT.md) for scope, implementation, and evidence limits.
 

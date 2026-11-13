@@ -4,7 +4,7 @@
   "selected_physical_govee_count": 2,
   "brightness_multiplier": 0.65,
   "gallery_scene": "Vapor wave",
-  "physical_play": "PASS - owner confirmed colors change; small stepping remained",
+  "physical_play": "PASS - owner confirmed smooth after reader update",
   "physical_stop": "PASS - owner confirmed cycling stopped",
   "native_readback_brightness": 51,
   "scene_brightness_percent": 78,
@@ -12,8 +12,8 @@
   "unknown_third_side": "PASS - rejected with 400 before physical commands",
   "candidate_transport": "continuous single-owner UDP receiver; offline tests passed",
   "candidate_play_guard": "generation reserved at thread creation; offline pinned-source test passed",
-  "candidate_physical_smoothness": "NOT RE-TESTED - owner sleep hold",
-  "physical_output": "STOPPED",
+  "candidate_physical_smoothness": "PASS - owner visual confirmation and 14-second live timing window",
+  "physical_output": "ACTIVE - owner explicitly resumed",
   "resume_condition": "explicit owner permission",
   "nas_deployment": "NOT IMPLEMENTED",
   "homebridge_plugin_package": "NOT IMPLEMENTED",
@@ -23,5 +23,11 @@
   "offline_lifecycle_http": "PASS - simulated rapid Play/Stop/Play and deactivate remained frozen after old worker sleep",
   "offline_native_source_lifecycle": "PASS - actual pinned Scene.activate and Light.dynamicScenePlay with fake lamp and deferred threads",
   "offline_transport_render": "PASS - mocked continuous transport with actual verified send gate; no physical networking",
-  "review": "No remaining Critical/Important findings in offline review"
+  "review": "No remaining Critical/Important findings in offline review",
+  "initial_physical_play": "PASS - owner confirmed colors change; small stepping remained",
+  "owner_sleep_hold": "RELEASED by explicit owner resume",
+  "physical_off_on_recovery": "PENDING owner-operated power check",
+  "resumed_static_recall": "PASS - native colors and brightness matched",
+  "resumed_brightness": "PASS - virtual 40 percent gave native 26 percent on both selected lamps",
+  "resumed_stop": "PASS - no new control commands after old worker sleep"
 }

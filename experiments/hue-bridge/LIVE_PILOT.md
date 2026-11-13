@@ -2,16 +2,17 @@
 
 ## Current status
 
-The owner confirmed that both selected Govee changed colors through Vapor wave
-Play in the official Hue app. The owner also confirmed that Stop ended cycling.
-The initial live run still showed small color steps.
+The owner resumed hardware testing on 2026-11-13. The selected two-lamp pilot
+was restarted with the saved 0.65 calibration. The owner confirmed smooth
+Vapor wave Play after the continuous receiver update.
 
-Physical output is now stopped at the owner's request. Offline tests and
-virtual checks may continue. Do not remove the output hold or start hardware
-controllers until the owner explicitly permits testing again.
+Static scene colors and brightness matched native readback. Stop produced no
+new control commands after the previous worker sleep. A virtual brightness
+of 40% produced native 26% on both lamps. Static recall restored native 51%.
 
-The latest transport and Play lifecycle fixes pass offline tests and review.
-Their physical smoothness has not been re-tested under the hold.
+Physical off/on recovery remains a separate owner-operated check. The hold
+mechanism remains available for later pauses. Never remove an active owner
+hold without explicit permission.
 
 ## Path
 
@@ -55,8 +56,16 @@ Only a fresh identity plus a fresh native-on status can authorize output.
 Status refresh alone cannot extend an old identity proof.
 
 The renderer still uses `smart_lighting.send_to_target` as its only write gate.
-A mocked transport/render integration test exercises this gate at 50 ms
-intervals. Hardware pacing after this change remains unverified.
+A mocked transport/render integration test exercises this gate at 50 ms.
+After owner resume, the same two lamps completed this 14-second live window:
+
+| Side | Median gap | p95 gap | Largest gap | Largest channel step | State skips / rejected sends |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Left | 50.01 ms | 53.75 ms | 150.25 ms | 3 | 0 / 0 |
+| Right | 50.01 ms | 53.77 ms | 100.93 ms | 3 | 0 / 0 |
+
+Identical RGB frames are deduplicated. These command gaps do not measure LED
+update times. The owner separately confirmed that transitions looked smooth.
 
 ## Play lifecycle
 
@@ -89,7 +98,10 @@ These tests made no physical network requests.
 `state/live-output-hold` blocks adapter startup before network setup. It also
 forces the bridge to simulation mode, even if the live flag is true.
 
-After explicit owner permission, the next hardware check must cover Play,
-Stop, static recall, brightness, off/on recovery, and command pacing.
+The owner explicitly resumed testing. Play, Stop, static recall, brightness,
+and command pacing have passed the resumed live checks. Manual off/on
+recovery still awaits the owner's power action.
+
 Retain the pinned IDs, 0.65 calibration, and the identity freshness limit.
-Do not run the old palette follower alongside the pilot.
+Do not run the old palette follower alongside the pilot. Any future owner
+hold must remain active until the owner explicitly permits testing again.
