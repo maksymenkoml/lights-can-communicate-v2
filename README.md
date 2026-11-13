@@ -37,8 +37,10 @@ the selected Govee controllers without changing them.
 The left Govee gets the first stored Hue gradient point and the right Govee
 gets the last. For a solid Hue color they get the same color. Govee brightness
 and on/off are left to Homebridge and its existing automations. Only colors
-are sent. Off Govee controllers are skipped; if their state cannot be read,
-the program stops without sending a color to that controller. When Hue is off,
+are sent. Off Govee controllers are skipped. A missed UDP status reply skips
+only that controller and retries on the next cycle; other lamps keep updating.
+No color is sent to a controller whose state could not be read. The one-shot
+command still returns an error if a controller is unreachable. When Hue is off,
 palette updates pause. Active white temperature takes priority over stale
 color/gradient fields. If the physical gradient direction is reversed, swap
 the left/right IP selection.
@@ -78,7 +80,8 @@ python3 -B -m unittest discover -s tests -v
 git config core.hooksPath .githooks
 ```
 
-The pre-push hook runs Ruff and unit tests. `uv` is only needed for development;
+The pre-push hook runs cached Ruff offline and unit tests. Run the Ruff command
+above once to populate the cache. `uv` is only needed for development;
 it is not needed to run the prototype.
 
 Protocol references: [Govee LAN API](https://app-h5.govee.com/user-manual/wlan-guide),

@@ -181,6 +181,7 @@ def run_sync(config, once=False, dry_run=False, interval=2):
     previous = {}
     last_refresh = 0
     paused = False
+    unavailable = set()
     print("Hue -> Govee. Ctrl+C stops following; lights keep their last state.", flush=True)
     while True:
         light = hue_request(config, f"/clip/v2/resource/light/{config['light']}")["data"][0]
@@ -206,7 +207,20 @@ def run_sync(config, once=False, dry_run=False, interval=2):
             if not dry_run:
                 status = govee_status(device["ip"])
                 if status is None:
-                    raise ValueError(f"Govee {device['ip']} did not reply; no color sent to it")
+                    if once:
+                        raise ValueError(f"Govee {device['ip']} did not reply; no color sent to it")
+                    if device["ip"] not in unavailable:
+                        print(
+                            f"Govee {device['ip']} did not reply; retrying next cycle.",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    unavailable.add(device["ip"])
+                    previous.pop(device["ip"], None)
+                    continue
+                if device["ip"] in unavailable:
+                    print(f"Govee {device['ip']} is responding again.", flush=True)
+                    unavailable.remove(device["ip"])
                 if status.get("onOff") != 1:
                     previous.pop(device["ip"], None)
                     continue

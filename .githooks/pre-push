@@ -2,5 +2,5 @@
 set -eu
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
-UV_TOOL_DIR="$PWD/.ruff_cache/tools" uvx --cache-dir .ruff_cache/uv ruff check .
+UV_TOOL_DIR="$PWD/.ruff_cache/tools" uvx --offline --cache-dir .ruff_cache/uv ruff check .
 python3 -B -m unittest discover -s tests -v

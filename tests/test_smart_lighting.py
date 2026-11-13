@@ -71,6 +71,70 @@ class PaletteTests(unittest.TestCase):
 
 
 class HomebridgeTests(unittest.TestCase):
+    def test_following_recovers_after_one_missing_udp_reply(self):
+        config = {"light": "test-strip", "targets": [{"ip": "192.168.10.50", "side": "left"}]}
+        sent = []
+        with (
+            patch.object(
+                lighting,
+                "hue_request",
+                side_effect=[
+                    {"data": [gradient_light()]},
+                    {"data": [gradient_light()]},
+                    KeyboardInterrupt,
+                ],
+            ),
+            patch.object(lighting, "govee_status", side_effect=[None, {"onOff": 1}]),
+            patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
+            patch.object(lighting.time, "sleep"),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            lighting.run_sync(config)
+        self.assertEqual(
+            sent,
+            [
+                (
+                    "192.168.10.50",
+                    "colorwc",
+                    {"color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
+                )
+            ],
+        )
+
+    def test_offline_left_does_not_block_online_right(self):
+        config = {
+            "light": "test-strip",
+            "targets": [
+                {"ip": "192.168.10.50", "side": "left"},
+                {"ip": "192.168.10.51", "side": "right"},
+            ],
+        }
+        sent = []
+        with (
+            patch.object(
+                lighting,
+                "hue_request",
+                side_effect=[{"data": [gradient_light()]}, KeyboardInterrupt],
+            ),
+            patch.object(lighting, "govee_status", side_effect=[None, {"onOff": 1}]),
+            patch.object(lighting, "govee_send", side_effect=lambda *args: sent.append(args)),
+            patch.object(lighting.time, "sleep"),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            lighting.run_sync(config)
+        self.assertEqual(
+            sent,
+            [
+                (
+                    "192.168.10.51",
+                    "colorwc",
+                    {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0},
+                )
+            ],
+        )
+
     def test_streaming_hue_is_skipped_without_touching_govee(self):
         light = gradient_light()
         light["mode"] = "streaming"
