@@ -1,11 +1,19 @@
 # Hue app compatibility probe
 
 Disposable reference experiment for the planned custom Homebridge plugin.
-This is a pinned diyHue runtime with two simulated color lamps. It is not
-the plugin implementation and does not control physical Govee or Hue lights.
-All physical `set_light` driver entry points are blocked by the probe wrapper.
+The default mode uses a pinned diyHue runtime with two simulated color lamps.
+An explicit live-pilot mode can forward these two slots to our host adapter.
+This is not the final Homebridge plugin. Upstream physical `set_light`
+drivers remain blocked. Our separate adapter uses the pinned Govee allowlist.
 
-## Observed result
+**Owner hold, 2026-11-13:** physical output is stopped while the owner sleeps.
+Keep `state/live-output-hold` and `PROBE_LIVE_OUTPUT=false` in place.
+Do not resume hardware tests until the owner explicitly permits them.
+The adapter refuses startup during the hold. The bridge stays simulated.
+
+See [LIVE_PILOT.md](LIVE_PILOT.md) for scope, implementation, and evidence limits.
+
+## Phase 1: simulated compatibility result
 
 Tested on 2026-11-13 with the owner's installed official Philips Hue app on
 iPhone. The exact application version was not recorded. The bridge recorded

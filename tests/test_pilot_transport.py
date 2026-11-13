@@ -1,0 +1,159 @@
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
+from live_adapter import PilotController  # noqa: E402
+from pilot_transport import PilotTransport  # noqa: E402
+
+import smart_lighting as lan  # noqa: E402
+
+LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
+RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
+THIRD = "CC:CC:CC:CC:CC:CC:CC:CC"
+
+
+class PilotTransportTests(unittest.TestCase):
+    def setUp(self):
+        for name in ("GOVEE_ROUTES", "VERIFIED_GOVEE", "GOVEE_ROUTE_REVISIONS"):
+            context = patch.dict(getattr(lan, name), {}, clear=True)
+            context.start()
+            self.addCleanup(context.stop)
+        self.targets = [
+            {"device": LEFT, "side": "left", "ip": "192.168.10.50"},
+            {"device": RIGHT, "side": "right", "ip": "192.168.10.51"},
+        ]
+        self.updates = []
+        self.transport = PilotTransport(
+            self.targets, publisher=lambda value: self.updates.append(value)
+        )
+
+    def message(self, cmd, data, ip, now):
+        self.transport.handle({"msg": {"cmd": cmd, "data": data}}, ip, now)
+
+    def test_status_alone_never_authorizes_control(self):
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+
+    def test_fresh_identity_and_native_on_authorize_only_pinned_id(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 10))
+        self.message("scan", {"device": THIRD}, "192.168.10.99", 10.03)
+        self.assertNotIn(THIRD, lan.VERIFIED_GOVEE)
+
+    def test_contradictory_peer_identity_revokes_other_target_immediately(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)
+        self.message("scan", {"device": THIRD}, "192.168.10.50", 10.03)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10.04)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+
+    def test_native_off_and_stale_identity_revoke_control(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 10.03)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.04)
+        self.transport.reconcile(10.8)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+
+    def test_ip_change_keeps_identity_and_never_reuses_old_address(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.80", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.80", 10.02)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT][0], "192.168.10.80")
+        self.assertEqual(self.targets[0]["ip"], "192.168.10.80")
+        self.message("scan", {"device": THIRD}, "192.168.10.50", 10.03)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT][0], "192.168.10.80")
+
+    def test_power_refresh_does_not_extend_old_identity_confirmation(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.6)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT][1], 10)
+        self.transport.reconcile(10.76)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+
+    def test_explicit_off_revokes_before_deferred_batch_publish(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)
+        self.transport.handle(
+            {"msg": {"cmd": "devStatus", "data": {"onOff": 0}}},
+            "192.168.10.50",
+            10.03,
+            publish=False,
+        )
+        sent = []
+        with (
+            patch.object(lan.time, "monotonic", return_value=10.03),
+            patch.object(lan, "govee_send", side_effect=lambda *args: sent.append(args)),
+        ):
+            self.assertFalse(lan.send_to_target(self.targets[0], "brightness", {"value": 65}))
+        self.assertEqual(sent, [])
+
+    def test_mocked_continuous_transport_keeps_rendering_without_physical_network(self):
+        now = [10.0]
+        sent = []
+        for item in self.targets:
+            item["brightness_scale"] = 0.65
+        controller = PilotController(self.targets, clock=lambda: now[0], wall_clock=lambda: 1000)
+        transport = PilotTransport(controller.targets, controller.update_statuses)
+        with (
+            patch.object(lan.time, "monotonic", side_effect=lambda: now[0]),
+            patch.object(
+                lan,
+                "govee_send",
+                side_effect=lambda ip, cmd, data: sent.append((now[0], ip, cmd, data)),
+            ),
+        ):
+            for tick in range(40):
+                now[0] = 10 + tick * 0.05
+                if tick % 4 == 0:
+                    for item in controller.targets:
+                        transport.handle(
+                            {"msg": {"cmd": "scan", "data": {"device": item["device"]}}},
+                            item["ip"],
+                            now[0],
+                        )
+                        transport.handle(
+                            {
+                                "msg": {
+                                    "cmd": "devStatus",
+                                    "data": {
+                                        "onOff": 1,
+                                        "brightness": 65,
+                                        "color": {"r": 255, "g": 0, "b": 0},
+                                        "colorTemInKelvin": 0,
+                                    },
+                                }
+                            },
+                            item["ip"],
+                            now[0],
+                        )
+                if tick == 0:
+                    controller.submit(
+                        {
+                            "side": "left",
+                            "session": "offline",
+                            "sequence": 1,
+                            "issued_at": 1000,
+                            "transitiontime": 20,
+                            "state": {
+                                "on": True,
+                                "bri": 254,
+                                "colormode": "xy",
+                                "xy": [0.15, 0.06],
+                            },
+                        }
+                    )
+                controller.render()
+        colors = [row for row in sent if row[2] == "colorwc"]
+        self.assertGreaterEqual(len(colors), 30)
+        self.assertLessEqual(max(b[0] - a[0] for a, b in zip(colors, colors[1:])), 0.051)
+        self.assertEqual({row[1] for row in sent}, {"192.168.10.50"})
+        self.assertNotIn("turn", {row[2] for row in sent})
+
+
+if __name__ == "__main__":
+    unittest.main()

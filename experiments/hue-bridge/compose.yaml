@@ -10,6 +10,8 @@ services:
       CONFIG_PATH: /opt/hue-emulator/config
       DEBUG: "false"
       TZ: America/Toronto
+      PROBE_LIVE_OUTPUT: "${PROBE_LIVE_OUTPUT:-false}"
+      PROBE_ADAPTER_URL: "${PROBE_ADAPTER_URL:-http://host.docker.internal:19880}"
     ports:
       - "80:80/tcp"
       - "443:443/tcp"
@@ -17,6 +19,7 @@ services:
     volumes:
       - ./state:/opt/hue-emulator/config
       - ./bootstrap.py:/probe/bootstrap.py:ro
+      - ./bridge_output.py:/probe/bridge_output.py:ro
     networks:
       - probe
 networks:

@@ -1,0 +1,21 @@
+{
+  "seconds": 12.007,
+  "sides": {
+    "left": {
+      "frames": 77,
+      "median_gap_ms": 50.6,
+      "max_gap_ms": 1550.6,
+      "max_channel_step": 63,
+      "skipped_state": 132,
+      "rejected_sends": 22
+    },
+    "right": {
+      "frames": 170,
+      "median_gap_ms": 50.36,
+      "max_gap_ms": 900.7,
+      "max_channel_step": 37,
+      "skipped_state": 24,
+      "rejected_sends": 25
+    }
+  }
+}

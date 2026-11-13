@@ -1,0 +1,8 @@
+{
+  "rapid_play_stop_play": "PASS",
+  "deactivate_stops_pending_and_active_workers": "PASS",
+  "virtual_state_frozen_after_old_sleep": "PASS",
+  "owner_hold": "ACTIVE",
+  "physical_output_enabled": false,
+  "physical_requests_sent": false
+}

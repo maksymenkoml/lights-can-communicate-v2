@@ -1,4 +1,4 @@
-"""Disposable Hue app compatibility probe. All lights use the dummy protocol."""
+"""Hue compatibility probe with an optional allowlisted host-side live adapter."""
 
 import hmac
 import json
@@ -16,7 +16,7 @@ sys.path.insert(0, "/opt/hue-emulator")
 
 import configManager  # noqa: E402
 from flask import abort, jsonify, request  # noqa: E402
-from HueObjects import ApiUser, Group, Light  # noqa: E402
+from HueObjects import ApiUser, Group, Light, Scene  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
@@ -94,6 +94,7 @@ if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
 configManager.bridgeConfig.save_config(backup=False)
 
+from bridge_output import BridgeOutput, PlayGuard  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from services import updateManager  # noqa: E402
@@ -112,6 +113,61 @@ def reject_physical_output(*args, **kwargs):
 
 for protocol in protocols:
     protocol.set_light = reject_physical_output
+
+live_output = None
+if (
+    os.environ.get("PROBE_LIVE_OUTPUT", "false").lower() == "true"
+    and not (state / "live-output-hold").exists()
+):
+    live_output = BridgeOutput(os.environ["PROBE_ADAPTER_URL"], local_secret("adapter-token", 24))
+
+original_set_state = Light.Light._setV1State
+original_dynamic_play = Light.Light.dynamicScenePlay
+play_guard = PlayGuard()
+
+
+Scene.Thread = play_guard.thread_factory(Scene.Thread, original_dynamic_play)
+original_activate = Scene.Scene.activate
+
+
+def serialized_activate(scene, values):
+    with play_guard.lock:
+        if values.get("recall", {}).get("action") == "deactivate":
+            for reference in scene.lights:
+                lamp = reference()
+                if lamp is not None:
+                    play_guard.cancel(lamp)
+                    if live_output is not None and lamp.id_v1 in {"1", "2"}:
+                        live_output.submit(lamp.id_v1, {"on": False}, 0)
+        return original_activate(scene, values)
+
+
+Scene.Scene.activate = serialized_activate
+
+
+def forward_selected_state(lamp, values, advertise=True):
+    transitiontime = values.get("transitiontime", 4)
+    changed = bool(set(values) & {"on", "bri", "xy", "ct", "hue", "sat", "gradient"})
+    with play_guard.lock:
+        generation = play_guard.worker_generation(lamp)
+        if generation is not None and not play_guard.current(lamp, generation):
+            return None
+        if changed and generation is None:
+            play_guard.cancel(lamp)
+        result = original_set_state(lamp, values, advertise)
+        if changed and lamp.id_v1 in {"1", "2"} and live_output is not None:
+            selected = {
+                key: lamp.state[key]
+                for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat")
+                if key in lamp.state
+            }
+            live_output.submit(lamp.id_v1, selected, transitiontime)
+        return result
+
+
+Light.Light._setV1State = forward_selected_state
+if live_output is not None:
+    live_output.start()
 
 
 @app.after_request
@@ -149,7 +205,9 @@ def probe_status():
         {
             "name": settings["name"],
             "bridgeid": settings["bridgeid"],
-            "simulation_only": True,
+            "simulation_only": live_output is None,
+            "live_output_hold": (state / "live-output-hold").exists(),
+            "live_output": live_output.snapshot() if live_output else {"enabled": False},
             "clients": [
                 getattr(client, "name", "unknown") for client in config["apiUsers"].values()
             ],
