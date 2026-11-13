@@ -1,0 +1,69 @@
+[
+  {
+    "time": 1794554469.2523766,
+    "method": "PUT",
+    "path": "/clip/v2/resource/light/050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+    "status": 200,
+    "fields": [
+      "color",
+      "dimming",
+      "on"
+    ],
+    "user_agent": "Dart/3.13 (dart:io)"
+  },
+  {
+    "time": 1794554469.296301,
+    "method": "PUT",
+    "path": "/clip/v2/resource/light/c542df65-c2a4-512e-85b6-2f4b7401213f",
+    "status": 200,
+    "fields": [
+      "color",
+      "dimming",
+      "on"
+    ],
+    "user_agent": "Dart/3.13 (dart:io)"
+  },
+  {
+    "time": 1794554471.4886894,
+    "method": "POST",
+    "path": "/clip/v2/resource/scene",
+    "status": 200,
+    "fields": [
+      "actions",
+      "metadata",
+      "palette",
+      "speed"
+    ],
+    "user_agent": "Dart/3.13 (dart:io)"
+  },
+  {
+    "time": 1794554471.6069646,
+    "method": "PUT",
+    "path": "/clip/v2/resource/scene/1a1a2d51-43c7-4b7e-b4ba-ff2ce64b902c",
+    "status": 200,
+    "fields": [
+      "recall"
+    ],
+    "user_agent": "Dart/3.13 (dart:io)"
+  },
+  {
+    "time": 1794554473.4320421,
+    "method": "PUT",
+    "path": "/clip/v2/resource/scene/1a1a2d51-43c7-4b7e-b4ba-ff2ce64b902c",
+    "status": 200,
+    "fields": [
+      "recall"
+    ],
+    "user_agent": "Dart/3.13 (dart:io)"
+  },
+  {
+    "time": 1794554474.3553436,
+    "method": "PUT",
+    "path": "/clip/v2/resource/scene/1a1a2d51-43c7-4b7e-b4ba-ff2ce64b902c",
+    "status": 200,
+    "fields": [
+      "recall"
+    ],
+    "user_agent": "Dart/3.13 (dart:io)"
+  }
+]

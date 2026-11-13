@@ -1,0 +1,74 @@
+[
+  [
+    {
+      "name": "Govee Left TEST",
+      "xy": {
+        "x": 0.2299,
+        "y": 0.08619999999999994
+      },
+      "dynamics": "dynamic_palette"
+    },
+    {
+      "name": "Govee Right TEST",
+      "xy": {
+        "x": 0.4038999999999997,
+        "y": 0.19139999999999985
+      },
+      "dynamics": "dynamic_palette"
+    }
+  ],
+  [
+    {
+      "name": "Govee Left TEST",
+      "xy": {
+        "x": 0.2299,
+        "y": 0.08619999999999994
+      },
+      "dynamics": "dynamic_palette"
+    },
+    {
+      "name": "Govee Right TEST",
+      "xy": {
+        "x": 0.4038999999999997,
+        "y": 0.19139999999999985
+      },
+      "dynamics": "dynamic_palette"
+    }
+  ],
+  [
+    {
+      "name": "Govee Left TEST",
+      "xy": {
+        "x": 0.4038999999999997,
+        "y": 0.19139999999999985
+      },
+      "dynamics": "dynamic_palette"
+    },
+    {
+      "name": "Govee Right TEST",
+      "xy": {
+        "x": 0.5402840141803051,
+        "y": 0.42187871727322523
+      },
+      "dynamics": "dynamic_palette"
+    }
+  ],
+  [
+    {
+      "name": "Govee Left TEST",
+      "xy": {
+        "x": 0.5402840141803051,
+        "y": 0.42187871727322523
+      },
+      "dynamics": "dynamic_palette"
+    },
+    {
+      "name": "Govee Right TEST",
+      "xy": {
+        "x": 0.47399999999999987,
+        "y": 0.4378000000000002
+      },
+      "dynamics": "dynamic_palette"
+    }
+  ]
+]

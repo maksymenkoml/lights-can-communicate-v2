@@ -1,0 +1,32 @@
+{
+  "date": "2026-11-13",
+  "client": "Official Philips Hue on the owner iPhone",
+  "exact_app_version": "not recorded",
+  "client_label": "Hue#iPhone",
+  "user_agent": "Dart/3.13 (dart:io)",
+  "reference_image": "diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba",
+  "bridge_model": "BSB002",
+  "api_version": "1.78.0",
+  "software_version": "1978545030",
+  "pairing": "PASS",
+  "room_visible": "PASS - owner confirmed",
+  "gallery_scene": "Vapor wave",
+  "scene_create_and_recall": "PASS",
+  "play": "PASS - scene and both lights dynamic_palette",
+  "distinct_colors_per_simulated_lamp": [
+    3,
+    3
+  ],
+  "physical_govee_output": "NOT CONNECTED",
+  "nas_deployment": "NOT IMPLEMENTED",
+  "hue_sync": "NOT TESTED",
+  "genuine_bridge_modified": false,
+  "existing_homebridge_modified": false,
+  "discovery_method": "Host mDNS registered; automatic vs manual phone discovery not independently recorded",
+  "initial_update_gate": {
+    "api_version": "1.67.0",
+    "software_version": "1967054020",
+    "result": "mandatory update screen"
+  },
+  "recovery": "Public emulator capability versions matched genuine BSB002; owner restarted iPhone app; no actual firmware update"
+}

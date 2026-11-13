@@ -1,0 +1,23 @@
+services:
+  bridge:
+    image: diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba
+    container_name: tmp_smart_lighting_hue_probe
+    restart: "no"
+    entrypoint: ["python3", "-u", "/probe/bootstrap.py", "--docker"]
+    environment:
+      IP: "${PROBE_IP:?Set the LAN address of the test host}"
+      MAC: "${PROBE_MAC:?Set the MAC of the test host}"
+      CONFIG_PATH: /opt/hue-emulator/config
+      DEBUG: "false"
+      TZ: America/Toronto
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "1900:1900/udp"
+    volumes:
+      - ./state:/opt/hue-emulator/config
+      - ./bootstrap.py:/probe/bootstrap.py:ro
+    networks:
+      - probe
+networks:
+  probe: {}
