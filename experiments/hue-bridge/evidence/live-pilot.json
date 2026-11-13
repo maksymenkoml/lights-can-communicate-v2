@@ -26,8 +26,10 @@
   "review": "No remaining Critical/Important findings in offline review",
   "initial_physical_play": "PASS - owner confirmed colors change; small stepping remained",
   "owner_sleep_hold": "RELEASED by explicit owner resume",
-  "physical_off_on_recovery": "PENDING owner-operated power check",
+  "physical_off_on_recovery": "PASS - left lamp through owner-operated Apple Home off/on; native color and 51 percent brightness restored",
   "resumed_static_recall": "PASS - native colors and brightness matched",
   "resumed_brightness": "PASS - virtual 40 percent gave native 26 percent on both selected lamps",
-  "resumed_stop": "PASS - no new control commands after old worker sleep"
+  "resumed_stop": "PASS - no new control commands after old worker sleep",
+  "physical_off_on_scope": "Left lamp cycled; right lamp stayed on and was not separately cycled",
+  "automatic_power_on_by_adapter": false
 }

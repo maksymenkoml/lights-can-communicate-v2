@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-13",
+  "side": "left",
+  "owner_visual_off": true,
+  "native_off_verified": true,
+  "new_left_color_commands_while_off": false,
+  "blocked_frames_observed": 40,
+  "automatic_power_on": false,
+  "recovery_after_owner_on": "PASS",
+  "native_on_verified": true,
+  "static_color_restored": true,
+  "calibrated_brightness_restored": 51,
+  "new_color_frame_after_owner_on": true,
+  "power_commands_sent_by_adapter": false,
+  "owner_visual_recovery": "Owner reported orange, apparently the same as before off"
+}

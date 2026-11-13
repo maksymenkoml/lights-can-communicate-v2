@@ -10,9 +10,15 @@ Static scene colors and brightness matched native readback. Stop produced no
 new control commands after the previous worker sleep. A virtual brightness
 of 40% produced native 26% on both lamps. Static recall restored native 51%.
 
-Physical off/on recovery remains a separate owner-operated check. The hold
-mechanism remains available for later pauses. Never remove an active owner
-hold without explicit permission.
+The owner also tested the left lamp through Apple Home. Native off was
+confirmed, 40 rendering frames were blocked, and no new left color command
+was sent during the off observation. After the owner turned it on, the
+adapter sent a new target and native readback matched the static orange
+color and calibrated 51% brightness. The owner reported the expected color.
+The adapter sent no power commands. The right lamp remained on.
+
+The hold mechanism remains available for later pauses. Never remove an
+active owner hold without explicit permission.
 
 ## Path
 
@@ -99,8 +105,8 @@ These tests made no physical network requests.
 forces the bridge to simulation mode, even if the live flag is true.
 
 The owner explicitly resumed testing. Play, Stop, static recall, brightness,
-and command pacing have passed the resumed live checks. Manual off/on
-recovery still awaits the owner's power action.
+command pacing, and owner-operated left off/on recovery passed the resumed
+live checks. Right off/on was not separately cycled in this run.
 
 Retain the pinned IDs, 0.65 calibration, and the identity freshness limit.
 Do not run the old palette follower alongside the pilot. Any future owner
