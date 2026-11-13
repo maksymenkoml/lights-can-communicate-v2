@@ -1,0 +1,7 @@
+.lighting.json
+tmp_*
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.gitworktrees/

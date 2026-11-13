@@ -1,0 +1,85 @@
+# Smart lighting prototype
+
+Copy the stored palette of one Philips Hue light to one or two Govee LAN
+controllers. The runtime uses Python 3.10+ and its standard library only.
+This is a local experiment, not a background service.
+
+## Connect
+
+1. Enable **LAN Control** for each Govee device in Govee Home. The computer,
+   lamps, and Hue Bridge must be on a network that allows local communication.
+2. Run `python3 smart_lighting.py discover`.
+3. Run `python3 smart_lighting.py pair` and press the physical Hue Bridge button.
+   If discovery cannot find the bridge, use `pair --bridge 192.168.x.x`.
+4. Run `python3 smart_lighting.py lights` and choose the monitor strip's ID.
+5. Select the source and targets:
+
+   ```sh
+   python3 smart_lighting.py configure --light HUE-LIGHT-UUID --left LEFT-IP --right RIGHT-IP
+   ```
+
+   For two bars sharing a single controller/IP, use `--govee IP` instead;
+   both bars receive the center color. The basic LAN API cannot independently
+   address segments or bars attached to the same controller.
+
+## Try it
+
+```sh
+python3 smart_lighting.py sync --once --dry-run
+python3 smart_lighting.py sync --once
+python3 smart_lighting.py sync
+```
+
+Pick a scene in Hue and leave the last command running to follow changes.
+Ctrl+C stops the program; the lights keep their last state. `status` reads
+the selected Govee controllers without changing them.
+
+The left Govee gets the first stored Hue gradient point and the right Govee
+gets the last. For a solid Hue color they get the same color. Govee brightness
+and on/off are left to Homebridge and its existing automations. Only colors
+are sent. Off Govee controllers are skipped; if their state cannot be read,
+the program stops without sending a color to that controller. When Hue is off,
+palette updates pause. Active white temperature takes priority over stale
+color/gradient fields. If the physical gradient direction is reversed, swap
+the left/right IP selection.
+
+The program polls Hue every two seconds and sends updates only when the target
+changes, plus a periodic refresh because UDP delivery is not guaranteed.
+`--once` prints the Govee status readback; a missing reply returns an error.
+Readback alone does not prove the colors look right: compare the physical lamps.
+
+## Limits
+
+- Hue Sync's video/music/entertainment stream is not mirrored. When the Hue
+  light reports streaming mode, updates pause automatically; Govee keep their
+  last colors. Following resumes when streaming ends. Some Hue Sync desktop
+  presets may also be streamed: try a scene saved on the Hue Bridge instead.
+  Pause/resume is unit-tested; console/Sync Box behavior needs a physical test.
+- Stored gradient points may not track every step of a dynamic effect. This
+  prototype copies the palette exposed by the REST API, not live LED output.
+- Govee gets one solid color per controller. Segment effects and exact dynamic
+  scene reproduction are outside this experiment.
+- RGB conversion is an approximation; different LEDs, walls, and brightness
+  mean a visual match may need later calibration.
+- No automatic startup, cloud control, UI, changes to the Hue light, or changes
+  to Homebridge/HomeKit/Matter configuration. A concurrent Homebridge color
+  automation can overwrite the prototype's color and vice versa; use one
+  source for colors while testing. A power-off racing with a color write
+  still needs physical verification on the actual lamps.
+- Pairing and discovered addresses live in ignored `.lighting.json`, written
+  with owner-only permissions. Do not share this file. Local Hue HTTPS uses a
+  scoped self-signed-certificate exception; use a trusted home network.
+
+## Development
+
+```sh
+uvx --cache-dir .ruff_cache/uv ruff check .
+python3 -B -m unittest discover -s tests -v
+git config core.hooksPath .githooks
+```
+
+The pre-push hook runs Ruff and unit tests. `uv` is only needed for development;
+it is not needed to run the prototype.
+
+Protocol references: [Govee LAN API](https://app-h5.govee.com/user-manual/wlan-guide),
+[Hue API V2](https://developers.meethue.com/new-hue-api/).
