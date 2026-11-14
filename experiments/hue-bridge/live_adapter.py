@@ -22,6 +22,7 @@ from govee_segments import interpolate, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
+from power_owner import PowerOwner  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
 import smart_lighting as lan  # noqa: E402
@@ -153,8 +154,11 @@ class PilotController:
         clock=time.monotonic,
         wall_clock=time.time,
         layout_store=None,
+        power_owner=None,
     ):
         self.layout_store = layout_store
+        self.power_owner = power_owner
+        self.power_revisions = {}
         self.targets = copy.deepcopy(targets)
         if len(self.targets) != 2 or {item.get("side") for item in self.targets} != {
             "left",
@@ -282,6 +286,16 @@ class PilotController:
                 return
             now = self.clock()
             for side, device in self.by_side.items():
+                if self.power_owner is not None:
+                    revision = self.power_owner.revision(side)
+                    if self.power_revisions.get(side) != revision:
+                        self.last_sent.pop(side, None)
+                        self.power_revisions[side] = revision
+                    if not self.power_owner.allowed(side):
+                        self.last_sent.pop(side, None)
+                        if side in self.jobs:
+                            self.skipped_state[side] += 1
+                        continue
                 status, seen = self.statuses.get(lan.device_key(device), (None, float("-inf")))
                 if not status or status.get("onOff") != 1 or not 0 <= now - seen <= 0.75:
                     self.last_sent.pop(side, None)
@@ -377,7 +391,13 @@ class PilotController:
             }
 
 
-def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None):
+def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
+                power_owner=None, power_token=None):
+    if power_owner is not None and (
+        not isinstance(power_token, str) or not power_token
+        or hmac.compare_digest(power_token.encode(), token.encode())
+    ):
+        raise ValueError("A distinct power owner credential is required")
     hue_proxies = dict(hue_play_proxies or {})
     if hue_proxy is not None:
         hue_proxies["strip"] = hue_proxy
@@ -395,7 +415,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             self.wfile.write(data)
 
         def authorized(self):
-            return hmac.compare_digest(self.headers.get("X-Adapter-Token", ""), token)
+            return hmac.compare_digest(self.headers.get("X-Adapter-Token", "").encode(),
+                                       token.encode())
 
         def do_GET(self):
             if not self.authorized():
@@ -411,12 +432,21 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 }
             if video_output is not None:
                 result["video"] = video_output.snapshot()
+            if power_owner is not None:
+                result["power_owner"] = power_owner.snapshot()
             self.respond(200, result)
 
         def do_POST(self):
-            if not self.authorized():
+            if self.path == "/power-owner":
+                if power_owner is None or power_token is None:
+                    return self.respond(404, {"error": "not found"})
+                if not hmac.compare_digest(
+                    self.headers.get("X-Power-Owner-Token", "").encode(), power_token.encode()
+                ):
+                    return self.respond(403, {"error": "unauthorized"})
+            elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
-            if self.path not in ("/command", "/stream") or (
+            if self.path not in ("/command", "/stream", "/power-owner") or (
                 self.path == "/stream" and video_output is None
             ):
                 return self.respond(404, {"error": "not found"})
@@ -425,7 +455,9 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 if not 0 < size <= 8192:
                     raise ValueError("Invalid request size")
                 payload = json.loads(self.rfile.read(size))
-                if self.path == "/stream":
+                if self.path == "/power-owner":
+                    accepted = power_owner.submit(payload)
+                elif self.path == "/stream":
                     accepted = video_output.submit(payload)
                 elif isinstance(payload, dict) and payload.get("side") in hue_proxies:
                     accepted = hue_proxies[payload["side"]].submit(payload)
@@ -446,6 +478,7 @@ def main():
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
     parser.add_argument("--hue-stream-config", type=Path)
+    parser.add_argument("--power-owner-token-file", type=Path)
     args = parser.parse_args()
     if args.hue_play and not args.hue_config:
         parser.error("--hue-play requires --hue-config")
@@ -462,7 +495,18 @@ def main():
         with os.fdopen(descriptor, "w") as stream:
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
-    controller = PilotController(config["targets"], layout_store=layout_store)
+    power_owner = power_token = None
+    sender = lan.send_to_target
+    if args.power_owner_token_file:
+        power_token = args.power_owner_token_file.read_text().strip()
+        if (not 32 <= len(power_token) <= 128
+                or any(c not in "0123456789abcdef" for c in power_token)
+                or hmac.compare_digest(power_token.encode(), token.encode())):
+            raise ValueError("Invalid power owner credential")
+        power_owner = PowerOwner(config["targets"])
+        sender = power_owner.wrap(sender)
+    controller = PilotController(config["targets"], sender=sender, layout_store=layout_store,
+                                 power_owner=power_owner)
     hue_proxies = {}
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
@@ -481,7 +525,8 @@ def main():
         if stream_config.get("bridge") != hue_config["bridge"]:
             raise ValueError("Stream and scene bridge must match")
         video = VideoOutput(
-            PilotController(config["targets"], layout_store=layout_store),
+            PilotController(config["targets"], sender=sender, layout_store=layout_store,
+                            power_owner=power_owner),
             HueEntertainmentRelay(stream_config, layout_store=layout_store),
             hue_proxies.values(),
         )
@@ -498,6 +543,8 @@ def main():
             hue_proxies.get("strip"),
             {role: proxy for role, proxy in hue_proxies.items() if role != "strip"},
             video_output=video,
+            power_owner=power_owner,
+            power_token=power_token,
         ),
     )
     for role, proxy in hue_proxies.items():

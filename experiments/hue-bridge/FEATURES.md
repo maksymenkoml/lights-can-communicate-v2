@@ -28,7 +28,8 @@ optical timing were not recorded.
 | Virtual Bridge cold restart / Docker UDP publication | Failure localized; publication restored | Coordinated capture saw Box packets on Mac but none in container; local probes failed too. Recreating only the bridge restored UDP delivery; automatic external-proxy repair is not implemented |
 | Native warmup and transient state recovery | Implemented and live exercised | No frame while native cache is stale; fresh owner off stays blocked |
 | Discovery and changed IP recovery | Implemented, offline verified | Candidate identity receives read-only status probe before any route can authorize writes |
-| Power ownership through existing Apple Home/Homebridge | Preserved | No pilot power writes; prior owner-operated left off/on accepted with scene path |
+| Power ownership through existing Apple Home/Homebridge | Static path accepted; zoned race found | Right H6076 `ptReal` can implicitly turn On after Home Off. Local owner coordination is prepared but not installed on NAS; see ../homebridge-power/README.md |
+| Hard adapter crash during real Sync | Live observed | SIGKILL left our native stream; new adapter reclaimed it and resumed the same Box session; old OpenSSL child disappeared |
 | Older right LAN/Wi-Fi recovery | Physically exercised | Saved Wi-Fi reapplied; full power/controller restart restored scan/status; no factory reset |
 | Third Govee and unrelated native Hue | Excluded | Fixed allowlist; discovery alone never enables output |
 | PS5 gameplay | Owner accepted | Both Govee with Hue; game title not recorded |

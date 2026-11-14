@@ -1,0 +1,123 @@
+{
+  "scope": "Local code preparation; NAS deployment and coordinated LED acceptance pending owner resume.",
+  "hard_crash": {
+    "signal": "SIGKILL",
+    "source_continued": true,
+    "own_native_stream_left_after_crash": {
+      "active": true,
+      "owned": true
+    },
+    "recovered": true,
+    "same_box_handshake": true,
+    "settled_output_frame_delta": 16,
+    "old_dtls_children_remaining": 0,
+    "optical_timing": "not measured"
+  },
+  "right_h6076_power_race": {
+    "home_accessory_serial_verified": true,
+    "sync_off_readbacks": [
+      1,
+      1
+    ],
+    "quiet_off_readbacks": [
+      {
+        "on": 0,
+        "brightness": 65
+      },
+      {
+        "on": 0,
+        "brightness": 65
+      },
+      {
+        "on": 0,
+        "brightness": 65
+      }
+    ],
+    "single_black_zoned_datagram": {
+      "before_on": 0,
+      "command": "ptReal",
+      "datagrams": 1,
+      "segments": 7,
+      "rgb": "black",
+      "after": [
+        {
+          "on": 1,
+          "brightness": 65
+        },
+        {
+          "on": 1,
+          "brightness": 65
+        },
+        {
+          "on": 1,
+          "brightness": 65
+        }
+      ]
+    },
+    "boundary": "Native logical power readback; black-frame optical output was not measured. No model-wide claim."
+  },
+  "local_checks": {
+    "pre_push": "pass",
+    "python_mac": {
+      "passed": 233,
+      "skipped": 0
+    },
+    "python_pinned_linux_network_none": {
+      "run": 233,
+      "passed": 232,
+      "skipped": 1,
+      "reason": "Node absent for cross-runtime test; covered on Mac"
+    },
+    "javascript_mac": {
+      "passed": 21
+    },
+    "javascript_linux_node22": {
+      "version": "22.23.4",
+      "passed": 21,
+      "network": "none"
+    },
+    "current_patched_upstream_class_import_node22": "pass",
+    "review_findings_fixed": 4
+  },
+  "overlay": {
+    "upstream_commit": "12f2fe5f829f093681bb47bad410ee3785e65640",
+    "plugin": "@homebridge-plugins/homebridge-govee",
+    "version": "11.39.1",
+    "original_light_sha256": "1cb33db175d1e4fc2b8d0fac3a3f81453b517f314d044be6762414345056902e",
+    "unchanged_platform_sha256": "bd33669d19765d92a80f1743e939ed0f0c67913f9e029010ebb8b4127f7003ed",
+    "files": {
+      "lib/device/light.js": "19d8b121e7a0e58d904083ae3ead8631d7db9c13c5d78669de064ab5fe2da1f6",
+      "lib/smart-lighting-power/owner-client.mjs": "c5ff389374bdedec21610d30fd2192c908fd394d94f58e861806032f8337f6da",
+      "lib/smart-lighting-power/hook.mjs": "fba86f56ab651007f22e733276b90236ca3903c00db005569d7343ec820da73c"
+    }
+  },
+  "private_preparation": [
+    {
+      "file": "power-owner-token",
+      "mode": "0600",
+      "ignored": true
+    },
+    {
+      "file": "prepared-nas-power-owner.json",
+      "mode": "0600",
+      "ignored": true
+    }
+  ],
+  "compatibility": {
+    "owner_requires_existing_ids_and_scenes": true,
+    "new_accessories_created": false,
+    "nas_modified": false
+  },
+  "physical_hold": {
+    "active": true,
+    "owner_explicit_resume_required": true,
+    "adapter_stopped": true,
+    "live_bridge_stopped": true
+  },
+  "pending": [
+    "Real coordinated Home Off/On acceptance",
+    "Selected Hue Play owner Off during Sync hardware coverage",
+    "Adapter-only simulation of native Hue outage",
+    "NAS exact-file preflight and separate installation/restart approval"
+  ]
+}

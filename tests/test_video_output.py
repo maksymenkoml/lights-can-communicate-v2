@@ -7,6 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from entertainment_stream import VideoLease  # noqa: E402
 from live_adapter import PilotController, normalize_state  # noqa: E402
+from power_owner import PowerOwner  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 from video_output import VideoOutput, govee_stream_state  # noqa: E402
@@ -41,6 +42,37 @@ class FakeProxy:
 
 
 class VideoTests(unittest.TestCase):
+    def test_power_owner_pauses_govee_only_and_preserves_native_stream(self):
+        gate = PowerOwner(targets(), clock=lambda: self.now, wall_clock=lambda: 1000)
+        sent = []
+        self.controller = PilotController(
+            targets(), sender=gate.wrap(
+                lambda device, command, _data: sent.append((device['device'], command)) or True),
+            clock=lambda: self.now, wall_clock=lambda: 1000, power_owner=gate)
+        self.controller.update_statuses({key: ({'onOff': 1, 'brightness': 65}, self.now)
+                                         for key in (LEFT, RIGHT)})
+        self.output.controller = self.controller
+        self.lease.submit(envelope())
+        self.output.process_once()
+        self.output.render()
+        self.assertEqual(sent, [])
+        self.assertEqual(len(self.relay.frames), 1)
+        gate.submit({'session': 'home', 'sequence': 1, 'issued_at': 1000,
+                     'states': {'left': True, 'right': True}})
+        self.lease.submit(envelope(sequence=2))
+        self.output.process_once()
+        self.output.render()
+        self.assertEqual({device for device, _ in sent}, {LEFT, RIGHT})
+        gate.submit({'session': 'home', 'sequence': 2, 'issued_at': 1000,
+                     'states': {'right': False}})
+        sent.clear()
+        self.lease.submit(envelope(sequence=3, colors=[[i, 0, 0, 0] for i in range(14)]))
+        self.output.process_once()
+        self.output.render()
+        self.assertEqual({device for device, _ in sent}, {LEFT})
+        self.assertEqual(len(self.relay.frames), 3)
+        self.assertFalse(any(command == 'turn' for _, command in sent))
+
     def test_gradient_stream_routes_three_anchors_per_govee_and_keeps_native_ids(self):
         from test_govee_gradient import gradient_stream
 

@@ -46,6 +46,12 @@ Restarting the host adapter during the owner's real Sync Box stream resumed vide
 automatically, with source reception continuing and native output becoming ready.
 This confirms process recovery, not optical timing.
 
+An additional hard-crash check killed only the selected adapter with SIGKILL.
+The source Box session continued, and its owned native stream remained after the
+crash. Startup reclaimed that stream and resumed output on the same Box handshake.
+The previous OpenSSL child was no longer present. This is stronger than the
+earlier orderly restart observation.
+
 After repairing publication, a controlled four-second pause of only the selected
 receiver's OpenSSL process was exercised against the real Box. The process was
 resumed in `finally`. Source DTLS remained active, input stopped, and the host
@@ -80,6 +86,20 @@ Automatic repair of the external Docker port proxy is not implemented.
 The phone's `Ready` label also remained visible while real frames were flowing;
 do not use that label alone as proof that Sync is stopped. Validate source and
 output counters as well as the actual lights.
+
+## Power race discovered during hardware coverage
+
+The right Home accessory serial was matched to the pinned H6076. Home Off during
+zoned Sync did not stay Off in native readback. With the adapter stopped, three
+readbacks confirmed Off. One black seven-zone `ptReal` packet then produced three
+On readbacks. This directly establishes implicit power-on for the tested lamp;
+it is not a claim about every Govee firmware/model.
+
+The no-explicit-power-write policy alone therefore does not guarantee Home Off
+when a separate writer continuously sends zonal frames. The prepared optional
+[power coordinator](../homebridge-power/README.md) orders permission before the
+existing Homebridge power setter. Its local tests do not constitute installation
+or physical acceptance on the NAS. Existing Home IDs/scenes must be preserved.
 
 No NAS deployment, Xbox/HDR coverage, factory reset, or unrelated-device control
 is implied by these checks. Existing owner power and discovery allowlists remain
