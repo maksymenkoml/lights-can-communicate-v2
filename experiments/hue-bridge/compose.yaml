@@ -28,6 +28,7 @@ services:
       - ./entertainment_stream.py:/probe/entertainment_stream.py:ro
       - ./entertainment_receiver.py:/probe/entertainment_receiver.py:ro
       - ./gradient_profile.py:/probe/gradient_profile.py:ro
+      - ./hue_resource_compat.py:/probe/hue_resource_compat.py:ro
     networks:
       - probe
 networks:

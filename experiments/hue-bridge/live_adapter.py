@@ -161,6 +161,12 @@ class PilotController:
             else None
             for item in self.targets
         }
+        self.gradient_packet_rates = {
+            item["side"]: number(item["max_gradient_packets_per_second"], 1, 100)
+            if "max_gradient_packets_per_second" in item
+            else None
+            for item in self.targets
+        }
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
         if len(self.ids) != 2:
@@ -280,6 +286,9 @@ class PilotController:
                     if changed or refresh:
                         updates.append((name, data))
                 rate = self.packet_rates[side]
+                gradient_rate = self.gradient_packet_rates[side]
+                if "segments" in target and gradient_rate is not None:
+                    rate = min(rate, gradient_rate) if rate is not None else gradient_rate
                 if (
                     updates
                     and rate is not None
@@ -328,6 +337,7 @@ class PilotController:
                         "brightness_scale": item.get("brightness_scale", 1),
                         "segment_count": item.get("segment_count", 0),
                         "max_commands_per_second": self.packet_rates[item["side"]],
+                        "max_gradient_packets_per_second": self.gradient_packet_rates[item["side"]],
                         "target": self.target(item["side"]),
                         "native": self.statuses.get(lan.device_key(item), (None, 0))[0],
                         "status_age": (

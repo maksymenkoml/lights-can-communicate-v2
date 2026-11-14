@@ -228,6 +228,7 @@ class PilotTests(unittest.TestCase):
         self.sent.clear()
         controller.render()
         self.assertEqual(self.sent, [])
+
         controller.submit(
             command(sequence=2, state={**state, "segments": [[0, 0, 120]]}, transitiontime=0)
         )
@@ -241,6 +242,44 @@ class PilotTests(unittest.TestCase):
         controller.update_statuses({LEFT: ({"onOff": 0}, self.now)})
         controller.render()
         self.assertEqual(self.sent, [])
+
+    def test_gradient_packet_budget_is_separate_from_legacy_color_budget(self):
+        selected = targets()
+        selected[0].update(
+            segment_count=7, max_commands_per_second=10, max_gradient_packets_per_second=2
+        )
+        controller = pilot.PilotController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        controller.update_statuses(self.controller.statuses)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        controller.submit(command(state=state, transitiontime=0))
+        controller.render()
+        self.sent.clear()
+        controller.submit(
+            command(sequence=2, state={**state, "segments": [[0, 0, 120]]}, transitiontime=0)
+        )
+        self.now = 0.2
+        controller.render()
+        self.assertEqual(self.sent, [])
+        self.now = 1.0
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent], ["ptReal"])
+
+        self.sent.clear()
+        self.now = 0
+        legacy = pilot.PilotController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        legacy.update_statuses(self.controller.statuses)
+        legacy.submit(command(transitiontime=0))
+        legacy.render()
+        self.sent.clear()
+        legacy.submit(command(sequence=2, xy=(0.15, 0.06), transitiontime=0))
+        self.now = 0.2
+        legacy.render()
+        self.assertEqual([name for _, name, _ in self.sent], ["colorwc"])
 
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))

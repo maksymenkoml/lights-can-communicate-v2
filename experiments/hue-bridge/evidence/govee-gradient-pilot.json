@@ -1,5 +1,5 @@
 {
-  "observed_at": "2026-11-13T23:59:09.751933+00:00",
+  "observed_at": "2026-11-14T01:38:53.578103+00:00",
   "mode": "opt-in Signe gradient pilot",
   "source_lights": 6,
   "source_channels": 18,
@@ -11,22 +11,30 @@
     "hue_editor_left": "gradient color points visible",
     "hue_api_to_left_zones": true,
     "vapor_wave_play_left": "multicolor gradient and smooth",
-    "vapor_wave_play_right": "multicolor gradient and smooth"
+    "vapor_wave_play_right": "multicolor gradient and smooth",
+    "zoned_video_right": "reacts to PS5 content; smoothness acceptable at zoned budget2/s",
+    "zoned_sync_stop": "all six return to smooth gradient Vapor wave"
   },
   "api_checks": {
     "signe_models": 2,
     "gradient_points_capable": 3,
     "entertainment_channels": 18,
     "malformed_gradient_http_status": 400,
-    "valid_resource_after_rejection": true
+    "valid_resource_after_rejection": true,
+    "resource_graph_local_refs_resolve": true,
+    "grouped_light_owner_get_and_sse": true,
+    "vendor_resource_absent_from_root": true,
+    "rgb_null_mirek_not_valid": true,
+    "complete_inactive_timed_effects": true
   },
   "offline": {
-    "tests_passed": 156,
+    "tests_passed": 168,
     "ruff": "pass"
   },
   "not_yet_accepted": [
-    "eighteen-channel Sync",
     "optical latency measurement",
+    "named game/HDR/Xbox/refresh-rate combinations",
+    "prolonged soak",
     "setup UI topology apply",
     "NAS deployment"
   ],
@@ -34,5 +42,79 @@
   "exclusions": [
     "third Govee",
     "unrelated native Hue"
-  ]
+  ],
+  "phone_startup": {
+    "hang_observed": [
+      "gradient mode",
+      "legacy mode control",
+      "emulator stopped control"
+    ],
+    "owner_reported_recovery": "direct open on unlocked iPhone without Mirroring",
+    "subsequent_mirroring_ui": "Home and Sync functional",
+    "api_repair_causality": "not isolated"
+  },
+  "right_zoned_pacing": {
+    "legacy_packets_per_second": 10,
+    "gradient_packets_per_second": 2,
+    "baseline_10pps": {
+      "samples": 25,
+      "eligible": 0,
+      "unverified": 25,
+      "skipped_increment": 99,
+      "max_age": 0.049351083987858146
+    },
+    "recovery_2pps": {
+      "samples": 25,
+      "eligible": 25,
+      "ready": 25,
+      "unverified": 0,
+      "skipped_increment": 0
+    },
+    "owner_smoothness_accepted": true,
+    "vendor_specification": false
+  },
+  "final_video": {
+    "sync_requested_on": true,
+    "latest_observation": {
+      "active": true,
+      "ready": true,
+      "channel_count": 18,
+      "frames_received": 10599,
+      "frames_sent": 9593,
+      "last_result": "streaming"
+    },
+    "ready_observation": {
+      "active": true,
+      "ready": true,
+      "channel_count": 18,
+      "frames_received": 10599,
+      "frames_sent": 9593,
+      "last_result": "streaming",
+      "govee": [
+        {
+          "side": "left",
+          "zones": 7,
+          "brightness": 65,
+          "native_on": 1,
+          "identity_verified": true,
+          "gradient_limit": null
+        },
+        {
+          "side": "right",
+          "zones": 7,
+          "brightness": 65,
+          "native_on": 1,
+          "identity_verified": true,
+          "gradient_limit": 2
+        }
+      ]
+    },
+    "sample_window": {
+      "samples": 25,
+      "active_samples": 24,
+      "ready_samples": 21,
+      "received_increment": 63,
+      "sent_increment": 56
+    }
+  }
 }

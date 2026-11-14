@@ -14,7 +14,9 @@ optical timing were not recorded.
 | Govee LAN zoned color | Owner accepted on both lamps | Correct bottom/middle/top pattern; batched reverse also accepted on left |
 | Virtual Signe Gradient profiles | Owner accepted on left; API verified on both | Existing IDs retained; three scene points and three Entertainment anchors per Govee |
 | Zoned Vapor wave Play | Owner accepted separately on both lamps | Multicolor gradient and smooth animation; current runtime uses explicit gradient mode |
-| Eighteen-channel Sync with zoned Govee | Implemented; physical acceptance pending | Original native channel IDs retained; six logical lights |
+| Eighteen-channel Sync with zoned Govee | Owner accepted on current PS5 content | Original native channel IDs retained; six logical lights; right uses a measured zoned packet limit |
+| Zoned Sync Stop and scene return | Owner accepted | Both Govee return to smooth gradient Vapor wave with native strip/Play |
+| Right zoned packet pacing | Measured and owner accepted | Separate 2-datagram/s gradient budget; legacy whole-color budget remains 10/s; no vendor-wide rate claim |
 | Native Hue calibration | Owner accepted | Center Play 0.50; strip/other Play 1.00 |
 | Native-only Sync priority and scene return | Owner accepted | Original path pauses our writes during foreign streaming |
 | Actual Sync Box 8K video relay | Owner accepted in PS5 menu and game | Real v2 RGB input; two Govee LAN outputs plus native Hue DTLS relay |

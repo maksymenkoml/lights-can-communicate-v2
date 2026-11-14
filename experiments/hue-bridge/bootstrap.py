@@ -18,6 +18,7 @@ import configManager  # noqa: E402
 from entertainment_stream import GRADIENT_MODE, GROUP_ID, POSITIONS, SLOT_CHANNELS  # noqa: E402
 from flask import abort, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
+from hue_resource_compat import canonical_collection, install_resource_compat  # noqa: E402
 from HueObjects import ApiUser, EntertainmentConfiguration, Group, Light, Scene  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
@@ -195,6 +196,7 @@ if include_entertainment:
                             "position": dict(zip(("x", "y", "z"), POSITIONS[channel])),
                         }
                     )
+            result["channels"].sort(key=lambda channel: channel["channel_id"])
         return result
 
     EntertainmentConfiguration.EntertainmentConfiguration.getV2Api = desk_area_api
@@ -222,6 +224,10 @@ from flaskUI import restful, v2restapi  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from services import updateManager  # noqa: E402
+
+install_resource_compat(
+    v2restapi, Group.Group, settings["bridgeid"], config["groups"], Group, Light.Light
+)
 
 entertainment_receiver = EntertainmentReceiver(
     os.environ.get("PROBE_ADAPTER_URL", "http://host.docker.internal:19880"),
@@ -335,6 +341,10 @@ if live_output is not None:
 
 @app.after_request
 def record_request(response):
+    if request.method == "GET" and request.path.rstrip("/") == "/clip/v2/resource":
+        payload = response.get_json(silent=True)
+        if response.status_code == 200 and isinstance(payload, dict):
+            response.set_data(json.dumps(canonical_collection(payload)))
     if request.path.startswith("/probe/"):
         return response
     parts = request.path.split("/")

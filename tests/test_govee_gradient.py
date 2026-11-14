@@ -1,7 +1,9 @@
+import ast
 import importlib.util
 import os
 import sys
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -93,6 +95,34 @@ class GradientProfileTests(unittest.TestCase):
 
 
 class GradientStreamTests(unittest.TestCase):
+    def test_bridge_area_lists_channels_in_id_order_with_correct_members(self):
+        stream = gradient_stream()
+        tree = ast.parse((FOLDER / "bootstrap.py").read_text())
+        function = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "desk_area_api"
+        )
+        namespace = {
+            "original_area_api": lambda area: {},
+            "GROUP_ID": stream.GROUP_ID,
+            "SLOT_CHANNELS": stream.SLOT_CHANNELS,
+            "POSITIONS": stream.POSITIONS,
+            "uuid": uuid,
+            "config": {
+                "lights": {
+                    slot: SimpleNamespace(id_v2="light-" + slot) for slot in stream.SLOT_CHANNELS
+                }
+            },
+        }
+        exec(
+            compile(ast.Module(body=[function], type_ignores=[]), "bootstrap.py", "exec"), namespace
+        )
+        area = namespace["desk_area_api"](SimpleNamespace(id_v2=stream.GROUP_ID))
+        self.assertEqual([channel["channel_id"] for channel in area["channels"]], list(range(18)))
+        self.assertEqual(area["channels"][14]["members"][0]["index"], 1)
+        self.assertEqual(area["channels"][15]["members"][0]["index"], 2)
+
     def test_eighteen_channels_keep_native_ids_and_three_anchors_per_govee(self):
         stream = gradient_stream()
         self.assertEqual(stream.CHANNELS, set(range(18)))
