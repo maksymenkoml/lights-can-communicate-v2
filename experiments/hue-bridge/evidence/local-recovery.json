@@ -49,13 +49,153 @@
     "optical_acceptance": "not measured"
   },
   "live_source_pause": {
-    "status": "not executed; no source connection after cold bridge restart",
-    "initial_dtls_handshake_observed": false,
-    "post_timeout_udp_header_probe_packets": 0
+    "duration_seconds": 4,
+    "transport_and_settled_output_passed": true,
+    "before": {
+      "source_active": true,
+      "source_frames": 1252,
+      "source_result": "receiving",
+      "dtls": {
+        "client_hello": 1,
+        "handshake_finished": 1
+      },
+      "video_active": true,
+      "video_ready": true,
+      "video_frames": 4313,
+      "video_result": "streaming"
+    },
+    "during": [
+      {
+        "source_active": true,
+        "source_frames": 1255,
+        "source_result": "receiving",
+        "dtls": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "video_active": true,
+        "video_ready": true,
+        "video_frames": 4314,
+        "video_result": "streaming"
+      },
+      {
+        "source_active": true,
+        "source_frames": 1255,
+        "source_result": "source idle; connection retained",
+        "dtls": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "video_active": false,
+        "video_ready": false,
+        "video_frames": 4314,
+        "video_result": "streaming"
+      },
+      {
+        "source_active": true,
+        "source_frames": 1255,
+        "source_result": "source idle; connection retained",
+        "dtls": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "video_active": false,
+        "video_ready": false,
+        "video_frames": 4314,
+        "video_result": "streaming"
+      },
+      {
+        "source_active": true,
+        "source_frames": 1255,
+        "source_result": "source idle; connection retained",
+        "dtls": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "video_active": false,
+        "video_ready": false,
+        "video_frames": 4314,
+        "video_result": "streaming"
+      },
+      {
+        "source_active": true,
+        "source_frames": 1255,
+        "source_result": "source idle; connection retained",
+        "dtls": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "video_active": false,
+        "video_ready": false,
+        "video_frames": 4314,
+        "video_result": "streaming"
+      },
+      {
+        "source_active": true,
+        "source_frames": 1255,
+        "source_result": "source idle; connection retained",
+        "dtls": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "video_active": false,
+        "video_ready": false,
+        "video_frames": 4314,
+        "video_result": "streaming"
+      }
+    ],
+    "after": {
+      "source_active": true,
+      "source_frames": 1449,
+      "source_result": "receiving",
+      "dtls": {
+        "client_hello": 1,
+        "handshake_finished": 1
+      },
+      "video_active": true,
+      "video_ready": true,
+      "video_frames": 4356,
+      "video_result": "idle"
+    },
+    "settled_after": {
+      "active": true,
+      "ready": true,
+      "frames_received": 4962,
+      "frames_sent": 4327,
+      "last_result": "streaming",
+      "output_frame_delta": 16
+    },
+    "new_box_handshake_required": false,
+    "optical_acceptance": "Owner confirmed all six lights react to the game again after the pause; fallback interval and optical latency not separately recorded."
   },
   "limits": [
-    "Cold Sync Box reconnection remains unresolved.",
+    "Observed cold-start failure localized to Docker Desktop UDP publication; only manual bridge-container recreation was verified.",
     "Loopback transport is not optical timing or Xbox/HDR acceptance.",
     "No NAS deployment or Homebridge package."
-  ]
+  ],
+  "cold_start_udp_path": {
+    "coordinated_mac_capture": {
+      "inbound_packets": 9,
+      "outbound_packets": 0,
+      "udp_lengths": [
+        113
+      ],
+      "payload_captured": false
+    },
+    "docker_declared_port_published": true,
+    "mac_firewall_enabled": false,
+    "before_recreate": {
+      "loopback_probe": 0,
+      "lan_self_probe": 0
+    },
+    "after_recreate": {
+      "loopback_probe": 1,
+      "lan_self_probe": 1,
+      "direct_udp_socket_verified": true
+    },
+    "repair": "Recreated only selected bridge container with same state/image/profile; no Docker daemon restart.",
+    "runtime_profile_persisted": "PROBE_GOVEE_GRADIENT=true",
+    "limit": "External Docker Desktop UDP proxy automatic repair is not implemented.",
+    "real_box_reconnected_after_recreate": true
+  }
 }

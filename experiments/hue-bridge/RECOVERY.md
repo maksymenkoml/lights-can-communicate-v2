@@ -46,12 +46,40 @@ Restarting the host adapter during the owner's real Sync Box stream resumed vide
 automatically, with source reception continuing and native output becoming ready.
 This confirms process recovery, not optical timing.
 
-Cold restart of the virtual bridge remains a separate reliability limit. In the
-latest attempt, the Box issued Start but sent no DTLS handshake. The receiver
-reached its initial connection timeout; a short, non-reusing UDP diagnostic after
-that timeout received no packets. This does not identify the Box firmware or
-network as the sole cause, and the source-pause hardware test cannot run until a
-new source connection is established.
+After repairing publication, a controlled four-second pause of only the selected
+receiver's OpenSSL process was exercised against the real Box. The process was
+resumed in `finally`. Source DTLS remained active, input stopped, and the host
+video lease expired. Fresh source frames then resumed and settled output was
+confirmed sending again (sixteen additional output frames over the final sample).
+DTLS client-hello/finished counters stayed at one: no new Box connection or button
+press was required. The owner then confirmed that all six lights react to the
+game again. Visual acceptance of the fallback interval and optical latency were
+not recorded separately.
+
+The cold restart failure was localized further with a coordinated Start capture.
+The Mac received nine inbound UDP packets from the Box at port 2100, but the
+container saw none. Both localhost and LAN-self synthetic packets also failed to
+reach the container, despite Docker reporting the port published; the Mac firewall
+was disabled. Recreating only the selected bridge container restored delivery of
+both test packets, verified with raw observation and a directly bound UDP socket.
+This identifies a failed Docker Desktop publication path in the observed case;
+it does not establish that every Box connection failure has the same cause.
+
+For local bridge code reloads, preserve the existing private state and use:
+
+```sh
+docker compose -p smart-lighting-hue-probe up -d --force-recreate --no-deps --pull never bridge
+```
+
+Run this from `experiments/hue-bridge`. Preserve the selected opt-in profile in
+its private `.env`; this pilot uses `PROBE_GOVEE_GRADIENT=true`. A plain container
+restart did not repair the observed stale publication. Do not restart the shared
+Docker daemon or grant the bridge access to its control socket for this workaround.
+Automatic repair of the external Docker port proxy is not implemented.
+
+The phone's `Ready` label also remained visible while real frames were flowing;
+do not use that label alone as proof that Sync is stopped. Validate source and
+output counters as well as the actual lights.
 
 No NAS deployment, Xbox/HDR coverage, factory reset, or unrelated-device control
 is implied by these checks. Existing owner power and discovery allowlists remain

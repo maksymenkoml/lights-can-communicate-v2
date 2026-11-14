@@ -23,9 +23,9 @@ optical timing were not recorded.
 | Video Stop returns to Vapor wave | Owner accepted | Native normal-mode/scene command readback also recorded |
 | Right controller pacing | Implemented and menu accepted | Measured packet pressure; separate 10-command/s cap counts dimming and color together |
 | Fresh-frame recovery after transport gap | Implemented and live observed | Fresh higher sequence resumes; explicit Stop retires session |
-| Established DTLS pause and local fault recovery | Real loopback verified | Sixteen transport/lifecycle cases passed in both channel modes in the pinned Linux image; see RECOVERY.md |
+| Established DTLS pause and local fault recovery | Real Box transport/output verified | Four-second receiver pause expired video lease; fresh frames resumed output on the same handshake. Sixteen isolated lifecycle cases also passed in both channel modes; see RECOVERY.md |
 | Host adapter restart during real Sync | Live observed | Existing source kept receiving; restarted host automatically reacquired ready native output |
-| Virtual Bridge cold restart / Box reconnection | Not fully reliable | Latest Box Start had no DTLS handshake; established-stream recovery does not imply cold-start recovery |
+| Virtual Bridge cold restart / Docker UDP publication | Failure localized; publication restored | Coordinated capture saw Box packets on Mac but none in container; local probes failed too. Recreating only the bridge restored UDP delivery; automatic external-proxy repair is not implemented |
 | Native warmup and transient state recovery | Implemented and live exercised | No frame while native cache is stale; fresh owner off stays blocked |
 | Discovery and changed IP recovery | Implemented, offline verified | Candidate identity receives read-only status probe before any route can authorize writes |
 | Power ownership through existing Apple Home/Homebridge | Preserved | No pilot power writes; prior owner-operated left off/on accepted with scene path |
