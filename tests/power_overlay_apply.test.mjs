@@ -95,7 +95,7 @@ test('peer source edit during staging is preserved rather than overwritten', () 
     const light = path.join(f.plugin, 'lib/device/light.js');
     const io = { ...fs, writeFileSync: (file, ...args) => {
       fs.writeFileSync(file, ...args);
-      if (path.basename(file).startsWith('tmp_smart_light-') && file.endsWith('.js')) {
+      if (typeof file === 'string' && path.basename(file).startsWith('tmp_smart_light-') && file.endsWith('.js')) {
         fs.writeFileSync(light, 'peer upgrade');
       }
     } };
@@ -111,7 +111,7 @@ test('a peer module directory created after preflight keeps its inode', () => {
     let peerInode;
     const io = { ...fs, writeFileSync: (file, ...args) => {
       fs.writeFileSync(file, ...args);
-      if (file.includes('tmp_smart_light_modules-') && path.basename(file) === 'owner-client.mjs') {
+      if (typeof file === 'string' && file.includes('tmp_smart_light_modules-') && path.basename(file) === 'owner-client.mjs') {
         fs.mkdirSync(directory);
         peerInode = fs.statSync(directory).ino;
       }
@@ -147,5 +147,55 @@ test('rollback never unlinks a concurrently replaced private config', () => {
     assert.equal(injected, true);
     assert.equal(fs.readFileSync(config, 'utf8'), 'peer private config');
     assert.equal(fs.readFileSync(light, 'utf8'), 'original light');
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('inherited NAS permissions are restricted before publishing the config', () => {
+  const f = fixture();
+  try {
+    const config = path.join(f.storage, 'smart-lighting-power.json');
+    const io = { ...fs, openSync: (file, ...args) => {
+      const fd = fs.openSync(file, ...args);
+      if (typeof file === 'string' && path.basename(file).startsWith('tmp_smart_light_config-')) fs.fchmodSync(fd, 0o777);
+      return fd;
+    }, writeFileSync: (file, ...args) => {
+      if (typeof file === 'number') assert.equal(fs.fstatSync(file).mode & 0o777, 0o600);
+      fs.writeFileSync(file, ...args);
+      if (typeof file === 'string' && path.basename(file).startsWith('tmp_smart_light_config-')) fs.chmodSync(file, 0o777);
+    }, linkSync: (from, to) => {
+      if (to === config) assert.equal(fs.statSync(from).mode & 0o777, 0o600);
+      return fs.linkSync(from, to);
+    } };
+    assert.equal(applyOverlay({ ...f, apply: true }, io).installed, true);
+    assert.equal(fs.statSync(config).mode & 0o777, 0o600);
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('a filesystem that ignores private permissions cannot activate the overlay', () => {
+  const f = fixture();
+  try {
+    const io = { ...fs, openSync: (file, ...args) => {
+      const fd = fs.openSync(file, ...args);
+      if (typeof file === 'string' && path.basename(file).startsWith('tmp_smart_light_config-')) fs.fchmodSync(fd, 0o777);
+      return fd;
+    }, writeFileSync: (file, ...args) => {
+      fs.writeFileSync(file, ...args);
+      if (typeof file === 'string' && path.basename(file).startsWith('tmp_smart_light_config-')) fs.chmodSync(file, 0o777);
+    }, fchmodSync: () => {} };
+    assert.throws(() => applyOverlay({ ...f, apply: true }, io), /failed/i);
+    assert.equal(fs.readFileSync(path.join(f.plugin, 'lib/device/light.js'), 'utf8'), 'original light');
+    assert.equal(fs.existsSync(path.join(f.storage, 'smart-lighting-power.json')), false);
+    assert.equal(fs.existsSync(path.join(f.plugin, 'lib/smart-lighting-power')), false);
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('an installed overlay with a public config is rejected without changing it', () => {
+  const f = fixture();
+  try {
+    applyOverlay({ ...f, apply: true });
+    const config = path.join(f.storage, 'smart-lighting-power.json');
+    fs.chmodSync(config, 0o777);
+    assert.throws(() => applyOverlay({ ...f, apply: true }), /permission/i);
+    assert.equal(fs.statSync(config).mode & 0o777, 0o777);
   } finally { fs.rmSync(f.root, { recursive: true }); }
 });

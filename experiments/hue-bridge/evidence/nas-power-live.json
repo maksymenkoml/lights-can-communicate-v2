@@ -1,0 +1,684 @@
+{
+  "off": [
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.8448596294911113
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 6,
+            "grant_remaining": 1.8448569204774685
+          }
+        }
+      },
+      "frames": 68955,
+      "ready": false,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.08939624999766238,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 0,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.12460304200067185,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.7391296299756505
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 6,
+            "grant_remaining": 1.7391281299642287
+          }
+        }
+      },
+      "frames": 68956,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.2799639169825241,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 0,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.08590079197892919,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.6378240022459067
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 6,
+            "grant_remaining": 1.637822960241465
+          }
+        }
+      },
+      "frames": 68966,
+      "ready": false,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.18012512498535216,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 0,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.05441220899228938,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.8840932827733923
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 6,
+            "grant_remaining": 1.8840922407689504
+          }
+        }
+      },
+      "frames": 68966,
+      "ready": false,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.2727564170199912,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 0,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.14666233299067244,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.781344013143098
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 6,
+            "grant_remaining": 1.7813434301351663
+          }
+        }
+      },
+      "frames": 68966,
+      "ready": false,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.03448679199209437,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 0,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.19117341699893586,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.676250725868158
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 6,
+            "grant_remaining": 1.676250100863399
+          }
+        }
+      },
+      "frames": 68966,
+      "ready": false,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.4275257090048399,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 0,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.22991483300575055,
+          "zones": 7
+        }
+      ]
+    }
+  ],
+  "on": [
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.968729996267939
+          },
+          "right": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 7,
+            "grant_remaining": 1.96872820428689
+          }
+        }
+      },
+      "frames": 71107,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.20053879098850302,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.2646133749803994,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.8664650119608268
+          },
+          "right": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 7,
+            "grant_remaining": 1.866463678976288
+          }
+        }
+      },
+      "frames": 71119,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.19358912500320002,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.20407820801483467,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.7618125019071158
+          },
+          "right": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 7,
+            "grant_remaining": 1.7618110429029912
+          }
+        }
+      },
+      "frames": 71131,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.28458775000763126,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.04157516697887331,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.657710249623051
+          },
+          "right": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 7,
+            "grant_remaining": 1.6577089166385122
+          }
+        }
+      },
+      "frames": 71145,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.11287683300906792,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.2099785000027623,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.9048092543380335
+          },
+          "right": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 7,
+            "grant_remaining": 1.9048080463544466
+          }
+        }
+      },
+      "frames": 71159,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.05183279199991375,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.11939708300633356,
+          "zones": 7
+        }
+      ]
+    },
+    {
+      "power": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 3,
+            "grant_remaining": 1.8014981190499384
+          },
+          "right": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 7,
+            "grant_remaining": 1.8014976190461311
+          }
+        }
+      },
+      "frames": 71167,
+      "ready": true,
+      "targets": [
+        {
+          "side": "left",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 255,
+              "g": 243,
+              "b": 222
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.15535266700317152,
+          "zones": 7
+        },
+        {
+          "side": "right",
+          "native": {
+            "onOff": 1,
+            "brightness": 65,
+            "color": {
+              "r": 232,
+              "g": 232,
+              "b": 204
+            },
+            "colorTemInKelvin": 0,
+            "identity_verified": true
+          },
+          "age": 0.028451833000872284,
+          "zones": 7
+        }
+      ]
+    }
+  ],
+  "owner": "NAS Homebridge Govee setter; local harness stopped",
+  "visual_acceptance": "pending",
+  "recorded_at": "2026-11-14T19:30:17.106344+00:00",
+  "deployment": {
+    "plugin": "@homebridge-plugins/homebridge-govee",
+    "version": "11.39.1",
+    "installed": true,
+    "child_bridge_restarted": true,
+    "factory_unchanged": true,
+    "config_mode": "0600",
+    "temporary_nas_bundle_removed": true,
+    "local_owner_harness_stopped": true,
+    "homekit_cache_and_pairing_unmodified": true,
+    "existing_scenes_executed": false
+  },
+  "off_api_pass": true,
+  "on_api_pass": true,
+  "coverage_note": "Native-cache safety pauses occurred during Off sampling and recovered. Visual NAS acceptance and existing Home scene execution remain pending."
+}

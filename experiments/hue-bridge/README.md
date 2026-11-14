@@ -40,6 +40,10 @@ Box connection limit. Established source connections survive idle input while
 the host video lease independently restores scenes. Start/Stop intent is fenced
 at the selected area's synchronous API state update, including delayed workers.
 
+The [power coordination overlay](../homebridge-power/README.md) is now installed
+on the NAS's existing Govee plugin. Its original Apple Home setter owns power
+intent; the scene/video renderer and virtual Hue bridge still run on the Mac.
+
 ## Phase 1: simulated compatibility result
 
 Tested on 2026-11-13 with the owner's installed official Philips Hue app on

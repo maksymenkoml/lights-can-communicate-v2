@@ -28,9 +28,9 @@ optical timing were not recorded.
 | Virtual Bridge cold restart / Docker UDP publication | Failure localized; publication restored | Coordinated capture saw Box packets on Mac but none in container; local probes failed too. Recreating only the bridge restored UDP delivery; automatic external-proxy repair is not implemented |
 | Native warmup and transient state recovery | Implemented and live exercised | No frame while native cache is stale; fresh owner off stays blocked |
 | Discovery and changed IP recovery | Implemented, offline verified | Candidate identity receives read-only status probe before any route can authorize writes |
-| Power ownership through existing Apple Home/Homebridge | Static path accepted; zoned race found | Right H6076 `ptReal` can implicitly turn On after Home Off. Local owner coordination is prepared but not installed on NAS; see ../homebridge-power/README.md |
+| Power ownership through existing Apple Home/Homebridge | NAS overlay installed; automatic right Off/On API verified | Existing setter pauses zoned color before Off and grants after On; no local harness needed. Visual acceptance and existing scene execution remain pending; see ../homebridge-power/README.md |
 | Hard adapter crash during real Sync | Live observed | SIGKILL left our native stream; new adapter reclaimed it and resumed the same Box session; old OpenSSL child disappeared |
-| Coordinated right Govee Home Off/On | Physically accepted with local harness | Right stayed Off in8 fresh readbacks, other five continued; On restored seven-zone video. NAS hook installation/automatic capture remains pending |
+| Coordinated right Govee Home Off/On | Local harness physically accepted; NAS automatic path API verified | Local harness: eight Off readbacks and owner-confirmed On. NAS: six fresh Off samples, then six On samples with seven zones and advancing video; visual confirmation pending |
 | Older right LAN/Wi-Fi recovery | Physically exercised | Saved Wi-Fi reapplied; full power/controller restart restored scan/status; no factory reset |
 | Third Govee and unrelated native Hue | Excluded | Fixed allowlist; discovery alone never enables output |
 | PS5 gameplay | Owner accepted | Both Govee with Hue; game title not recorded |
@@ -59,6 +59,6 @@ optical timing were not recorded.
 - NAS networking and service lifecycle validation, including Hue discovery,
   HTTPS identity and UDP Entertainment reachability.
 
-Package publication, NAS deployment and a replacement setup UI are separate
+Package publication, full NAS runtime migration and a replacement setup UI are separate
 work. This pilot does not authorize a release or establish complete Hue API
 compatibility.

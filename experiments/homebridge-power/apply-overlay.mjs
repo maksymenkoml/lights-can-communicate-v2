@@ -53,6 +53,10 @@ export function applyOverlay(options, io = fs) {
     const configMatches = io.existsSync(configFile)
       && JSON.stringify(readJson(io, configFile, 'installed owner config')) === JSON.stringify(config);
     if (!modulesMatch || !configMatches) throw Error('Existing overlay differs; manual inspection required');
+    const configStat = io.lstatSync(configFile);
+    if (!configStat.isFile() || (configStat.mode & 0o777) !== 0o600) {
+      throw Error('Installed owner config permissions require inspection');
+    }
     return { ready: true, installed: true, alreadyInstalled: true, version: pkg.version };
   }
   if (digest(original) !== manifest.original_light_sha256) throw Error('Plugin light source changed');
@@ -94,7 +98,14 @@ export function applyOverlay(options, io = fs) {
     for (const name of FILES.slice(1)) {
       io.linkSync(path.join(moduleTmp, path.basename(name)), path.join(plugin, name));
     }
-    io.writeFileSync(configTmp, configBytes, { mode: 0o600, flag: 'wx' });
+    const configFd = io.openSync(configTmp, 'wx', 0o600);
+    try {
+      // NAS ACL inheritance can override the creation mode. Restrict and verify
+      // the actual inode before writing any credential bytes or publishing it.
+      io.fchmodSync(configFd, 0o600);
+      if ((io.fstatSync(configFd).mode & 0o777) !== 0o600) throw Error('Private config permissions unavailable');
+      io.writeFileSync(configFd, configBytes);
+    } finally { io.closeSync(configFd); }
     io.linkSync(configTmp, configFile); // Never overwrite a concurrently created config.
     configCreated = true;
     io.writeFileSync(lightTmp, bytes.get(FILES[0]), { mode, flag: 'wx' });

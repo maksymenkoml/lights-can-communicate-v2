@@ -1,8 +1,9 @@
 # Homebridge power coordination pilot
 
-Prepared locally; **not installed on the NAS**. Existing HomeKit accessories,
-bridge identity, services, pairing and scenes remain unchanged. Hardware testing
-and any NAS deployment remain separate acceptance gates.
+Installed as an approved compatibility overlay on the NAS on 2026-11-14.
+Existing HomeKit accessories, bridge identity, services and pairing are retained.
+Automatic Apple Home Off/On has live API coverage; existing scene execution and
+visual acceptance of this NAS-backed path remain separate acceptance gates.
 
 ## Why this exists
 
@@ -89,6 +90,13 @@ rollback state is retained for inspection. It never changes the package,
 platform factory, Homebridge configuration, accessory cache or pairing files,
 and never restarts a service itself.
 
+The installer restricts and verifies the actual config inode as mode 0600 before
+writing credential bytes. This matters on Synology, where inherited permissions
+overrode the requested creation mode during the first installation. That live
+file was corrected and verified before the child bridge was restarted. A
+filesystem that cannot enforce the mode fails before activation; an already
+installed config with broader permissions is rejected for inspection.
+
 ## Acceptance and hold
 
 Verified locally: gate ordering, stale-grant expiry, replay, isolated credentials,
@@ -100,11 +108,27 @@ The right H6076 also passed a real coordinated Off/On check using a local owner
 harness before the existing Apple Home action. Eight fresh identity-confirmed
 readbacks stayed Off while the other five lights reacted to the game (owner
 confirmed). On restored seven-zone video after initial warmup, also owner
-confirmed. This proves the local ordering; the NAS setter is not wrapped yet.
+confirmed. This proves the local ordering independently of the NAS setter.
 Installed NAS source/version checksums matched the prepared original exactly.
 
-Pending: explicit installation/child-bridge restart approval, automatic NAS
-setter acceptance and existing Home scenes. No NAS source/config has been changed.
+The approved installation changed only the three overlay runtime files and added
+the private owner config. The original factory checksum remained unchanged;
+actual Node 22 syntax checks and patched upstream module import passed. Only the
+Govee child bridge was restarted. The backup remains on the NAS; the temporary
+transfer bundle was removed after installed checksums and config mode were
+verified.
+
+With the temporary local owner harness stopped, the NAS now renews both grants.
+A plain Right Lamp Off in Apple Home captured Off intent automatically: six
+fresh identity-confirmed native samples stayed Off and color permission stayed
+closed. Plain On restored both grants, seven zones and advancing video frames
+in six samples. Existing native-cache safety pauses occurred during Off sampling
+and recovered; this is not evidence of uninterrupted video. See
+`../hue-bridge/evidence/nas-power-live.json`.
+
+Pending: owner visual confirmation of this automatic NAS path, equivalent live
+Left Lamp coverage, and existing Home scene execution. No re-pairing was needed;
+scene definitions and the accessory cache were not edited.
 
 The owner sleep hold is `experiments/hue-bridge/state/live-output-hold`. It must
 remain until the owner explicitly resumes physical testing. Keep the live adapter
