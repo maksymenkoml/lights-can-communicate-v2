@@ -2,8 +2,9 @@
 
 Installed as an approved compatibility overlay on the NAS on 2026-11-14.
 Existing HomeKit accessories, bridge identity, services and pairing are retained.
-Automatic Apple Home Off/On has live API coverage; existing scene execution and
-visual acceptance of this NAS-backed path remain separate acceptance gates.
+Automatic Apple Home Off/On has live API coverage; the owner confirmed physical
+Right Lamp Off. Existing scene execution and visual On acceptance remain separate
+acceptance gates.
 
 ## Why this exists
 
@@ -126,9 +127,41 @@ in six samples. Existing native-cache safety pauses occurred during Off sampling
 and recovered; this is not evidence of uninterrupted video. See
 `../hue-bridge/evidence/nas-power-live.json`.
 
-Pending: owner visual confirmation of this automatic NAS path, equivalent live
-Left Lamp coverage, and existing Home scene execution. No re-pairing was needed;
+The owner subsequently confirmed physical Right Lamp Off through Apple Home.
+Pending: visual On confirmation, equivalent live Left Lamp coverage, and existing
+Home scene execution. No re-pairing was needed;
 scene definitions and the accessory cache were not edited.
+
+## Virtual Hue state feedback
+
+The virtual bridge now polls the existing authenticated adapter status and
+projects fresh NAS intent into only slots 1/2. A Home Off changes the virtual
+light and emits Hue light and room/zone/bridge-home events. The feedback does not
+call a physical power setter or stop a dynamic scene worker. Home On resubmits
+the current color target through the existing color adapter. Repeated On
+heartbeats do not override a Hue-local Off; unavailable/expired authority does
+not invent a physical power change. While Home is Off, scene On values are
+masked in the model, Hue API and events.
+
+This is Home-to-Hue state feedback, not a Hue-to-Home power command path. Power
+commands originating in Hue are not translated into the NAS owner's On setter
+by this slice. Brightness/color feedback from unrelated controllers is also
+outside its scope.
+
+Ten unit tests cover role validation, expired/malformed snapshots, repeated and
+rapid revisions, Off masking, animation preservation and static color resume.
+`tests/check_power_feedback_upstream.py` additionally runs three isolated checks
+against the pinned actual diyHue classes. Run it inside the pinned image with
+`--network none`, mounting source-only copies of `bootstrap.py`, `bridge_output.py`,
+`gradient_profile.py`, `hue_resource_compat.py`, and `power_feedback.py` under
+`/probe`, plus the checker itself. Never mount private `state` for these checks.
+Its fixture includes the actual EntertainmentConfiguration class: it must not
+receive room grouped-light events.
+
+After recreating only the live reference bridge, six read-only samples showed
+the existing NAS Right Off matching both virtual state and the actual Hue v2
+API. Left remained On and feedback reported no errors. Mobile UI confirmation
+is still pending; see `../hue-bridge/evidence/hue-power-feedback-live.json`.
 
 The owner sleep hold is `experiments/hue-bridge/state/live-output-hold`. It must
 remain until the owner explicitly resumes physical testing. Keep the live adapter

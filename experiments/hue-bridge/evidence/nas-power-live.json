@@ -664,7 +664,7 @@
     }
   ],
   "owner": "NAS Homebridge Govee setter; local harness stopped",
-  "visual_acceptance": "pending",
+  "visual_acceptance": "Owner confirmed physical Right Off through Apple Home; On pending",
   "recorded_at": "2026-11-14T19:30:17.106344+00:00",
   "deployment": {
     "plugin": "@homebridge-plugins/homebridge-govee",
@@ -680,5 +680,6 @@
   },
   "off_api_pass": true,
   "on_api_pass": true,
-  "coverage_note": "Native-cache safety pauses occurred during Off sampling and recovered. Visual NAS acceptance and existing Home scene execution remain pending."
+  "coverage_note": "Native-cache safety pauses occurred during Off sampling and recovered. Visual NAS acceptance and existing Home scene execution remain pending.",
+  "owner_confirmed_right_off": true
 }

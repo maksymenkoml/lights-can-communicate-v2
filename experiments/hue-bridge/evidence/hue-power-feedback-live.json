@@ -1,0 +1,337 @@
+{
+  "recorded_at": "2026-11-14T23:40:05.856818+00:00",
+  "scope": "Existing NAS owner Off projected into live virtual Hue; no additional power write",
+  "samples": [
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "states": {
+          "1": true,
+          "2": false
+        }
+      },
+      "owner": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 5,
+            "grant_remaining": 1.8711151334573515
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 10,
+            "grant_remaining": 1.8711146744899452
+          }
+        }
+      },
+      "virtual": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "name": "Govee Left TEST",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "name": "Govee Right TEST",
+          "on": false
+        }
+      ],
+      "hue_api": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "on": false
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "states": {
+          "1": true,
+          "2": false
+        }
+      },
+      "owner": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 5,
+            "grant_remaining": 1.8102598790428601
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 10,
+            "grant_remaining": 1.8102590450434946
+          }
+        }
+      },
+      "virtual": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "name": "Govee Left TEST",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "name": "Govee Right TEST",
+          "on": false
+        }
+      ],
+      "hue_api": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "on": false
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "states": {
+          "1": true,
+          "2": false
+        }
+      },
+      "owner": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 5,
+            "grant_remaining": 1.7448205732507631
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 10,
+            "grant_remaining": 1.7448194063035771
+          }
+        }
+      },
+      "virtual": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "name": "Govee Left TEST",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "name": "Govee Right TEST",
+          "on": false
+        }
+      ],
+      "hue_api": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "on": false
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "states": {
+          "1": true,
+          "2": false
+        }
+      },
+      "owner": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 5,
+            "grant_remaining": 1.6783349808538333
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 10,
+            "grant_remaining": 1.6783339388784952
+          }
+        }
+      },
+      "virtual": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "name": "Govee Left TEST",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "name": "Govee Right TEST",
+          "on": false
+        }
+      ],
+      "hue_api": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "on": false
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "states": {
+          "1": true,
+          "2": false
+        }
+      },
+      "owner": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 5,
+            "grant_remaining": 1.960168632271234
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 10,
+            "grant_remaining": 1.9601674652658403
+          }
+        }
+      },
+      "virtual": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "name": "Govee Left TEST",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "name": "Govee Right TEST",
+          "on": false
+        }
+      ],
+      "hue_api": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "on": false
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "states": {
+          "1": true,
+          "2": false
+        }
+      },
+      "owner": {
+        "enforced": true,
+        "roles": {
+          "left": {
+            "requested_on": true,
+            "color_allowed": true,
+            "revision": 5,
+            "grant_remaining": 1.895654180436395
+          },
+          "right": {
+            "requested_on": false,
+            "color_allowed": false,
+            "revision": 10,
+            "grant_remaining": 1.8956527224509045
+          }
+        }
+      },
+      "virtual": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "name": "Govee Left TEST",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "name": "Govee Right TEST",
+          "on": false
+        }
+      ],
+      "hue_api": [
+        {
+          "id": "050b14cb-6e4f-55bf-910b-ecc92c6210bd",
+          "on": true
+        },
+        {
+          "id": "c542df65-c2a4-512e-85b6-2f4b7401213f",
+          "on": false
+        }
+      ]
+    }
+  ],
+  "owner_confirmed_physical_right_off": true,
+  "owner_confirmed_hue_ui": false,
+  "isolated_upstream_checks": 3,
+  "unit_tests": 243,
+  "javascript_tests": 30,
+  "before": {
+    "owner": {
+      "enforced": true,
+      "roles": {
+        "left": {
+          "requested_on": true,
+          "color_allowed": true,
+          "revision": 5,
+          "grant_remaining": 1.7262598806410097
+        },
+        "right": {
+          "requested_on": false,
+          "color_allowed": false,
+          "revision": 10,
+          "grant_remaining": 1.726259422604926
+        }
+      }
+    },
+    "virtual": [
+      {
+        "name": "Govee Left TEST",
+        "on": true,
+        "dynamics": "none"
+      },
+      {
+        "name": "Govee Right TEST",
+        "on": true,
+        "dynamics": "none"
+      }
+    ]
+  },
+  "agreement_pass": true
+}

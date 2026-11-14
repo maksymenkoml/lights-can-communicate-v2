@@ -272,6 +272,7 @@ from entertainment_receiver import EntertainmentReceiver  # noqa: E402
 from flaskUI import restful, v2restapi  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
+from power_feedback import PowerFeedback  # noqa: E402
 from services import updateManager  # noqa: E402
 
 install_resource_compat(
@@ -318,6 +319,7 @@ if (
 original_set_state = Light.Light._setV1State
 original_dynamic_play = Light.Light.dynamicScenePlay
 play_guard = PlayGuard()
+power_feedback = None
 
 
 Scene.Thread = play_guard.thread_factory(
@@ -357,6 +359,8 @@ def forward_selected_state(lamp, values, advertise=True):
             return None
         if changed and generation is None:
             play_guard.cancel(lamp)
+        if power_feedback is not None:
+            values = power_feedback.constrain(lamp, values)
         result = original_set_state(lamp, values, advertise)
         if changed and lamp.id_v1 in selected_slots and live_output is not None:
             selected = {
@@ -384,7 +388,62 @@ def forward_selected_state(lamp, values, advertise=True):
 
 
 Light.Light._setV1State = forward_selected_state
+
+
+def resume_power_color(lamp):
+    selected = {
+        key: lamp.state[key]
+        for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
+        if key in lamp.state
+    }
+    selected["_changed"] = ["on"]
+    selected["_color_kind"] = lamp.protocol_cfg.get(
+        "proxy_color_kind", "ct" if lamp.state.get("colormode") == "ct" else "xy"
+    )
+    live_output.submit(lamp.id_v1, selected, 0)
+
+
+def publish_power_groups(changed_slots):
+    for group in config["groups"].values():
+        if group.id_v1 != "0" and group.type not in {"Room", "Zone"}:
+            continue
+        if not any(ref() is not None and ref().id_v1 in changed_slots for ref in group.lights):
+            continue
+        resource = group.getV2GroupedLight()
+        StreamEvent({
+            "creationtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "id": str(uuid.uuid4()), "type": "update",
+            "data": [{key: resource[key] for key in
+                      ("id", "id_v1", "type", "owner", "on", "dimming")}],
+        })
+
+
+original_light_event = Light.Light.genStreamEvent
+original_light_api = Light.Light.getV2Api
+
+
+def advertise_selected_power(lamp, values):
+    with play_guard.lock:
+        if power_feedback is not None:
+            values = power_feedback.constrain_v2(lamp, values)
+        return original_light_event(lamp, values)
+
+
+def power_aware_light_api(lamp):
+    with play_guard.lock:
+        result = original_light_api(lamp)
+        return power_feedback.constrain_v2(lamp, result) if power_feedback is not None else result
+
+
+Light.Light.genStreamEvent = advertise_selected_power
+Light.Light.getV2Api = power_aware_light_api
 if live_output is not None:
+    power_feedback = PowerFeedback(
+        live_output.url, live_output.token, config["lights"], play_guard.lock,
+        resume=resume_power_color, publish_groups=publish_power_groups,
+    )
+    power_feedback.refresh_once()
+    power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
 
 
@@ -430,6 +489,7 @@ def probe_status():
             "simulation_only": live_output is None,
             "live_output_hold": (state / "live-output-hold").exists(),
             "live_output": live_output.snapshot() if live_output else {"enabled": False},
+            "power_feedback": power_feedback.snapshot() if power_feedback else {"enabled": False},
             "entertainment": entertainment_receiver.snapshot(),
             "clients": [
                 getattr(client, "name", "unknown") for client in config["apiUsers"].values()
