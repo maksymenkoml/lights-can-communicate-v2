@@ -4,4 +4,5 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 UV_TOOL_DIR="$PWD/.ruff_cache/tools" uvx --offline --cache-dir .ruff_cache/uv ruff check .
 node --check experiments/setup-studio/static/app.js
+node --test tests/setup_studio_client.test.cjs
 python3 -B -m unittest discover -s tests -v

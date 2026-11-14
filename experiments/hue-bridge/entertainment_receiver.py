@@ -88,6 +88,22 @@ class StreamOutbox:
         self.forward_once()
 
 
+def dtls_diagnostic(line):
+    value = line.lower()
+    for marker, category in (
+        (b"read client hello", "client_hello"),
+        (b"read finished", "handshake_finished"),
+        (b"bad record mac", "authentication_error"),
+        (b"address already in use", "listener_bind_error"),
+        (b"no shared cipher", "cipher_error"),
+        (b"unexpected message", "protocol_error"),
+        (b"error:", "other_ssl_error"),
+    ):
+        if marker in value:
+            return category
+    return None
+
+
 class EntertainmentReceiver:
     def __init__(self, url, token, openssl="openssl", enabled=False):
         self.url, self.token, self.openssl, self.enabled = url, token, openssl, enabled
@@ -126,6 +142,7 @@ class EntertainmentReceiver:
         self.current_outbox = outbox
         done = threading.Event()
         process = None
+        diagnostic_worker = None
         end_reason = "source stopped"
         try:
             process = subprocess.Popen(
@@ -136,6 +153,7 @@ class EntertainmentReceiver:
                     "-dtls1_2",
                     "-listen",
                     "-quiet",
+                    "-state",
                     "-cipher",
                     "PSK-AES128-GCM-SHA256:PSK-AES128-CCM8:PSK-AES128-CCM:@SECLEVEL=0",
                     "-psk",
@@ -148,8 +166,23 @@ class EntertainmentReceiver:
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
+            with self.lock:
+                self.status["dtls_diagnostics"] = {}
+
+            def collect_diagnostics():
+                for line in iter(process.stderr.readline, b""):
+                    category = dtls_diagnostic(line)
+                    if category:
+                        with self.lock:
+                            counts = self.status["dtls_diagnostics"]
+                            counts[category] = counts.get(category, 0) + 1
+
+            diagnostic_worker = threading.Thread(
+                target=collect_diagnostics, daemon=True, name="dtls-diagnostics"
+            )
+            diagnostic_worker.start()
             group.stream["_proc"] = process
             group.stream["owner"] = user.username
             with self.lock:
@@ -216,7 +249,9 @@ class EntertainmentReceiver:
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=1)
-                for stream in (process.stdin, process.stdout):
+                if diagnostic_worker is not None:
+                    diagnostic_worker.join(timeout=1)
+                for stream in (process.stdin, process.stdout, process.stderr):
                     if stream:
                         stream.close()
             if group.stream.get("_proc") is process:

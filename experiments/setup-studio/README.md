@@ -1,9 +1,9 @@
 # Local setup studio spike
 
 One schematic of the selected desk lights. Drag lamps onto a fixed 5 cm grid,
-select one to adjust brightness, with automatic local saving. Known models supply form,
-segment template and color mapping. No physical lighting settings
-are changed.
+select one to adjust brightness, with automatic saving. Known models supply form,
+segment template and color mapping. The six existing desk roles provide layout
+and brightness corrections to the opt-in live pilot; extra drawings stay unbound.
 
 Run from the repository root:
 
@@ -12,20 +12,28 @@ python3 -B experiments/setup-studio/server.py
 ```
 
 Open `http://127.0.0.1:19881`. The server binds loopback and serves only three
-public assets plus an optional sanitized read-only pilot status projection.
-Project/state files and credentials are never served. POST requests cannot
-control lights. The minimal frontend does not poll the running pilot.
+public assets, the validated layout API and an optional sanitized read-only
+pilot status projection. Project/state files and credentials are never served.
+Layout writes accept geometry and correction percentages only, without power,
+physical identifiers or arbitrary commands. The frontend does not poll the pilot.
 
-Version 3 stores centimeter coordinates and a fixed 5 cm step in browser
-local storage. Earlier drafts retain position and brightness on migration.
+Version 3 stores centimeter coordinates and a fixed 5 cm step. The first load
+imports an existing browser draft when the server has no saved layout. The
+private server copy then becomes authoritative; local storage retains offline
+edits for retry. Concurrent edits merge by changed field. Earlier drafts retain
+position and brightness on migration.
 Keyboard arrows move one grid cell; form-specific bounds retain glyphs on the
 stage. The diagram is schematic, not a dimensioned CAD drawing. A new virtual
 lamp asks only for its form.
 
-Govee segment templates remain preview-only and require separate firmware
-validation before physical zoned output. Native monitor streaming has nine
-verified segments; each Play has one color channel. The running pilot remains
-independent of this sketch.
+The H6076 pilot has seven physically verified zones behind three Signe sampling
+anchors. Native monitor streaming has nine verified segments; each Play has one
+color channel. Positions are relative to the monitor and published through the
+virtual Entertainment API and SSE. The actual Sync Box consumed live position
+changes in a controlled co-location/restore check: all 25 co-located seven-zone
+targets matched, then diverged again after restoring the owner's positions.
+This measures target selection, not optical LED timing. Scene
+palettes keep Hue's existing behavior; placement affects Entertainment sampling.
 
 The desk is 160 cm wide with its top 85 cm above the floor. The 32-inch
 monitor uses an assumed 16:9 aspect ratio (about 71 × 40 cm), drawn at the
@@ -51,7 +59,7 @@ The monitor itself supports pointer dragging and arrow movement on the
 desk center. The attached strip shares its position. Elevated placements
 persist without being pulled back into the initial viewport.
 
-Every edit (including undo) saves automatically to local storage. There is
+Every edit (including undo) saves automatically to local storage and the server. There is
 no Save button, reset action or persistent save/instruction footer.
 
 The desk uses solid, thicker blue-gray tabletop and legs. Width is printed

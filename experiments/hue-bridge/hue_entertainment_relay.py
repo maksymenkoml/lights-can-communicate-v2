@@ -87,7 +87,10 @@ class DtlsConnection:
 
 
 class HueEntertainmentRelay:
-    def __init__(self, config, requester=None, connection_factory=DtlsConnection):
+    def __init__(
+        self, config, requester=None, connection_factory=DtlsConnection, layout_store=None
+    ):
+        self.layout_store = layout_store
         if (
             config.get("area_id") != NATIVE_AREA_ID
             or not isinstance(config.get("client_key"), str)
@@ -186,7 +189,22 @@ class HueEntertainmentRelay:
             if area.get("status") != "active" or not self.ours(area):
                 raise ValueError("Native stream ownership changed")
             self.ownership_checked = time.monotonic()
-        self.connection.send(encode_frame(NATIVE_AREA_ID, native_colors(frame), self.sequence))
+        scales = (
+            {
+                role: self.layout_store.scale(role, fallback)
+                for role, fallback in {
+                    "strip": 1,
+                    "hue_left": 1,
+                    "hue_center": 0.5,
+                    "hue_right": 1,
+                }.items()
+            }
+            if self.layout_store is not None
+            else None
+        )
+        self.connection.send(
+            encode_frame(NATIVE_AREA_ID, native_colors(frame, scales), self.sequence)
+        )
         self.sequence = (self.sequence + 1) % 256
 
     def stop(self):

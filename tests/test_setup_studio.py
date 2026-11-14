@@ -16,6 +16,60 @@ spec.loader.exec_module(studio)
 
 
 class StudioTests(unittest.TestCase):
+    def test_layout_api_persists_geometry_and_rejects_cross_origin_or_stale_writes(self):
+        from test_desk_layout import layout
+
+        with TemporaryDirectory(prefix="tmp_studio_layout_") as folder:
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), studio.handler_for(Path(folder) / "missing-token")
+            )
+            thread = threading.Thread(target=server.serve_forever)
+            thread.start()
+            base = "http://127.0.0.1:" + str(server.server_port)
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+            def post(body, **headers):
+                return opener.open(
+                    urllib.request.Request(
+                        base + "/api/layout",
+                        data=json.dumps(body).encode(),
+                        method="POST",
+                        headers={"Content-Type": "application/json", "Origin": base, **headers},
+                    )
+                )
+
+            try:
+                with opener.open(base + "/api/layout") as response:
+                    self.assertIsNone(json.load(response)["layout"])
+                with post(layout()) as response:
+                    result = json.load(response)
+                self.assertEqual(result["layout"]["desk"]["width"], 160)
+                with opener.open(base + "/api/layout") as response:
+                    self.assertEqual(json.load(response), result)
+                for headers, code in [
+                    ({"Origin": "https://unrelated.example"}, 403),
+                    ({"Host": "unrelated.example"}, 403),
+                    ({"If-Match": "stale-revision"}, 409),
+                ]:
+                    with (
+                        self.subTest(headers=headers),
+                        self.assertRaises(urllib.error.HTTPError) as e,
+                    ):
+                        post(layout(), **headers)
+                    self.assertEqual(e.exception.code, code)
+                bad = layout()
+                bad["devices"][0]["ip"] = "192.168.10.123"
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    post(bad)
+                self.assertEqual(error.exception.code, 400)
+                self.assertEqual(
+                    json.loads((Path(folder) / "desk-layout.json").read_text()), result["layout"]
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
+
     def test_status_projection_excludes_keys_unselected_devices_and_raw_commands(self):
         result = studio.project_status(
             {

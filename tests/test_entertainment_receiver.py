@@ -3,11 +3,26 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-from entertainment_receiver import StreamOutbox  # noqa: E402
+from entertainment_receiver import StreamOutbox, dtls_diagnostic  # noqa: E402
 from test_entertainment_stream import colors  # noqa: E402
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_dtls_diagnostics_keep_only_static_categories_not_credentials(self):
+        self.assertEqual(
+            dtls_diagnostic(b"SSL_accept:SSLv3/TLS read client hello\n"), "client_hello"
+        )
+        self.assertEqual(
+            dtls_diagnostic(b"SSL_accept:SSLv3/TLS read finished\n"), "handshake_finished"
+        )
+        self.assertEqual(
+            dtls_diagnostic(b"error: bad record mac; private-key-material"), "authentication_error"
+        )
+        self.assertEqual(
+            dtls_diagnostic(b"error: unknown detail private-key-material"), "other_ssl_error"
+        )
+        self.assertIsNone(dtls_diagnostic(b"identity: private-key-material"))
+
     def test_coalesces_frames_and_stop_replaces_unsent_frame(self):
         sent = []
         out = StreamOutbox("http://adapter", "test", sender=sent.append, clock=lambda: 1000)

@@ -6,6 +6,7 @@ import logging
 import os
 import secrets
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -15,15 +16,25 @@ logging.disable(logging.CRITICAL)
 sys.path.insert(0, "/opt/hue-emulator")
 
 import configManager  # noqa: E402
+from desk_layout import LayoutStore, layout_event  # noqa: E402
+from desk_layout import positions as layout_positions  # noqa: E402
 from entertainment_stream import GRADIENT_MODE, GROUP_ID, POSITIONS, SLOT_CHANNELS  # noqa: E402
 from flask import abort, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 from hue_resource_compat import canonical_collection, install_resource_compat  # noqa: E402
-from HueObjects import ApiUser, EntertainmentConfiguration, Group, Light, Scene  # noqa: E402
+from HueObjects import (  # noqa: E402
+    ApiUser,
+    EntertainmentConfiguration,
+    Group,
+    Light,
+    Scene,
+    StreamEvent,
+)
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
 state.chmod(0o700)
+layout_store = LayoutStore(state / "desk-layout.json")
 
 
 def local_secret(name, size):
@@ -181,22 +192,37 @@ if include_entertainment:
     def desk_area_api(area):
         result = original_area_api(area)
         if area.id_v2 == GROUP_ID:
+            layout = (
+                layout_store.snapshot() if not (state / "layout-geometry-hold").exists() else None
+            )
+            coordinates = layout_positions(layout, GRADIENT_MODE) if layout else POSITIONS
             result["channels"] = []
+            locations = []
             for slot, channels in SLOT_CHANNELS.items():
                 lamp = config["lights"][slot]
                 service = {
                     "rtype": "entertainment",
                     "rid": str(uuid.uuid5(uuid.NAMESPACE_URL, lamp.id_v2 + "entertainment")),
                 }
+                points = [dict(zip(("x", "y", "z"), coordinates[channel])) for channel in channels]
+                locations.append(
+                    {
+                        "service": dict(service),
+                        "positions": points,
+                        "position": points[0],
+                        "equalization_factor": 1,
+                    }
+                )
                 for index, channel in enumerate(channels):
                     result["channels"].append(
                         {
                             "channel_id": channel,
                             "members": [{"index": index, "service": dict(service)}],
-                            "position": dict(zip(("x", "y", "z"), POSITIONS[channel])),
+                            "position": dict(zip(("x", "y", "z"), coordinates[channel])),
                         }
                     )
             result["channels"].sort(key=lambda channel: channel["channel_id"])
+            result["locations"] = {"service_locations": locations}
         return result
 
     EntertainmentConfiguration.EntertainmentConfiguration.getV2Api = desk_area_api
@@ -213,6 +239,29 @@ if include_entertainment:
         return result
 
     Light.Light.getV2Entertainment = desk_light_entertainment
+
+    def watch_layout():
+        previous = list(POSITIONS)
+        while True:
+            try:
+                if (state / "layout-geometry-hold").exists():
+                    time.sleep(0.25)
+                    continue
+                layout = layout_store.snapshot()
+                coordinates = layout_positions(layout, GRADIENT_MODE) if layout else list(POSITIONS)
+                if coordinates != previous:
+                    for slot, channels in SLOT_CHANNELS.items():
+                        area.locations[config["lights"][slot]] = [
+                            dict(zip(("x", "y", "z"), coordinates[channel])) for channel in channels
+                        ]
+                    payload = desk_area_api(area)
+                    StreamEvent(layout_event(payload))
+                    previous = coordinates
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            time.sleep(0.25)
+
+    threading.Thread(target=watch_layout, daemon=True, name="desk-layout").start()
 
 if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
@@ -313,9 +362,7 @@ def forward_selected_state(lamp, values, advertise=True):
                 for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
                 if key in lamp.state
             }
-            if lamp.id_v1 in {"3", "4", "5", "6"} or (
-                GRADIENT_MODE and lamp.id_v1 in {"1", "2"}
-            ):
+            if lamp.id_v1 in {"3", "4", "5", "6"} or (GRADIENT_MODE and lamp.id_v1 in {"1", "2"}):
                 selected["_changed"] = sorted(values)
                 for field, kind in (
                     ("gradient", "gradient"),

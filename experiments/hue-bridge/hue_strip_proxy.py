@@ -146,12 +146,20 @@ def merge_hue_body(previous, update):
 
 
 class HueStripProxy:
-    def __init__(self, client, clock=time.monotonic, wall_clock=time.time, role="strip"):
+    def __init__(
+        self, client, clock=time.monotonic, wall_clock=time.time, role="strip", layout_store=None
+    ):
+        self.layout_store = layout_store
         self.role = role
         self.resource_id = getattr(client, "resource_id", STRIP_ID)
         if {"strip": STRIP_ID, **PLAY_IDS}.get(role) != self.resource_id:
             raise ValueError("Hue role does not match the selected resource")
         self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
+        self.applied_scale = (
+            layout_store.scale(role, self.brightness_scale)
+            if layout_store is not None
+            else self.brightness_scale
+        )
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
         self.state_lock = threading.RLock()
@@ -190,6 +198,15 @@ class HueStripProxy:
             raise ValueError("Invalid source ordering")
         issued = finite(payload["issued_at"], self.wall_clock() - 5, self.wall_clock() + 5)
         body = hue_payload(payload["state"], payload["transitiontime"])
+        if (
+            body is not None
+            and "dimming" not in body
+            and self.layout_store is not None
+            and self.layout_store.snapshot() is not None
+        ):
+            body["dimming"] = {
+                "brightness": finite(payload["state"].get("bri", 254), 0, 254) / 254 * 100
+            }
         if body is not None and "dimming" in body:
             body["dimming"]["brightness"] = max(
                 0.1, body["dimming"]["brightness"] * self.brightness_scale
@@ -255,6 +272,24 @@ class HueStripProxy:
                             "native streaming" if native["mode"] == "streaming" else "native off"
                         )
                     return False
+                scale = (
+                    self.layout_store.scale(self.role, self.brightness_scale)
+                    if self.layout_store is not None
+                    else self.brightness_scale
+                )
+                if scale != self.applied_scale:
+                    self.restore = True
+                    if self.desired is None:
+                        brightness = native.get("dimming", {}).get("brightness", 100)
+                        base = (
+                            brightness / self.applied_scale * self.brightness_scale
+                            if self.applied_scale
+                            else 100 * self.brightness_scale
+                        )
+                        self.desired = (
+                            {"dimming": {"brightness": base}, "dynamics": {"duration": 400}},
+                            self.wall_clock(),
+                        )
                 if self.desired is None or (self.applied == self.generation and not self.restore):
                     with self.state_lock:
                         self.healthy = True
@@ -262,6 +297,10 @@ class HueStripProxy:
                 desired_body, issued = self.desired
                 body = desired_body if self.restore else self.pending_body or desired_body
                 body = copy.deepcopy(body)
+                if self.layout_store is not None and "dimming" in body:
+                    body["dimming"]["brightness"] = max(
+                        0.1, min(100, body["dimming"]["brightness"] / self.brightness_scale * scale)
+                    )
                 points = body.get("gradient", {}).get("points", [])
                 if points and len(points) > native.get("gradient", {}).get("points_capable", 0):
                     raise ValueError("Native gradient capability mismatch")
@@ -278,6 +317,7 @@ class HueStripProxy:
                         return False
                     self.client.write(body)
                 self.applied = self.generation
+                self.applied_scale = scale
                 self.restore = False
                 self.pending_body = None
                 with self.state_lock:

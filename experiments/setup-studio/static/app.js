@@ -24,9 +24,9 @@ const seed=[
 const typeNames={floor:'Торшер RGBIC',strip:'Стрічка',bar:'Світлова панель'};
 const palette=['#809bc4','#a98bbd','#cb9cae','#dab493','#cfc49b'].map(hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)));
 function defaults(){const data={version:3,room:'Mykola Office',desk:clone(deskDefaults),monitorInches:32,devices:clone(seed)};data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;}
-function load(){
+function load(savedOverride){
  try{
-  const saved=JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1'));
+  const saved=savedOverride||JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1'));
   if(![1,2,3].includes(saved?.version)||!Array.isArray(saved.devices))return defaults();
   const data=defaults();data.desk={width:clamp(saved.desk?.width??160,80,240),height:clamp(saved.desk?.height??85,50,120)};data.monitorInches=clamp(saved.monitorInches??32,19,55);data.room=String(saved.room||data.room).slice(0,40);
   data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'?-100:0,100)}}:d;});
@@ -42,7 +42,8 @@ const stage=$('#stage');
 const current=()=>layout.devices.find(d=>d.id===(selected==='monitor'?'hue-monitor':selected));
 const screen=()=>layout.devices.find(d=>d.id==='hue-monitor')||seed[2];
 function remember(){history.push(clone(layout));if(history.length>25)history.shift();}
-function dirty(){save();}
+let editGeneration=0;
+function dirty(){editGeneration++;save();}
 function notify(text){$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
 function point(event){return new DOMPoint(event.clientX,event.clientY).matrixTransform(stage.getScreenCTM().inverse());}
 function color(d,index){
@@ -123,7 +124,68 @@ function autoSnap(d,desk=layout.desk,inches=layout.monitorInches){
  d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.floor((FLOOR_Y-250*UNITS_PER_CM)/GRID)):floor?Math.ceil((GOVEE_HEIGHT_CM*UNITS_PER_CM-300+20)/GRID):1,floor?(FLOOR_Y-300)/GRID:attached?monitorMaxY:Math.floor((FLOOR_Y-10*UNITS_PER_CM)/GRID))*GRID/STAGE_HEIGHT*100;
 }
 
-function save(){try{const saved={...layout,version:3,gridStepCm:STEP_CM,devices:layout.devices.map(({pos,...d})=>({...d,positionCm:{x:Math.round(pos.x/100*COLS)*STEP_CM,height:heightCm({pos})}}))};localStorage.setItem(KEY,JSON.stringify(saved));}catch{notify('Браузер не дозволив зберегти макет');}}
+function packLayout(data=layout){
+ return {version:3,gridStepCm:STEP_CM,room:data.room,desk:clone(data.desk),monitorInches:data.monitorInches,devices:data.devices.map(d=>({
+  id:d.id,scale:d.scale,orientation:d.orientation||'horizontal',
+  positionCm:d.positionCm?clone(d.positionCm):{x:Math.round(d.pos.x/100*COLS)*STEP_CM,height:heightCm(d)},
+  ...(d.id.startsWith('virtual-')?{shape:d.shape,name:d.name}:{})
+ }))};
+}
+function mergeLayouts(base,local,remote){
+ const result=clone(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+ const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
+ for(const key of ['room','monitorInches'])field(result,key,base[key],local[key]);
+ for(const key of ['width','height'])field(result.desk,key,base.desk[key],local.desk[key]);
+ const old=new Map(base.devices.map(d=>[d.id,d])),mine=new Map(local.devices.map(d=>[d.id,d]));
+ for(const [id,previous]of old)if(!mine.has(id))result.devices=result.devices.filter(d=>d.id!==id);
+ for(const [id,current]of mine){
+  const previous=old.get(id),target=result.devices.find(d=>d.id===id);
+  if(!previous){if(!target)result.devices.push(clone(current));continue;}
+  if(!target){if(!equal(previous,current))result.devices.push(clone(current));continue;}
+  for(const key of ['scale','orientation','name','shape'])field(target,key,previous[key],current[key]);
+  for(const key of ['x','height'])field(target.positionCm,key,previous.positionCm[key],current.positionCm[key]);
+ }
+ return result;
+}
+function readServerBase(){try{return JSON.parse(localStorage.getItem(KEY+'-base'));}catch{return null;}}
+let serverReady=false,revision=null,pendingLayout=null,saving=false,saveTimer,retryTimer,offlineNotice=false;
+let serverBaseline=readServerBase()||packLayout();
+function save(){try{const saved=packLayout();localStorage.setItem(KEY,JSON.stringify(saved));if(editGeneration>0)localStorage.setItem(KEY+'-pending','true');pendingLayout=saved;clearTimeout(saveTimer);if(serverReady)saveTimer=setTimeout(flushLayout,300);}catch{notify('Браузер не дозволив зберегти макет');}}
+function acceptBaseline(saved){serverBaseline=clone(saved.layout);revision=saved.revision;localStorage.setItem(KEY+'-base',JSON.stringify(serverBaseline));}
+function reconcile(saved,base=serverBaseline){
+ const merged=mergeLayouts(base,packLayout(),saved.layout);
+ history=history.map(item=>load(mergeLayouts(base,packLayout(item),saved.layout)));
+ layout=load(merged);acceptBaseline(saved);localStorage.setItem(KEY,JSON.stringify(packLayout()));render();
+}
+async function flushLayout(){
+ if(saving||!serverReady)return;saving=true;
+ try{
+  let conflicts=0;
+  while(pendingLayout){
+   const payload=pendingLayout,base=clone(serverBaseline);pendingLayout=null;
+   const response=await fetch('/api/layout',{method:'POST',headers:{'Content-Type':'application/json','If-Match':`"${revision||''}"`},body:JSON.stringify(payload)});
+   if(response.status===409&&conflicts++<2){const current=await fetch('/api/layout');if(!current.ok)throw new Error('offline');const remote=await current.json();reconcile(remote,base);pendingLayout=packLayout();continue;}
+   if(!response.ok){pendingLayout=pendingLayout||payload;throw new Error('save');}
+   acceptBaseline(await response.json());if(!pendingLayout)localStorage.removeItem(KEY+'-pending');offlineNotice=false;
+  }
+ }catch{
+  serverReady=false;if(!offlineNotice)notify('Не вдалося застосувати зміни. Макет збережений локально.');offlineNotice=true;
+  clearTimeout(retryTimer);retryTimer=setTimeout(connectLayout,3000);
+ }finally{saving=false;}
+}
+async function connectLayout(){
+ try{
+  const response=await fetch('/api/layout');if(!response.ok)throw new Error('offline');
+  const saved=await response.json(),hasLocalEdits=editGeneration>0||!!localStorage.getItem(KEY+'-pending');revision=saved.revision;
+  if(saved.layout){if(hasLocalEdits)reconcile(saved);else{layout=load(saved.layout);acceptBaseline(saved);pendingLayout=null;localStorage.setItem(KEY,JSON.stringify(packLayout()));render();}}
+  serverReady=true;offlineNotice=false;
+  if(!saved.layout||hasLocalEdits)save();
+ }catch{
+  serverReady=false;if(!offlineNotice)notify('Пілот недоступний. Макет збережений локально.');offlineNotice=true;
+  clearTimeout(retryTimer);retryTimer=setTimeout(connectLayout,3000);
+ }
+}
+
 function add(){
  if(layout.devices.length>=12){notify('У цьому макеті вже 12 ламп');return;}
  $('#modal-content').innerHTML=`<h2>Яку лампу додати?</h2><p>Обери форму. Решту макет підбере автоматично.</p><div class="types"><button class="type" data-add="floor"><svg viewBox="0 0 40 50"><path d="M20 4v36M10 44h20"/></svg>Торшер</button><button class="type" data-add="strip"><svg viewBox="0 0 40 50"><path d="M5 42V9h30v33"/></svg>Стрічка</button><button class="type" data-add="bar"><svg viewBox="0 0 40 50"><rect x="7" y="16" width="26" height="14" rx="6"/></svg>Панель</button></div><div class="top-help">Новий об’єкт додається лише до макета.</div>`;$('#modal').showModal();
@@ -178,3 +240,4 @@ stage.addEventListener('keydown',event=>{
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){selected=null;render();}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'&&history.length&&document.activeElement?.tagName!=='INPUT'){event.preventDefault();layout=history.pop();if(!['desk','monitor'].includes(selected)&&!layout.devices.some(d=>d.id===selected))selected=null;dirty();render();}});
 render();
 save();
+connectLayout();

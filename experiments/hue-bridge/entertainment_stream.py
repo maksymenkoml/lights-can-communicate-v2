@@ -124,10 +124,15 @@ def decode_frame(data):
     return result
 
 
-def native_colors(frame):
+def native_colors(frame, scales=None):
     mapping = {0: 12, 1: 11, 2: 13, **{i + 3: i + 2 for i in range(9)}}
+    factors = {0: 0.5, **{i: 1 for i in range(1, 12)}}
+    if scales is not None:
+        for channel in mapping:
+            role = {0: "hue_center", 1: "hue_left", 2: "hue_right"}.get(channel, "strip")
+            factors[channel] = scales.get(role, factors[channel])
     return {
-        channel: tuple(round(value * (0.5 if channel == 0 else 1)) for value in frame[source])
+        channel: tuple(round(value * factors[channel]) for value in frame[source])
         for channel, source in mapping.items()
     }
 

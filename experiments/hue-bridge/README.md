@@ -26,6 +26,15 @@ a local reference experiment.
 
 See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for actual Sync Box video relay, PS5 menu/game/Stop acceptance, right-lamp pacing, and remaining hardware coverage limits. [FEATURES.md](FEATURES.md) separates verified pilot features from Homebridge work.
 
+**Live desk layout:** the [setup studio](../setup-studio/README.md) now saves
+the owner's six-role layout into the private shared state. Positions relative
+to the monitor update the eighteen-channel source area; each Govee retains
+three Signe anchors over seven physical zones. A controlled live Sync Box
+co-location/restore check confirmed changed zonal sampling without restarting
+Sync. Brightness corrections are consumed by both scene and video paths.
+Extra schematic drawings remain unbound; native area membership and physical
+device allowlists stay pinned. See `evidence/live-layout-hot-update.json`.
+
 ## Phase 1: simulated compatibility result
 
 Tested on 2026-11-13 with the owner's installed official Philips Hue app on

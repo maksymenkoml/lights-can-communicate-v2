@@ -32,7 +32,9 @@ optical timing were not recorded.
 | Xbox, HDR and refresh-rate combinations | Not separately tested | Do not infer complete coverage from one game |
 | Optical latency and fully black frames | Not measured/accepted separately | Packet timing and black-without-power behavior have offline coverage |
 | Owner off/on during our native video relay | Offline verified only | Fresh native off releases relay and requires source restart |
-| Local setup UI sketch | Implemented as a draft | Simple schematic, automatic model defaults and fixed 5 cm placement; no physical apply |
+| Local setup UI and shared autosave | Implemented; owner confirmed layout migration | Simple schematic, 5 cm placement, atomic private server storage, offline retry and field-level concurrent edit merge |
+| Live layout positions in zoned Sync | Measured with actual Sync Box | Temporarily co-located Govee produced equal seven-zone targets in 25/25 samples; restored positions produced different targets again; native channel mapping unchanged |
+| Per-role brightness corrections from setup UI | Implemented, offline verified | Scene and video paths consume the same six-role layout; existing owner-accepted 0.65/0.50 defaults preserved; arbitrary slider values not separately visually accepted |
 | Applying arbitrary topology from setup UI | Not implemented | Current physical driver and native IDs remain pinned; zoned output is a separate explicit pilot mode |
 | NAS service and own Homebridge package | Not implemented | Runtime is still on the Mac with a pinned reference bridge |
 

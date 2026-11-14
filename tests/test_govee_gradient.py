@@ -109,6 +109,9 @@ class GradientStreamTests(unittest.TestCase):
             "SLOT_CHANNELS": stream.SLOT_CHANNELS,
             "POSITIONS": stream.POSITIONS,
             "uuid": uuid,
+            "layout_store": SimpleNamespace(snapshot=lambda: None),
+            "GRADIENT_MODE": True,
+            "state": FOLDER / "unused-test-state",
             "config": {
                 "lights": {
                     slot: SimpleNamespace(id_v2="light-" + slot) for slot in stream.SLOT_CHANNELS

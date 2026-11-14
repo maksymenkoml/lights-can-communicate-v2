@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
@@ -146,8 +147,14 @@ def native_target(status, fallback):
 
 class PilotController:
     def __init__(
-        self, targets, sender=lan.send_to_target, clock=time.monotonic, wall_clock=time.time
+        self,
+        targets,
+        sender=lan.send_to_target,
+        clock=time.monotonic,
+        wall_clock=time.time,
+        layout_store=None,
     ):
+        self.layout_store = layout_store
         self.targets = copy.deepcopy(targets)
         if len(self.targets) != 2 or {item.get("side") for item in self.targets} != {
             "left",
@@ -200,6 +207,19 @@ class PilotController:
             fraction = (self.clock() - job["start"]) / job["duration"] if job["duration"] else 1
             return blend(job["from"], job["to"], fraction)
 
+    def effective_target(self, side):
+        target = self.target(side)
+        if target is not None and self.layout_store is not None:
+            base = lan.parse_brightness_scale(self.by_side[side].get("brightness_scale", 1))
+            scale = self.layout_store.scale(side, base)
+            brightness = (
+                target["brightness"] * scale / base
+                if base
+                else self.jobs[side].get("source_bri", 254) / 254 * 100 * scale
+            )
+            target["brightness"] = max(1, min(100, round(brightness)))
+        return target
+
     def submit(self, payload):
         if not isinstance(payload, dict) or set(payload) != {
             "side",
@@ -241,11 +261,17 @@ class PilotController:
             if initial is None:
                 status = self.statuses.get(lan.device_key(device), (None, 0))[0]
                 initial = native_target(status, desired)
+                if self.layout_store is not None and status and "brightness" in status:
+                    base = lan.parse_brightness_scale(device.get("brightness_scale", 1))
+                    scale = self.layout_store.scale(side, base)
+                    if base and scale:
+                        initial["brightness"] *= base / scale
             self.jobs[side] = {
                 "from": initial,
                 "to": desired,
                 "start": self.clock(),
                 "duration": duration,
+                "source_bri": payload["state"].get("bri", 254),
             }
         return True
 
@@ -262,7 +288,7 @@ class PilotController:
                     if side in self.jobs:
                         self.skipped_state[side] += 1
                     continue
-                target = self.target(side)
+                target = self.effective_target(side)
                 if target is None:
                     continue
                 old = self.last_sent.get(side, {})
@@ -338,7 +364,7 @@ class PilotController:
                         "segment_count": item.get("segment_count", 0),
                         "max_commands_per_second": self.packet_rates[item["side"]],
                         "max_gradient_packets_per_second": self.gradient_packet_rates[item["side"]],
-                        "target": self.target(item["side"]),
+                        "target": self.effective_target(item["side"]),
                         "native": self.statuses.get(lan.device_key(item), (None, 0))[0],
                         "status_age": (
                             self.clock() - self.statuses[lan.device_key(item)][1]
@@ -428,6 +454,7 @@ def main():
     if (args.targets.parent / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     config = json.loads(args.targets.read_text())
+    layout_store = LayoutStore(args.targets.parent / "desk-layout.json")
     for device in config["targets"]:
         device["segment_count"] = 7 if GRADIENT_MODE else 0
     if not args.token_file.exists():
@@ -435,15 +462,17 @@ def main():
         with os.fdopen(descriptor, "w") as stream:
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
-    controller = PilotController(config["targets"])
+    controller = PilotController(config["targets"], layout_store=layout_store)
     hue_proxies = {}
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
-        hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config))
+        hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config), layout_store=layout_store)
         if args.hue_play:
             for role, resource in PLAY_IDS.items():
                 hue_proxies[role] = HueStripProxy(
-                    PinnedHueClient(hue_config, resource_id=resource), role=role
+                    PinnedHueClient(hue_config, resource_id=resource),
+                    role=role,
+                    layout_store=layout_store,
                 )
         controller.pause_gate = lambda: all(proxy.govee_allowed() for proxy in hue_proxies.values())
     video = None
@@ -452,8 +481,8 @@ def main():
         if stream_config.get("bridge") != hue_config["bridge"]:
             raise ValueError("Stream and scene bridge must match")
         video = VideoOutput(
-            PilotController(config["targets"]),
-            HueEntertainmentRelay(stream_config),
+            PilotController(config["targets"], layout_store=layout_store),
+            HueEntertainmentRelay(stream_config, layout_store=layout_store),
             hue_proxies.values(),
         )
         for proxy in hue_proxies.values():

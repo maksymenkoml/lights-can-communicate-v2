@@ -1,0 +1,30 @@
+{
+  "before": {
+    "samples": 20,
+    "valid": 20,
+    "equal": 0,
+    "received_delta": 64
+  },
+  "temporary_field": "left Govee position only",
+  "co_located": {
+    "samples": 25,
+    "valid": 25,
+    "equal": 25,
+    "received_delta": 68
+  },
+  "restored": true,
+  "after_restore": {
+    "samples": 10,
+    "valid": 10,
+    "equal": 10,
+    "received_delta": 13
+  },
+  "settled_after_restore": {
+    "samples": 20,
+    "active": 16,
+    "equal": 0,
+    "frames_delta": 23
+  },
+  "scope": "Actual Sync Box source targets; not optical LED timing. Owner positions restored exactly.",
+  "event_format": "Complete Entertainment resource update, matching the base bridge."
+}
