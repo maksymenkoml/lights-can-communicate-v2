@@ -112,3 +112,39 @@ class StreamTests(unittest.TestCase):
         self.assertFalse(lease.submit(envelope()))
         self.assertTrue(lease.submit(envelope(sequence=2)))
         self.assertTrue(lease.active())
+
+    def test_parser_resynchronizes_after_bad_and_truncated_packets(self):
+        packet = encode_frame(AREA_ID, colors(), 1)
+        for malformed in (
+            packet[:52] + bytes([255]) + packet[53:],
+            packet[:10] + b"\x05" + packet[11:],
+            packet[:9] + b"\x09" + packet[10:],
+            packet[:80],
+        ):
+            with self.subTest(prefix=malformed[:16]):
+                parser = FrameBuffer()
+                self.assertEqual(parser.feed(malformed + packet), [packet])
+                self.assertGreater(parser.rejected_frames, 0)
+                self.assertLessEqual(len(parser.buffer), 8)
+
+    def test_long_garbage_and_split_magic_do_not_lose_next_packet(self):
+        parser = FrameBuffer()
+        packet = encode_frame(AREA_ID, colors(), 1)
+        self.assertEqual(parser.feed(b"x" * 100000 + packet[:5]), [])
+        self.assertLessEqual(len(parser.buffer), 8)
+        self.assertEqual(parser.feed(packet[5:]), [packet])
+
+    def test_retired_source_stop_cannot_release_new_source(self):
+        now = [10.0]
+        lease = VideoLease(clock=lambda: now[0], wall_clock=lambda: 1000)
+        self.assertTrue(lease.submit(envelope()))
+        now[0] += 0.6
+        self.assertTrue(lease.submit(envelope(session="replacement")))
+        self.assertFalse(lease.submit(envelope("stop", sequence=999)))
+        self.assertEqual(lease.latest()[0], "replacement")
+
+    def test_new_host_accepts_current_source_sequence_without_replaying_old_queue(self):
+        lease = VideoLease(wall_clock=lambda: 1000)
+        self.assertTrue(lease.submit(envelope(sequence=123456)))
+        self.assertFalse(lease.submit(envelope(sequence=123455)))
+        self.assertEqual(lease.latest()[1], 123456)

@@ -1,0 +1,61 @@
+{
+  "scope": "Local recovery slice; automated transport and physical observations are separate.",
+  "checks": {
+    "python_suite": {
+      "passed": 218
+    },
+    "javascript_suite": {
+      "passed": 5
+    },
+    "ruff": "pass",
+    "loopback_transport_cases": 16,
+    "mac_openssl": {
+      "legacy_14": "pass",
+      "gradient_18": "pass"
+    },
+    "pinned_linux_image": {
+      "digest": "sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba",
+      "legacy_14": "pass",
+      "gradient_18": "pass",
+      "network": "none",
+      "private_mounts": false
+    }
+  },
+  "cases": [
+    "test_source_pause_longer_than_two_seconds_resumes_same_dtls_connection",
+    "test_invalid_frame_does_not_destroy_dtls_or_discard_following_valid_frame",
+    "test_host_http_outage_recovers_on_fresh_frame_without_dtls_restart",
+    "test_explicit_stop_retires_stream_and_next_start_has_new_session",
+    "test_overlapping_restart_waits_for_old_listener_cleanup",
+    "test_explicit_stop_while_source_idle_releases_listener",
+    "test_killed_listener_can_be_started_again",
+    "test_failed_process_spawn_does_not_block_next_start",
+    "test_busy_udp_port_failure_releases_gate_for_next_start",
+    "test_wrong_psk_cannot_forward_colors_and_correct_restart_recovers",
+    "test_start_accepted_before_delayed_worker_survives_old_cleanup",
+    "test_stop_after_start_acceptance_cancels_delayed_worker",
+    "test_invalid_success_json_does_not_kill_http_forwarder",
+    "test_duplicate_worker_for_same_accepted_start_does_not_replace_listener",
+    "test_superseded_spawn_cannot_overwrite_new_api_owner",
+    "test_two_queued_workers_for_one_start_leave_only_one_worker"
+  ],
+  "live_host_restart": {
+    "source_active_after": true,
+    "source_frames_after": 127620,
+    "host_ready_after": true,
+    "host_frames_after": 491,
+    "host_result": "streaming",
+    "box_button_required": false,
+    "optical_acceptance": "not measured"
+  },
+  "live_source_pause": {
+    "status": "not executed; no source connection after cold bridge restart",
+    "initial_dtls_handshake_observed": false,
+    "post_timeout_udp_header_probe_packets": 0
+  },
+  "limits": [
+    "Cold Sync Box reconnection remains unresolved.",
+    "Loopback transport is not optical timing or Xbox/HDR acceptance.",
+    "No NAS deployment or Homebridge package."
+  ]
+}

@@ -7,6 +7,7 @@ import ssl
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -125,16 +126,42 @@ class HueEntertainmentRelay:
                 "Content-Type": "application/json",
             },
         )
-        with opener.open(req, timeout=1.5) as response:
-            result = json.load(response)
-        if result.get("errors"):
+        try:
+            with opener.open(req, timeout=1.5) as response:
+                result = json.load(response)
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise
+        if not isinstance(result, dict) or result.get("errors"):
             raise ValueError("Native Entertainment request rejected")
-        return result["data"][0] if method == "GET" else result
+        if method == "GET":
+            data = result.get("data")
+            if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+                raise ValueError("Invalid native Entertainment response")
+            return data[0]
+        return result
 
     def area(self):
         area = self.requester("GET")
+        if not isinstance(area, dict) or area.get("status") not in ("active", "inactive"):
+            raise ValueError("Unconfirmed native Entertainment state")
+        owner = area.get("active_streamer")
+        if area["status"] == "active" and (
+            not isinstance(owner, dict)
+            or not isinstance(owner.get("rid"), str)
+            or not owner["rid"]
+        ):
+            raise ValueError("Unconfirmed native stream owner")
+        services = area.get("light_services")
+        if (
+            not isinstance(services, list)
+            or len(services) != 4
+            or any(not isinstance(item, dict) or not isinstance(item.get("rid"), str)
+                   for item in services)
+        ):
+            raise ValueError("Invalid native area membership")
         if area.get("id") != NATIVE_AREA_ID or {
-            x.get("rid") for x in area.get("light_services", [])
+            x.get("rid") for x in services
         } != {STRIP_ID, *PLAY_IDS.values()}:
             raise ValueError("Native area membership changed")
         expected = [
@@ -143,11 +170,22 @@ class HueEntertainmentRelay:
             ("157ab718-3fd0-4ab2-a5e6-904c5defba6d", 0),
             *[("967b2eb0-0eb2-4099-9807-cdfed3c6383c", i) for i in range(9)],
         ]
-        channels = sorted(area.get("channels", []), key=lambda x: x["channel_id"])
+        channels = area.get("channels")
+        if not isinstance(channels, list) or any(
+            not isinstance(channel, dict)
+            or type(channel.get("channel_id")) is not int
+            or not isinstance(channel.get("members"), list)
+            or len(channel["members"]) != 1
+            or not isinstance(channel["members"][0], dict)
+            or not isinstance(channel["members"][0].get("service"), dict)
+            for channel in channels
+        ):
+            raise ValueError("Invalid native channel layout")
+        channels = sorted(channels, key=lambda x: x["channel_id"])
         if len(channels) != 12 or any(
             channel["channel_id"] != index
             or len(channel["members"]) != 1
-            or (channel["members"][0]["service"]["rid"], channel["members"][0]["index"])
+            or (channel["members"][0]["service"].get("rid"), channel["members"][0].get("index"))
             != expected[index]
             for index, channel in enumerate(channels)
         ):
@@ -155,7 +193,8 @@ class HueEntertainmentRelay:
         return area
 
     def ours(self, area):
-        return area.get("active_streamer", {}).get("rid") == self.config.get(
+        owner = area.get("active_streamer")
+        return isinstance(owner, dict) and owner.get("rid") == self.config.get(
             "application_id", self.config["hue_key"]
         )
 
@@ -215,4 +254,7 @@ class HueEntertainmentRelay:
             area = self.area()
             if area.get("status") == "active" and self.ours(area):
                 self.requester("PUT", {"action": "stop"})
+                confirmation = self.area()
+                if confirmation["status"] == "active" and self.ours(confirmation):
+                    raise OSError("Native stream release not confirmed")
             self.owned = False

@@ -1,7 +1,11 @@
 import copy
+import io
 import sys
+import types
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from entertainment_stream import NATIVE_AREA_ID  # noqa: E402
@@ -150,3 +154,123 @@ class RelayTests(unittest.TestCase):
         self.relay.requester = original
         self.relay.stop()
         self.assertEqual(self.area["status"], "inactive")
+
+    def test_unknown_native_status_never_authorizes_stream_start(self):
+        for status in (None, "unknown", "active-but-unconfirmed"):
+            with self.subTest(status=status):
+                self.area["status"] = status
+                with self.assertRaises(ValueError):
+                    self.relay.start()
+                self.assertFalse(any(method == "PUT" for method, _ in self.calls))
+
+    def test_malformed_native_area_is_rejected_without_start_command(self):
+        valid = copy.deepcopy(self.area)
+        for response in (None, [], "invalid",
+                         {**valid, "light_services": [None]},
+                         {**valid, "channels": [None] * 12}):
+            with self.subTest(response=response):
+                self.relay.requester = lambda *_: response
+                with self.assertRaises(ValueError):
+                    self.relay.start()
+                self.assertFalse(self.relay.owned)
+
+    def test_malformed_http_json_is_reported_as_recoverable_native_error(self):
+        for payload in (b"null", b"[]", b'{"data":null}', b'{"data":[null]}'):
+            with self.subTest(payload=payload):
+                response = io.BytesIO(payload)
+                opener = types.SimpleNamespace(open=lambda *_args, **_kwargs: response)
+                with patch("hue_entertainment_relay.urllib.request.build_opener",
+                           return_value=opener), self.assertRaises(ValueError):
+                    self.relay.request("GET")
+                self.assertTrue(response.closed)
+
+    def test_native_http_error_response_is_closed_for_recovery_retry(self):
+        response = io.BytesIO(b"temporarily unavailable")
+        error = urllib.error.HTTPError("https://bridge/area", 503, "Unavailable", {}, response)
+        opener = types.SimpleNamespace(open=lambda *_args, **_kwargs: (_ for _ in ()).throw(error))
+        with patch("hue_entertainment_relay.urllib.request.build_opener", return_value=opener):
+            with self.assertRaises(OSError):
+                self.relay.request("GET")
+        self.assertTrue(response.closed)
+
+    def test_unknown_status_during_cleanup_retains_owned_fence_until_read_recovers(self):
+        self.relay.start()
+        self.area["status"] = "unknown"
+        with self.assertRaises(ValueError):
+            self.relay.stop()
+        self.assertTrue(self.relay.owned)
+        self.area["status"] = "active"
+        self.relay.stop()
+        self.assertFalse(self.relay.owned)
+        self.assertEqual(self.area["status"], "inactive")
+
+    def test_failed_dtls_handshake_releases_owned_area(self):
+        def unavailable(_):
+            raise OSError("handshake failed")
+
+        self.relay.connection_factory = unavailable
+        with self.assertRaises(OSError):
+            self.relay.start()
+        self.assertFalse(self.relay.owned)
+        self.assertEqual(self.area["status"], "inactive")
+
+    def test_lost_stop_response_is_confirmed_on_next_cleanup(self):
+        self.relay.start()
+        original = self.relay.requester
+
+        def lost_response(method, body=None):
+            result = original(method, body)
+            if body == {"action": "stop"}:
+                raise OSError("response lost after applying stop")
+            return result
+
+        self.relay.requester = lost_response
+        with self.assertRaises(OSError):
+            self.relay.stop()
+        self.assertTrue(self.relay.owned)
+        self.assertTrue(self.connection.closed)
+        self.relay.requester = original
+        self.relay.stop()
+        self.assertFalse(self.relay.owned)
+        self.assertEqual(self.area["status"], "inactive")
+
+    def test_missing_active_owner_keeps_cleanup_fenced(self):
+        self.relay.start()
+        self.area["active_streamer"] = None
+        with self.assertRaises(ValueError):
+            self.relay.stop()
+        self.assertTrue(self.relay.owned)
+        self.area["active_streamer"] = {"rid": self.config["application_id"]}
+        self.relay.stop()
+        self.assertFalse(self.relay.owned)
+
+    def test_stop_ack_without_state_change_requires_cleanup_retry(self):
+        self.relay.start()
+        original = self.relay.requester
+
+        def ignored_stop(method, body=None):
+            if body == {"action": "stop"}:
+                return {"errors": []}
+            return original(method, body)
+
+        self.relay.requester = ignored_stop
+        with self.assertRaises(OSError):
+            self.relay.stop()
+        self.assertTrue(self.relay.owned)
+        self.relay.requester = original
+        self.relay.stop()
+        self.assertFalse(self.relay.owned)
+
+    def test_start_ack_remaining_inactive_with_null_owner_is_recoverable(self):
+        original = self.relay.requester
+
+        def ignored_start(method, body=None):
+            if body == {"action": "start"}:
+                self.area["active_streamer"] = None
+                return {"errors": []}
+            return original(method, body)
+
+        self.relay.requester = ignored_start
+        with self.assertRaises(ValueError):
+            self.relay.start()
+        self.assertFalse(self.relay.owned)

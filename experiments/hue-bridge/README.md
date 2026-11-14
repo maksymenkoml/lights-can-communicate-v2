@@ -35,6 +35,11 @@ Sync. Brightness corrections are consumed by both scene and video paths.
 Extra schematic drawings remain unbound; native area membership and physical
 device allowlists stay pinned. See `evidence/live-layout-hot-update.json`.
 
+See [RECOVERY.md](RECOVERY.md) for local fault coverage and the remaining cold
+Box connection limit. Established source connections survive idle input while
+the host video lease independently restores scenes. Start/Stop intent is fenced
+at the selected area's synchronous API state update, including delayed workers.
+
 ## Phase 1: simulated compatibility result
 
 Tested on 2026-11-13 with the owner's installed official Philips Hue app on

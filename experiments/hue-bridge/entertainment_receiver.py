@@ -7,6 +7,7 @@ import select
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -53,7 +54,7 @@ class StreamOutbox:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(req, timeout=0.3) as response:
             result = json.load(response)
-        if result.get("accepted") is not True:
+        if not isinstance(result, dict) or result.get("accepted") is not True:
             raise ValueError("Frame rejected by host")
 
     def forward_once(self):
@@ -66,6 +67,8 @@ class StreamOutbox:
         except (OSError, ValueError) as error:
             self.last_error = type(error).__name__
             self.last_http_status = getattr(error, "code", None)
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
             return False
         self.forwarded += 1
         self.last_error = None
@@ -108,6 +111,11 @@ class EntertainmentReceiver:
     def __init__(self, url, token, openssl="openssl", enabled=False):
         self.url, self.token, self.openssl, self.enabled = url, token, openssl, enabled
         self.lock = threading.RLock()
+        self.listener_condition = threading.Condition(self.lock)
+        self.serving = False
+        self.generation = None
+        self.serving_generation = None
+        self.bound_group = None
         self.status = {
             "enabled": enabled,
             "active": False,
@@ -115,6 +123,27 @@ class EntertainmentReceiver:
             "last_result": "waiting",
         }
         self.current_outbox = None
+
+    def bind(self, group):
+        """Fence the vendor API's synchronous Start/Stop state transitions."""
+        if group.id_v2 != GROUP_ID:
+            raise ValueError("Only the selected desk area can bind a receiver")
+        if self.bound_group is group:
+            return
+        if self.bound_group is not None:
+            raise ValueError("The receiver is already bound")
+        original_update = group.update_attr
+
+        def update(values):
+            with self.listener_condition:
+                if "active" in values.get("stream", {}):
+                    self.generation = object()
+                return original_update(values)
+
+        with self.listener_condition:
+            self.bound_group = group
+            self.generation = object()
+            group.update_attr = update
 
     def snapshot(self):
         with self.lock:
@@ -138,11 +167,32 @@ class EntertainmentReceiver:
             with self.lock:
                 self.status["last_result"] = "stream client has no key"
             return
+        with self.listener_condition:
+            if self.bound_group is group:
+                generation = self.generation
+                if group.stream.get("owner") != user.username:
+                    return
+                if self.serving and self.serving_generation is generation:
+                    return
+            else:
+                generation = object()
+                self.generation = generation
+            while self.serving:
+                if self.serving_generation is generation:
+                    return
+                self.listener_condition.wait(0.1)
+                if self.generation is not generation:
+                    return
+            if not group.stream.get("active"):
+                return
+            self.serving = True
+            self.serving_generation = generation
         outbox = StreamOutbox(self.url, self.token)
         self.current_outbox = outbox
         done = threading.Event()
         process = None
         diagnostic_worker = None
+        worker = None
         end_reason = "source stopped"
         try:
             process = subprocess.Popen(
@@ -168,7 +218,16 @@ class EntertainmentReceiver:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            with self.lock:
+            with self.listener_condition:
+                if (
+                    self.generation is not generation
+                    or not group.stream.get("active")
+                    or (self.bound_group is group and group.stream.get("owner") != user.username)
+                ):
+                    end_reason = "source start superseded"
+                    return
+                group.stream["_proc"] = process
+                group.stream["owner"] = user.username
                 self.status["dtls_diagnostics"] = {}
 
             def collect_diagnostics():
@@ -183,8 +242,6 @@ class EntertainmentReceiver:
                 target=collect_diagnostics, daemon=True, name="dtls-diagnostics"
             )
             diagnostic_worker.start()
-            group.stream["_proc"] = process
-            group.stream["owner"] = user.username
             with self.lock:
                 self.status.update(active=True, last_result="waiting for DTLS frames")
             worker = threading.Thread(
@@ -196,12 +253,17 @@ class EntertainmentReceiver:
             received = False
             while (
                 group.stream["active"]
+                and self.generation is generation
                 and group.stream.get("_proc") is process
                 and process.poll() is None
             ):
-                if time.monotonic() - last_data > (2 if received else 45):
+                idle_for = time.monotonic() - last_data
+                if not received and idle_for > 45:
                     end_reason = "source timeout"
                     break
+                if received and idle_for > 0.5:
+                    with self.lock:
+                        self.status["last_result"] = "source idle; connection retained"
                 readable, _, _ = select.select([process.stdout], [], [], 0.25)
                 if not readable:
                     continue
@@ -209,7 +271,10 @@ class EntertainmentReceiver:
                 if not chunk:
                     end_reason = "DTLS EOF"
                     break
-                for packet in parser.feed(chunk):
+                packets = parser.feed(chunk)
+                with self.lock:
+                    self.status["rejected_frames"] = parser.rejected_frames
+                for packet in packets:
                     frame = decode_frame(packet)
                     outbox.frame(frame)
                     received = True
@@ -254,11 +319,17 @@ class EntertainmentReceiver:
                 for stream in (process.stdin, process.stdout, process.stderr):
                     if stream:
                         stream.close()
-            if group.stream.get("_proc") is process:
-                group.stream.pop("_proc", None)
-                group.update_attr({"stream": {"active": False, "owner": None}})
-            with self.lock:
+            with self.listener_condition:
+                if group.stream.get("_proc") is process:
+                    group.stream.pop("_proc", None)
+                    if self.generation is generation:
+                        group.update_attr({"stream": {"active": False, "owner": None}})
+            if worker is not None:
+                worker.join(timeout=0.5)
+            with self.listener_condition:
                 self.status.update(
                     active=False, forwarded=outbox.forwarded, last_error=outbox.last_error
                 )
                 self.status["last_result"] = end_reason
+                self.serving = False
+                self.listener_condition.notify_all()

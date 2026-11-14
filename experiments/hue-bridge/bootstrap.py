@@ -283,6 +283,8 @@ entertainment_receiver = EntertainmentReceiver(
     local_secret("adapter-token", 24),
     enabled=include_entertainment and not (state / "live-output-hold").exists(),
 )
+if include_entertainment:
+    entertainment_receiver.bind(area)
 restful.entertainmentService = entertainment_receiver.serve
 v2restapi.entertainmentService = entertainment_receiver.serve
 

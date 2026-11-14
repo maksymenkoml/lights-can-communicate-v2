@@ -230,3 +230,64 @@ class VideoTests(unittest.TestCase):
         self.lease.submit(envelope(sequence=3))
         self.assertTrue(self.output.process_once())
         self.assertEqual(self.relay.started, 2)
+
+    def test_source_expiry_during_handshake_releases_without_any_frame(self):
+        original = self.relay.start
+
+        def slow_start():
+            self.now += 1
+            return original()
+
+        self.relay.start = slow_start
+        self.lease.submit(envelope())
+        self.assertFalse(self.output.process_once())
+        self.output.render()
+        self.assertEqual(self.relay.frames, [])
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.relay.stopped, 1)
+        self.assertFalse(self.output.ready)
+
+    def test_owner_off_during_handshake_blocks_same_source_after_owner_turns_on(self):
+        original = self.relay.start
+
+        def start_with_owner_off():
+            self.proxies[0].value["native_on"] = False
+            return original()
+
+        self.relay.start = start_with_owner_off
+        self.lease.submit(envelope())
+        self.assertFalse(self.output.process_once())
+        self.assertEqual(self.output.blocked_session, "test-session")
+        self.proxies[0].value["native_on"] = True
+        self.lease.submit(envelope(sequence=2))
+        self.assertFalse(self.output.process_once())
+        self.assertEqual(self.relay.frames, [])
+
+    def test_one_govee_off_does_not_stop_other_govee_or_send_power_commands(self):
+        sent = []
+        self.controller.sender = lambda device, cmd, data: sent.append(
+            (device["device"], cmd, data)
+        ) or True
+        self.controller.update_statuses({RIGHT: ({"onOff": 0}, self.now)})
+        self.lease.submit(envelope())
+        self.assertTrue(self.output.process_once())
+        self.output.render()
+        self.assertTrue(sent)
+        self.assertEqual({device for device, _, _ in sent}, {LEFT})
+        self.assertFalse(any(command == "turn" for _, command, _ in sent))
+
+    def test_native_write_and_cleanup_failure_fences_scenes_until_retry_succeeds(self):
+        self.lease.submit(envelope())
+        self.output.process_once()
+        original_stop = self.relay.stop
+        self.relay.send = lambda _: (_ for _ in ()).throw(OSError("pipe closed"))
+        self.relay.stop = lambda: (_ for _ in ()).throw(OSError("bridge unavailable"))
+        self.assertFalse(self.output.process_once())
+        self.assertTrue(self.output.cleanup_pending)
+        self.assertTrue(self.output.active())
+        self.assertFalse(any(proxy.value.get("restore_requested") for proxy in self.proxies))
+        self.lease.submit(envelope("stop", sequence=2))
+        self.relay.stop = original_stop
+        self.output.process_once()
+        self.assertFalse(self.output.active())
+        self.assertTrue(all(proxy.value.get("restore_requested") for proxy in self.proxies))

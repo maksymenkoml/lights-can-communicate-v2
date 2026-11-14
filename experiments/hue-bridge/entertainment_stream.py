@@ -140,6 +140,7 @@ def native_colors(frame, scales=None):
 class FrameBuffer:
     def __init__(self):
         self.buffer = b""
+        self.rejected_frames = 0
 
     def feed(self, chunk):
         self.buffer += chunk
@@ -160,12 +161,20 @@ class FrameBuffer:
                 else 0
             )
             if not size:
+                self.rejected_frames += 1
                 self.buffer = self.buffer[9:]
                 continue
             if len(self.buffer) < size:
                 break
-            frame, self.buffer = self.buffer[:size], self.buffer[size:]
-            decode_frame(frame)
+            frame = self.buffer[:size]
+            try:
+                decode_frame(frame)
+            except ValueError:
+                self.rejected_frames += 1
+                # A bad/truncated packet may be followed by a complete valid header.
+                self.buffer = self.buffer[len(MAGIC):]
+                continue
+            self.buffer = self.buffer[size:]
             frames.append(frame)
         return frames
 

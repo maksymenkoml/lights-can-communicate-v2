@@ -1,5 +1,7 @@
+import io
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
@@ -8,6 +10,19 @@ from test_entertainment_stream import colors  # noqa: E402
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_rejected_http_response_is_closed_before_retrying_fresh_frame(self):
+        response = io.BytesIO(b"temporarily unavailable")
+        error = urllib.error.HTTPError("http://adapter/stream", 503, "Unavailable", {}, response)
+
+        def unavailable(_):
+            raise error
+
+        out = StreamOutbox("http://adapter", "test", sender=unavailable, clock=lambda: 1000)
+        out.frame(colors())
+        self.assertFalse(out.forward_once())
+        self.assertEqual(out.snapshot()["last_http_status"], 503)
+        self.assertTrue(response.closed)
+
     def test_dtls_diagnostics_keep_only_static_categories_not_credentials(self):
         self.assertEqual(
             dtls_diagnostic(b"SSL_accept:SSLv3/TLS read client hello\n"), "client_hello"
