@@ -79,6 +79,16 @@ belongs in Git or logs. The exact installed source must pass the manifest guard
 before any installation. A plugin upgrade invalidates this overlay until checked
 again; this is a compatibility experiment, not the final Homebridge package.
 
+`apply-overlay.mjs` is read-only by default. With explicit `--apply`, it requires
+writable original source and backup storage on the same filesystem. It creates
+the module directory and private config without replacing existing paths, then
+claims the actual original light inode before publishing the replacement with
+a no-clobber link. The original snapshot and claimed inode remain in a private
+backup. Concurrent changes are preserved and stop installation; ambiguous
+rollback state is retained for inspection. It never changes the package,
+platform factory, Homebridge configuration, accessory cache or pairing files,
+and never restarts a service itself.
+
 ## Acceptance and hold
 
 Verified locally: gate ordering, stale-grant expiry, replay, isolated credentials,
@@ -86,9 +96,15 @@ concurrent Off/On, shutdown, state failures, and real loopback Node-to-Python
 renderer flow with simulated implicit power-on firmware. The exact patched
 upstream class also imports in an isolated public-source copy.
 
-Pending: coordinated Off/On on the actual lamps, exact NAS-file preflight,
-explicit approval for installation/child-bridge restart, and acceptance with the
-existing Home scenes. No NAS source/config has been changed.
+The right H6076 also passed a real coordinated Off/On check using a local owner
+harness before the existing Apple Home action. Eight fresh identity-confirmed
+readbacks stayed Off while the other five lights reacted to the game (owner
+confirmed). On restored seven-zone video after initial warmup, also owner
+confirmed. This proves the local ordering; the NAS setter is not wrapped yet.
+Installed NAS source/version checksums matched the prepared original exactly.
+
+Pending: explicit installation/child-bridge restart approval, automatic NAS
+setter acceptance and existing Home scenes. No NAS source/config has been changed.
 
 The owner sleep hold is `experiments/hue-bridge/state/live-output-hold`. It must
 remain until the owner explicitly resumes physical testing. Keep the live adapter
