@@ -1,0 +1,406 @@
+{
+  "recorded_at": "2026-11-15T01:31:06.790068+00:00",
+  "observation": "Agent operated actual iPhone Mirroring and macOS Home; no owner verification clicks",
+  "ui_checks": {
+    "home_right_on_off": true,
+    "home_left_on_off": true,
+    "right_on_during_play_after_sse_repair": true,
+    "both_off_during_play": true,
+    "scene_recall_keeps_home_right_off": true,
+    "stop_and_restore_starting_power": true,
+    "initial_state_received_after_bridge_reconnect": true
+  },
+  "power_on": {
+    "feedback": {
+      "enabled": true,
+      "last_error": null,
+      "pending_corrections": [],
+      "states": {
+        "1": true,
+        "2": true
+      }
+    },
+    "lights": [
+      {
+        "name": "Govee Left TEST",
+        "on": true,
+        "dynamics": "dynamic_palette"
+      },
+      {
+        "name": "Govee Right TEST",
+        "on": true,
+        "dynamics": "dynamic_palette"
+      }
+    ],
+    "targets": [
+      {
+        "side": "left",
+        "on": 0,
+        "zones": 7
+      },
+      {
+        "side": "right",
+        "on": 1,
+        "zones": 7
+      }
+    ]
+  },
+  "first_both_off_attempt": [
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "pending_corrections": [],
+        "states": {
+          "1": false,
+          "2": false
+        }
+      },
+      "lights": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "native": [
+        {
+          "side": "left",
+          "on": 1,
+          "identity": true,
+          "age": 0.30223479197593406
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "identity": true,
+          "age": 0.17665520799346268
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "pending_corrections": [],
+        "states": {
+          "1": false,
+          "2": false
+        }
+      },
+      "lights": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "native": [
+        {
+          "side": "left",
+          "on": 1,
+          "identity": true,
+          "age": 0.06293700000969693
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "identity": true,
+          "age": 0.030474915984086692
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "pending_corrections": [],
+        "states": {
+          "1": false,
+          "2": false
+        }
+      },
+      "lights": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "native": [
+        {
+          "side": "left",
+          "on": 1,
+          "identity": true,
+          "age": 0.16747329098870978
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "identity": true,
+          "age": 0.09015904198167846
+        }
+      ]
+    },
+    {
+      "feedback": {
+        "enabled": true,
+        "last_error": null,
+        "pending_corrections": [],
+        "states": {
+          "1": false,
+          "2": false
+        }
+      },
+      "lights": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "native": [
+        {
+          "side": "left",
+          "on": 1,
+          "identity": true,
+          "age": 0.05082566698547453
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "identity": true,
+          "age": 0.12057291599921882
+        }
+      ]
+    }
+  ],
+  "left_off_repeat": [
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.20446879096562043
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.12917279097018763
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.16200000001117587
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.26402804197277874
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.35279020795132965
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.1231432089698501
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.1799136670306325
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.1047530840151012
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.2408174999873154
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.04262566601391882
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.12632237502839416
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.21792845899472013
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.122598415997345
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.17869237501872703
+        }
+      ]
+    },
+    {
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "native": [
+        {
+          "side": "left",
+          "on": 0,
+          "age": 0.24350795801728964
+        },
+        {
+          "side": "right",
+          "on": 0,
+          "age": 0.3355724580469541
+        }
+      ]
+    }
+  ],
+  "final": {
+    "feedback": {
+      "enabled": true,
+      "last_error": null,
+      "pending_corrections": [],
+      "states": {
+        "1": true,
+        "2": false
+      }
+    },
+    "virtual": [
+      {
+        "name": "Govee Left TEST",
+        "on": true,
+        "dynamics": "none"
+      },
+      {
+        "name": "Govee Right TEST",
+        "on": false,
+        "dynamics": "none"
+      }
+    ],
+    "native": [
+      {
+        "side": "left",
+        "on": 1,
+        "age": 0.08230562502285466
+      },
+      {
+        "side": "right",
+        "on": 0,
+        "age": 0.1876083750394173
+      }
+    ]
+  },
+  "limitations": [
+    "One physical Left Off attempt retained native On and later Home On; repeated ordinary Home Off succeeded. Cause unresolved.",
+    "New SSE transport authenticated with real Hue and Sync Box; HDMI/gameplay not rerun after this transport change.",
+    "History-gap snapshot does not synthesize missed resource deletions.",
+    "Hue-to-Home physical power commands remain outside this slice."
+  ],
+  "checks": {
+    "python": 255,
+    "javascript": 30,
+    "pinned_upstream_isolated": 6,
+    "full_isolated_bootstrap_snapshot": true,
+    "review_findings_fixed": [
+      "latest successful reply owns correction deadline",
+      "cursor captured before geometry snapshot"
+    ]
+  },
+  "upstream_sse_reproduction": {
+    "source": "pinned diyHue services/eventStreamer.py",
+    "timeline_seconds": {
+      "subscriber_read_previous_batch": 0,
+      "power_event_appended": 0.25,
+      "legacy_broker_clears_queue": 0.3,
+      "subscriber_next_read": 0.4
+    },
+    "lost_event_reproduced_offline": true,
+    "duplicate_sse_ids_reproduced_offline": true
+  }
+}

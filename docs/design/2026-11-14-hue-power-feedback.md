@@ -24,3 +24,26 @@ Off during animation, quick Off/On revisions, no physical feedback loop, grouped
 state, and static color restoration. Exercise the pinned actual diyHue class in
 an isolated container before updating the live reference bridge. Preserve its
 identity and pairing when recreating the container.
+
+## Mobile verification findings
+
+Actual iPhone Mirroring tests confirmed both Home On/Off paths, but found two
+client delivery failures: a native app scene recall reapplies stored On after
+the immediate Off event (the same recall made externally corrects the UI), and
+a Home On during Play can disappear despite correct physical/API state.
+
+The pinned upstream SSE broker clears a shared list after 0.3 seconds, while an
+active subscriber can sleep for 0.4 seconds. A power event added between those
+points is removed before any subscriber reads it. Keep upstream logging/event
+publication intact and add a bounded fanout journal before Hue object imports.
+Each SSE connection has its own cursor; reading one connection never consumes
+another's events. The route emits a current virtual light/group snapshot on a
+new connection or replay gap. Snapshot construction uses the existing scene
+lock and captures its journal cursor before reading resources, so independent
+layout publications during construction are replayed rather than skipped.
+Resynchronizing deleted arbitrary resources after history overflow is outside
+this selected-light state repair; snapshot updates do not invent delete events.
+
+Keep scene-response Off correction as a separate client ordering repair. It is
+coalesced from the latest successful response, requires fresh owner intent, and
+is cancelled by Home On. Neither event transport nor correction writes power.

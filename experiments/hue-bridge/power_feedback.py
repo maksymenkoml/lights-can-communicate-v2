@@ -10,12 +10,14 @@ import urllib.request
 class PowerFeedback:
     SLOTS = {"1": "left", "2": "right"}
 
-    def __init__(self, url, token, lights, lock, resume, publish_groups, fetcher=None):
+    def __init__(self, url, token, lights, lock, resume, publish_groups, fetcher=None,
+                 clock=time.monotonic):
         self.url, self.token = url.rstrip("/"), token
         self.lights, self.lock = lights, lock
         self.resume, self.publish_groups = resume, publish_groups
         self.fetcher = fetcher or self.fetch
         self.states, self.revisions = {}, {}
+        self.clock, self.corrections = clock, {}
         self.last_error = None
 
     def fetch(self):
@@ -57,9 +59,13 @@ class PowerFeedback:
                         self.states.get(slot), self.revisions.get(slot)
                     )
                     self.states[slot], self.revisions[slot] = enabled, revision
+                    due = self.corrections.get(slot, float("inf")) <= self.clock()
+                    if due or enabled:
+                        self.corrections.pop(slot, None)
                     # An unchanged heartbeat must not override a Hue-local Off.
                     # Off remains authoritative even if a scene prewrites state.
-                    if (new_intent or not enabled) and lamp.state.get("on") is not enabled:
+                    if ((new_intent or not enabled) and lamp.state.get("on") is not enabled
+                            or (due and not enabled)):
                         lamp.state["on"] = enabled
                         lamp.genStreamEvent({"on": {"on": enabled}})
                         changed.add(slot)
@@ -74,6 +80,22 @@ class PowerFeedback:
                 self.last_error = type(error).__name__
             return False
 
+    def after_request(self, method, path, status, payload):
+        if (method != "PUT" or not 200 <= status < 300 or not isinstance(payload, dict)
+                or not path.startswith(("/clip/v2/resource/scene/", "/clip/v2/resource/light/",
+                                        "/clip/v2/resource/grouped_light/"))):
+            return
+        on = payload.get("on")
+        if "recall" not in payload and not (isinstance(on, dict) and on.get("on") is True):
+            return
+        with self.lock:
+            for slot, enabled in self.states.items():
+                if not enabled:
+                    # Hue applies a scene's stored On locally after its response,
+                    # potentially overwriting the immediate SSE Off. Reassert
+                    # once after that reply, without a physical power command.
+                    self.corrections[slot] = self.clock() + 1
+
     def constrain(self, lamp, values):
         with self.lock:
             if self.states.get(lamp.id_v1) is False:
@@ -82,7 +104,8 @@ class PowerFeedback:
 
     def snapshot(self):
         with self.lock:
-            return {"enabled": True, "states": dict(self.states), "last_error": self.last_error}
+            return {"enabled": True, "states": dict(self.states), "last_error": self.last_error,
+                    "pending_corrections": sorted(self.corrections)}
 
     def constrain_v2(self, lamp, values):
         with self.lock:

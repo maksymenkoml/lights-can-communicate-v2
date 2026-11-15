@@ -34,12 +34,14 @@ class FeedbackTests(unittest.TestCase):
     def setUp(self):
         self.lights = {str(n): Lamp(str(n)) for n in range(1, 8)}
         self.current = status()
+        self.now = 100
         self.resumed, self.groups = [], []
         self.feedback = PowerFeedback(
             "http://adapter", "private-token", self.lights, threading.RLock(),
             resume=lambda lamp: self.resumed.append(lamp.id_v1),
             publish_groups=lambda slots: self.groups.append(set(slots)),
             fetcher=lambda: copy.deepcopy(self.current),
+            clock=lambda: self.now,
         )
 
     def test_home_off_updates_only_selected_virtual_light_without_physical_setter(self):
@@ -139,6 +141,57 @@ class FeedbackTests(unittest.TestCase):
         self.lights["2"].state["on"] = True
         self.feedback.refresh_once()
         self.assertFalse(self.lights["2"].state["on"])
+
+    def test_scene_reply_is_followed_by_off_event_after_client_optimistic_update(self):
+        self.feedback.refresh_once()
+        self.feedback.after_request("PUT", "/clip/v2/resource/scene/scene-id", 200,
+                                    {"recall": {"action": "active"}})
+        self.feedback.refresh_once()
+        self.assertEqual(len(self.lights["2"].events), 1)
+        # The client applies the scene's stored On after the immediate SSE event.
+        # A later event must correct that cache even though server state is Off.
+        self.now += 1.1
+        self.feedback.refresh_once()
+        self.assertEqual(self.lights["2"].events, [{"on": {"on": False}}] * 2)
+        self.assertEqual(self.groups, [{"2"}, {"2"}])
+        self.feedback.refresh_once()
+        self.assertEqual(len(self.lights["2"].events), 2)
+
+    def test_deferred_off_never_overrides_a_new_home_on(self):
+        self.feedback.refresh_once()
+        self.feedback.after_request("PUT", "/clip/v2/resource/light/selected", 200,
+                                    {"on": {"on": True}})
+        self.current["power_owner"]["roles"]["right"].update(requested_on=True, revision=2)
+        self.now += 1.1
+        self.feedback.refresh_once()
+        self.assertTrue(self.lights["2"].events[-1]["on"]["on"])
+
+    def test_rapid_scene_recalls_correct_after_the_latest_reply(self):
+        self.feedback.refresh_once()
+        for delay in (0, 0.9):
+            self.now += delay
+            self.feedback.after_request("PUT", "/clip/v2/resource/scene/id", 200,
+                                        {"recall": {"action": "active"}})
+        self.now += 0.2
+        self.feedback.refresh_once()
+        self.assertEqual(len(self.lights["2"].events), 1)
+        self.now += 0.9
+        self.feedback.refresh_once()
+        self.assertEqual(len(self.lights["2"].events), 2)
+
+    def test_only_successful_power_changing_hue_writes_queue_client_correction(self):
+        self.feedback.refresh_once()
+        for method, path, code, payload in (
+            ("GET", "/clip/v2/resource/scene/id", 200, {"recall": {}}),
+            ("PUT", "/clip/v2/resource/scene/id", 403, {"recall": {}}),
+            ("PUT", "/clip/v2/resource/scene/id", 200, {"speed": 0.5}),
+            ("PUT", "/other", 200, {"on": {"on": True}}),
+            ("PUT", "/clip/v2/resource/light/id", 200, {"on": "invalid"}),
+        ):
+            self.feedback.after_request(method, path, code, payload)
+        self.now += 2
+        self.feedback.refresh_once()
+        self.assertEqual(len(self.lights["2"].events), 1)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,12 @@ from pathlib import Path
 logging.disable(logging.CRITICAL)
 sys.path.insert(0, "/opt/hue-emulator")
 
+from hue_events import install_event_journal, install_event_route  # noqa: E402
+
+# Capture publication before configManager loads Hue object modules and their
+# imported StreamEvent aliases. The original legacy queue remains intact.
+event_journal = install_event_journal()
+
 import configManager  # noqa: E402
 from desk_layout import LayoutStore, layout_event  # noqa: E402
 from desk_layout import positions as layout_positions  # noqa: E402
@@ -447,6 +453,29 @@ if live_output is not None:
     live_output.start()
 
 
+def current_event_snapshot():
+    with play_guard.lock:
+        # Capture before reading: layout metadata has an independent writer.
+        # Its concurrent updates are replayed after this snapshot, never skipped.
+        cursor = event_journal.position()
+        created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        resources = [lamp.getV2Api() for lamp in config["lights"].values()]
+        for group in config["groups"].values():
+            if group.id_v1 == "0" or group.type in {"Room", "Zone"}:
+                resources.append(group.getV2GroupedLight())
+            elif group.type == "Entertainment":
+                resources.append(group.getV2Api())
+        resources.extend(scene.getV2Api() for scene in config["scenes"].values())
+        return cursor, {
+            "creationtime": created,
+            "id": str(uuid.uuid4()), "type": "update", "data": resources,
+        }
+
+
+install_event_route(app, event_journal, current_event_snapshot,
+                    authorize=lambda headers: "user" in v2restapi.authorizeV2(headers))
+
+
 @app.after_request
 def record_request(response):
     if request.method == "GET" and request.path.rstrip("/") == "/clip/v2/resource":
@@ -459,6 +488,8 @@ def record_request(response):
     if len(parts) > 2 and parts[1] == "api" and parts[2] not in ("", "config"):
         parts[2] = "<key>"
     payload = request.get_json(silent=True)
+    if power_feedback is not None:
+        power_feedback.after_request(request.method, request.path, response.status_code, payload)
     event = {
         "time": time.time(),
         "method": request.method,

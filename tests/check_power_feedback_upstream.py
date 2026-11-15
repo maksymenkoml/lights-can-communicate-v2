@@ -2,6 +2,7 @@
 
 import ast
 import copy
+import json
 import logging
 import sys
 import time
@@ -12,7 +13,13 @@ from types import SimpleNamespace
 
 sys.path[:0] = ["/opt/hue-emulator", "/probe"]
 logging.disable(logging.CRITICAL)
+from hue_events import install_event_journal, install_event_route  # noqa: E402
+
+JOURNAL = install_event_journal()
+
+import HueObjects  # noqa: E402
 from bridge_output import BridgeOutput, PlayGuard  # noqa: E402
+from flask import Flask  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 from hue_resource_compat import install_resource_compat  # noqa: E402
 from HueObjects import EntertainmentConfiguration, Group, Light  # noqa: E402
@@ -22,14 +29,19 @@ ORIGINALS = {name: getattr(Light.Light, name) for name in
              ("_setV1State", "genStreamEvent", "getV2Api")}
 ORIGINAL_GROUP_API = Group.Group.getV2GroupedLight
 ORIGINAL_SLEEP = Light.sleep
+ORIGINAL_PUBLICATION = Light.StreamEvent
 FUNCTIONS = {"forward_selected_state", "resume_power_color", "publish_power_groups",
-             "advertise_selected_power", "power_aware_light_api"}
+             "advertise_selected_power", "power_aware_light_api", "current_event_snapshot"}
 
 
 class UpstreamFeedbackTests(unittest.TestCase):
     def setUp(self):
         self.events, self.sent = [], []
-        Light.StreamEvent = self.events.append
+        def capture(message):
+            self.events.append(message)
+            return ORIGINAL_PUBLICATION(message)
+
+        Light.StreamEvent = capture
         self.guard = PlayGuard()
         self.lights = {}
         for slot in ("1", "2", "3"):
@@ -65,8 +77,8 @@ class UpstreamFeedbackTests(unittest.TestCase):
             "original_light_event": ORIGINALS["genStreamEvent"],
             "original_light_api": ORIGINALS["getV2Api"],
             "selected_slots": {"1", "2"}, "live_output": self.output,
-            "config": {"lights": self.lights, "groups": groups},
-            "StreamEvent": self.events.append, "time": time, "uuid": uuid,
+            "config": {"lights": self.lights, "groups": groups, "scenes": {}},
+            "StreamEvent": capture, "time": time, "uuid": uuid, "event_journal": JOURNAL,
         }
         tree = ast.parse(Path("/probe/bootstrap.py").read_text())
         functions = [node for node in tree.body
@@ -143,6 +155,73 @@ class UpstreamFeedbackTests(unittest.TestCase):
         self.assertEqual(value["state"]["gradient"], before)
         self.assertEqual(value["state"]["_color_kind"], "gradient")
         self.assertEqual(self.guard.generations.get("2"), generation)
+
+    def test_actual_light_alias_delivers_to_both_readers_after_legacy_queue_clear(self):
+        first = JOURNAL.stream(self.ns["current_event_snapshot"])
+        second = JOURNAL.stream(self.ns["current_event_snapshot"])
+        for stream in (first, second):
+            next(stream)
+            snapshot = next(stream)
+            self.assertIn('"entertainment_configuration"', snapshot)
+        self.feedback.refresh_once()
+        HueObjects.eventstream.clear()
+        for stream in (first, second):
+            frame = next(stream)
+            payload = json.loads(next(x[6:] for x in frame.splitlines() if x.startswith("data: ")))
+            self.assertEqual(payload[0]["data"][0]["id"], "light-2")
+            self.assertFalse(payload[0]["data"][0]["on"]["on"])
+
+    def test_flask_stream_route_emits_snapshot_and_live_events_with_resume_cursor(self):
+        app = Flask(__name__)
+        app.add_url_rule("/eventstream/clip/v2", "stream.streamV2Events", lambda: "legacy")
+        install_event_route(app, JOURNAL, self.ns["current_event_snapshot"],
+                            authorize=lambda headers: headers.get("hue-application-key") == "test")
+        with app.test_client() as client:
+            self.assertEqual(client.get("/eventstream/clip/v2").status_code, 403)
+            response = client.get("/eventstream/clip/v2",
+                                  headers={"hue-application-key": "test"}, buffered=False)
+            try:
+                self.assertEqual(response.mimetype, "text/event-stream")
+                frames = iter(response.response)
+                self.assertEqual(next(frames), b": hi\n\n")
+                snapshot = next(frames).decode()
+                cursor = snapshot.splitlines()[0][4:]
+                self.feedback.refresh_once()
+                self.assertIn('"on":{"on":false}', next(frames).decode())
+            finally:
+                response.close()
+            response = client.get("/eventstream/clip/v2",
+                                  headers={"Last-Event-ID": cursor, "hue-application-key": "test"},
+                                  buffered=False)
+            try:
+                frames = iter(response.response)
+                next(frames)
+                self.assertIn('"on":{"on":false}', next(frames).decode())
+            finally:
+                response.close()
+
+    def test_area_update_during_snapshot_is_replayed_after_the_snapshot(self):
+        area = self.groups["90"]
+        original = area.getV2Api
+        published = []
+
+        def racing_area():
+            old = original()
+            if not published:
+                published.append(True)
+                ORIGINAL_PUBLICATION({"type": "update", "data": [{
+                    "id": old["id"], "type": "entertainment_configuration",
+                    "metadata": {"name": "new geometry"},
+                }]})
+            return old
+
+        area.getV2Api = racing_area
+        stream = JOURNAL.stream(self.ns["current_event_snapshot"])
+        next(stream)
+        snapshot = next(stream)
+        cursor = int(snapshot.splitlines()[0].rsplit(":", 1)[1])
+        self.assertLess(cursor, JOURNAL.position())
+        self.assertIn('"name":"new geometry"', next(stream))
 
 
 if __name__ == "__main__":

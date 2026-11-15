@@ -148,20 +148,60 @@ commands originating in Hue are not translated into the NAS owner's On setter
 by this slice. Brightness/color feedback from unrelated controllers is also
 outside its scope.
 
-Ten unit tests cover role validation, expired/malformed snapshots, repeated and
+Fourteen unit tests cover role validation, expired/malformed snapshots, repeated and
 rapid revisions, Off masking, animation preservation and static color resume.
-`tests/check_power_feedback_upstream.py` additionally runs three isolated checks
+Scene/power replies queue one deferred Off confirmation because the mobile app
+can apply the scene's saved On after the immediate event. The correction window
+starts from the latest successful reply; fresh Home On cancels it.
+
+Eight additional journal tests cover independent readers, immutable messages,
+bounded replay, legacy queue clearing, keepalive and reconnect snapshots.
+`tests/check_power_feedback_upstream.py` additionally runs six isolated checks
 against the pinned actual diyHue classes. Run it inside the pinned image with
 `--network none`, mounting source-only copies of `bootstrap.py`, `bridge_output.py`,
-`gradient_profile.py`, `hue_resource_compat.py`, and `power_feedback.py` under
+`gradient_profile.py`, `hue_resource_compat.py`, `power_feedback.py`, and `hue_events.py` under
 `/probe`, plus the checker itself. Never mount private `state` for these checks.
 Its fixture includes the actual EntertainmentConfiguration class: it must not
-receive room grouped-light events.
+receive room grouped-light events. It also exercises the real Flask SSE route,
+authorization, replay, and concurrent geometry publication during a snapshot.
 
 After recreating only the live reference bridge, six read-only samples showed
 the existing NAS Right Off matching both virtual state and the actual Hue v2
-API. Left remained On and feedback reported no errors. Mobile UI confirmation
-is still pending; see `../hue-bridge/evidence/hue-power-feedback-live.json`.
+API. Left remained On and feedback reported no errors; see
+`../hue-bridge/evidence/hue-power-feedback-live.json`.
+
+## iPhone verification and SSE repair
+
+Actual iPhone Mirroring checks exposed the pinned SSE transport losing events:
+its broker clears a shared list after 0.3 seconds, but a reader can sleep for
+0.4 seconds. A Home On appended in that interval is removed before the reader
+sees it. Different batches can also reuse an SSE ID. Public-source deterministic
+reproduction confirmed both conditions independently of devices.
+
+The compatibility layer now journals each message before Hue object modules
+import their publisher aliases. It still calls the original publisher and keeps
+the legacy broker intact. The app route reads a bounded journal with a separate
+cursor per subscriber and unique IDs. It uses the existing v2 authorization,
+including Sync Box client-key matching. Both the real Hue app and Box received
+HTTP 200 on the authenticated event route after installation.
+
+New connections/history gaps receive current virtual lights, grouped state,
+Entertainment and scene state. The cursor and creation time are captured before
+reading resources, so concurrent layout events are replayed. This restores the
+selected lamps' state; it does not claim recovery of missed arbitrary resource
+deletions after journal overflow.
+
+After the repair, the agent observed Home On/Off in the actual Hue mobile UI,
+including Right On during Play, both Off during Play, scene recall while Right
+remained Off, and Stop. Final native and virtual states matched Left On/Right Off,
+with Play stopped. No extra owner clicks were required.
+
+Physical Left Off coverage is **partial**: one attempt retained native On despite
+closed color permission; Apple Home later reflected On again. A repeated ordinary
+Home Off succeeded in eight fresh native readbacks. The cause of that missed
+physical write is unresolved and is not hidden by the UI result. The wrapper/NAS
+power writer was not changed by this SSE slice. See
+`../hue-bridge/evidence/iphone-power-feedback.json`.
 
 The owner sleep hold is `experiments/hue-bridge/state/live-output-hold`. It must
 remain until the owner explicitly resumes physical testing. Keep the live adapter
