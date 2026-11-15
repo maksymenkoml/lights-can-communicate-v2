@@ -237,7 +237,7 @@ checks claimed inodes, publishes without clobbering concurrent changes, and roll
 back conditionally. Existing private configuration must already be mode 0600;
 updates do not rewrite it or restart services.
 
-Offline checks include 63 Node tests, 258 Python tests and real Node-to-Python
+Offline checks include 63 Node tests, 259 Python tests and real Node-to-Python
 loopback. A separate source-hash-checked harness runs three tests against the
 actual pinned upstream brightness/CT method bodies. Linux Node 22 passes the
 same Node suite. Live native telemetry and actual Home UI results are recorded

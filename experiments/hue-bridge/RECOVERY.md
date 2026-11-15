@@ -104,3 +104,24 @@ or physical acceptance on the NAS. Existing Home IDs/scenes must be preserved.
 No NAS deployment, Xbox/HDR coverage, factory reset, or unrelated-device control
 is implied by these checks. Existing owner power and discovery allowlists remain
 in force. A retained idle source connection does not extend the host video lease.
+
+
+## Source starts before fixture power
+
+An initial source arriving while any selected native Hue fixture is Off waits
+without starting the native relay or sending Govee colors. Once all four native
+fixtures have fresh, healthy On/normal telemetry, the same source can resume;
+no source restart or implicit power command is required. A dedicated regression
+covers all-Off, partially-On and all-On transitions on that same source.
+
+This differs from an owner Off during an already started native relay/handshake:
+that session remains fenced until an explicit source restart. Power the selected
+fixtures while an initial source waits; stopping the source first is unnecessary.
+
+The renewed live attempt received 1,441 host frames while fixtures were Off, but
+the operator stopped Sync before powering them. No renewed output acceptance is
+claimed. Mirroring subsequently timed out, an existing-client bridge-area Start
+probe received no fresh Box frames and returned the area to Stop, and later
+fresh telemetry showed all six fixtures Off again. The origin of that later Off
+is not established; owner clarification is pending. See
+`evidence/renewed-sync-attempt.json`.

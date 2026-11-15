@@ -157,6 +157,33 @@ class VideoTests(unittest.TestCase):
         self.assertFalse(self.output.active())
         self.assertEqual(self.relay.stopped, 1)
 
+    def test_source_before_lights_on_waits_then_resumes_without_source_restart(self):
+        for proxy in self.proxies:
+            proxy.value["native_on"] = False
+        self.lease.submit(envelope())
+        self.assertFalse(self.output.process_once())
+        self.output.render()
+        self.assertEqual(self.relay.started, 0)
+        self.assertEqual(self.sent, [])
+
+        for proxy in self.proxies[:3]:
+            proxy.value["native_on"] = True
+        self.now += 0.1
+        self.lease.submit(envelope(sequence=2))
+        self.assertFalse(self.output.process_once())
+        self.assertEqual(self.relay.started, 0)
+
+        self.proxies[3].value["native_on"] = True
+        self.now += 0.1
+        self.lease.submit(envelope(sequence=3))
+        self.assertTrue(self.output.process_once())
+        self.output.render()
+        self.assertTrue(self.output.ready)
+        self.assertEqual(self.relay.started, 1)
+        self.assertEqual(len(self.relay.frames), 1)
+        self.assertTrue(self.sent)
+        self.assertTrue(all(command != "turn" for command, _ in self.sent))
+
     def test_native_owner_off_or_foreign_stream_blocks_start(self):
         for field, value in (
             ("native_on", False),

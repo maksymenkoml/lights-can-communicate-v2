@@ -1,0 +1,116 @@
+{
+  "recorded_at": "2026-11-15T17:36:34.616558+00:00",
+  "scope": "Renewed PS5 attempt; input reception observed, current output acceptance is incomplete.",
+  "initial_auto_start": {
+    "phone_ui": "Hue Sync is active",
+    "frames_sent": 0,
+    "native_fixtures_initially_off": true,
+    "operator_action": "Stopped Sync before powering fixtures; later source inspection and regression testing show that this Stop was unnecessary for an initial start while Off.",
+    "host_frames_received": 1441
+  },
+  "fixture_preparation": {
+    "four_selected_hue_on_verified": true,
+    "native_hue_brightness": {
+      "strip": 77.87,
+      "hue_left": 77.87,
+      "hue_center": 39.13,
+      "hue_right": 77.87
+    },
+    "selected_govee_on_verified": true,
+    "govee_owner_grants_on_verified": true,
+    "third_device_controlled": false
+  },
+  "headless_probe": {
+    "credential": "Existing paired HueSyncBox client, retained inside bridge container; no new credential or identity",
+    "action": "Selected entertainment area Start via standard bridge API",
+    "fresh_box_frames": false,
+    "timeout_seconds": 12,
+    "rollback": "Selected area Stop automatically issued; no live Sync success claim.",
+    "boundary": "This bounded bridge-area attempt does not establish that the Box capture/execution API can be controlled through the bridge. No fresh input or output success was observed."
+  },
+  "nas_power_log_events": [
+    {
+      "local_time": "2026-11-15 12:16:28",
+      "role": "left",
+      "state": "on"
+    },
+    {
+      "local_time": "2026-11-15 12:16:29",
+      "role": "right",
+      "state": "on"
+    },
+    {
+      "local_time": "2026-11-15 12:27:25",
+      "role": "left",
+      "state": "off"
+    },
+    {
+      "local_time": "2026-11-15 12:27:25",
+      "role": "right",
+      "state": "off"
+    },
+    {
+      "local_time": "2026-11-15 12:27:28",
+      "role": "left",
+      "state": "on"
+    },
+    {
+      "local_time": "2026-11-15 12:27:32",
+      "role": "left",
+      "state": "off"
+    }
+  ],
+  "power_origin": "Not established. Owner clarification requested; do not override the later Off intent.",
+  "mirroring": "Connection ended due to iPhone use, followed by connection timeouts after one app restart and foreground retry.",
+  "offline_coverage": "Initial source frames while native fixtures are Off wait for all four Hue fixtures to become fresh On, then relay the same source without a restart or power command.",
+  "final": {
+    "video": {
+      "active": false,
+      "ready": false,
+      "frames_received": 1441,
+      "frames_sent": 0,
+      "last_result": "idle"
+    },
+    "govee_owner": {
+      "left": false,
+      "right": false
+    },
+    "govee_native": {
+      "left": 0,
+      "right": 0
+    },
+    "native_hue": {
+      "strip": {
+        "native_on": false,
+        "native_mode": "normal",
+        "healthy": true
+      },
+      "hue_left": {
+        "native_on": false,
+        "native_mode": "normal",
+        "healthy": true
+      },
+      "hue_center": {
+        "native_on": false,
+        "native_mode": "normal",
+        "healthy": true
+      },
+      "hue_right": {
+        "native_on": false,
+        "native_mode": "normal",
+        "healthy": true
+      }
+    },
+    "receiver": {
+      "active": false,
+      "frames_received": 6578,
+      "last_result": "DTLS EOF"
+    }
+  },
+  "verification": {
+    "python": 259,
+    "node_power": 63,
+    "ui": 5,
+    "lint": "pass"
+  }
+}
