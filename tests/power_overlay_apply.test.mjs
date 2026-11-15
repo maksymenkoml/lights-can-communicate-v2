@@ -199,3 +199,87 @@ test('an installed overlay with a public config is rejected without changing it'
     assert.equal(fs.statSync(config).mode & 0o777, 0o777);
   } finally { fs.rmSync(f.root, { recursive: true }); }
 });
+
+function upgradeFixture() {
+  const f = fixture();
+  applyOverlay({ ...f, apply: true });
+  f.previousManifest = path.join(f.root, 'previous-manifest.json');
+  fs.copyFileSync(path.join(f.artifact, 'manifest.json'), f.previousManifest);
+  const manifest = JSON.parse(fs.readFileSync(f.previousManifest, 'utf8'));
+  for (const name of ['hook.mjs', 'owner-client.mjs']) {
+    const relative = 'lib/smart-lighting-power/' + name;
+    fs.writeFileSync(path.join(f.artifact, relative), 'updated ' + name);
+    manifest.files[relative] = digest('updated ' + name);
+  }
+  fs.writeFileSync(path.join(f.artifact, 'manifest.json'), JSON.stringify(manifest));
+  return f;
+}
+
+test('exact previous manifest permits a two-module upgrade without touching identity or credentials', () => {
+  const f = upgradeFixture();
+  try {
+    const light = path.join(f.plugin, 'lib/device/light.js');
+    const config = path.join(f.storage, 'smart-lighting-power.json');
+    const lightInode = fs.statSync(light).ino;
+    const configInode = fs.statSync(config).ino;
+    const before = fs.readdirSync(f.storage).sort();
+    assert.equal(applyOverlay(f).upgradeReady, true);
+    assert.deepEqual(fs.readdirSync(f.storage).sort(), before);
+    const result = applyOverlay({ ...f, apply: true });
+    assert.equal(result.upgraded, true);
+    assert.equal(fs.readFileSync(path.join(result.backup, 'hook.mjs'), 'utf8'), 'optional wrapper');
+    assert.equal(fs.readFileSync(path.join(f.plugin, 'lib/smart-lighting-power/hook.mjs'), 'utf8'),
+      'updated hook.mjs');
+    assert.equal(fs.statSync(light).ino, lightInode);
+    assert.equal(fs.statSync(config).ino, configInode);
+    assert.equal(fs.readFileSync(path.join(f.storage, 'cachedAccessories'), 'utf8'), 'preserve all HomeKit IDs');
+    assert.equal(applyOverlay({ ...f, apply: true }).alreadyInstalled, true);
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('module upgrade rejects an unexpected installed module before staging', () => {
+  const f = upgradeFixture();
+  try {
+    const hook = path.join(f.plugin, 'lib/smart-lighting-power/hook.mjs');
+    fs.writeFileSync(hook, 'peer module');
+    const before = fs.readdirSync(f.storage).sort();
+    assert.throws(() => applyOverlay({ ...f, apply: true }), /differs|changed/i);
+    assert.deepEqual(fs.readdirSync(f.storage).sort(), before);
+    assert.equal(fs.readFileSync(hook, 'utf8'), 'peer module');
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('second module publication failure rolls both modules back', () => {
+  const f = upgradeFixture();
+  try {
+    const io = { ...fs, linkSync: (from, to) => {
+      if (path.basename(from).startsWith('tmp_smart_light_upgrade-') && to.endsWith('owner-client.mjs')) {
+        throw Error('fixture publication failure');
+      }
+      return fs.linkSync(from, to);
+    } };
+    assert.throws(() => applyOverlay({ ...f, apply: true }, io), /rollback complete/i);
+    assert.equal(fs.readFileSync(path.join(f.plugin, 'lib/smart-lighting-power/hook.mjs'), 'utf8'),
+      'optional wrapper');
+    assert.equal(fs.readFileSync(path.join(f.plugin, 'lib/smart-lighting-power/owner-client.mjs'), 'utf8'),
+      'owner client');
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('peer edit immediately before upgrade claim is restored without being overwritten', () => {
+  const f = upgradeFixture();
+  try {
+    const hook = path.join(f.plugin, 'lib/smart-lighting-power/hook.mjs');
+    let injected = false;
+    const io = { ...fs, renameSync: (from, to) => {
+      if (from === hook && path.basename(to) === 'hook.mjs') {
+        injected = true;
+        fs.writeFileSync(hook, 'peer after preflight');
+      }
+      return fs.renameSync(from, to);
+    } };
+    assert.throws(() => applyOverlay({ ...f, apply: true }, io), /failed/i);
+    assert.equal(injected, true);
+    assert.equal(fs.readFileSync(hook, 'utf8'), 'peer after preflight');
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});

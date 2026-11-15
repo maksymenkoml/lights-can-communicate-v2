@@ -238,3 +238,37 @@ test('corrupted existing state cannot grant cached Home On permission', async ()
     }
   } finally { rmSync(folder, { recursive: true }); }
 });
+
+test('real HTTP replay guard accepts overlapping timer and verification callers in wire order', async () => {
+  let latest = 0;
+  let active = 0;
+  let peak = 0;
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      const message = JSON.parse(body);
+      active++;
+      peak = Math.max(peak, active);
+      setTimeout(() => {
+        const accepted = message.sequence > latest;
+        latest = Math.max(latest, message.sequence);
+        active--;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ accepted }));
+      }, message.sequence === 1 ? 60 : 0);
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const client = new PowerOwnerClient({ endpoint: `http://127.0.0.1:${server.address().port}/power-owner`,
+    token: 'a'.repeat(48) });
+  client.register(RIGHT, true);
+  try {
+    await Promise.all([client.heartbeat(), client.heartbeat()]);
+    assert.equal(peak, 1);
+    assert.equal(latest, 2);
+  } finally {
+    await client.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+});

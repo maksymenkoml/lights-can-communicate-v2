@@ -147,7 +147,11 @@ class PowerOwnerTests(unittest.TestCase):
             self.assertEqual(request("/power-owner", "X-Adapter-Token", "adapter-secret",
                                      self.message())[0], 403)
             self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
-                                     self.message()), (200, {"accepted": True}))
+                                     self.message()), (200, {"accepted": True,
+                                         "observer_epoch": controller.observer_epoch, "observed": {
+                                         "left": {"on": None, "sample": None},
+                                         "right": {"on": None, "sample": None},
+                                     }}))
             self.assertEqual(request("/command", "X-Power-Owner-Token", "owner-secret", {})[0], 403)
             self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
                                      self.message(2, {"third": True}))[0], 400)
@@ -158,6 +162,24 @@ class PowerOwnerTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(2)
+
+    def test_power_readback_requires_fresh_identity_proof_and_has_no_device_routes(self):
+        controller = PilotController(targets(), clock=lambda: 10)
+        controller.update_statuses({
+            LEFT: ({"onOff": 0, "identity_verified": True, "native_sample": 9.95}, 9.9),
+            RIGHT: ({"onOff": 1, "identity_verified": True, "native_sample": 9.9}, 9.8),
+        })
+        self.assertEqual(controller.power_observations(), {
+            "left": {"on": False, "sample": 9.95},
+            "right": {"on": True, "sample": 9.9},
+        })
+        for native, seen in (({"onOff": 1}, 10),
+                             ({"onOff": True, "identity_verified": True}, 10),
+                             ({"onOff": 1, "identity_verified": True}, 9),
+                             ({"onOff": 1, "identity_verified": True}, 11)):
+            controller.update_statuses({LEFT: (native, seen)})
+            self.assertEqual(controller.power_observations()["left"],
+                             {"on": None, "sample": None})
 
     def test_grant_that_expires_waiting_for_writer_lock_is_rejected(self):
         checked = threading.Event()

@@ -158,6 +158,7 @@ class PilotController:
     ):
         self.layout_store = layout_store
         self.power_owner = power_owner
+        self.observer_epoch = secrets.token_hex(8)
         self.power_revisions = {}
         self.targets = copy.deepcopy(targets)
         if len(self.targets) != 2 or {item.get("side") for item in self.targets} != {
@@ -202,6 +203,23 @@ class PilotController:
             for key, value in statuses.items():
                 if key in self.ids and value[0] is not None:
                     self.statuses[key] = value
+
+    def power_observations(self):
+        with self.lock:
+            now = self.clock()
+            result = {}
+            for side, device in self.by_side.items():
+                native, seen = self.statuses.get(lan.device_key(device), (None, 0))
+                sample = native.get("native_sample") if isinstance(native, dict) else None
+                valid = (isinstance(native, dict) and native.get("identity_verified") is True
+                         and type(native.get("onOff")) is int and native["onOff"] in {0, 1}
+                         and type(seen) in (int, float) and math.isfinite(seen)
+                         and 0 <= now - seen <= 0.75
+                         and type(sample) in (int, float) and math.isfinite(sample)
+                         and 0 <= now - sample <= 0.75)
+                result[side] = {"on": bool(native["onOff"]) if valid else None,
+                                "sample": sample if valid else None}
+            return result
 
     def target(self, side):
         with self.lock:
@@ -457,6 +475,9 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 payload = json.loads(self.rfile.read(size))
                 if self.path == "/power-owner":
                     accepted = power_owner.submit(payload)
+                    return self.respond(200, {"accepted": accepted,
+                                              "observer_epoch": controller.observer_epoch,
+                                              "observed": controller.power_observations()})
                 elif self.path == "/stream":
                     accepted = video_output.submit(payload)
                 elif isinstance(payload, dict) and payload.get("side") in hue_proxies:

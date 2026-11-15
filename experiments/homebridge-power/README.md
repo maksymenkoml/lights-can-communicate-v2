@@ -14,11 +14,11 @@ from the black frame. The existing independent color writer can race
 an Apple Home Off even with fresh LAN status. The original plugin itself notes
 implicit power-on from color commands and delays its own Off by 400 ms.
 
-This overlay wraps only the main-light On setter in the exact installed
+This overlay coordinates the main-light On setter and the existing instance color writers in the exact installed
 [`@homebridge-plugins/homebridge-govee` 11.39.1 source](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.39.1/lib/device/light.js).
 Its unchanged original
 handler still performs the actual power command. The wrapper first pauses the
-pilot's color writer, and grants color after successful On. UUID generation and
+pilot's color writer, and grants color after identity-verified native On confirmation. UUID generation and
 service creation are not replaced. The third accessory is passed through using
 the original setter without coordination.
 
@@ -208,3 +208,71 @@ remain until the owner explicitly resumes physical testing. Keep the live adapte
 and test bridge stopped during this hold. Source-only checks may use isolated
 containers with `--network none` and no private state mounts. On resume, use the
 documented bridge recreation path to avoid stale Docker UDP publication.
+
+
+## Confirmed native power and SDK writer coordination
+
+The NAS hook enables optional native readback confirmation for the selected two
+accessories. The restricted owner response includes an observer epoch and fresh,
+identity-verified `on`/`sample` observations for each selected role. A scan refresh
+cannot manufacture a new native sample. On requires two distinct fresh samples
+before scene/video permission; Off retains its closed gate throughout a bounded
+settling/retry window. Retries use the same existing platform power sender and
+cannot be authorized by unknown identity. A definitive failure reports a Home
+error instead of declaring success from a UDP send callback. Coordinator outage
+retains independent explicit Home power operation; reconnect needs fresh native
+On proofs before restoring colors.
+
+Debounced SDK brightness, color, temperature and custom-scene writes share the
+same local power intent. Off invalidates pending debounce keys and waits for
+already-started writers. Paired Home scene properties wait for On; explicit scene
+On and brightness-zero Off retain their meanings. Failed scene On can be retried.
+Async-local epochs also fence delayed SDK characteristic updates on the existing
+main and custom-scene services. Services, UUIDs, accessory cache, scene definitions
+and pairing remain unchanged; the third device bypasses all coordination.
+
+The guarded upgrader accepts `--previous-manifest` to verify the exact installed
+overlay and update only its two runtime modules. It keeps independent backups,
+checks claimed inodes, publishes without clobbering concurrent changes, and rolls
+back conditionally. Existing private configuration must already be mode 0600;
+updates do not rewrite it or restart services.
+
+Offline checks include 63 Node tests, 258 Python tests and real Node-to-Python
+loopback. A separate source-hash-checked harness runs three tests against the
+actual pinned upstream brightness/CT method bodies. Linux Node 22 passes the
+same Node suite. Live native telemetry and actual Home UI results are recorded
+separately from optical acceptance; an uncapped Left zonal Play Off still failed
+after installation, so that hardware edge is not declared resolved.
+
+
+Heartbeat dispatch is serialized between periodic renewal and verification.
+Permission masks, sequence and timestamps are generated at actual dispatch, so a
+queued old mask cannot re-enable a newer Off. The strict replay guard and stale
+response fences remain intact. Matching fresh native telemetry refreshes the
+existing HAP characteristic outside active power operations; unknown readbacks
+and unconfirmed On cannot clear a fault. A Home UI write-error badge can remain
+locally cached until the app refreshes even when fresh reads are correct.
+
+
+## Latest live boundary
+
+See [confirmed-power-live.json](../hue-bridge/evidence/confirmed-power-live.json).
+The uncapped Left scene stream had 64.4% fresh identity/native coverage during
+one On capture; a 4/s zonal test profile reached 99.3%. Three subsequent Left Off
+cases at 4/s converged in 4.78, 5.41 and 5.00 seconds, including independent Left
+Off while Right continued rendering. There was no additional native confirmation
+failure in those cases. The uncapped control case took 9.76 seconds and exceeded
+the bounded confirmation window; it remains a recorded failure.
+
+With the host adapter deliberately paused, ordinary Home Right Off and Left On
+still used the original NAS power sender. The expected unavailable warning was
+recorded, both lamps remained Off after Off/reconnect, and seven-zone animation
+resumed after On/reconnect with Right still Off. The first recovery capture was
+already granted, so it does not independently prove the two-proof timing.
+
+Final Home, virtual Hue API and fresh native telemetry agree on both Govee Off.
+The owner calibration remains 0.65; the current Left 4/s setting is a test profile
+whose optical smoothness still needs acceptance. iPhone Mirroring was blocked by
+an in-use phone, and HDMI Sync was not rerun in this slice. Existing whole-Home
+scenes were not invoked because they can affect the excluded third lamp. No
+scene definition, accessory identity or pairing file was edited.

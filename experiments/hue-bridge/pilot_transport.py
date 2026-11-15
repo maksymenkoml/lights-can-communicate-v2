@@ -103,7 +103,8 @@ class PilotTransport:
                     lan.VERIFIED_GOVEE[key] = (ip, proof_seen)
                 else:
                     lan.VERIFIED_GOVEE.pop(key, None)
-                updates[key] = ({**native, "identity_verified": True}, proof_seen)
+                updates[key] = ({**native, "identity_verified": True, "native_sample": seen},
+                                proof_seen)
                 if device["ip"] != ip:
                     device["ip"] = ip
                     changed = True

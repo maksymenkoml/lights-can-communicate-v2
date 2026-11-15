@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +19,61 @@ from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 
 @unittest.skipUnless(shutil.which('node'), 'Node required for cross-runtime loopback check')
 class OwnerIntegrationTests(unittest.TestCase):
+    def test_dropped_power_writes_are_retried_and_confirmed_with_real_protocol(self):
+        devices = targets()
+        for device in devices:
+            device['segment_count'] = 7
+        physical = {LEFT: 1, RIGHT: 1}
+        writes = []
+        gate = PowerOwner(devices)
+
+        def firmware(device, command, _data):
+            if command == 'ptReal':
+                physical[device['device']] = 1
+            return True
+
+        controller = PilotController(devices, sender=gate.wrap(firmware))
+        for side in ('left', 'right'):
+            controller.submit({'side': side, 'session': 'fixture', 'sequence': 1,
+                               'issued_at': time.time(), 'transitiontime': 0,
+                               'state': {'on': True, 'segments': [[10, 20, 30]] * 3}})
+        parent = handler_for(controller, 'adapter-key', power_owner=gate, power_token='a' * 48)
+
+        class FixtureHandler(parent):
+            def do_POST(self):
+                if self.path == '/test-power':
+                    body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                    assert not gate.allowed('right'), 'Color released before physical proof'
+                    writes.append(body)
+                    if not body['drop']:
+                        physical[RIGHT] = int(body['on'])
+                    return self.respond(200, {})
+                if self.path == '/power-owner':
+                    controller.render()
+                    controller.update_statuses({
+                        key: ({'onOff': value, 'brightness': 65, 'identity_verified': True,
+                               'native_sample': time.monotonic()},
+                              time.monotonic()) for key, value in physical.items()
+                    })
+                return super().do_POST()
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), FixtureHandler)
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        try:
+            result = subprocess.run([
+                shutil.which('node'), str(ROOT / 'tests/fixtures/power_confirmation_flow.mjs'),
+                f'http://127.0.0.1:{server.server_port}',
+            ], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(writes, [{'on': False, 'drop': True}, {'on': False, 'drop': False},
+                                      {'on': True, 'drop': True}, {'on': True, 'drop': False}])
+            self.assertEqual(physical[RIGHT], 1)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(2)
+
     def test_home_off_then_on_is_ordered_before_real_renderer_with_stale_on_cache(self):
         devices = targets()
         for device in devices:

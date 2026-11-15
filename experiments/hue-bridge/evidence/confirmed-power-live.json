@@ -1,0 +1,237 @@
+{
+  "recorded_at": "2026-11-15T05:17:08.425169+00:00",
+  "scope": "Agent operated macOS Home and existing NAS Govee child bridge; logical native telemetry, not optical measurement",
+  "checks": {
+    "python": 258,
+    "node_power": 63,
+    "ui": 5,
+    "actual_pinned_sdk": 3,
+    "linux_node22_power": 63,
+    "linux_node22_sdk": 3
+  },
+  "installed_runtime_files": {
+    "lib/device/light.js": "19d8b121e7a0e58d904083ae3ead8631d7db9c13c5d78669de064ab5fe2da1f6",
+    "lib/smart-lighting-power/owner-client.mjs": "703873c0e62069ec4e82daa0eb6c7c0edb86f6389dd0fc349f24a1f1e3673e2e",
+    "lib/smart-lighting-power/hook.mjs": "10ae32f789621c5a9f714d51d004d631d95146cd130342d0dc3662c3acea3135"
+  },
+  "nas_factory_unchanged": true,
+  "runtime_modes": "0644; existing private config 0600",
+  "existing_accessory_identity_and_pairing_retained": true,
+  "third_device_commands_issued": false,
+  "live_cases": {
+    "confirmed-final-fifo-left-on1": {
+      "profile": "uncapped",
+      "samples": 289,
+      "known_native_fraction": 0.6436,
+      "tail_known_fraction": 0.6875,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": null,
+      "global_color_commands_last5s": 75,
+      "final_roles": {
+        "left": true,
+        "right": false
+      },
+      "final_native": {
+        "left": 1,
+        "right": 0
+      }
+    },
+    "confirmed-final-fifo-left-off1": {
+      "profile": "uncapped",
+      "samples": 289,
+      "known_native_fraction": 0.8408,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": 9.764,
+      "global_color_commands_last5s": 0,
+      "final_roles": {
+        "left": false,
+        "right": false
+      },
+      "final_native": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    "confirmed-final-rate4-left-on1": {
+      "profile": "4/s",
+      "samples": 288,
+      "known_native_fraction": 0.9931,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": null,
+      "global_color_commands_last5s": 18,
+      "final_roles": {
+        "left": true,
+        "right": false
+      },
+      "final_native": {
+        "left": 1,
+        "right": 0
+      }
+    },
+    "confirmed-final-rate4-left-off1": {
+      "profile": "4/s",
+      "samples": 289,
+      "known_native_fraction": 1.0,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": 4.778,
+      "global_color_commands_last5s": 0,
+      "final_roles": {
+        "left": false,
+        "right": false
+      },
+      "final_native": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    "confirmed-final-both-on": {
+      "profile": "4/s + right2/s",
+      "samples": 289,
+      "known_native_fraction": 0.9862,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": null,
+      "global_color_commands_last5s": 28,
+      "final_roles": {
+        "left": true,
+        "right": true
+      },
+      "final_native": {
+        "left": 1,
+        "right": 1
+      }
+    },
+    "confirmed-final-left-off-right-active": {
+      "profile": "4/s + right2/s",
+      "samples": 288,
+      "known_native_fraction": 1.0,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": 5.405,
+      "global_color_commands_last5s": 9,
+      "final_roles": {
+        "left": false,
+        "right": true
+      },
+      "final_native": {
+        "left": 0,
+        "right": 1
+      }
+    },
+    "confirmed-final-offline-off-resumed": {
+      "profile": "adapter pause/resume",
+      "samples": 288,
+      "known_native_fraction": 0.9792,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": null,
+      "global_color_commands_last5s": 0,
+      "final_roles": {
+        "left": false,
+        "right": false
+      },
+      "final_native": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    "confirmed-final-offline-on-resumed": {
+      "profile": "adapter pause/resume",
+      "samples": 289,
+      "known_native_fraction": 0.9931,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": null,
+      "global_color_commands_last5s": 17,
+      "final_roles": {
+        "left": true,
+        "right": false
+      },
+      "final_native": {
+        "left": 1,
+        "right": 0
+      }
+    },
+    "confirmed-final-restored-off": {
+      "profile": "4/s",
+      "samples": 289,
+      "known_native_fraction": 0.9827,
+      "tail_known_fraction": 1.0,
+      "tail_intent_matches": true,
+      "tail_known_native_matches": true,
+      "native_convergence_after_intent_seconds": 4.996,
+      "global_color_commands_last5s": 0,
+      "final_roles": {
+        "left": false,
+        "right": false
+      },
+      "final_native": {
+        "left": 0,
+        "right": 0
+      }
+    }
+  },
+  "nas_log_counts_after_final_cases": {
+    "replay_rejections": 6,
+    "native_confirmation_failures": 4,
+    "expected_unavailable_warnings": 2
+  },
+  "known_failure_boundaries": [
+    "The last recorded replay rejection preceded FIFO deployment (2026-11-14 23:43:58 local).",
+    "Uncapped zonal Left Off converged after 9.764 seconds and produced the fourth native confirmation error (2026-11-15 00:00:26 local).",
+    "No new native confirmation error was added during the three subsequent Left 4/s Off cases; the two unavailable warnings are intentional fault tests."
+  ],
+  "offline_cases": {
+    "home_right_off_without_adapter": "Home Off plus NAS original-control fallback warning; both native lamps Off after resume, color count flat",
+    "home_left_on_without_adapter": "Home On plus NAS original-control fallback warning; seven-zone scene resumed after reconnect, Right stayed Off",
+    "proof_order_capture": "First On recovery sample was already granted; two-sample grant ordering is verified offline, not inferred from this live capture"
+  },
+  "final": {
+    "owner": {
+      "left": false,
+      "right": false
+    },
+    "native": {
+      "left": 0,
+      "right": 0
+    },
+    "virtual": [
+      {
+        "name": "Govee Left TEST",
+        "on": false,
+        "dynamics": "dynamic_palette"
+      },
+      {
+        "name": "Govee Right TEST",
+        "on": false,
+        "dynamics": "dynamic_palette"
+      }
+    ],
+    "gradient_packet_budget": {
+      "left": 4,
+      "right": 2
+    },
+    "govee_brightness_scale": {
+      "left": 0.65,
+      "right": 0.65
+    }
+  },
+  "limits": [
+    "Left4/s is a test profile; its optical smoothness has not been reaccepted by the owner.",
+    "iPhone Mirroring reports iPhone in Use; current Hue mobile UI verification needs the owner to lock the phone.",
+    "PS5/HDMI Sync has not been rerun after this power/SSE change. No game was launched.",
+    "A Home write-error badge remained locally cached across child restart; relaunch read correct Off.",
+    "Raw failed and successful captures are retained in the private archive; known-sample matching is distinct from continuous telemetry coverage."
+  ]
+}

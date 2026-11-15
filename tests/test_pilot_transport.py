@@ -102,6 +102,17 @@ class PilotTransportTests(unittest.TestCase):
         self.message("scan", {"device": THIRD}, "192.168.10.99", 10.03)
         self.assertNotIn(THIRD, lan.VERIFIED_GOVEE)
 
+    def test_scan_refresh_does_not_manufacture_a_new_native_power_sample(self):
+        controller = PilotController(self.targets, clock=lambda: 10.18)
+        self.transport.publisher = controller.update_statuses
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.01)
+        first = controller.power_observations()["left"]
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10.17)
+        second = controller.power_observations()["left"]
+        self.assertEqual(first, {"on": True, "sample": 10.01})
+        self.assertEqual(second, first)
+
     def test_contradictory_peer_identity_revokes_other_target_immediately(self):
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
         self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)

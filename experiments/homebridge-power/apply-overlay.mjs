@@ -13,6 +13,92 @@ function readJson(io, file, label) {
   catch { throw Error(`Invalid ${label}`); }
 }
 
+function upgradeModules(options, io, manifest, bytes, plugin, storage) {
+  const originals = new Map();
+  const previous = readJson(io, path.resolve(options.previousManifest), 'previous manifest');
+  if (previous.plugin !== manifest.plugin || previous.version !== manifest.version
+    || previous.unchanged_platform_sha256 !== manifest.unchanged_platform_sha256
+    || previous.original_light_sha256 !== manifest.original_light_sha256
+    || Object.keys(previous.files || {}).sort().join('|') !== [...FILES].sort().join('|')
+    || previous.files[FILES[0]] !== manifest.files[FILES[0]]) {
+    throw Error('Previous overlay manifest differs');
+  }
+  for (const name of FILES) {
+    const file = path.join(plugin, name);
+    const stat = io.lstatSync(file);
+    const data = io.readFileSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()
+      || digest(data) !== previous.files[name]) throw Error('Installed module changed');
+    originals.set(name, data);
+  }
+  const directory = path.join(plugin, 'lib/smart-lighting-power');
+  if (io.lstatSync(directory).isSymbolicLink()) throw Error('Symbolic module directory unsupported');
+  io.accessSync(directory, io.constants.W_OK);
+  io.accessSync(storage, io.constants.W_OK);
+  if (io.statSync(directory).dev !== io.statSync(storage).dev) throw Error('Module backup filesystem differs');
+  if (!options.apply) return { ready: true, installed: true, upgradeReady: true, files: FILES.slice(1) };
+
+  const backup = io.mkdtempSync(path.join(storage, 'smart-lighting-power-backup-'));
+  io.chmodSync(backup, 0o700);
+  if ((io.statSync(backup).mode & 0o777) !== 0o700) throw Error('Private backup mode unavailable');
+  io.writeFileSync(path.join(backup, 'previous-manifest.json'), JSON.stringify(previous, null, 2),
+    { flag: 'wx', mode: 0o600 });
+  for (const name of FILES.slice(1)) {
+    io.writeFileSync(path.join(backup, path.basename(name) + '.snapshot'), originals.get(name),
+      { flag: 'wx', mode: 0o600 });
+  }
+  const records = FILES.slice(1).map(name => ({ name, file: path.join(plugin, name),
+    temporary: path.join(directory, `tmp_smart_light_upgrade-${randomUUID()}.mjs`),
+    claim: path.join(backup, path.basename(name)), claimed: false, published: false }));
+  try {
+    for (const record of records) {
+      const fd = io.openSync(record.temporary, 'wx', 0o644);
+      try {
+        io.fchmodSync(fd, 0o644);
+        if ((io.fstatSync(fd).mode & 0o777) !== 0o644) throw Error('Runtime module mode unavailable');
+        io.writeFileSync(fd, bytes.get(record.name));
+      } finally { io.closeSync(fd); }
+    }
+    for (const record of records) {
+      io.renameSync(record.file, record.claim);
+      record.claimed = true;
+      if (digest(io.readFileSync(record.claim)) !== previous.files[record.name]) {
+        throw Error('Module changed while claiming upgrade');
+      }
+      io.linkSync(record.temporary, record.file);
+      record.published = true;
+    }
+    if (digest(io.readFileSync(path.join(plugin, 'lib/platform.js')))
+      !== manifest.unchanged_platform_sha256) throw Error('Factory changed during upgrade');
+    for (const name of FILES) {
+      if (digest(io.readFileSync(path.join(plugin, name))) !== manifest.files[name]) {
+        throw Error('Published overlay changed');
+      }
+    }
+    return { ready: true, installed: true, upgraded: true, backup, factoryUnchanged: true,
+      version: manifest.version, files: FILES.slice(1) };
+  } catch {
+    let restored = true;
+    for (const record of [...records].reverse()) {
+      if (!record.claimed) continue;
+      try {
+        if (record.published) {
+          const currentClaim = path.join(backup, `rollback-${randomUUID()}-${path.basename(record.name)}`);
+          io.renameSync(record.file, currentClaim);
+          if (digest(io.readFileSync(currentClaim)) !== manifest.files[record.name]) {
+            io.linkSync(currentClaim, record.file);
+            throw Error('Peer module preserved');
+          }
+        }
+        io.linkSync(record.claim, record.file);
+      } catch { restored = false; }
+    }
+    throw Error(`Overlay upgrade failed; rollback ${restored ? 'complete' : 'requires inspection'}; backup ${backup}`);
+  } finally {
+    for (const record of records) io.rmSync(record.temporary, { force: true });
+  }
+}
+
 export function applyOverlay(options, io = fs) {
   if (!options.artifact || !options.plugin || !options.storage) throw Error('Artifact, plugin and storage required');
   const artifact = path.resolve(options.artifact);
@@ -52,10 +138,14 @@ export function applyOverlay(options, io = fs) {
       && digest(io.readFileSync(path.join(plugin, name))) === manifest.files[name]);
     const configMatches = io.existsSync(configFile)
       && JSON.stringify(readJson(io, configFile, 'installed owner config')) === JSON.stringify(config);
-    if (!modulesMatch || !configMatches) throw Error('Existing overlay differs; manual inspection required');
+    if (!configMatches) throw Error('Existing overlay differs; manual inspection required');
     const configStat = io.lstatSync(configFile);
     if (!configStat.isFile() || (configStat.mode & 0o777) !== 0o600) {
       throw Error('Installed owner config permissions require inspection');
+    }
+    if (!modulesMatch) {
+      if (!options.previousManifest) throw Error('Existing overlay differs; manual inspection required');
+      return upgradeModules(options, io, manifest, bytes, plugin, storage);
     }
     return { ready: true, installed: true, alreadyInstalled: true, version: pkg.version };
   }
@@ -172,6 +262,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     for (let i = 2; i < process.argv.length; i++) {
       const key = process.argv[i];
       if (key === '--apply') options.apply = true;
+      else if (key === '--previous-manifest') options.previousManifest = process.argv[++i];
       else if (['--artifact', '--plugin', '--storage'].includes(key)) options[key.slice(2)] = process.argv[++i];
       else throw Error('Unknown installer option');
     }
