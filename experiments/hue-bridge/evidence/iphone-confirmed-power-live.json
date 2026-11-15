@@ -1,0 +1,544 @@
+{
+  "recorded_at": "2026-11-15T17:05:01.161942+00:00",
+  "scope": "Actual official Hue app in iPhone Mirroring, macOS Home, authenticated virtual API and identity-verified native LAN telemetry. No screenshot files retained.",
+  "runtime_commit": "1064d82",
+  "ui_checks": {
+    "manual_hue_restart_reconnected": true,
+    "home_left_on_live_in_hue": true,
+    "home_left_off_during_play_live_in_hue": true,
+    "home_right_on_live_in_hue": true,
+    "home_right_off_left_continues_live_in_hue": true,
+    "both_on_visible_during_play": true,
+    "hue_stop_removes_dynamics": true,
+    "hue_play_restores_dynamics_with_right_off": true,
+    "static_test_scene_keeps_right_off": true,
+    "restored_vapor_wave_desk_play": true
+  },
+  "owner_observation": {
+    "quote": "\u043f\u0440\u0430\u0432\u0430 \u0433\u043e\u0432\u0456 \u0432\u0438\u043c\u043a\u043d\u0435\u043d\u0430. \u043b\u0456\u0432\u0430 \u043f\u0440\u0430\u0446\u044e\u0454 \u044f\u043a \u0441\u043b\u0456\u0434.",
+    "context": "Reply to the physical Left smoothness question for the current 4/s zonal profile; Right had deliberately been turned Off during the isolation check.",
+    "boundary": "Owner acceptance of current Left behavior; no optical latency measurement."
+  },
+  "background_resume": {
+    "result": "INCONCLUSIVE",
+    "observation": "Home, native and virtual API were Off, while Mirroring showed an old On frame. Mirroring later explicitly reported the connection ended due to iPhone use, and reconnect showed iPhone in Use.",
+    "boundary": "Do not attribute the cached frame to a bridge/app bug or mark background recovery passed; repeat with an uninterrupted Mirroring session."
+  },
+  "sync": {
+    "ui_source": "PS5",
+    "ui_status": "Disconnected",
+    "area": "Desk Sync PILOT",
+    "started_in_this_slice": false,
+    "game_launched": false,
+    "boundary": "Needs an owner-provided active HDMI signal for the next video test."
+  },
+  "autoplay_changed": false,
+  "third_device_commands_issued": false,
+  "snapshot_field_boundary": "renderer_target_zones is the intended output count, not per-zone firmware readback. Native telemetry exposes power, identity and freshness here.",
+  "snapshots": [
+    {
+      "time": "2026-11-15T16:40:46.496401+00:00",
+      "case": "left-on",
+      "owner": {
+        "left": true,
+        "right": false
+      },
+      "color_allowed": {
+        "left": true,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 1,
+          "verified": true,
+          "age": 0.24688633298501372
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.08649270801106468
+        }
+      },
+      "commands": 1718,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": true,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 7,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T16:42:18.891657+00:00",
+      "case": "left-off-during-play",
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "color_allowed": {
+        "left": false,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 0,
+          "verified": true,
+          "age": 0.22810725000454113
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.03720320900902152
+        }
+      },
+      "commands": 1734,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T16:42:51.496426+00:00",
+      "case": "right-on-during-play",
+      "owner": {
+        "left": false,
+        "right": true
+      },
+      "color_allowed": {
+        "left": false,
+        "right": true
+      },
+      "native": {
+        "left": {
+          "on": 0,
+          "verified": true,
+          "age": 0.0896832500002347
+        },
+        "right": {
+          "on": 1,
+          "verified": true,
+          "age": 0.15976783400401473
+        }
+      },
+      "commands": 1774,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": true,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 7
+      }
+    },
+    {
+      "time": "2026-11-15T16:43:48.495412+00:00",
+      "case": "both-on-during-play",
+      "owner": {
+        "left": true,
+        "right": true
+      },
+      "color_allowed": {
+        "left": true,
+        "right": true
+      },
+      "native": {
+        "left": {
+          "on": 1,
+          "verified": true,
+          "age": 0.27714558300795034
+        },
+        "right": {
+          "on": 1,
+          "verified": true,
+          "age": 0.05102620902471244
+        }
+      },
+      "commands": 2032,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": true,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": true,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 7,
+        "right": 7
+      }
+    },
+    {
+      "time": "2026-11-15T16:44:16.996552+00:00",
+      "case": "right-off-left-still-play",
+      "owner": {
+        "left": true,
+        "right": false
+      },
+      "color_allowed": {
+        "left": true,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 1,
+          "verified": true,
+          "age": 0.21039158303756267
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.046853667008690536
+        }
+      },
+      "commands": 2141,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": true,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 7,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T16:46:49.814491+00:00",
+      "case": "hue-stop",
+      "owner": {
+        "left": true,
+        "right": false
+      },
+      "color_allowed": {
+        "left": true,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 1,
+          "verified": true,
+          "age": 0.4542381669743918
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.07307204103562981
+        }
+      },
+      "commands": 2538,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": true,
+          "dynamics": "none"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "none"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T16:48:01.120923+00:00",
+      "case": "hue-play-right-stays-off",
+      "owner": {
+        "left": true,
+        "right": false
+      },
+      "color_allowed": {
+        "left": true,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 1,
+          "verified": true,
+          "age": 0.08581579203018919
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.006388041016180068
+        }
+      },
+      "commands": 2696,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": true,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 7,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T16:49:59.679032+00:00",
+      "case": "static-scene-right-stays-off",
+      "owner": {
+        "left": true,
+        "right": false
+      },
+      "color_allowed": {
+        "left": true,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 1,
+          "verified": true,
+          "age": 0.06703408295288682
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.13685808301670477
+        }
+      },
+      "commands": 3025,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": true,
+          "dynamics": "none"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "none"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T16:52:25.663600+00:00",
+      "case": "background-return-first",
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "color_allowed": {
+        "left": false,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 0,
+          "verified": true,
+          "age": 0.2049080829601735
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.2552925000200048
+        }
+      },
+      "commands": 3280,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T17:02:50.571046+00:00",
+      "case": "final-both-off-mirroring-interrupted",
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "color_allowed": {
+        "left": false,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 0,
+          "verified": true,
+          "age": 0.28727162501309067
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.45502458297414705
+        }
+      },
+      "commands": 3280,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "none"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 0
+      }
+    },
+    {
+      "time": "2026-11-15T17:04:22.783893+00:00",
+      "case": "final-vapor-restored-both-off",
+      "owner": {
+        "left": false,
+        "right": false
+      },
+      "color_allowed": {
+        "left": false,
+        "right": false
+      },
+      "native": {
+        "left": {
+          "on": 0,
+          "verified": true,
+          "age": 0.10452754196012393
+        },
+        "right": {
+          "on": 0,
+          "verified": true,
+          "age": 0.16142149997176602
+        }
+      },
+      "commands": 3280,
+      "virtual": [
+        {
+          "name": "Govee Left TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        },
+        {
+          "name": "Govee Right TEST",
+          "on": false,
+          "dynamics": "dynamic_palette"
+        }
+      ],
+      "renderer_target_zones": {
+        "left": 0,
+        "right": 0
+      }
+    }
+  ],
+  "phone_mutations": [
+    {
+      "time": "2026-11-15T16:46:10.153219+00:00",
+      "method": "PUT",
+      "path": "/clip/v2/resource/scene/a809629d-3338-4586-9e7f-4a77a3d5c2d1",
+      "status": 200,
+      "fields": [
+        "recall"
+      ]
+    },
+    {
+      "time": "2026-11-15T16:47:18.829206+00:00",
+      "method": "PUT",
+      "path": "/clip/v2/resource/scene/a809629d-3338-4586-9e7f-4a77a3d5c2d1",
+      "status": 200,
+      "fields": [
+        "recall"
+      ]
+    },
+    {
+      "time": "2026-11-15T16:49:32.269541+00:00",
+      "method": "PUT",
+      "path": "/clip/v2/resource/scene/074d1790-97a7-4e45-adc4-f32f5a3873c3",
+      "status": 200,
+      "fields": [
+        "recall"
+      ]
+    },
+    {
+      "time": "2026-11-15T16:50:16.321054+00:00",
+      "method": "PUT",
+      "path": "/clip/v2/resource/scene/a809629d-3338-4586-9e7f-4a77a3d5c2d1",
+      "status": 200,
+      "fields": [
+        "recall"
+      ]
+    },
+    {
+      "time": "2026-11-15T16:50:37.940074+00:00",
+      "method": "PUT",
+      "path": "/clip/v2/resource/scene/a809629d-3338-4586-9e7f-4a77a3d5c2d1",
+      "status": 200,
+      "fields": [
+        "recall"
+      ]
+    }
+  ],
+  "limits": [
+    "No full gallery compatibility claim; static Probe Violet Amber TEST and existing Vapor wave DESK were exercised.",
+    "No real whole-Home scene invoked because that could affect the excluded third lamp.",
+    "Interrupted background resume and renewed HDMI Sync remain outstanding."
+  ],
+  "final_restore": "Existing Vapor wave DESK Play restored via API after the diagnostic Off reannouncement; both native and virtual Govee Off, color gates closed, command count remained unchanged."
+}

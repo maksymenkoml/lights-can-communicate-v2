@@ -271,8 +271,27 @@ resumed after On/reconnect with Right still Off. The first recovery capture was
 already granted, so it does not independently prove the two-proof timing.
 
 Final Home, virtual Hue API and fresh native telemetry agree on both Govee Off.
-The owner calibration remains 0.65; the current Left 4/s setting is a test profile
-whose optical smoothness still needs acceptance. iPhone Mirroring was blocked by
-an in-use phone, and HDMI Sync was not rerun in this slice. Existing whole-Home
-scenes were not invoked because they can affect the excluded third lamp. No
+The owner calibration remains 0.65. The owner subsequently reported that Left
+works as expected with the 4/s profile; the actual mobile follow-up is below.
+HDMI Sync still needs an active console signal. Existing whole-Home scenes were
+not invoked because they can affect the excluded third lamp. No
 scene definition, accessory identity or pairing file was edited.
+
+
+## Actual Hue mobile follow-up
+
+The owner force-closed Hue on the physical iPhone, then the agent reconnected
+Mirroring and opened the saved room. Both Govee were Off. Existing Home On/Off
+for each lamp updated the open Hue room during Play, without refreshing the room.
+Stop removed Dynamics; Play restored it and seven-zone renderer targets. Right
+remained Off through static Probe Violet Amber TEST recall and restoration of
+Vapor wave DESK. Autoplay was not enabled. The owner replied that Right was Off
+and Left worked as expected when asked about the current Left 4/s smoothness.
+
+The attempted short background-resume test is **inconclusive**: the bridge and
+native lamps were Off while a cached Mirroring image showed On, then Mirroring
+explicitly reported that the connection had ended due to iPhone use. A repeat
+requires an uninterrupted mirroring session; this is not proof of a bridge or
+Hue app bug. Sync showed PS5 Disconnected, so no renewed video test was started.
+Final native/API states are both Off with the original Vapor wave DESK Play
+restored. See `../hue-bridge/evidence/iphone-confirmed-power-live.json`.

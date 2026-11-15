@@ -233,5 +233,11 @@
     "PS5/HDMI Sync has not been rerun after this power/SSE change. No game was launched.",
     "A Home write-error badge remained locally cached across child restart; relaunch read correct Off.",
     "Raw failed and successful captures are retained in the private archive; known-sample matching is distinct from continuous telemetry coverage."
-  ]
+  ],
+  "follow_up": {
+    "evidence": "iphone-confirmed-power-live.json",
+    "owner_current_left_profile": "Owner reported Left works as expected during Play; Right was deliberately Off.",
+    "iphone_ui": "Home On/Off for both selected lamps, Stop/Play and scene recall verified on the actual iPhone.",
+    "remaining": "Interrupted background resume and active-HDMI Sync test remain outstanding."
+  }
 }

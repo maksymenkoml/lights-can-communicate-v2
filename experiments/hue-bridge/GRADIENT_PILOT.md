@@ -87,7 +87,8 @@ never an implicit behavior of this probe or the running pilot.
 
 
 A later confirmed-power test uses a Left 4-datagram/s zonal profile with the
-existing Right 2/s profile. This is a device-specific test setting, not a vendor
-limit or an optical acceptance result. Native coverage and three bounded Off
+existing Right 2/s profile. This is a device-specific pilot setting, not a vendor
+limit. The owner subsequently reported that Left works as expected during Play;
+no optical timing measurement is implied. Native coverage and three bounded Off
 cases improved compared with the uncapped Left control; see
 `evidence/confirmed-power-live.json`. Seven zones and the 0.65 calibration remain.
