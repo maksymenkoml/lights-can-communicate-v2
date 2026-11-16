@@ -30,6 +30,7 @@ import smart_lighting as lan  # noqa: E402
 from smart_lighting_core.discovery import DeviceCatalog  # noqa: E402
 from smart_lighting_core.hue_discovery import HueDiscoveryReader  # noqa: E402
 from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from smart_lighting_core.native_profile import NativeHueProfile  # noqa: E402
 
 
 def number(value, low, high):
@@ -515,12 +516,16 @@ def main(argv=None, service_info=None):
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
     parser.add_argument("--hue-stream-config", type=Path)
+    parser.add_argument("--native-profile", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
     args = parser.parse_args(argv)
     if args.hue_play and not args.hue_config:
         parser.error("--hue-play requires --hue-config")
     if args.hue_stream_config and not args.hue_play:
         parser.error("--hue-stream-config requires --hue-play and --hue-config")
+    if args.native_profile and not args.hue_config:
+        parser.error("--native-profile requires --hue-config")
+    native_profile = NativeHueProfile.load(args.native_profile) if args.native_profile else None
     state_dir = args.state_dir or args.targets.parent
     if (state_dir / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
@@ -552,15 +557,19 @@ def main(argv=None, service_info=None):
     hue_config = None
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
-        hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config), layout_store=layout_store,
-                                            preview=preview)
+        hue_proxies["strip"] = HueStripProxy(
+            PinnedHueClient(hue_config, profile=native_profile), layout_store=layout_store,
+            preview=preview, profile=native_profile,
+        )
         if args.hue_play:
-            for role, resource in PLAY_IDS.items():
+            play_ids = native_profile.play_ids if native_profile is not None else PLAY_IDS
+            for role, resource in play_ids.items():
                 hue_proxies[role] = HueStripProxy(
-                    PinnedHueClient(hue_config, resource_id=resource),
+                    PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
                     role=role,
                     layout_store=layout_store,
                     preview=preview,
+                    profile=native_profile,
                 )
         controller.pause_gate = lambda: all(proxy.govee_allowed() for proxy in hue_proxies.values())
     video = None
@@ -573,7 +582,8 @@ def main(argv=None, service_info=None):
                             sender=preview.wrap_govee(sender, "sync-output"),
                             layout_store=layout_store,
                             power_owner=power_owner),
-            HueEntertainmentRelay(stream_config, layout_store=layout_store, preview=preview),
+            HueEntertainmentRelay(stream_config, layout_store=layout_store, preview=preview,
+                                  profile=native_profile),
             hue_proxies.values(),
         )
         for proxy in hue_proxies.values():

@@ -11,6 +11,7 @@ import urllib.request
 from bridge_output import strip_changes
 
 import smart_lighting as lan
+from smart_lighting_core.native_profile import NativeHueProfile
 
 STRIP_ID = "98250ec6-d7fd-4b47-ace6-ff449ea3066f"
 PLAY_IDS = {
@@ -81,13 +82,22 @@ def hue_payload(state, transitiontime):
 
 
 class PinnedHueClient:
-    def __init__(self, config, requester=None, resource_id=None):
-        self.resource_id = resource_id or STRIP_ID
-        if config.get("light") != STRIP_ID or self.resource_id not in {
-            STRIP_ID,
-            *PLAY_IDS.values(),
-        }:
-            raise ValueError("Only the selected desk Hue lights are allowed")
+    def __init__(self, config, requester=None, resource_id=None, profile=None):
+        if profile is not None and not isinstance(profile, NativeHueProfile):
+            raise ValueError("Invalid native Hue profile")
+        self.profile = profile
+        if profile is not None:
+            self.resource_id = profile.strip_id if resource_id is None else resource_id
+            if (not isinstance(self.resource_id, str)
+                    or self.resource_id not in profile.resource_ids):
+                raise ValueError("Only the selected profile Hue lights are allowed")
+        else:
+            self.resource_id = resource_id or STRIP_ID
+            if config.get("light") != STRIP_ID or self.resource_id not in {
+                STRIP_ID,
+                *PLAY_IDS.values(),
+            }:
+                raise ValueError("Only the selected desk Hue lights are allowed")
         self.bridge = lan.local_ip(config["bridge"])
         self.key = config["hue_key"]
         self.path = "/clip/v2/resource/light/" + self.resource_id
@@ -148,13 +158,23 @@ def merge_hue_body(previous, update):
 class HueStripProxy:
     def __init__(
         self, client, clock=time.monotonic, wall_clock=time.time, role="strip", layout_store=None,
-        preview=None,
+        preview=None, profile=None,
     ):
+        client_profile = getattr(client, "profile", None)
+        if any(value is not None and not isinstance(value, NativeHueProfile)
+               for value in (profile, client_profile)):
+            raise ValueError("Invalid native Hue profile")
+        if profile is not None and client_profile is not None and profile != client_profile:
+            raise ValueError("Conflicting native Hue profiles")
+        self.profile = profile if profile is not None else client_profile
         self.layout_store = layout_store
         self.preview = preview
         self.role = role
-        self.resource_id = getattr(client, "resource_id", STRIP_ID)
-        if {"strip": STRIP_ID, **PLAY_IDS}.get(role) != self.resource_id:
+        resources = (
+            self.profile.light_ids if self.profile is not None else {"strip": STRIP_ID, **PLAY_IDS}
+        )
+        self.resource_id = getattr(client, "resource_id", resources["strip"])
+        if role not in resources or resources[role] != self.resource_id:
             raise ValueError("Hue role does not match the selected resource")
         self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
         self.applied_scale = (

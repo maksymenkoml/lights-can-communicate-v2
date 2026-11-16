@@ -115,7 +115,7 @@ See `evidence/discovery-layout.json`. The owner requested opening the layout
 himself, so API and automated DOM checks were used without opening his tab.
 
 
-## Prepared live output preview
+## Live output preview
 
 `0.1.0.dev3` adds a passive shared recorder to the existing successful output
 operations and appends bounded `preview` data to authenticated `/status`. It
@@ -132,9 +132,34 @@ The UI paints existing SVG attributes and never saves or rebuilds the layout for
 telemetry. It uses bounded visibility-aware polling, an independent freshness
 guard, and neutral placeholders for unbound placements.
 
-This artifact is prepared only: the owner's sleep hold remains active and the
-physical adapter is stopped. No live config/device or optical acceptance was
-performed. Do not remove `live-output-hold` or start the prepared artifact until
-the owner explicitly resumes. See `evidence/live-preview-offline.json` for exact
-source/archive/DOM checks and the deferred morning acceptance. Native-profile
-extraction remains the following component after this preview is checked live.
+After the owner's explicit morning resume, the prepared artifact and gateway
+were activated with the same output selection. All six initially-Off fixtures
+remained Off; preview had no active colors. After normal On control, scene output,
+active PS5 Sync and Stop-to-scene produced fresh colors on all six roles. The
+owner's layout was not opened or changed. These are transport/API checks; optical
+matching and the owner's visual acceptance of this preview remain separate.
+See `evidence/live-preview-offline.json` for the historical overnight checks and
+`evidence/live-preview-live.json` for morning results and the UDP publication limit.
+
+## Native Hue selection profile
+
+`0.1.0.dev4` supports optional `adapter.native_profile_file` in version-one service
+configuration. The path resolves relative to the service configuration, requires
+`hue_config_file`, and contains a strict version-one profile of the same four light
+roles, native Entertainment area and twelve service/index mappings. The loader
+rejects duplicate/unknown fields, invalid UUIDs, overlapping resources and changed
+topology. Credentials stay in their existing separate files.
+
+An explicit profile controls each client/proxy/relay instance; it overrides old
+credential light/area hints without changing global constants. Resource membership,
+channel order/index and resource types must match live metadata before stream
+start. Legacy configuration without a profile retains its existing behavior.
+This is still the fixed desk topology, not arbitrary device enrollment or a build
+free of legacy identity defaults. Newly placed discovery items remain configuration
+only until a separate enrollment component is implemented.
+
+The owner's same-selection profile replaced dev3 locally after read-only metadata
+parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six roles,
+calibration, HomeKit identities, pairing and geometry were retained. The NAS was
+not changed. The previous archive/configuration remain available for rollback.
+See `evidence/native-hue-profile.json` for tests, live frame samples and limits.

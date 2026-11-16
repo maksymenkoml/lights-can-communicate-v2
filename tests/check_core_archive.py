@@ -21,6 +21,8 @@ CONTRACTS = [
     "test_adapter_lifecycle",
     "test_discovery_integration",
     "test_live_preview",
+    "test_native_profile",
+    "test_native_profile_integration",
 ]
 RUNTIME = [
     "live_adapter",
@@ -34,6 +36,7 @@ RUNTIME = [
     "power_owner",
     "video_output",
     "bridge_output",
+    "smart_lighting_core.native_profile",
 ]
 
 

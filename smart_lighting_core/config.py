@@ -59,6 +59,7 @@ class ServiceConfig:
     hue_config_file: Path | None
     hue_play: bool
     hue_stream_config_file: Path | None
+    native_profile_file: Path | None = None
 
     def arguments(self):
         result = [
@@ -81,6 +82,8 @@ class ServiceConfig:
             result.append("--hue-play")
         if self.hue_stream_config_file:
             result.extend(["--hue-stream-config", str(self.hue_stream_config_file)])
+        if self.native_profile_file:
+            result.extend(["--native-profile", str(self.native_profile_file)])
         return result
 
 
@@ -92,7 +95,7 @@ def load_config(path):
         raise ConfigError("Unsupported service configuration version")
     options = data["adapter"]
     paths = {"targets_file", "token_file", "power_owner_token_file"}
-    optional_paths = {"hue_config_file", "hue_stream_config_file"}
+    optional_paths = {"hue_config_file", "hue_stream_config_file", "native_profile_file"}
     _fields(options, paths, optional_paths | {"bind", "port", "gradient", "hue_play"}, "adapter")
     for field in ("gradient", "hue_play"):
         if type(options.get(field, False)) is not bool:
@@ -121,6 +124,8 @@ def load_config(path):
         raise ConfigError("Adapter and power credentials must be separate")
     if options.get("hue_play", False) and resolved["hue_config_file"] is None:
         raise ConfigError("Hue Play requires a Hue configuration")
+    if resolved["native_profile_file"] and resolved["hue_config_file"] is None:
+        raise ConfigError("Native Hue profile requires a Hue configuration")
     if resolved["hue_stream_config_file"] and not options.get("hue_play", False):
         raise ConfigError("Native video requires Hue Play")
     return ServiceConfig(

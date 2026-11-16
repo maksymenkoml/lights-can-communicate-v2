@@ -454,7 +454,8 @@ class ProducerTests(unittest.TestCase):
             captured.update(controller=args[0], strip=args[2], plays=args[3], **kwargs)
             return object()
 
-        def client(_config, resource_id=None):
+        def client(_config, resource_id=None, profile=None):
+            self.assertIsNone(profile)
             result = FakeHue()
             if resource_id is not None:
                 result.resource_id = resource_id

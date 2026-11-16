@@ -1,11 +1,11 @@
 # Read-only live output preview in the placement grid
 
 The owner asked for live zone colors and Sync state on the existing grid.
-This takes priority over the inspected native-profile extraction; no profile code
-was changed. The owner then enabled a sleep hold. The physical adapter is stopped
-and `state/live-output-hold` must remain until explicit morning resume. All work
-and acceptance in this slice use synthetic data and isolated tests. No physical
-adapter, lamp, Box, phone or NAS operation is permitted overnight.
+The implementation was prepared under the owner's overnight sleep hold, without
+physical output. The owner explicitly resumed work in the morning; live API and
+transport acceptance is recorded in `core/evidence/live-preview-live.json`.
+The historical overnight evidence remains in `core/evidence/live-preview-offline.json`.
+Any subsequent owner sleep hold still prevents physical output until explicit resume.
 
 ## User-facing behavior
 

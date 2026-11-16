@@ -119,6 +119,7 @@ class CoreDistributionTests(unittest.TestCase):
             self.assertIn("live_adapter.py", names)
             self.assertIn("smart_lighting.py", names)
             self.assertIn("smart_lighting_core/cli.py", names)
+            self.assertIn("smart_lighting_core/native_profile.py", names)
             self.assertFalse(any("state/" in name or "tests/" in name for name in names))
             self.assertFalse(any(".lighting" in name or name.endswith(".jsonl") for name in names))
             manifest = json.loads(bundle.read("core-manifest.json"))

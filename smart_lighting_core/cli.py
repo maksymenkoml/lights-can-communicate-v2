@@ -13,6 +13,7 @@ import sys
 
 from . import __version__
 from .config import ConfigError, load_config, read_json
+from .native_profile import NativeHueProfile, NativeProfileError
 
 
 def _hue_identity(value):
@@ -39,6 +40,13 @@ def _credential(path):
 
 def prepare(config):
     """Import and validate the existing runtime without starting any workers."""
+    try:
+        profile = (
+            NativeHueProfile.load(config.native_profile_file)
+            if config.native_profile_file else None
+        )
+    except NativeProfileError:
+        raise ConfigError("Invalid native Hue profile") from None
     os.environ["PROBE_GOVEE_GRADIENT"] = "true" if config.gradient else "false"
     # Source mode explicitly adds only our known pilot module directory. In an
     # archive all runtime modules already live in the archive's import root.
@@ -66,11 +74,14 @@ def prepare(config):
             hue = read_json(config.hue_config_file, "Hue configuration")
             if not _hue_identity(hue.get("hue_key")):
                 raise ConfigError("Invalid Hue credential")
-            live_adapter.HueStripProxy(live_adapter.PinnedHueClient(hue))
+            live_adapter.HueStripProxy(live_adapter.PinnedHueClient(hue, profile=profile),
+                                       profile=profile)
             if config.hue_play:
-                for role, resource in live_adapter.PLAY_IDS.items():
+                play_ids = profile.play_ids if profile is not None else live_adapter.PLAY_IDS
+                for role, resource in play_ids.items():
                     live_adapter.HueStripProxy(
-                        live_adapter.PinnedHueClient(hue, resource_id=resource), role=role
+                        live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
+                        role=role, profile=profile,
                     )
         if config.hue_stream_config_file:
             stream = read_json(config.hue_stream_config_file, "Hue stream configuration")
@@ -80,7 +91,7 @@ def prepare(config):
                 raise ConfigError("Invalid native stream credential or identity")
             if stream.get("bridge") != hue.get("bridge"):
                 raise ConfigError("Scene and stream Hue bridges must match")
-            live_adapter.HueEntertainmentRelay(stream)
+            live_adapter.HueEntertainmentRelay(stream, profile=profile)
             # Match the relay's binary selection without creating a DTLS client.
             binary = next(
                 (

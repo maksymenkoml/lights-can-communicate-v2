@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-16",
+  "version": "0.1.0.dev4",
+  "artifact_sha256": "af310b961f19a064329d10c5dfd9b8da5066b231ef6d902c41d442c9706c0b16",
+  "status": "PASS for fixed-topology source, distribution and live transport/API acceptance.",
+  "automated": {
+    "mac_python": {"run": 410, "skipped": 14, "failures": 0},
+    "isolated_linux_python": {"run": 410, "skipped": 2, "failures": 0},
+    "node_ui_and_power": {"run": 89, "failures": 0},
+    "archive_whole_color": {"run": 167, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "archive_gradient": {"run": 127, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "new_profile_tests": 29,
+    "ruff": "pass",
+    "pre_push_hook": "pass",
+    "review": "PASS after explicit-profile resource-type checks and negative tests."
+  },
+  "live": {
+    "selection_parity": "Read-only validation confirmed the same four native light resources, native area, twelve service/index mappings and resource types.",
+    "process_cutover": "Owned dev3 exited before dev4 started; isolated archive and separate profile configuration; dev3 retained for rollback.",
+    "scene": "All six remained On, with fresh scene-output colors and zone counts 7,7,9,1,1,1.",
+    "ps5_sync": {
+      "frames_received": [201, 352],
+      "frames_sent": [142, 242],
+      "max_sampled_frame_age_seconds": 0.0245,
+      "all_six_sources": "sync-output",
+      "all_six_stale": false,
+      "native_four_modes": "streaming",
+      "gateway_sync": "active"
+    },
+    "stop": "All six returned to fresh scene-output colors, native four normal, gateway Sync off.",
+    "unchanged": ["HomeKit IDs and scenes", "virtual bridge pairing and resources", "saved geometry", "brightness calibration", "two Govee targets", "NAS installation", "existing credential files"]
+  },
+  "limits": [
+    "Fixed four-native-light/twelve-native-channel topology; additional discovery placements are not enrolled.",
+    "Legacy identity defaults remain for compatibility; the artifact is not yet generic.",
+    "Transport/API colors are not optical measurements or physical segment readback.",
+    "Owner browser preview and visual acceptance are separate from automated and live API acceptance.",
+    "Docker Desktop UDP publication after host sleep still requires separate lifecycle hardening."
+  ],
+  "private_evidence_directory": "experiments/hue-bridge/state/archives/live-preview-live-2026-11-16"
+}

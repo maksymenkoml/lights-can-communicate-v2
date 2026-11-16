@@ -1,0 +1,38 @@
+{
+  "date": "2026-11-16",
+  "artifact_version": "0.1.0.dev3",
+  "artifact_sha256": "6a22e23cf0ff73ea00d4c246ac9e2d67bd90b9cfb647bd8e6cac3ed7dd9d0728",
+  "authorization": "Owner explicitly resumed work after the overnight hold and supplied PS5 video.",
+  "status": "PASS for live transport and local gateway API; no optical or owner-browser acceptance claimed.",
+  "cases": {
+    "startup_with_all_six_off": "All six remained Off, zero color/brightness commands, no active preview colors.",
+    "scene_after_normal_on": "Six On fixtures had fresh scene-output colors; zone counts 7,7,9,1,1,1.",
+    "requested_sync_without_frames": "Gateway reported waiting while scene output continued.",
+    "active_ps5_sync": {
+      "frames_received": [142, 349],
+      "frames_sent": [98, 333],
+      "frame_age_seconds": [0.1183, 0.0276],
+      "all_six_sources": "sync-output",
+      "all_six_stale": false,
+      "native_four_modes": "streaming",
+      "gateway_sync": "active"
+    },
+    "stop_returns_scene": "Gateway off, preview scene, six fresh scene-output roles, native four normal.",
+    "owner_layout": "Saved layout hash unchanged across captures; owner tab not opened."
+  },
+  "recovered_environment_issue": {
+    "symptom": "Sync requested but zero incoming frames after overnight pause.",
+    "diagnosis": "Container UDP 2100 guard bound and running, but one host-local control datagram never reached its counter.",
+    "action": "Recreated only the existing pinned local bridge container, retaining its persistent pairing/scenes/configuration.",
+    "verification": "Control datagram incremented idle guard from 0 to 1; subsequent real PS5 frames advanced and drove all six outputs.",
+    "limit": "Automatic recovery of Docker Desktop UDP publication after host sleep is not implemented by this preview feature."
+  },
+  "boundaries": {
+    "new_output_devices_enrolled": 0,
+    "nas_changed": false,
+    "third_govee_targeted": false,
+    "game_launched_by_agent": false,
+    "extra_right_off_test": "Skipped after automatic review rejected the optional UI toggle; startup all-Off coverage retained."
+  },
+  "private_evidence_directory": "experiments/hue-bridge/state/archives/live-preview-live-2026-11-16"
+}
