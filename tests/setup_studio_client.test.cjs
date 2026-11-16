@@ -190,8 +190,31 @@ const liveSnapshot=(overrides={})=>({version:1,connected:true,mode:'sync',sync:{
  'play-center':{online:true,on:true,brightness:50,colors:[[81,29,7]],source:'sync-output',stale:false},
  'hue-monitor':{online:true,on:true,brightness:100,colors:[[1,0,0],[2,0,0],[3,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0]],source:'sync-output',stale:false}
 },...overrides});
-const zones=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-lamp]').filter(node=>node.dataset.previewLamp===id);
+const zones=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-lamp]').filter(node=>node.dataset.previewLamp===id&&!node.hasAttribute('data-preview-glow'));
 const zone=(app,id,index=0)=>zones(app,id).find(node=>node.dataset.zone===String(index));
+const glows=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-glow]').filter(node=>node.dataset.previewLamp===id);
+test('wall glow follows calibrated zones behind furniture without becoming an interactive lamp',async()=>{
+ const app=await harness({pilot:liveSnapshot()}),stage=app.nodes.get('#stage');
+ assert.equal(glows(app,'govee-left').length,7);
+ assert.deepEqual(glows(app,'govee-left').map(node=>node.getAttribute('stroke')),zones(app,'govee-left').map(node=>node.getAttribute('stroke')));
+ assert.equal(glows(app,'play-center')[0].getAttribute('stroke'),'rgb(81,29,7)');
+ assert.equal(glows(app,'hue-monitor').filter(node=>node.tagName==='PATH').length,9);
+ assert.ok(stage.innerHTML.indexOf('class="wall-glow-layer"')<stage.innerHTML.indexOf('class="desk-target"'));
+ assert.equal(stage.querySelectorAll('[data-lamp]').length,6);
+ assert.equal(app.posts.length,0);
+});
+test('wall glow clears on Off or unavailable output and returns with fresh scene data without layout writes',async()=>{
+ let snapshot=liveSnapshot();const app=await harness({pilot:()=>snapshot}),stage=app.nodes.get('#stage'),writes=stage.writes;
+ const glow=glows(app,'govee-left')[0];assert.ok(glow);
+ for(const changes of [{on:false},{stale:true},{online:false},{source:'unknown'},{colors:[]}]){
+  snapshot=liveSnapshot();Object.assign(snapshot.lamps['govee-left'],changes);await app.advance(200);
+  assert.equal(glow.getAttribute('opacity'),'0');
+ }
+ snapshot=liveSnapshot({mode:'scene',sync:{state:'off'}});await app.advance(200);
+ assert.equal(glow.getAttribute('opacity'),'1');
+ await app.visible(false);assert.equal(glow.getAttribute('opacity'),'0');
+ assert.equal(stage.writes,writes);assert.equal(app.posts.length,0);
+});
 test('live output paints calibrated RGB once, seven bottom-to-top Govee zones and all nine U-path segments',async()=>{
  const app=await harness({pilot:liveSnapshot()});
  assert.equal(zone(app,'govee-left')?.getAttribute('stroke'),'rgb(166,0,0)');

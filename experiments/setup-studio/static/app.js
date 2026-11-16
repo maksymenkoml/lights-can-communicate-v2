@@ -64,15 +64,17 @@ function zonePaint(id,index){
  if(!Array.isArray(rgb)||rgb.length!==3||!rgb.every(value=>Number.isInteger(value)&&value>=0&&value<=255))return neutral;
  return {color:`rgb(${rgb.join(',')})`,opacity:'1',state:'active'};
 }
-function zoneAttributes(id,index,attribute){
+function zoneAttributes(id,index,attribute,glow=false){
  const paint=zonePaint(id,index);
- return `data-preview-lamp="${id}" data-zone="${index}" data-color-attribute="${attribute}" data-output="${paint.state}" ${attribute}="${paint.color}" opacity="${paint.opacity}"`;
+ const opacity=glow&&paint.state!=='active'?'0':paint.opacity;
+ return `data-preview-lamp="${id}" ${glow?'data-preview-glow="" ':''}data-zone="${index}" data-color-attribute="${attribute}" data-output="${paint.state}" ${attribute}="${paint.color}" opacity="${opacity}"`;
 }
 function paintPreview(){
  // Telemetry changes only existing color attributes, never layout or focused controls.
  for(const node of stage.querySelectorAll('[data-preview-lamp]')){
   const paint=zonePaint(node.dataset.previewLamp,Number(node.dataset.zone));
-  for(const [key,value]of [[node.dataset.colorAttribute,paint.color],['opacity',paint.opacity],['data-output',paint.state]])if(node.getAttribute(key)!==value)node.setAttribute(key,value);
+  const opacity=node.hasAttribute('data-preview-glow')&&paint.state!=='active'?'0':paint.opacity;
+  for(const [key,value]of [[node.dataset.colorAttribute,paint.color],['opacity',opacity],['data-output',paint.state]])if(node.getAttribute(key)!==value)node.setAttribute(key,value);
  }
  const state=previewFresh()&&previewSnapshot&&(previewSnapshot.connected||previewSnapshot.sync?.state==='paused')?previewSnapshot.sync?.state:'unknown';
  const safeState=Object.hasOwn(syncLabels,state)?state:'unknown',badge=$('#sync-status'),label=`Sync: ${syncLabels[safeState]}`;
@@ -128,7 +130,7 @@ function room(){
  <text class="screen-copy" x="${cx}" y="${cy+4}">${layout.monitorInches}″ · 16:9 · ✎</text></g>
  <path class="desk" d="M${cx} ${cy+h/2+2}V${DESK_Y-3}M${cx-35} ${DESK_Y-3}h70"/>`;
 }
-function lamp(d){
+function lamp(d,glow=false){
  const x=d.pos.x*10,y=stageY(d);
  const attached=d.id==='hue-monitor';
  const vertical=d.shape==='floor'||(d.shape==='bar'&&d.orientation==='vertical');
@@ -136,7 +138,7 @@ function lamp(d){
  if(d.shape==='floor'){
   const base=300,top=base-GOVEE_HEIGHT_CM*UNITS_PER_CM,lightBottom=270,lightLength=lightBottom-top-5;
   body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="11" stroke-linecap="butt"/><path d="M0 279v19" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="300" rx="21" ry="5"/>`;
-  light=Array.from({length:d.zones},(_,i)=>`<path class="light" d="M0 ${lightBottom-i*lightLength/d.zones}v${-lightLength/d.zones-1}" ${zoneAttributes(d.id,i,'stroke')} stroke-width="5" stroke-linecap="round"/>`).join('');
+  light=Array.from({length:d.zones},(_,i)=>`<path class="light" d="M0 ${lightBottom-i*lightLength/d.zones}v${-lightLength/d.zones-1}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="5" stroke-linecap="round"/>`).join('');
   box=[-37,top-15,74,base-top+35];nameY=345;
  }else if(attached){
   const size=monitorSize(),w=size.width/2+9,h=size.height/2+9;
@@ -146,15 +148,16 @@ function lamp(d){
   light=points.map(([px,py],i)=>{
    const previous=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];
    // Each anchor owns the U-path up to the midpoint toward its neighbours.
-   return `<path class="light-path" d="M${(previous[0]+px)/2} ${(previous[1]+py)/2}L${px} ${py}L${(next[0]+px)/2} ${(next[1]+py)/2}" ${zoneAttributes(d.id,i,'stroke')}/><circle class="light" cx="${px}" cy="${py}" r="4" ${zoneAttributes(d.id,i,'fill')}/>`;
+   return `<path class="light-path" d="M${(previous[0]+px)/2} ${(previous[1]+py)/2}L${px} ${py}L${(next[0]+px)/2} ${(next[1]+py)/2}" ${zoneAttributes(d.id,i,'stroke',glow)}/><circle class="light" cx="${px}" cy="${py}" r="4" ${zoneAttributes(d.id,i,'fill',glow)}/>`;
   }).join('');
   box=[-w-15,-h-15,w*2+30,h*2+30];nameY=-h-29;
  }else{
   const length=d.shape==='strip'?220:PLAY_LENGTH_CM*UNITS_PER_CM;
   body=`<rect class="fixture" x="${vertical?-9:-length/2}" y="${vertical?-length/2:-9}" width="${vertical?18:length}" height="${vertical?length:18}" rx="8"/>`;
-  light=`<path class="light" d="${vertical?`M0 ${-length/2+7}v${length-14}`:`M${-length/2+7} 0h${length-14}`}" ${zoneAttributes(d.id,0,'stroke')} stroke-width="6" stroke-linecap="round"/>`;
+  light=`<path class="light" d="${vertical?`M0 ${-length/2+7}v${length-14}`:`M${-length/2+7} 0h${length-14}`}" ${zoneAttributes(d.id,0,'stroke',glow)} stroke-width="6" stroke-linecap="round"/>`;
   box=vertical?[-27,-length/2-15,54,length+30]:[-length/2-14,-26,length+28,52];nameY=vertical?length/2+35:39;
  }
+ if(glow)return `<g class="wall-glow" transform="translate(${x},${y})">${light}</g>`;
  return `<g class="lamp ${selected===d.id?'selected':''}" data-lamp="${d.id}" role="button" tabindex="0" aria-label="${esc(d.name)}" aria-pressed="${selected===d.id}" transform="translate(${x},${y})"><rect class="hit ${attached?'strip-hit':''}" x="${box[0]-18}" y="${box[1]-12}" width="${box[2]+36}" height="${box[3]+24}" rx="12"/><rect class="halo" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" rx="12"/>${body}${light}<text class="lamp-name long-name" x="0" y="${nameY}">${esc(d.name)}</text><text class="lamp-name short-name" x="0" y="${nameY}">${esc(d.short)}</text></g>`;
 }
 function renderStage(){
@@ -163,7 +166,7 @@ function renderStage(){
  const left=Math.min(-150,500-deskHalf-100,...layout.devices.map(d=>d.pos.x*10-(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
  const right=Math.max(1150,500+deskHalf+100,...layout.devices.map(d=>d.pos.x*10+(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
  if(!dragging)stage.setAttribute('viewBox',`${left} ${top} ${right-left} ${STAGE_HEIGHT-top}`);
- stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/>`+room()+layout.devices.map(lamp).join('');
+ stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${STAGE_HEIGHT-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/><g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${layout.devices.map(d=>lamp(d,true)).join('')}</g>`+room()+layout.devices.map(d=>lamp(d)).join('');
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
