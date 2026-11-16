@@ -65,3 +65,20 @@ no Save button, reset action or persistent save/instruction footer.
 The desk uses solid, thicker blue-gray tabletop and legs. Width is printed
 on the tabletop and height directly along the right leg, without separate
 dimension lines. Moving to a 5 cm grid preserves saved centimeter positions.
+
+
+## Discovered-device picker
+
+The add menu reads `/api/discovery`, a local-origin-protected proxy for the
+adapter's authenticated catalog. It never exposes adapter credentials. Select
+supported available lights to add identity-bound `device-*` placements; existing
+six-role placements and older drawings are retained. New placements autosave,
+round-trip and can be edited/removed offline. Their canonical type/model/name/
+zones are verified before initial persistence. They are setup configuration and
+do not enroll additional physical outputs in this component.
+
+The picker polls only while open, preserves checks/focus across refreshes, and
+shows unavailable or unsupported choices. Refresh an existing browser tab after
+the update. Govee must advertise through LAN Control; Hue comes from the already
+paired Bridge inventory. The local API/DOM checks passed; visual browser
+acceptance remains with the owner because he requested no automatic layout open.

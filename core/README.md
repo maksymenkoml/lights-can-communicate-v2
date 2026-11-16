@@ -87,3 +87,29 @@ reconnection acceptance. Final Stop restored all four native Hue fixtures to
 normal mode and six dynamic scene lights; all six already-On states were
 preserved at the sampled checkpoints. See `evidence/local-cutover.json` for
 counts and boundaries. New visual latency/smoothness acceptance was not recorded.
+
+
+## Discovery and real layout placements
+
+The local `0.1.0.dev2` adapter exposes authenticated `GET /discovery`. Its catalog
+observes the existing sole Govee reply listener and reads bridge/device/light
+metadata from the already paired Hue Bridge. It creates no extra Govee socket,
+status polling target or hardware writer. Govee LAN Control is required for LAN
+observations. Public catalog responses omit physical IDs, addresses and keys;
+opaque placement IDs remain stable across address/name changes.
+
+The setup UI's add menu now selects real catalog lights, derives their shape and
+zones, snaps them to the five-centimeter grid and autosaves canonical bindings.
+Already placed, unsupported, stale and ambiguous observations cannot be added as
+new bindings. Existing saved bindings remain editable offline. Hue catalog
+`online` means fresh Bridge inventory, not physical Zigbee reachability. New
+bindings configure placement/calibration only; the six current hardware output
+roles remain unchanged until the next topology/enrollment component.
+
+Live activation found 12 elements (7 supported lights, 6 matched to existing
+placements); an additional LCX005 strip was selectable. The existing layout bytes,
+virtual Hue IDs, selected hardware and Play intent were preserved. Both Govee
+were Off and remained Off with zero adapter color/brightness commands at sampled
+checkpoints; the four already-On native Hue fixtures continued scene writes.
+See `evidence/discovery-layout.json`. The owner requested opening the layout
+himself, so API and automated DOM checks were used without opening his tab.

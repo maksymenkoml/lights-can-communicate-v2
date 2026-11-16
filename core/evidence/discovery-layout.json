@@ -1,0 +1,83 @@
+{
+  "recorded_at": "2026-11-16T05:09:00.308917+00:00",
+  "code_commit": "2dbabe7",
+  "artifact_version": "0.1.0.dev2",
+  "artifact_sha256": "18a14c50a8a345c40ebeac9b5de841498dbde6f8256c45a3c6638fcf7c9c9210",
+  "scope": "Automatic local discovery plus explicit configuration-only identity-bound placements in the grid. Generic hardware output enrollment is not part of this component.",
+  "checks": {
+    "mac_python": {
+      "run": 351,
+      "skipped": 14,
+      "failed": 0
+    },
+    "isolated_linux_python": {
+      "run": 351,
+      "skipped": 2,
+      "failed": 0
+    },
+    "node_client_passed": 14,
+    "node_power_passed": 63,
+    "archive_whole_color": {
+      "run": 116,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failed": 0
+    },
+    "archive_gradient": {
+      "run": 76,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failed": 0
+    },
+    "discovery_cases_passed": 35,
+    "setup_api_cases_passed": 8,
+    "integration_cases_passed": 5,
+    "ruff": "pass",
+    "final_review": "PASS after order-independent malformed-peer TTL correction"
+  },
+  "test_fixture_correction": "A controlled delayed worker reproduced a prior premature Play assertion; the fixture waits for six actual dynamic flags with the original bounded helper and retains all rejection, generation, file and power assertions. No production Play code changed.",
+  "live_catalog": {
+    "connected": true,
+    "providers": {
+      "govee": "ready",
+      "hue": "ready"
+    },
+    "observed": 12,
+    "supported": 7,
+    "legacy_layout_matches": 6,
+    "by_provider": {
+      "govee": 2,
+      "hue": 10
+    },
+    "additional_selectable_models": [
+      "LCX005"
+    ],
+    "ids_stable_across_polls": true,
+    "hue_online_semantics": "Fresh paired-Bridge inventory observation, not physical Zigbee reachability."
+  },
+  "preservation": {
+    "layout_bytes_unchanged": true,
+    "selected_govee_ids_unchanged": true,
+    "virtual_hue_ids_unchanged": true,
+    "layout_members_before": 6,
+    "layout_members_after": 6,
+    "govee_power": "Both already Off; both remained Off with zero adapter color/brightness commands at captured checkpoints.",
+    "native_hue_power": "All four already On; all four remained On.",
+    "native_scene_write_deltas": {
+      "strip": 69,
+      "hue_left": 68,
+      "hue_center": 68,
+      "hue_right": 69
+    },
+    "dynamic_virtual_lights": 6,
+    "saved_play_intents": 6
+  },
+  "boundaries": [
+    "No new physical device was selected or enrolled by the agent; owner chooses additions in the UI.",
+    "Real membership addition/removal/autosave/offline editing/canonical rejection were checked with synthetic DOM and loopback fixtures, not by writing the owner layout.",
+    "The owner layout tab was not opened; browser visual acceptance is pending.",
+    "Discovery reuses the sole existing Govee listener and reads only the already paired local Hue Bridge. Govee must expose LAN discovery.",
+    "No new Homebridge/NAS installation, HomeKit accessory, Hue pairing or hardware writer.",
+    "Core remains on the Mac with the pinned six output roles; applying new layout members to scenes/Sync is the next component."
+  ]
+}

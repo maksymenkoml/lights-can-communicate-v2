@@ -101,7 +101,7 @@ new devices. Unknown models remain unsupported until a driver/profile is tested.
 
 Production readiness requires NAS operation with the Mac shut down; preserved
 HomeKit identities/automations and virtual Hue pairing; single-writer handover;
-recoverable updates/backups; understandable diagnostics; and explicit physical
+recoverable updates/backups; understandable diagnostics; stale-browser migration across layout schema changes, and explicit physical
 acceptance. Passing the existing unit suite alone does not establish these gates.
 
 ## Primary references
