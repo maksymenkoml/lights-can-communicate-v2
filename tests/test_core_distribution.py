@@ -14,6 +14,8 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from smart_lighting_core import __version__
+
 ROOT = Path(__file__).resolve().parents[1]
 PINNED_LINUX = (
     sys.platform == "linux"
@@ -124,7 +126,7 @@ class CoreDistributionTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(bundle.read(name)).hexdigest(), digest)
         result = self.run_archive("--version")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.1.0.dev1", result.stdout)
+        self.assertIn(__version__, result.stdout)
         # Changing CWD or placing a module beside the artifact must not hijack imports.
         (self.cwd / "live_adapter.py").write_text("raise RuntimeError('CWD import hijacked')")
         (self.root / "desk_layout.py").write_text("raise RuntimeError('parent import hijacked')")
@@ -302,7 +304,7 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
             process.kill()
             stdout, stderr = process.communicate(timeout=3)
             self.fail("Packaged process did not become ready: " + stdout + stderr)
-        self.assertEqual(status["service"]["version"], "0.1.0.dev1")
+        self.assertEqual(status["service"]["version"], __version__)
         self.assertEqual(status["commands_sent"], 0)
         self.assertEqual(set(status["power_owner"]["roles"]), {"left", "right"})
         os.kill(process.pid, signal.SIGTERM)

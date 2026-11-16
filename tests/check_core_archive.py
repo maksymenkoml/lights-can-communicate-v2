@@ -19,6 +19,7 @@ CONTRACTS = [
     "test_pilot_transport",
     "test_govee_segments",
     "test_adapter_lifecycle",
+    "test_discovery_integration",
 ]
 RUNTIME = [
     "live_adapter",

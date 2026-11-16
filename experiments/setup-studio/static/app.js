@@ -22,6 +22,8 @@ const seed=[
  {id:'play-right',name:'Hue Play Right',short:'Play R',model:'Hue Play',shape:'bar',zones:1,scale:100,rate:0,orientation:'horizontal',pos:{x:65,y:72.222222}}
 ];
 const typeNames={floor:'Торшер RGBIC',strip:'Стрічка',bar:'Світлова панель'};
+const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
+const removable=id=>id?.startsWith('virtual-')||realDevice(id);
 const palette=['#809bc4','#a98bbd','#cb9cae','#dab493','#cfc49b'].map(hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)));
 function defaults(){const data={version:3,room:'Mykola Office',desk:clone(deskDefaults),monitorInches:32,devices:clone(seed)};data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;}
 function load(savedOverride){
@@ -30,9 +32,10 @@ function load(savedOverride){
   if(![1,2,3].includes(saved?.version)||!Array.isArray(saved.devices))return defaults();
   const data=defaults();data.desk={width:clamp(saved.desk?.width??160,80,240),height:clamp(saved.desk?.height??85,50,120)};data.monitorInches=clamp(saved.monitorInches??32,19,55);data.room=String(saved.room||data.room).slice(0,40);
   data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'?-100:0,100)}}:d;});
-  for(const s of saved.devices.filter(x=>/^virtual-[a-z0-9]+$/.test(x.id||'')).slice(0,6)){
+  for(const s of saved.devices.filter(x=>/^virtual-[a-z0-9]+$/.test(x.id||'')||realDevice(x.id)).slice(0,6)){
    const shape=Object.hasOwn(typeNames,s.shape)?s.shape:'bar';if(s.positionCm)s.pos=positionFromCm(s.positionCm);
-   data.devices.push({id:s.id,name:String(s.name||'Нова лампа').slice(0,35),short:'Нова лампа',model:'Макет',shape,zones:shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,0,100)}});
+   const real=realDevice(s.id),name=String(s.name||'Нова лампа').slice(0,real?80:35);
+   data.devices.push({id:s.id,name,short:real?name:'Нова лампа',model:real?String(s.model||'').slice(0,64):'Макет',shape,zones:real?clamp(s.zones,1,32):shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,0,100)}});
   }
   data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;
  }catch{return defaults();}
@@ -112,7 +115,7 @@ function renderSelection(){
  const offset=Math.round(d.pos.x/100*COLS)*STEP_CM-COLS*STEP_CM/2;
  const horizontal=offset===0?'По центру':`${Math.abs(offset)} см ${offset<0?'ліворуч':'праворуч'} від центру`;
  const elevation=heightCm(d)-(d.shape==='floor'?60:0);
- panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити параметри лампи">×</button><h2>${esc(d.name)}</h2><p>${esc(d.model)} · ${typeNames[d.shape]}${d.shape==='floor'?` · ${GOVEE_HEIGHT_CM} см`:d.shape==='bar'?` · ${PLAY_LENGTH_CM} см`:''}</p><div class="automatic"><i>✓</i>${horizontal} · ${elevation} см від підлоги</div><div class="brightness"><label for="brightness">Яскравість <output id="brightness-value">${Math.round(d.scale)}%</output></label><input id="brightness" type="range" min="0" max="100" step="1" value="${d.scale}" aria-label="Яскравість вибраної лампи"></div>${d.shape==='bar'?`<fieldset class="orientation"><legend>Розташування</legend><label><input type="radio" name="orientation" value="horizontal" ${d.orientation!=='vertical'?'checked':''}>Горизонтально</label><label><input type="radio" name="orientation" value="vertical" ${d.orientation==='vertical'?'checked':''}>Вертикально</label></fieldset>`:''}${d.id.startsWith('virtual-')?'<button class="remove" data-action="remove">Прибрати з макета</button>':''}`;
+ panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити параметри лампи">×</button><h2>${esc(d.name)}</h2><p>${esc(d.model)} · ${typeNames[d.shape]}${d.shape==='floor'?` · ${GOVEE_HEIGHT_CM} см`:d.shape==='bar'?` · ${PLAY_LENGTH_CM} см`:''}</p><div class="automatic"><i>✓</i>${horizontal} · ${elevation} см від підлоги</div><div class="brightness"><label for="brightness">Яскравість <output id="brightness-value">${Math.round(d.scale)}%</output></label><input id="brightness" type="range" min="0" max="100" step="1" value="${d.scale}" aria-label="Яскравість вибраної лампи"></div>${d.shape==='bar'?`<fieldset class="orientation"><legend>Розташування</legend><label><input type="radio" name="orientation" value="horizontal" ${d.orientation!=='vertical'?'checked':''}>Горизонтально</label><label><input type="radio" name="orientation" value="vertical" ${d.orientation==='vertical'?'checked':''}>Вертикально</label></fieldset>`:''}${realDevice(d.id)?'<p class="placement-note">Ця лампа ще не отримує кольори. Параметри стосуються розташування й калібрування.</p>':''}${removable(d.id)?'<button class="remove" data-action="remove">Прибрати з макета</button>':''}`;
 }
 function render(){renderStage();renderSelection();$('.room').textContent=layout.room;}
 function choose(id){selected=id;render();}
@@ -128,7 +131,7 @@ function packLayout(data=layout){
  return {version:3,gridStepCm:STEP_CM,room:data.room,desk:clone(data.desk),monitorInches:data.monitorInches,devices:data.devices.map(d=>({
   id:d.id,scale:d.scale,orientation:d.orientation||'horizontal',
   positionCm:d.positionCm?clone(d.positionCm):{x:Math.round(d.pos.x/100*COLS)*STEP_CM,height:heightCm(d)},
-  ...(d.id.startsWith('virtual-')?{shape:d.shape,name:d.name}:{})
+  ...(realDevice(d.id)?{shape:d.shape,name:d.name,model:d.model,zones:d.zones}:d.id.startsWith('virtual-')?{shape:d.shape,name:d.name}:{})
  }))};
 }
 function mergeLayouts(base,local,remote){
@@ -142,7 +145,7 @@ function mergeLayouts(base,local,remote){
   const previous=old.get(id),target=result.devices.find(d=>d.id===id);
   if(!previous){if(!target)result.devices.push(clone(current));continue;}
   if(!target){if(!equal(previous,current))result.devices.push(clone(current));continue;}
-  for(const key of ['scale','orientation','name','shape'])field(target,key,previous[key],current[key]);
+  for(const key of ['scale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
   for(const key of ['x','height'])field(target.positionCm,key,previous.positionCm[key],current.positionCm[key]);
  }
  return result;
@@ -186,17 +189,52 @@ async function connectLayout(){
  }
 }
 
-function add(){
- if(layout.devices.length>=12){notify('У цьому макеті вже 12 ламп');return;}
- $('#modal-content').innerHTML=`<h2>Яку лампу додати?</h2><p>Обери форму. Решту макет підбере автоматично.</p><div class="types"><button class="type" data-add="floor"><svg viewBox="0 0 40 50"><path d="M20 4v36M10 44h20"/></svg>Торшер</button><button class="type" data-add="strip"><svg viewBox="0 0 40 50"><path d="M5 42V9h30v33"/></svg>Стрічка</button><button class="type" data-add="bar"><svg viewBox="0 0 40 50"><rect x="7" y="16" width="26" height="14" rx="6"/></svg>Панель</button></div><div class="top-help">Новий об’єкт додається лише до макета.</div>`;$('#modal').showModal();
+let discoverySnapshot=null,discoveryChoices=new Set(),discoveryTimer,discoveryLoading=null,discoverySession=0;
+function discoveryReason(d){
+ if(layout.devices.some(row=>row.id===d.id||row.id===d.layout_id))return 'Уже на макеті';
+ if(d.ambiguous)return 'Неоднозначна ідентичність';
+ if(!d.supported||!Object.hasOwn(typeNames,d.shape))return 'Не підтримується';
+ if(!d.online)return 'Не в мережі';
+ if(!d.selectable)return 'Недоступна для додавання';
+ return '';
 }
-const actions={add,'close-modal':()=>$('#modal').close(),deselect:()=>{selected=null;render();},remove:()=>{if(!current()?.id.startsWith('virtual-'))return;remember();layout.devices=layout.devices.filter(d=>d.id!==selected);selected=null;dirty();render();}};
+function renderDiscovery(){
+ const content=$('#modal-content'),active=document.activeElement;
+ const focusSelector=content.contains(active)?realDevice(active.dataset?.discovery)?`[data-discovery="${active.dataset.discovery}"]`:active.dataset?.action==='add-selected'?'[data-action="add-selected"]':null:null;
+ const devices=discoverySnapshot?.devices||[],available=discoverySnapshot?.connected===true;
+ const count=devices.filter(d=>!discoveryReason(d)&&discoveryChoices.has(d.id)).length;
+ const providerStates=Object.values(discoverySnapshot?.providers||{});
+ const providerIssue=available&&providerStates.some(status=>['unavailable','stale'].includes(status));
+ const searching=available&&providerStates.includes('discovering');
+ content.innerHTML=`<h2>Додати лампи</h2><p>Обери знайдені лампи для розташування на макеті.</p><div class="discovery-status" role="status">${!discoverySnapshot?'Шукаємо лампи…':!available?'Пошук ламп недоступний. Спробуємо знову автоматично.':providerIssue?'Частина джерел пошуку недоступна. Список оновлюється автоматично.':searching?'Шукаємо лампи… Список оновлюється автоматично.':!devices.length?'Поки немає знайдених ламп. Список оновлюється автоматично.':'Знайдені лампи'}</div><div class="discovery-list">${devices.map(d=>{const reason=discoveryReason(d),disabled=reason||!available;return `<label class="discovery-item ${disabled?'unavailable':''}"><input type="checkbox" data-discovery="${esc(d.id)}" ${disabled?'disabled':''} ${discoveryChoices.has(d.id)?'checked':''}><span><strong>${esc(d.name)}</strong><small>${esc(d.model)} · ${esc(typeNames[d.shape]||'Пристрій')}${reason?` · ${esc(reason)}`:''}</small></span></label>`;}).join('')}</div><div class="discovery-footer"><span>${layout.devices.length}/12 ламп на макеті</span><button class="button primary" data-action="add-selected" ${!available||!count||count>12-layout.devices.length?'disabled':''}>Додати вибрані${count?` (${count})`:''}</button></div><div class="top-help">Нова лампа ще не отримує кольори. Тут налаштовується лише розташування й калібрування.</div>`;
+ if(focusSelector)content.querySelector(focusSelector+':not(:disabled)')?.focus({preventScroll:true});
+}
+async function refreshDiscovery(session=discoverySession){
+ if(!$('#modal').open||session!==discoverySession||discoveryLoading===session)return;
+ discoveryLoading=session;
+ try{const response=await fetch('/api/discovery');if(!response.ok)throw new Error('discovery');const snapshot=await response.json();if(session===discoverySession)discoverySnapshot=snapshot;}
+ catch{if(session===discoverySession)discoverySnapshot={connected:false,devices:[],providers:{}};}
+ finally{if(discoveryLoading===session)discoveryLoading=null;if($('#modal').open&&session===discoverySession){renderDiscovery();clearTimeout(discoveryTimer);discoveryTimer=setTimeout(()=>refreshDiscovery(session),3000);}}
+}
+function closeDiscovery(){discoverySession++;clearTimeout(discoveryTimer);$('#modal').close();}
+function add(){
+ discoveryChoices.clear();discoverySnapshot=null;discoverySession++;renderDiscovery();$('#modal').showModal();refreshDiscovery();
+}
+function addSelected(){
+ if(!discoverySnapshot?.connected)return;
+ const devices=discoverySnapshot.devices.filter(d=>realDevice(d.id)&&discoveryChoices.has(d.id)&&!discoveryReason(d));
+ if(!devices.length)return;if(layout.devices.length+devices.length>12){notify('У цьому макеті може бути до 12 ламп');return;}
+ remember();
+ for(const item of devices){if(layout.devices.some(d=>d.id===item.id))continue;const d={id:item.id,name:item.name,short:item.name,model:item.model,shape:item.shape,zones:item.zones,scale:80,rate:0,orientation:'horizontal',pos:{x:50,y:72}};autoSnap(d);layout.devices.push(d);selected=d.id;}
+ dirty();render();closeDiscovery();
+}
+const actions={add,'add-selected':addSelected,'close-modal':closeDiscovery,deselect:()=>{selected=null;render();},remove:()=>{if(!removable(current()?.id))return;remember();layout.devices=layout.devices.filter(d=>d.id!==selected);selected=null;dirty();render();}};
 document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  if(button.dataset.action)actions[button.dataset.action]?.();
- if(button.dataset.add){const shape=button.dataset.add;remember();const d={id:'virtual-'+Date.now().toString(36),name:`${typeNames[shape]} ${layout.devices.filter(x=>x.shape===shape).length+1}`,short:typeNames[shape],model:'Макет',shape,zones:shape==='floor'?7:shape==='strip'?9:1,scale:80,rate:0,orientation:'horizontal',pos:{x:50,y:72}};autoSnap(d);layout.devices.push(d);selected=d.id;dirty();render();$('#modal').close();}
 });
 document.addEventListener('change',event=>{
+ if(event.target.dataset?.discovery){const id=event.target.dataset.discovery;if(event.target.checked)discoveryChoices.add(id);else discoveryChoices.delete(id);renderDiscovery();return;}
  if(['monitor-height','monitor-offset'].includes(event.target.id)){
   if(!event.target.value||!Number.isFinite(event.target.valueAsNumber)){renderSelection();return;}
   remember();const monitor=screen();

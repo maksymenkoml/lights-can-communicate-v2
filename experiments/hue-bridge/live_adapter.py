@@ -27,6 +27,8 @@ from power_owner import PowerOwner  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
 import smart_lighting as lan  # noqa: E402
+from smart_lighting_core.discovery import DeviceCatalog  # noqa: E402
+from smart_lighting_core.hue_discovery import HueDiscoveryReader  # noqa: E402
 
 
 def number(value, low, high):
@@ -411,7 +413,7 @@ class PilotController:
 
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
-                power_owner=None, power_token=None, service_info=None):
+                power_owner=None, power_token=None, service_info=None, catalog=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -440,6 +442,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
         def do_GET(self):
             if not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
+            if self.path == "/discovery" and catalog is not None:
+                return self.respond(200, catalog.snapshot())
             if self.path != "/status":
                 return self.respond(404, {"error": "not found"})
             result = controller.snapshot()
@@ -535,6 +539,7 @@ def main(argv=None, service_info=None):
     controller = PilotController(config["targets"], sender=sender, layout_store=layout_store,
                                  power_owner=power_owner)
     hue_proxies = {}
+    hue_config = None
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
         hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config), layout_store=layout_store)
@@ -561,6 +566,17 @@ def main(argv=None, service_info=None):
             proxy.output_lock = video.lock
             proxy.write_gate = lambda: not video.active()
     lan.CONFIG = args.targets
+    legacy_roles = {("govee", lan.device_key(device)): "govee-" + device["side"]
+                    for device in controller.targets}
+    hue_layout_roles = {"strip": "hue-monitor", "hue_left": "play-left",
+                        "hue_center": "play-center", "hue_right": "play-right"}
+    for role, proxy in hue_proxies.items():
+        resource = getattr(proxy, "resource_id", None)
+        if resource:
+            legacy_roles[("hue", resource)] = hue_layout_roles[role]
+    catalog = DeviceCatalog(legacy_roles=legacy_roles)
+    catalog.provider_state("govee", "discovering")
+    catalog.provider_state("hue", "discovering" if hue_config is not None else "not_configured")
     stop = threading.Event()
     server = ThreadingHTTPServer(
         (args.bind, args.port),
@@ -573,6 +589,7 @@ def main(argv=None, service_info=None):
             power_owner=power_owner,
             power_token=power_token,
             service_info=service_info,
+            catalog=catalog,
         ),
     )
     video_thread = http_thread = None
@@ -584,6 +601,10 @@ def main(argv=None, service_info=None):
             video.controller.update_statuses(statuses)
 
     try:
+        if hue_config is not None:
+            reader = HueDiscoveryReader(hue_config, catalog)
+            threading.Thread(target=reader.run, args=(stop,), daemon=True,
+                             name="hue-discovery").start()
         for role, proxy in hue_proxies.items():
             threading.Thread(
                 target=proxy.run, args=(stop,), daemon=True, name="pilot-" + role
@@ -597,6 +618,7 @@ def main(argv=None, service_info=None):
             controller.targets,
             publish_statuses,
             remember=lambda: lan.save_config({"targets": controller.targets}),
+            discovery=catalog,
         )
         threading.Thread(
             target=transport.run, args=(stop,), daemon=True, name="pilot-status"

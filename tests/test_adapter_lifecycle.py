@@ -44,6 +44,13 @@ class AdapterLifecycleTests(unittest.TestCase):
             def govee_allowed(self):
                 return True
 
+        class Discovery:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run(self, stop):
+                stop.wait()
+
         class Video:
             def __init__(self, controller, relay, proxies):
                 self.controller = controller
@@ -83,6 +90,7 @@ class AdapterLifecycleTests(unittest.TestCase):
                     patch.object(pilot, "PinnedHueClient", lambda *a, **kw: object()),
                     patch.object(pilot, "HueStripProxy", Proxy),
                     patch.object(pilot, "HueEntertainmentRelay", lambda *a, **kw: object()),
+                    patch.object(pilot, "HueDiscoveryReader", Discovery),
                     patch.object(pilot, "VideoOutput", Video),
                     patch.object(pilot, "PilotTransport", interrupted_transport),
                 ):

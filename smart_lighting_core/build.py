@@ -20,7 +20,7 @@ PILOT_MODULES = (
     "video_output",
     "bridge_output",
 )
-CORE_MODULES = ("__init__", "__main__", "config", "cli")
+CORE_MODULES = ("__init__", "__main__", "config", "cli", "discovery", "hue_discovery")
 
 
 def build(output):

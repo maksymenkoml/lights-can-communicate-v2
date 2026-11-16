@@ -9,8 +9,9 @@ import smart_lighting as lan
 
 
 class PilotTransport:
-    def __init__(self, targets, publisher, remember=None):
+    def __init__(self, targets, publisher, remember=None, discovery=None):
         self.targets, self.publisher, self.remember = targets, publisher, remember
+        self.discovery = discovery
         self.ids = {lan.device_key(device) for device in targets}
         self.observed, self.native, self.blocked = {}, {}, {}
 
@@ -30,6 +31,12 @@ class PilotTransport:
                     self.blocked[ip] = now
                 else:
                     self.observed[(key, ip)] = now
+                if self.discovery is not None:
+                    try:
+                        self.discovery.observe_govee(data, ip, now=now)
+                    except Exception:
+                        # Optional metadata must not interrupt identity/power proof.
+                        pass
             elif body["cmd"] == "devStatus" and data.get("onOff") in (0, 1):
                 hints = {device["ip"] for device in self.targets}
                 known = {ip for (key, ip) in self.observed if key in self.ids}
@@ -165,6 +172,11 @@ class PilotTransport:
             try:
                 self.receive_loop(stop)
             except OSError:
+                if self.discovery is not None:
+                    try:
+                        self.discovery.provider_state("govee", "unavailable")
+                    except Exception:
+                        pass
                 with lan.GOVEE_ROUTE_LOCK:
                     for key in self.ids:
                         lan.VERIFIED_GOVEE.pop(key, None)

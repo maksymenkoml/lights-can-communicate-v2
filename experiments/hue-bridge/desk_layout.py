@@ -83,8 +83,9 @@ def validate_layout(value):
         key = row.get("id")
         if not isinstance(key, str) or key in seen:
             raise ValueError("Invalid or duplicate layout device")
-        if key not in ROLES and not re.fullmatch(r"virtual-[a-z0-9]{1,32}", key):
-            raise ValueError("Only selected roles and unbound drawings are allowed")
+        real = re.fullmatch(r"device-[a-f0-9]{32}", key) is not None
+        if key not in ROLES and not re.fullmatch(r"virtual-[a-z0-9]{1,32}", key) and not real:
+            raise ValueError("Unknown layout identity")
         seen.add(key)
         point = row.get("positionCm")
         if not isinstance(point, dict) or set(point) != {"x", "height"}:
@@ -110,6 +111,15 @@ def validate_layout(value):
             ):
                 raise ValueError("Invalid unbound drawing")
             device.update(shape=shape, name=name)
+        if real:
+            name, model, shape, zones = (row.get(field) for field in
+                                        ("name", "model", "shape", "zones"))
+            if (not isinstance(name, str) or not 1 <= len(name) <= 80
+                    or not isinstance(model, str) or not 1 <= len(model) <= 64
+                    or shape not in ("floor", "strip", "bar")
+                    or type(zones) is not int or not 1 <= zones <= 32):
+                raise ValueError("Invalid identity-bound layout metadata")
+            device.update(name=name, model=model, shape=shape, zones=zones)
         result["devices"].append(device)
     if not set(ROLES) <= seen:
         raise ValueError("The selected six device roles must remain present")
