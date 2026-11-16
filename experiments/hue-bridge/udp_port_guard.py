@@ -45,8 +45,16 @@ class UdpPortGuard:
                 sock.close()
                 raise
             self.sock = sock
-            self.worker = threading.Thread(target=self._drain, name=self.worker_name, daemon=True)
-            self.worker.start()
+            try:
+                self.worker = threading.Thread(
+                    target=self._drain, name=self.worker_name, daemon=True
+                )
+                self.worker.start()
+            except Exception:
+                self.worker = None
+                self.sock = None
+                sock.close()
+                raise
 
     @property
     def address(self):

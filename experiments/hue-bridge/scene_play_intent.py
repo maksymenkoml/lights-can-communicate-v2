@@ -28,7 +28,7 @@ def _scene_id(value):
 def _palette_for(lamp, scene):
     """Copy only color data; replay must never introduce a power request."""
     speed = getattr(scene, "speed", None)
-    if type(speed) not in (float, int) or not math.isfinite(speed) or not 0 < speed <= 1:
+    if type(speed) not in (float, int) or not 0 < speed <= 1 or not math.isfinite(speed):
         return None
     palette = getattr(scene, "palette", None)
     if not isinstance(palette, dict):
@@ -70,8 +70,8 @@ def _palette_for(lamp, scene):
 
 
 def _number(value, lower, upper):
-    return (type(value) in (float, int) and math.isfinite(value)
-            and lower <= value <= upper)
+    return (type(value) in (float, int) and lower <= value <= upper
+            and math.isfinite(value))
 
 
 class ScenePlayIntent:

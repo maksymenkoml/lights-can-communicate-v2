@@ -86,6 +86,40 @@ class ReceiverUdpGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _ = guard.accept_address
 
+    def test_worker_start_failure_closes_socket_and_supports_retry_or_close(self):
+        socket_factory = socket.socket
+        for retry in (False, True):
+            with self.subTest(retry=retry):
+                created = []
+
+                def track_socket(*args, **kwargs):
+                    sock = socket_factory(*args, **kwargs)
+                    created.append(sock)
+                    self.addCleanup(sock.close)
+                    return sock
+
+                guard = self.guard(host="127.0.0.1", port=0)
+                with patch("udp_port_guard.socket.socket", side_effect=track_socket), patch(
+                    "udp_port_guard.threading.Thread.start",
+                    side_effect=RuntimeError("Synthetic worker startup failure"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "Synthetic worker startup failure"):
+                        guard.start()
+                self.assertEqual(len(created), 1)
+                self.assertEqual(created[0].fileno(), -1, "Failed startup leaked its bound socket")
+                self.assertIsNone(guard.sock)
+                self.assertIsNone(guard.worker)
+                self.assertFalse(guard.snapshot()["running"])
+                if retry:
+                    guard.start()
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                        sender.sendto(b"synthetic-retry-packet", guard.address)
+                    wait_for(lambda: guard.snapshot()["discarded_datagrams"] == 1)
+                guard.close()
+                guard.close()
+                self.assertFalse(guard.snapshot()["running"])
+                self.assertFalse(any(t.name == guard.worker_name for t in threading.enumerate()))
+
     @unittest.skipUnless(shutil.which("openssl"), "OpenSSL required for loopback DTLS")
     def test_repeated_start_stop_with_idle_datagrams_keeps_authenticated_frames(self):
         # Exercise the production wildcard bind, while clients remain on isolated loopback.

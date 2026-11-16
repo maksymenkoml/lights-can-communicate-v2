@@ -254,6 +254,59 @@ class ScenePlayIntentTests(unittest.TestCase):
         self.assertEqual(self.controller.snapshot()["last_error"], "RuntimeError")
         self.assertEqual(self.controller.snapshot()["skipped_lights"], 3)
 
+    def assert_huge_scene_value_is_skipped(self, field):
+        self.play()
+        other = copy.copy(self.scene)
+        other.id_v2 = OTHER_ID
+        other.palette = copy.deepcopy(self.scene.palette)
+        other.lights = [weakref.ref(self.lights["2"])]
+        other.lightstates = {self.lights["2"]: {"xy": [0.4, 0.3]}}
+        self.scenes["other"] = other
+        other.activate({"recall": {"action": "dynamic_palette"}})
+        if field == "speed":
+            self.scene.speed = 10**400
+        elif field == "brightness":
+            self.scene.palette["color"][0]["dimming"] = {"brightness": 10**400}
+        else:
+            self.scene.palette["color"][0]["color"]["xy"][field] = 10**400
+        cold = ScenePlayIntent(self.path, {"1", "2", "3"}, self.guard,
+                               self.lights, self.scenes)
+        cold.scene_module = self.module
+        QueuedThread.queued = []
+        self.assertEqual(cold.replay(), ["2"])
+        self.assertEqual(self.read(), {"2": OTHER_ID})
+        self.assertEqual(cold.snapshot()["skipped_lights"], 2)
+        self.assertEqual(len(QueuedThread.queued), 1)
+        QueuedThread.queued[0].run()
+        self.assertEqual([slot for slot, _ in self.calls], ["2"])
+
+    def test_replay_skips_huge_integer_speed_and_continues_valid_scene(self):
+        self.assert_huge_scene_value_is_skipped("speed")
+
+    def test_replay_skips_huge_integer_brightness_and_continues_valid_scene(self):
+        self.assert_huge_scene_value_is_skipped("brightness")
+
+    def test_replay_skips_huge_integer_xy_and_continues_valid_scene(self):
+        self.assert_huge_scene_value_is_skipped("x")
+
+    def test_explicit_play_rejects_huge_integer_values_without_bookkeeping_error(self):
+        palette = copy.deepcopy(self.scene.palette)
+        for field in ("speed", "brightness", "x", "y", "mirek"):
+            with self.subTest(field=field):
+                self.scene.speed = 0.5
+                self.scene.palette = copy.deepcopy(palette)
+                self.play()
+                if field == "speed":
+                    self.scene.speed = 10**400
+                elif field == "brightness":
+                    self.scene.palette["color"][0]["dimming"] = {"brightness": 10**400}
+                elif field == "mirek":
+                    self.scene.palette["color"][0]["color_temperature"] = {"mirek": 10**400}
+                else:
+                    self.scene.palette["color"][0]["color"]["xy"][field] = 10**400
+                self.play()
+                self.assertEqual(self.read(), {})
+
 
 @unittest.skipUnless(Path("/opt/hue-emulator/HueObjects/Scene.py").exists(),
                      "Requires the pinned public diyHue image")
