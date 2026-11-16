@@ -82,3 +82,27 @@ shows unavailable or unsupported choices. Refresh an existing browser tab after
 the update. Govee must advertise through LAN Control; Hue comes from the already
 paired Bridge inventory. The local API/DOM checks passed; visual browser
 acceptance remains with the owner because he requested no automatic layout open.
+
+
+## Prepared zone colors and Sync status
+
+The next gateway/UI version consumes the adapter's emitted-output preview through
+`/api/pilot`; only bounded known-role RGB/power metadata reaches the browser.
+Hue scene stops are sampled across the monitor's nine display zones. Calibration
+is already applied and the browser does not scale colors a second time.
+
+Sync states distinguish active, waiting, off, external streaming, unknown and
+explicit pause. Source activity is read from the virtual bridge only when the
+adapter snapshot cannot decide the state, using a bounded shared cache. A local
+sleep hold returns paused before any adapter/source fetch. No physical Hue/Govee
+reads or control requests are performed by the UI gateway.
+
+The client refreshes every 200 ms with a 1000 ms request deadline and an independent
+1500 ms freshness guard; hidden pages suspend requests. Color updates retain SVG
+nodes, dragging, pointer capture, keyboard focus, autosave and discovery state.
+Source-unknown status can coexist with fresh known command colors. Off does not
+require color history. New configuration-only placements remain neutral.
+
+Prepared during the owner's sleep hold. The running gateway/physical runtime has
+not been replaced for this version; activation and visual acceptance require the
+owner's explicit morning resume. Do not open the owner's layout tab automatically.

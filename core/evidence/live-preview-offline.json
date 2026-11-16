@@ -1,0 +1,59 @@
+{
+  "recorded_at": "2026-11-16T06:42:47.350075+00:00",
+  "code_commit": "8447e8b",
+  "artifact_version": "0.1.0.dev3",
+  "artifact_sha256": "6a22e23cf0ff73ea00d4c246ac9e2d67bd90b9cfb647bd8e6cac3ed7dd9d0728",
+  "status": "Prepared only; not activated because owner sleep hold is active.",
+  "automated": {
+    "mac_python": {
+      "run": 381,
+      "skipped": 14,
+      "failures": 0
+    },
+    "isolated_linux_python": {
+      "run": 381,
+      "skipped": 2,
+      "failures": 0
+    },
+    "node_ui_passed": 26,
+    "node_power_passed": 63,
+    "archive_whole_color": {
+      "run": 138,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failures": 0
+    },
+    "archive_gradient": {
+      "run": 98,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failures": 0
+    },
+    "preview_cases_passed": 22,
+    "gateway_new_cases_passed": 8,
+    "ruff": "pass",
+    "review": "PASS after freshness filtering of foreign-stream fallback"
+  },
+  "behavior_covered": [
+    "Shared emitted-output recording across scene/video sources; successful dispatch only; observer failures preserve control results.",
+    "Govee seven-zone and native post-calibration RGB16 preview; brightness applied once; accepted scene color state retained across brightness-only updates.",
+    "Failed writes and expired-video handoff cannot advance or revive stale colors; CT/xy RGB is an approximation of commands, not optical measurement.",
+    "Nine monitor visualization samples, fresh Off precedence, source whitelist and no synthetic palette on unbound placements.",
+    "Sync active requires fresh ready output; retained idle receiver waits; stale former foreign streaming does not latch the badge.",
+    "Read-only gateway cache, sleep hold bypasses all fetches, bounded secret-free DTO.",
+    "No layout autosave, SVG reconstruction, focus/capture loss from telemetry; bounded timeout, visibility suspension and independent freshness watchdog."
+  ],
+  "sleep_boundary": {
+    "hold_file_retained": true,
+    "host_physical_adapter_listener_absent": true,
+    "private_configuration_not_read_for_preview_acceptance": true,
+    "owner_layout_not_opened_or_written": true,
+    "hardware_or_optical_acceptance": false,
+    "physical_runtime_not_started": true
+  },
+  "pending": [
+    "After explicit owner resume, activate the prepared adapter and gateway with existing configuration and output selection, then check real colors/Sync/Off behavior.",
+    "Native identity/role profile extraction remains the next production-transition component; no profile code changed in this slice."
+  ],
+  "artifact_check": "Isolated --version only; runtime/configuration initialization was not invoked."
+}

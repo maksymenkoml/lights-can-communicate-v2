@@ -113,3 +113,28 @@ were Off and remained Off with zero adapter color/brightness commands at sampled
 checkpoints; the four already-On native Hue fixtures continued scene writes.
 See `evidence/discovery-layout.json`. The owner requested opening the layout
 himself, so API and automated DOM checks were used without opening his tab.
+
+
+## Prepared live output preview
+
+`0.1.0.dev3` adds a passive shared recorder to the existing successful output
+operations and appends bounded `preview` data to authenticated `/status`. It
+records emitted Govee zones, accepted Hue scene PUTs and calibrated native RGB16
+frames. These are command colors, not optical measurements or segment readback.
+Scene/video transitions share the recorder; failed sends do not advance the
+cache, and observer failures do not change transport results or sequencing.
+
+The local gateway exposes normalized zone RGB and source-aware Sync state through
+`/api/pilot`. Fresh Off/stale/unknown data masks glow. Retained idle receiver
+sessions report waiting; stale former external streaming cannot latch foreign.
+Static valid output stays visible while its native metadata remains fresh.
+The UI paints existing SVG attributes and never saves or rebuilds the layout for
+telemetry. It uses bounded visibility-aware polling, an independent freshness
+guard, and neutral placeholders for unbound placements.
+
+This artifact is prepared only: the owner's sleep hold remains active and the
+physical adapter is stopped. No live config/device or optical acceptance was
+performed. Do not remove `live-output-hold` or start the prepared artifact until
+the owner explicitly resumes. See `evidence/live-preview-offline.json` for exact
+source/archive/DOM checks and the deferred morning acceptance. Native-profile
+extraction remains the following component after this preview is checked live.
