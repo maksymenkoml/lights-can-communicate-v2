@@ -2,9 +2,10 @@
 
 First production-transition component: a reproducible executable archive of the
 existing desk adapter. The Python standard library can execute this artifact
-without a checkout or an installation step. This is not the complete NAS core or
-a published generic device package. Native Hue light/area identities and channel
-roles remain the pilot's pinned profile until the next component is extracted.
+without a checkout or an installation step. A complete NAS service and arbitrary
+device enrollment remain separate components. Physical native Hue
+identities come only from an explicit profile. The four native roles and twelve
+native channels remain fixed until a separate enrollment component is implemented.
 
 ## Build and run
 
@@ -27,7 +28,9 @@ overwritten. Build a new version alongside the installed artifact for rollback.
 Use `config.example.json` as the service configuration structure. All paths,
 including `state_dir`, resolve relative to the configuration file. Optional Hue
 configuration fields can be omitted for Govee-only operation. Native video
-requires both Hue configuration and `hue_play`. `bind` defaults to loopback;
+requires Hue configuration, `hue_play` and an explicit native profile. Every Hue
+configuration requires `adapter.native_profile_file`. Omit all Hue fields,
+including the profile path, for Govee-only operation. `bind` defaults to loopback;
 select a reachable local address explicitly when the virtual bridge or existing
 Homebridge coordinator runs on another host/container.
 
@@ -47,7 +50,8 @@ blocks actual startup. `desk-layout.json` is read from that same state directory
 
 ## Compatibility and operation
 
-The old `experiments/hue-bridge/live_adapter.py` command and flags still work.
+The `experiments/hue-bridge/live_adapter.py` command retains its existing flags.
+Hue output now requires `--native-profile` together with `--hue-config`.
 Its state directory still defaults to the target file's parent, and its bind
 address still defaults to all interfaces. The packaged launcher adds explicit
 paths and reports `service.name`/`service.version` on the existing authenticated
@@ -143,26 +147,49 @@ See `evidence/live-preview-offline.json` for the historical overnight checks and
 
 ## Native Hue selection profile
 
-`0.1.0.dev4` supports optional `adapter.native_profile_file` in version-one service
-configuration. The path resolves relative to the service configuration, requires
+The initial `0.1.0.dev4` extraction introduced optional
+`adapter.native_profile_file`. The current version-one service configuration
+requires this field whenever `hue_config_file` is present. The path resolves relative to the service configuration, requires
 `hue_config_file`, and contains a strict version-one profile of the same four light
 roles, native Entertainment area and twelve service/index mappings. The loader
 rejects duplicate/unknown fields, invalid UUIDs, overlapping resources and changed
 topology. Credentials stay in their existing separate files.
 
 An explicit profile controls each client/proxy/relay instance; it overrides old
-credential light/area hints without changing global constants. Resource membership,
-channel order/index and resource types must match live metadata before stream
-start. Legacy configuration without a profile retains its existing behavior.
-This is still the fixed desk topology, not arbitrary device enrollment or a build
-free of legacy identity defaults. Newly placed discovery items remain configuration
-only until a separate enrollment component is implemented.
+credential light/area hints. The runtime contains no physical identity defaults.
+Resource membership, channel order/index and resource types must match live metadata before stream
+start. Configuration without a required profile now fails before initialization.
+The native topology still has four light roles. Newly placed discovery items remain
+configuration-only until a separate enrollment component is implemented.
 
 The owner's same-selection profile replaced dev3 locally after read-only metadata
 parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six roles,
 calibration, HomeKit identities, pairing and geometry were retained. The NAS was
 not changed. The previous archive/configuration remain available for rollback.
 See `evidence/native-hue-profile.json` for tests, live frame samples and limits.
+
+## Migrate a configuration without a native profile
+
+Reuse the existing validated version-one profile when one is already installed.
+Set `adapter.native_profile_file` to its path, relative to the service configuration.
+For source invocations, pass that same file with `--native-profile`.
+
+Older installations need a complete explicit profile before this artifact can run
+Hue output. A credential file's `light` or `area_id` hint is not sufficient. Record
+all four existing light UUIDs, the existing native area UUID and its twelve ordered
+Entertainment service/index mappings. Use the version-one schema in
+[`native-hue-profile.example.json`](native-hue-profile.example.json) as the structure.
+Its synthetic UUIDs are placeholders. Never use them as a physical selection.
+Validate the real selection against the existing installation before activation.
+
+Keep the existing credentials, Govee targets, state directory and profile resource
+identities. Keep pairing, HomeKit accessories/scenes and layout/calibration files.
+Run the new archive with `--check` before an authorized cutover. Preflight reads
+files without rewriting them or contacting lights. It does not verify live area
+membership. A missing, partial or invalid profile blocks Hue startup.
+
+Keep the previous artifact and configuration for rollback. Do not start a second
+writer. This migration does not deploy the new artifact or change a running service.
 
 ## Stream recovery diagnostics
 

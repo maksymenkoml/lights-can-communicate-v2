@@ -12,7 +12,6 @@ from collections import deque
 MAGIC = b"HueStream"
 GROUP_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/DeskEntertainment"))
 AREA_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, GROUP_ID + "entertainment_configuration"))
-NATIVE_AREA_ID = "10c81079-56a6-45c4-8149-55185f703083"
 GRADIENT_MODE = os.environ.get("PROBE_GOVEE_GRADIENT", "false").lower() == "true"
 CHANNELS = set(range(18 if GRADIENT_MODE else 14))
 SLOT_CHANNELS = {"1": [0], "2": [1], "3": list(range(2, 11)), "4": [11], "5": [12], "6": [13]}

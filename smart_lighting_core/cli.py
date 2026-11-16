@@ -40,6 +40,8 @@ def _credential(path):
 
 def prepare(config):
     """Import and validate the existing runtime without starting any workers."""
+    if config.hue_config_file and not config.native_profile_file:
+        raise ConfigError("Hue output requires an explicit native Hue profile")
     try:
         profile = (
             NativeHueProfile.load(config.native_profile_file)
@@ -77,8 +79,7 @@ def prepare(config):
             live_adapter.HueStripProxy(live_adapter.PinnedHueClient(hue, profile=profile),
                                        profile=profile)
             if config.hue_play:
-                play_ids = profile.play_ids if profile is not None else live_adapter.PLAY_IDS
-                for role, resource in play_ids.items():
+                for role, resource in profile.play_ids.items():
                     live_adapter.HueStripProxy(
                         live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
                         role=role, profile=profile,
@@ -140,7 +141,9 @@ def main(argv=None):
                 json.dumps(
                     {
                         "version": __version__,
-                        "profile": "pinned-desk",
+                        "profile": (
+                            "explicit-native" if config.native_profile_file else "govee-only"
+                        ),
                         "targets": 2,
                         "gradient": config.gradient,
                         "native_hue": bool(config.hue_config_file),

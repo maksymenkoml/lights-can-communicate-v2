@@ -9,6 +9,7 @@
     "port": 19880,
     "gradient": true,
     "hue_config_file": "./state/hue.json",
+    "native_profile_file": "./state/native-hue-profile.json",
     "hue_play": true,
     "hue_stream_config_file": "./state/hue-stream.json"
   }

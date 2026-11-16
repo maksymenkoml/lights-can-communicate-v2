@@ -38,8 +38,9 @@ def command(sequence=1, xy=(0.7, 0.299), **values):
 
 class PilotTests(unittest.TestCase):
     def test_http_routes_each_confirmed_hue_play_role_and_rejects_unknown_role(self):
-        from hue_strip_proxy import PLAY_IDS, HueStripProxy
+        from hue_strip_proxy import HueStripProxy
         from test_hue_strip_proxy import FakeHue
+        from test_native_profile import PLAY_IDS
 
         proxies = {}
         for role, resource in PLAY_IDS.items():

@@ -7,10 +7,12 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
+from smart_lighting_core.native_profile import NativeHueProfile
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-from entertainment_stream import NATIVE_AREA_ID  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, STRIP_ID  # noqa: E402
+from test_native_profile import AREA as NATIVE_AREA_ID  # noqa: E402
+from test_native_profile import PLAY_IDS, STRIP_ID, profile_data  # noqa: E402
 
 
 class FakeConnection:
@@ -34,15 +36,11 @@ class RelayTests(unittest.TestCase):
                 {"rid": x, "rtype": "light"} for x in (STRIP_ID, *PLAY_IDS.values())
             ],
             "channels": [
-                {"channel_id": channel, "members": [{"service": {"rid": service}, "index": index}]}
-                for channel, (service, index) in enumerate(
-                    [
-                        ("545ed014-5e70-4039-a5de-51a1daa1dc88", 0),
-                        ("07aeef78-efdf-4c8b-b0f7-0202d20e6e0a", 0),
-                        ("157ab718-3fd0-4ab2-a5e6-904c5defba6d", 0),
-                        *[("967b2eb0-0eb2-4099-9807-cdfed3c6383c", i) for i in range(9)],
-                    ]
-                )
+                {"channel_id": item["channel_id"], "members": [{
+                    "service": {"rid": item["member"]["rid"], "rtype": "entertainment"},
+                    "index": item["member"]["index"],
+                }]}
+                for item in profile_data()["entertainment"]["channels"]
             ],
         }
         self.calls = []
@@ -55,7 +53,8 @@ class RelayTests(unittest.TestCase):
             "application_id": "11111111-1111-1111-1111-111111111111",
         }
         self.relay = HueEntertainmentRelay(
-            self.config, requester=self.request, connection_factory=lambda config: self.connection
+            self.config, requester=self.request, connection_factory=lambda config: self.connection,
+            profile=NativeHueProfile.from_dict(profile_data()),
         )
 
     def request(self, method, body=None):

@@ -23,6 +23,7 @@ CONTRACTS = [
     "test_live_preview",
     "test_native_profile",
     "test_native_profile_integration",
+    "test_explicit_device_profiles",
     "test_stream_http",
     "test_stream_diagnostics",
     "test_sync_projection",

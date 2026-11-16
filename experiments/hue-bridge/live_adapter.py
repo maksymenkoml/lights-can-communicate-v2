@@ -21,7 +21,7 @@ from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
+from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
@@ -561,6 +561,8 @@ def main(argv=None, service_info=None):
         parser.error("--hue-stream-config requires --hue-play and --hue-config")
     if args.native_profile and not args.hue_config:
         parser.error("--native-profile requires --hue-config")
+    if args.hue_config and not args.native_profile:
+        parser.error("--hue-config requires --native-profile")
     native_profile = NativeHueProfile.load(args.native_profile) if args.native_profile else None
     state_dir = args.state_dir or args.targets.parent
     if (state_dir / "live-output-hold").exists():
@@ -606,8 +608,7 @@ def main(argv=None, service_info=None):
             preview=preview, profile=native_profile,
         )
         if args.hue_play:
-            play_ids = native_profile.play_ids if native_profile is not None else PLAY_IDS
-            for role, resource in play_ids.items():
+            for role, resource in native_profile.play_ids.items():
                 hue_proxies[role] = HueStripProxy(
                     PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
                     role=role,
