@@ -47,6 +47,7 @@ optical timing were not recorded.
 | Live layout positions in zoned Sync | Measured with actual Sync Box | Temporarily co-located Govee produced equal seven-zone targets in 25/25 samples; restored positions produced different targets again; native channel mapping unchanged |
 | Per-role brightness corrections from setup UI | Implemented, offline verified | Scene and video paths consume the same six-role layout; existing owner-accepted 0.65/0.50 defaults preserved; arbitrary slider values not separately visually accepted |
 | Applying arbitrary topology from setup UI | Not implemented | Current physical driver and native IDs remain pinned; zoned output is a separate explicit pilot mode |
+| Packaged Python adapter | Activated locally; transport/API verified | Reproducible artifact, strict version-one configuration, no-IO preflight and SIGTERM cleanup. Real scene/Sync/Stop coverage; pinned desk profile remains. See ../../core/evidence/local-cutover.json |
 | NAS service and own Homebridge package | Not implemented | Runtime is still on the Mac with a pinned reference bridge |
 
 ## What the Homebridge version must retain

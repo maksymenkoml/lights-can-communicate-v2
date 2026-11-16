@@ -71,3 +71,19 @@ legacy whole-color video fixtures remain in the fourteen-channel run. Both modes
 exercise seven-zone packet encoding, power ownership and calibrated output.
 
 References: [Python executable archives](https://docs.python.org/3/library/zipapp.html).
+
+
+## Current local acceptance
+
+The `0.1.0.dev1` artifact replaced the Mac adapter on 2026-11-15. The old
+process exited before the new listener started. It runs from the archive under
+isolated Python with the existing private files and state; no NAS plugin,
+virtual Bridge identity or HomeKit resource was replaced.
+
+Scene commands resumed, followed by real Sync Box frames and seven-zone targets
+on both Govee. An old idle source session needed explicit virtual-area Stop and
+a new Hue-app Start before fresh frames resumed. This is not seamless source
+reconnection acceptance. Final Stop restored all four native Hue fixtures to
+normal mode and six dynamic scene lights; all six already-On states were
+preserved at the sampled checkpoints. See `evidence/local-cutover.json` for
+counts and boundaries. New visual latency/smoothness acceptance was not recorded.

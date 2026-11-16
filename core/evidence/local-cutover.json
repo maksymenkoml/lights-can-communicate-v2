@@ -1,0 +1,82 @@
+{
+  "recorded_at": "2026-11-16T03:58:47.258325+00:00",
+  "code_commit": "8d935c7",
+  "artifact_version": "0.1.0.dev1",
+  "artifact_sha256": "58ebdb6277ac54d773e07c78ca6700eefd791263e1a1b6280147990b7a97fb01",
+  "scope": "First packaged adapter component, activated on the Mac; no NAS deployment or package publication.",
+  "automated": {
+    "mac_python": {
+      "run": 306,
+      "skipped": 14,
+      "failures": 0
+    },
+    "isolated_linux_python": {
+      "run": 306,
+      "skipped": 2,
+      "failures": 0
+    },
+    "node_power_passed": 63,
+    "ui_passed": 5,
+    "ruff": "pass",
+    "archive_whole_color": {
+      "run": 111,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failures": 0
+    },
+    "archive_gradient": {
+      "run": 71,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failures": 0
+    },
+    "review": "P2 corrected with RED7cases/GREEN; scoped review APPROVE"
+  },
+  "cutover": {
+    "old_process_exited_before_new_start": true,
+    "single_new_listener_verified": true,
+    "isolated_python": true,
+    "working_directory_outside_repository": true,
+    "existing_files_reused": true,
+    "selected_govee_ids_preserved": true,
+    "power": "All six already On and remained On at captured checkpoints; no explicit power commands sent.",
+    "scene_commands_observed": 35
+  },
+  "live_sync": {
+    "initial_source": "Receiver retained an idle old DTLS session; no fresh source frames, including after initial UI toggles. Own localhost/LAN UDP probes both arrived. Owner confirmed PS5 picture.",
+    "recovery": "Explicit Stop of selected virtual Entertainment area, then fresh Start from Hue app. No container or Box reboot.",
+    "frames_received": 961,
+    "frames_sent": 795,
+    "ready_sample": true,
+    "govee_zones": {
+      "left": 7,
+      "right": 7
+    },
+    "native_streaming_sample": {
+      "strip": "streaming",
+      "hue_left": "streaming",
+      "hue_center": "streaming",
+      "hue_right": "streaming"
+    }
+  },
+  "after_stop": {
+    "video_active": false,
+    "native_modes": {
+      "strip": "normal",
+      "hue_left": "normal",
+      "hue_center": "normal",
+      "hue_right": "normal"
+    },
+    "dynamic_lights": 6,
+    "scene_command_delta": 35,
+    "play_intents": 6
+  },
+  "limits": [
+    "Pinned native Hue identities/roles remain inside this first artifact; generic profile extraction follows.",
+    "Mac is still the runtime host. Own Homebridge package and NAS container installation remain later components.",
+    "A live all-Off cutover and new visual timing/smoothness acceptance were not recorded. Existing synthetic power/Off coverage passed.",
+    "Initial source reconnection required explicit session reset; seamless Box reconnection is not established by this cutover.",
+    "Rollback command/state is retained privately; live rollback was not performed.",
+    "Third Govee excluded."
+  ]
+}
