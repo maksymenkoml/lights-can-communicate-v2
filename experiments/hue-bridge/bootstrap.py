@@ -274,21 +274,26 @@ if api_key not in config["apiUsers"]:
 configManager.bridgeConfig.save_config(backup=False)
 
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
-from entertainment_receiver import EntertainmentReceiver  # noqa: E402
+from entertainment_receiver import EntertainmentReceiver, UdpPortGuard  # noqa: E402
 from flaskUI import restful, v2restapi  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from power_feedback import PowerFeedback  # noqa: E402
+from scene_play_intent import install_scene_play_intent  # noqa: E402
 from services import updateManager  # noqa: E402
 
 install_resource_compat(
     v2restapi, Group.Group, settings["bridgeid"], config["groups"], Group, Light.Light
 )
 
+udp_guard = UdpPortGuard() if include_entertainment else None
+if udp_guard is not None:
+    udp_guard.start()
 entertainment_receiver = EntertainmentReceiver(
     os.environ.get("PROBE_ADAPTER_URL", "http://host.docker.internal:19880"),
     local_secret("adapter-token", 24),
     enabled=include_entertainment and not (state / "live-output-hold").exists(),
+    udp_guard=udp_guard,
 )
 if include_entertainment:
     entertainment_receiver.bind(area)
@@ -452,6 +457,13 @@ if live_output is not None:
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
 
+scene_play_intent = install_scene_play_intent(
+    Scene, Light.Light, play_guard, config["lights"], config["scenes"], selected_slots,
+    state / "scene-play-intent.json",
+)
+if not (state / "live-output-hold").exists():
+    scene_play_intent.replay()
+
 
 def current_event_snapshot():
     with play_guard.lock:
@@ -521,6 +533,7 @@ def probe_status():
             "live_output_hold": (state / "live-output-hold").exists(),
             "live_output": live_output.snapshot() if live_output else {"enabled": False},
             "power_feedback": power_feedback.snapshot() if power_feedback else {"enabled": False},
+            "scene_play": scene_play_intent.snapshot(),
             "entertainment": entertainment_receiver.snapshot(),
             "clients": [
                 getattr(client, "name", "unknown") for client in config["apiUsers"].values()
@@ -545,4 +558,7 @@ def probe_status():
 
 os.environ["TZ"] = "America/Toronto"
 time.tzset()
-main()
+try:
+    main()
+finally:
+    entertainment_receiver.shutdown()

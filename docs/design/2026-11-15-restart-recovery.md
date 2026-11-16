@@ -26,7 +26,8 @@ A relay would add packet and peer ownership state without a current need.
 Keep the existing Start/Stop generation fences. Shutdown must stop workers
 before closing the guard. A shutdown timeout must retain the guard binding.
 Enable the guard explicitly in the real bridge bootstrap. Constructor defaults
-remain compatible with existing fixtures. Bind during hold but disable serving.
+remain compatible with existing fixtures. Reject unsupported guard platforms
+before creating a socket. Bind during hold but disable serving.
 
 ## Play approach
 
@@ -39,6 +40,8 @@ changes cancel only affected intent. Power feedback and Sync pauses preserve it.
 Replay uses the current guarded worker factory and layout palette selector.
 Skip absent or invalid scenes and slots. Replay must not emit power fields.
 Keep a missing file backward-compatible. Write atomically with mode 0600.
+Replay workers must be daemon threads. Ordinary API Play retains its caller
+thread behavior.
 
 The parent integrates both modules after existing wrappers. Skip replay during
 live-output-hold. Existing host power and native-on gates remain authoritative.

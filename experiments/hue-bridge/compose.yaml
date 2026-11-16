@@ -29,6 +29,8 @@ services:
       - ./hue_events.py:/probe/hue_events.py:ro
       - ./entertainment_stream.py:/probe/entertainment_stream.py:ro
       - ./entertainment_receiver.py:/probe/entertainment_receiver.py:ro
+      - ./udp_port_guard.py:/probe/udp_port_guard.py:ro
+      - ./scene_play_intent.py:/probe/scene_play_intent.py:ro
       - ./gradient_profile.py:/probe/gradient_profile.py:ro
       - ./hue_resource_compat.py:/probe/hue_resource_compat.py:ro
       - ./desk_layout.py:/probe/desk_layout.py:ro
