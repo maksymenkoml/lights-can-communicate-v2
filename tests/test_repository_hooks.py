@@ -6,6 +6,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,7 +17,11 @@ class RepositoryHookTests(unittest.TestCase):
         self.folder = TemporaryDirectory(prefix='tmp_repository_hooks_')
         self.addCleanup(self.folder.cleanup)
         self.repo = Path(self.folder.name)
-        self.env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1',
+        # Git exports repository paths to hooks. cwd alone cannot isolate a
+        # foreign repo; discard all inherited Git routing/config before init.
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith('GIT_')}
+        self.env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1',
                         UV_CACHE_DIR=str(ROOT / '.ruff_cache/uv'),
                         UV_TOOL_DIR=str(ROOT / '.ruff_cache/tools'))
         self.git('init', '-b', 'feature/checks', check=True)
@@ -118,6 +123,17 @@ class RepositoryHookTests(unittest.TestCase):
         self.assertEqual(self.git('show', 'HEAD:valid.py', check=True).stdout, 'answer = 42\n')
         self.assertEqual(path.read_text(), 'if (\n')
 
+    @unittest.skipUnless(shutil.which('uvx'), 'uvx is required for staged Python lint')
+    def test_commit_all_checks_the_temporary_index_supplied_by_git(self):
+        path = self.stage('tracked.py', 'answer = 42\n')
+        self.git('commit', '-m', 'Track valid Python', check=True)
+        before = self.git('rev-parse', 'HEAD', check=True).stdout
+        path.write_text('print(undefined_name)\n')
+        result = self.git('commit', '-a', '-m', 'Invalid temporary index')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('F821', result.stdout + result.stderr)
+        self.assertEqual(self.git('rev-parse', 'HEAD', check=True).stdout, before)
+
     @unittest.skipUnless(shutil.which('node'), 'Node is required for staged syntax checks')
     def test_staged_javascript_error_cannot_be_hidden_by_unstaged_fix(self):
         path = self.stage('syntax.mjs', 'const value = ;\n')
@@ -126,6 +142,39 @@ class RepositoryHookTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('SyntaxError', result.stderr)
         self.assertEqual(path.read_text(), 'const value = 1;\n')
+
+    def test_nested_fixture_ignores_inherited_hook_repository_environment(self):
+        git_dir = self.repo / '.git'
+
+        def metadata():
+            names = ['HEAD', 'config', 'index']
+            names += [str(path.relative_to(git_dir)) for path in
+                      (git_dir / 'refs').rglob('*') if path.is_file()]
+            return {name: (git_dir / name).read_bytes() for name in names}
+
+        before = metadata()
+        # Poison only this disposable outer fixture, never ROOT or its shared Git dir.
+        poisoned = {'GIT_DIR': str(git_dir), 'GIT_COMMON_DIR': str(git_dir),
+                    'GIT_WORK_TREE': str(self.repo), 'GIT_INDEX_FILE': str(git_dir / 'index'),
+                    'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'user.name',
+                    'GIT_CONFIG_VALUE_0': 'Injected fixture identity',
+                    'GIT_TEMPLATE_DIR': str(self.repo / 'empty-templates'),
+                    'GIT_AUTHOR_EMAIL': 'injected@example.invalid'}
+        (self.repo / 'empty-templates').mkdir()
+        inner = RepositoryHookTests('test_feature_branch_commit_is_allowed')
+        try:
+            with patch.dict(os.environ, poisoned):
+                try:
+                    inner.setUp()
+                except subprocess.CalledProcessError:
+                    self.fail('Inner Git fixture inherited its parent repository context')
+            actual = inner.git('rev-parse', '--absolute-git-dir', check=True).stdout.strip()
+            self.assertEqual(Path(actual).resolve(), (inner.repo / '.git').resolve())
+            self.assertEqual({key for key in inner.env if key.startswith('GIT_')},
+                             {'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'})
+            self.assertEqual(metadata(), before)
+        finally:
+            inner.doCleanups()
 
 
 if __name__ == '__main__':
