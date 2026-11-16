@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Smart Lighting — як це працює</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#182631;background:#f3f3ef;font-synthesis:none;--muted:#64736f;--line:#dfe4df;--green:#246452;--blue:#446ca4;--orange:#a6642d}
+*{box-sizing:border-box}body{margin:0}main{max-width:1280px;margin:auto;padding:48px 36px 32px}.eyebrow{font-size:12px;font-weight:750;letter-spacing:.13em;text-transform:uppercase;color:var(--green);display:flex;align-items:center;gap:9px}.dot{width:8px;height:8px;background:#4f987a;border-radius:50%}h1{font-size:clamp(30px,4vw,45px);letter-spacing:-.045em;line-height:1.1;margin:16px 0}header p{font-size:17px;line-height:1.6;color:var(--muted);max-width:790px;margin:0}.lead{color:#263e35;font-weight:650}nav{display:flex;gap:6px;flex-wrap:wrap;margin:30px 0 22px;padding:5px;background:#e7eae4;border-radius:14px;width:fit-content}nav button{border:0;border-radius:10px;padding:11px 21px;font:inherit;font-weight:650;font-size:14px;color:#53635c;background:transparent;cursor:pointer}nav button[aria-selected=true]{background:#fff;color:#183c30;box-shadow:0 2px 7px #18342712}button:focus-visible,a:focus-visible{outline:3px solid #78a6c7;outline-offset:3px}.panel[hidden]{display:none}.heading{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:17px}.heading h2{font-size:22px;letter-spacing:-.025em;margin:0}.legend{display:flex;gap:18px;font-size:12px;font-weight:650;color:#53625b}.legend span{display:flex;gap:6px;align-items:center}.swatch{width:10px;height:10px;border-radius:3px;display:inline-block}.mac{background:#dcefe3;border:1px solid #639b78}.nas{background:#e3ebfb;border:1px solid #7c99c4}.device{background:#fff0df;border:1px solid #cda371}.canvas{background:#fff;border:1px solid var(--line);border-radius:20px;padding:26px 24px;overflow-x:auto;min-height:320px}.diagram{display:flex;justify-content:center;min-width:650px}.diagram svg{display:block;width:100%;height:auto;max-height:620px}.caption{font-size:14px;color:var(--muted);line-height:1.6;margin:14px 3px 22px}.notes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.note{padding:19px 20px;border:1px solid var(--line);border-radius:15px;background:#fafbf7}.note .number{font-size:11px;font-weight:750;color:var(--green);letter-spacing:.08em;margin-bottom:9px}.note h3{font-size:15px;margin:0 0 7px;line-height:1.4}.note p{font-size:13px;color:var(--muted);line-height:1.65;margin:0}.important{background:#e9f0e5;border-color:#d0dfc7}.important h3{color:#315037}footer{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:30px;padding-top:18px;color:var(--muted);font-size:12px;line-height:1.6}footer a{color:var(--green)}.status{font-size:13px;color:var(--muted);padding:12px 0}.status:empty{display:none}details{margin-top:18px;font-size:12px;color:var(--muted)}summary{cursor:pointer}pre{background:#f5f7f2;padding:16px;border-radius:10px;overflow:auto;color:#38493e;line-height:1.55}.nodeLabel{line-height:1.5!important}
+@media(max-width:720px){main{padding:27px 18px}.notes{grid-template-columns:1fr}nav{width:100%;display:grid;grid-template-columns:repeat(4,1fr)}nav button{padding:10px 4px;font-size:13px}.canvas{padding:16px 8px}.legend{gap:10px}.heading h2{font-size:20px}header p{font-size:15px}}
+@media print{nav,details,.status{display:none}.panel[hidden]{display:block!important}.panel{break-inside:avoid;margin-bottom:35px}main{padding:0}.canvas{min-height:0}.diagram{min-width:0}.notes{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow"><span class="dot"></span> Smart Lighting · поточний пілот</div>
+<h1>Як світло працює разом</h1>
+<p><span class="lead">Hue обирає кольори. Mac розподіляє їх між лампами.</span><br>Apple Home зберігає керування живленням та твої автоматизації через NAS.</p>
+</header>
+<nav role="tablist" aria-label="Схеми компонентів">
+<button id="tab-overview" role="tab" aria-selected="true" aria-controls="overview" tabindex="0">Огляд</button>
+<button id="tab-scenes" role="tab" aria-selected="false" aria-controls="scenes" tabindex="-1">Сцени</button>
+<button id="tab-sync" role="tab" aria-selected="false" aria-controls="sync" tabindex="-1">Sync</button>
+<button id="tab-power" role="tab" aria-selected="false" aria-controls="power" tabindex="-1">Живлення</button>
+</nav>
+<div class="status" role="status" id="render-status">Малюю схеми…</div>
+<section class="panel" id="overview" role="tabpanel" aria-labelledby="tab-overview">
+<div class="heading"><h2>Де працюють компоненти</h2><div class="legend"><span><i class="swatch mac"></i>Mac</span><span><i class="swatch nas"></i>NAS</span><span><i class="swatch device"></i>Пристрої</span></div></div>
+<div class="canvas"><div class="diagram" data-source="source-overview"></div></div>
+<p class="caption">Суцільні стрілки — кольори та відео. Пунктир — живлення, стан і налаштування.</p>
+<div class="notes">
+<article class="note"><div class="number">01 / MAC</div><h3>Основна логіка тут</h3><p>Віртуальний Hue Bridge працює в Docker. Окремий Python-адаптер керує реальним світлом.</p></article>
+<article class="note"><div class="number">02 / NAS</div><h3>Наявний Homebridge</h3><p>Чинний Govee-плагін доповнено обгорткою. Аксесуари Apple Home та їхні ID збережені.</p></article>
+<article class="note important"><div class="number">03 / МЕЖА ПІЛОТА</div><h3>Mac поки потрібен</h3><p>Власного завершеного плагіна на NAS ще немає. Третя Govee не входить у керований набір.</p></article>
+</div>
+</section>
+<section class="panel" id="scenes" role="tabpanel" aria-labelledby="tab-scenes" hidden>
+<div class="heading"><h2>Коли обираєш сцену в Hue</h2><div class="legend"><span><i class="swatch mac"></i>Mac</span><span><i class="swatch device"></i>Пристрої</span></div></div>
+<div class="canvas"><div class="diagram" data-source="source-scenes"></div></div>
+<p class="caption">Наприклад, Vapor wave → Play. Віртуальний Hue Bridge зберігає палітру та обчислює анімацію, адаптер перетворює її на команди для кожного бренду.</p>
+<div class="notes">
+<article class="note"><div class="number">01 / КОЛЬОРИ</div><h3>Кожна Govee має градієнт</h3><p>У Hue вона представлена профілем Signe Gradient. Адаптер розподіляє кольори на 7 фізичних зон.</p></article>
+<article class="note"><div class="number">02 / БАЛАНС</div><h3>Яскравість скоригована</h3><p>Govee — 65%. Центральна Play — 50%. Стрічка й решта Play — 100% від заданої яскравості.</p></article>
+<article class="note"><div class="number">03 / ПЕРЕЗАПУСК</div><h3>Play запам’ятовується</h3><p>Окремо для кожної лампи. Перезапуск відновлює анімацію, зберігаючи чинні дозволи на живлення.</p></article>
+</div>
+</section>
+<section class="panel" id="sync" role="tabpanel" aria-labelledby="tab-sync" hidden>
+<div class="heading"><h2>Коли запускаєш Sync</h2><div class="legend"><span><i class="swatch mac"></i>Mac</span><span><i class="swatch device"></i>Пристрої</span></div></div>
+<div class="canvas"><div class="diagram" data-source="source-sync"></div></div>
+<p class="caption">Відео йде на монітор через HDMI. Окремий потік кольорів надходить від Sync Box до віртуального мосту, а потім — до реальних ламп.</p>
+<div class="notes">
+<article class="note"><div class="number">01 / ПРІОРИТЕТ</div><h3>Sync тимчасово головний</h3><p>Поки відеопотік активний, адаптер призупиняє команди сцени. Після Stop повертає її кольори.</p></article>
+<article class="note"><div class="number">02 / ЗОНИ</div><h3>18 віртуальних каналів</h3><p>По 3 опорні точки на Govee, 9 на стрічку та по 1 на Play. Govee отримують по 7 фізичних зон з урахуванням макета.</p></article>
+<article class="note"><div class="number">03 / СТАБІЛЬНІСТЬ</div><h3>Приймач чекає між сесіями</h3><p>UDP guard тримає порт 2100 відкритим після Stop. Частота зональних пакетів обмежена: ліва Govee — 4/с, права — 2/с.</p></article>
+</div>
+</section>
+<section class="panel" id="power" role="tabpanel" aria-labelledby="tab-power" hidden>
+<div class="heading"><h2>Чому Home Off залишається Off</h2><div class="legend"><span><i class="swatch mac"></i>Mac</span><span><i class="swatch nas"></i>NAS</span><span><i class="swatch device"></i>Пристрої</span></div></div>
+<div class="canvas"><div class="diagram" data-source="source-power"></div></div>
+<p class="caption">Це координація двох бокових Govee. Apple Home вмикає й вимикає їх через чинний плагін; Mac узгоджує з ним право надсилати кольори.</p>
+<div class="notes">
+<article class="note"><div class="number">01 / OFF</div><h3>Спочатку припинити кольори</h3><p>Обгортка закриває дозвіл адаптера, потім штатний плагін надсилає Off. Зональні пакети не повинні знову запалити лампу.</p></article>
+<article class="note"><div class="number">02 / ON</div><h3>Спочатку підтвердити стан</h3><p>Колір повертається після перевірки реальної лампи. Невідомий або застарілий стан не дає дозволу на надсилання.</p></article>
+<article class="note important"><div class="number">03 / HUE APP</div><h3>Отримує актуальний стан</h3><p>Адаптер передає стан у віртуальний міст, міст — у Hue app. Повне зворотне керування живленням із Hue — окрема робота.</p></article>
+</div>
+</section>
+<details><summary>Mermaid-код поточної схеми</summary><pre id="source-preview"></pre></details>
+<footer><span>Схема реалізації · 15 листопада 2026 · без керування лампами</span><span>Макет столу: <a href="http://127.0.0.1:19881/" target="_blank" rel="noopener">відкрити налаштування ↗</a></span></footer>
+</main>
+<script type="text/plain" id="source-overview">
+flowchart LR
+  app["Hue app<br/>iPhone"]:::device
+  box["Hue Sync Box<br/>кольори відео"]:::device
+  home["Apple Home<br/>та автоматизації"]:::device
+  subgraph mac["MAC · локальний пілот"]
+    direction TB
+    bridge["Віртуальний Hue Bridge<br/>Docker · diyHue + наш код"]:::mac
+    adapter["Python-адаптер<br/>кольори · зони · пріоритети"]:::mac
+    setup["UI макета столу<br/>позиції · яскравість"]:::mac
+    bridge -->|"сцени / відеокадри"| adapter
+    setup -.->|"спільний макет"| adapter
+    setup -.->|"позиції в Hue"| bridge
+  end
+  subgraph nas["NAS"]
+    plugin["Homebridge · Govee-плагін<br/>+ обгортка живлення"]:::nas
+  end
+  govee["2 бокові Govee<br/>по 7 зон"]:::device
+  huebridge["Справжній Hue Bridge"]:::device
+  huelights["Стрічка монітора<br/>+ 3 Hue Play"]:::device
+  app -->|"сцени / Play"| bridge
+  box -->|"відеокольори"| bridge
+  home -.->|"On / Off"| plugin
+  plugin -.->|"дозвіл / підтвердження"| adapter
+  plugin -.->|"живлення"| govee
+  adapter -->|"Govee LAN"| govee
+  adapter -->|"Hue API / DTLS"| huebridge
+  huebridge --> huelights
+  classDef mac fill:#e6f3e8,stroke:#6a9d7b,color:#214632
+  classDef nas fill:#e7eefb,stroke:#809dce,color:#2c476f
+  classDef device fill:#fff2e2,stroke:#c6a47a,color:#67451f
+  style mac fill:#f6faf5,stroke:#a2bfa7,stroke-dasharray:5 4
+  style nas fill:#f6f8fd,stroke:#9fb3d6,stroke-dasharray:5 4
+</script>
+<script type="text/plain" id="source-scenes">
+flowchart LR
+  app["Hue app<br/>сцена → Play"]:::device
+  subgraph mac["MAC"]
+    direction TB
+    subgraph docker["DOCKER · віртуальний Hue Bridge"]
+      engine["Палітра сцени<br/>та рушій анімації"]:::mac
+      saved[("Збережений Play<br/>для кожної лампи")]:::mac
+      engine -.->|"запам’ятати"| saved
+      saved -.->|"після перезапуску"| engine
+    end
+    adapter["Python-адаптер<br/>зони · плавність · яскравість"]:::mac
+    engine -->|"HTTP /command"| adapter
+  end
+  govee["Ліва та права Govee<br/>7 зон · коефіцієнт 0.65"]:::device
+  bridge["Справжній Hue Bridge"]:::device
+  strip["Моніторна стрічка<br/>градієнт · коефіцієнт 1.00"]:::device
+  play["Play: ліва / центр / права<br/>1.00 / 0.50 / 1.00"]:::device
+  app --> engine
+  adapter -->|"LAN UDP"| govee
+  adapter -->|"Hue API"| bridge
+  bridge --> strip
+  bridge --> play
+  classDef mac fill:#e6f3e8,stroke:#6a9d7b,color:#214632
+  classDef device fill:#fff2e2,stroke:#c6a47a,color:#67451f
+  style mac fill:#f6faf5,stroke:#a2bfa7,stroke-dasharray:5 4
+  style docker fill:#fff,stroke:#b7c9ba
+</script>
+<script type="text/plain" id="source-sync">
+flowchart LR
+  console["PS5 / Xbox"]:::device
+  box["Hue Sync Box"]:::device
+  monitor["Монітор"]:::device
+  console -->|"HDMI"| box
+  box -->|"HDMI"| monitor
+  subgraph mac["MAC"]
+    direction TB
+    subgraph docker["DOCKER · віртуальний Hue Bridge"]
+      receiver["DTLS-приймач<br/>OpenSSL + декодер"]:::mac
+      guard["UDP guard<br/>тримає порт між сесіями"]:::mac
+      guard -.- receiver
+    end
+    adapter["Python-адаптер<br/>Sync має пріоритет над сценою"]:::mac
+    receiver -->|"HTTP /stream · 18 каналів"| adapter
+  end
+  govee["2 бокові Govee<br/>по 7 фізичних зон"]:::device
+  huebridge["Справжній Hue Bridge"]:::device
+  hue["Моніторна стрічка<br/>+ 3 Hue Play"]:::device
+  box -->|"DTLS · UDP 2100"| receiver
+  adapter -->|"LAN UDP · зональні пакети"| govee
+  adapter -->|"DTLS · відеопотік"| huebridge
+  huebridge --> hue
+  classDef mac fill:#e6f3e8,stroke:#6a9d7b,color:#214632
+  classDef device fill:#fff2e2,stroke:#c6a47a,color:#67451f
+  style mac fill:#f6faf5,stroke:#a2bfa7,stroke-dasharray:5 4
+  style docker fill:#fff,stroke:#b7c9ba
+</script>
+<script type="text/plain" id="source-power">
+sequenceDiagram
+  participant H as Apple Home
+  box rgb(235,241,252) NAS
+    participant P as Govee-плагін + обгортка
+  end
+  box rgb(233,244,234) Mac
+    participant A as Адаптер / координатор
+    participant V as Віртуальний Hue
+  end
+  participant G as Бокова Govee
+  participant U as Hue app
+  H->>P: Вимкнути лампу
+  P->>A: Призупинити кольори
+  A-->>P: Дозвіл закрито, записи узгоджені
+  P->>G: Штатна команда Off
+  P->>A: Підтвердження реального Off
+  Note over A,G: Поки Off — сценові та відеопакети заблоковані
+  A-->>V: Актуальний стан живлення
+  V-->>U: Лампа показана вимкненою
+  H->>P: Увімкнути лампу
+  P->>G: Штатна команда On
+  P->>A: Підтвердження реального On
+  A->>G: Відновити дозволені кольори сцени / Sync
+</script>
+<script type="module">
+const buttons = [...document.querySelectorAll('[role="tab"]')];
+const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+function activate(id, focus = false) {
+  for (const button of buttons) {
+    const selected = button.getAttribute('aria-controls') === id;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected && focus) button.focus();
+  }
+  for (const panel of panels) panel.hidden = panel.id !== id;
+  document.getElementById('source-preview').textContent = document.getElementById('source-' + id).textContent.trim();
+  history.replaceState(null, '', '#' + id);
+}
+for (const [index, button] of buttons.entries()) {
+  button.addEventListener('click', () => activate(button.getAttribute('aria-controls')));
+  button.addEventListener('keydown', event => {
+    let next;
+    if (event.key === 'ArrowRight') next = (index + 1) % buttons.length;
+    if (event.key === 'ArrowLeft') next = (index + buttons.length - 1) % buttons.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = buttons.length - 1;
+    if (next !== undefined) { event.preventDefault(); activate(buttons[next].getAttribute('aria-controls'), true); }
+  });
+}
+const initial = location.hash.slice(1);
+activate(panels.some(panel => panel.id === initial) ? initial : 'overview');
+const status = document.getElementById('render-status');
+try {
+  const pending = [...document.querySelectorAll('.diagram')].filter(node => !node.querySelector('svg'));
+  if (pending.length) {
+    const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs');
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif', themeVariables: { primaryColor: '#e6f3e8', primaryTextColor: '#214632', primaryBorderColor: '#7fa48a', lineColor: '#7b8d83', secondaryColor: '#fff2e2', tertiaryColor: '#f6faf5', fontSize: '15px', actorBkg: '#fff2e2', actorBorder: '#bca17a', actorTextColor: '#453f31', signalColor: '#64756a', noteBkgColor: '#eef4e8', noteBorderColor: '#a2b88f', noteTextColor: '#3e553a' }, flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50, padding: 18 }, sequence: { useMaxWidth: true, actorMargin: 28, width: 130, messageMargin: 35, noteMargin: 16, wrap: true } });
+    for (const [index, node] of pending.entries()) {
+      const source = document.getElementById(node.dataset.source).textContent.trim();
+      const { svg } = await mermaid.render('diagram-' + index, source);
+      node.innerHTML = svg;
+    }
+  }
+  status.textContent = '';
+  document.documentElement.dataset.diagrams = 'ready';
+} catch (error) {
+  status.textContent = 'Схеми не завантажились. Спробуй оновити сторінку з доступом до інтернету. Mermaid-код доступний нижче.';
+  document.documentElement.dataset.diagrams = 'error';
+  console.error(error);
+}
+</script>
+</body>
+</html>
