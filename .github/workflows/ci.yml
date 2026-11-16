@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_CACHE_DIR: ${{ github.workspace }}/.ruff_cache/uv
+      UV_TOOL_DIR: ${{ github.workspace }}/.ruff_cache/tools
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.4'
+      - name: Prepare development tools and hooks
+        run: sh scripts/setup-dev.sh
+      - name: Lint
+        run: |
+          uvx --offline --from "$(cat requirements-dev.txt)" ruff check .
+          node --check experiments/setup-studio/static/app.js
+      - name: JavaScript contracts
+        run: node --test tests/*.test.cjs tests/*.test.mjs
+      - name: Python contracts
+        run: python3 -B -m unittest discover -s tests -v
+      - name: Executable archive contracts
+        run: python3 -B tests/check_core_archive.py
+
+  pinned-linux:
+    name: Isolated diyHue contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve the Compose image pin
+        run: |
+          image=$(PROBE_IP=127.0.0.1 PROBE_MAC=00:11:22:33:44:55 docker compose -f experiments/hue-bridge/compose.yaml config --images)
+          printf '%s\n' "$image" | grep -Eq '^diyhue/core@sha256:[a-f0-9]{64}$'
+          echo "PILOT_IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Pull pinned public test image
+        run: docker pull "$PILOT_IMAGE"
+      - name: Python contracts without network or private state
+        run: >-
+          docker run --rm --network none
+          -e SMART_LIGHTING_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
+          --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
+          -w /tmp --entrypoint python3 "$PILOT_IMAGE"
+          -B -m unittest discover -s /workspace/tests -v
+      - name: Executable archive contracts without network
+        run: >-
+          docker run --rm --network none
+          -e SMART_LIGHTING_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
+          --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
+          -w /workspace --entrypoint python3 "$PILOT_IMAGE"
+          -B tests/check_core_archive.py
