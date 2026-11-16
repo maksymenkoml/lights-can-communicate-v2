@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "state_dir": "./state",
+  "adapter": {
+    "targets_file": "./state/live-targets.json",
+    "token_file": "./state/adapter-token",
+    "power_owner_token_file": "./state/power-owner-token",
+    "bind": "127.0.0.1",
+    "port": 19880,
+    "gradient": true,
+    "hue_config_file": "./state/hue.json",
+    "hue_play": true,
+    "hue_stream_config_file": "./state/hue-stream.json"
+  }
+}

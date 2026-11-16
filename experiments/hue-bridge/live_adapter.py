@@ -15,7 +15,8 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+if Path(__file__).is_file():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, segment_data  # noqa: E402
@@ -410,7 +411,7 @@ class PilotController:
 
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
-                power_owner=None, power_token=None):
+                power_owner=None, power_token=None, service_info=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -452,6 +453,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 result["video"] = video_output.snapshot()
             if power_owner is not None:
                 result["power_owner"] = power_owner.snapshot()
+            if service_info is not None:
+                result["service"] = dict(service_info)
             self.respond(200, result)
 
         def do_POST(self):
@@ -491,24 +494,27 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
     return Handler
 
 
-def main():
+def main(argv=None, service_info=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--targets", type=Path, required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--port", type=int, default=19880)
+    parser.add_argument("--bind", default="0.0.0.0")
+    parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
     parser.add_argument("--hue-stream-config", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.hue_play and not args.hue_config:
         parser.error("--hue-play requires --hue-config")
     if args.hue_stream_config and not args.hue_play:
         parser.error("--hue-stream-config requires --hue-play and --hue-config")
-    if (args.targets.parent / "live-output-hold").exists():
+    state_dir = args.state_dir or args.targets.parent
+    if (state_dir / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     config = json.loads(args.targets.read_text())
-    layout_store = LayoutStore(args.targets.parent / "desk-layout.json")
+    layout_store = LayoutStore(state_dir / "desk-layout.json")
     for device in config["targets"]:
         device["segment_count"] = 7 if GRADIENT_MODE else 0
     if not args.token_file.exists():
@@ -557,7 +563,7 @@ def main():
     lan.CONFIG = args.targets
     stop = threading.Event()
     server = ThreadingHTTPServer(
-        ("0.0.0.0", args.port),
+        (args.bind, args.port),
         handler_for(
             controller,
             token,
@@ -566,34 +572,42 @@ def main():
             video_output=video,
             power_owner=power_owner,
             power_token=power_token,
+            service_info=service_info,
         ),
     )
-    for role, proxy in hue_proxies.items():
-        threading.Thread(target=proxy.run, args=(stop,), daemon=True, name="pilot-" + role).start()
+    video_thread = http_thread = None
+    video_stop = threading.Event()
 
     def publish_statuses(statuses):
         controller.update_statuses(statuses)
         if video is not None:
             video.controller.update_statuses(statuses)
 
-    video_thread = None
-    video_stop = threading.Event()
-    if video is not None:
-        video_thread = threading.Thread(target=video.run, args=(video_stop,), name="pilot-video")
-        video_thread.start()
-    transport = PilotTransport(
-        controller.targets,
-        publish_statuses,
-        remember=lambda: lan.save_config({"targets": controller.targets}),
-    )
-    threading.Thread(target=transport.run, args=(stop,), daemon=True, name="pilot-status").start()
-    threading.Thread(target=server.serve_forever, daemon=True, name="pilot-http").start()
-    print(
-        f"Pilot adapter on port {args.port}; two pinned Govee; no power commands.",
-        flush=True,
-    )
-    deadline = time.monotonic()
     try:
+        for role, proxy in hue_proxies.items():
+            threading.Thread(
+                target=proxy.run, args=(stop,), daemon=True, name="pilot-" + role
+            ).start()
+        if video is not None:
+            video_thread = threading.Thread(
+                target=video.run, args=(video_stop,), name="pilot-video"
+            )
+            video_thread.start()
+        transport = PilotTransport(
+            controller.targets,
+            publish_statuses,
+            remember=lambda: lan.save_config({"targets": controller.targets}),
+        )
+        threading.Thread(
+            target=transport.run, args=(stop,), daemon=True, name="pilot-status"
+        ).start()
+        http_thread = threading.Thread(target=server.serve_forever, daemon=True, name="pilot-http")
+        http_thread.start()
+        print(
+            f"Pilot adapter on port {args.port}; two pinned Govee; no power commands.",
+            flush=True,
+        )
+        deadline = time.monotonic()
         while not stop.is_set():
             if video is not None and video.active():
                 video.render()
@@ -609,9 +623,11 @@ def main():
     except KeyboardInterrupt:
         print("Pilot adapter stopped.", flush=True)
     finally:
-        server.shutdown()
+        stop.set()
+        if http_thread is not None and http_thread.is_alive():
+            server.shutdown()
         server.server_close()
-        if video_thread is not None:
+        if video_thread is not None and video_thread.ident is not None:
             video.lease.close()
             video_stop.set()
             video_thread.join()
@@ -620,7 +636,6 @@ def main():
             with controller.lock:
                 controller.last_sent.clear()
             controller.render()
-        stop.set()
 
 
 if __name__ == "__main__":

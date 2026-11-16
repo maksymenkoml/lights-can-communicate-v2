@@ -7,3 +7,4 @@ node --check experiments/setup-studio/static/app.js
 node --test tests/setup_studio_client.test.cjs
 node --test tests/power_owner_client.test.mjs tests/power_owner_hook.test.mjs tests/power_overlay_apply.test.mjs tests/power_confirmation.test.mjs
 python3 -B -m unittest discover -s tests -v
+python3 -B tests/check_core_archive.py

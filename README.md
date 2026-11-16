@@ -1,5 +1,10 @@
 # Smart lighting prototype
 
+The current six-light virtual Hue pilot is documented in
+[experiments/hue-bridge](experiments/hue-bridge/README.md). Its first distributable
+adapter component is documented in [core/README.md](core/README.md). The commands
+below describe the original palette-following experiment.
+
 Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
 This is a local experiment, not a background service.
