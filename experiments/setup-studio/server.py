@@ -405,6 +405,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                     expected = self.headers.get("If-Match")
                     if expected is not None and expected.strip('"') != (store.revision() or ""):
                         return self.respond(409, {"error": "layout changed"})
+                    previous = store.snapshot()
+                    if (isinstance(data, dict) and 'syncZone' not in data
+                            and previous and 'syncZone' in previous):
+                        # A stale client cannot silently erase a newer custom zone.
+                        # New clients send explicit null to return to automatic.
+                        data = {**data, 'syncZone': previous['syncZone']}
                     validate_bindings(data)
                     result = store.save(data)
                 return self.respond(200, result)

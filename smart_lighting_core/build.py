@@ -22,6 +22,7 @@ PILOT_MODULES = (
     "stream_http",
     "stream_diagnostics",
     "sync_projection",
+    "sync_zone",
     "native_location_cache",
 )
 CORE_MODULES = (

@@ -9,6 +9,8 @@ import hashlib
 import json
 import math
 
+from sync_zone import vertical_bounds, zone_points
+
 _ROLES = {
     "govee-left": "left",
     "govee-right": "right",
@@ -34,6 +36,9 @@ def _point_gain(height, desk_height, fade):
 
 def _segment_visibility(low, high, desk_height, fade):
     """Average the smooth penumbra over a segment and find its lit centroid."""
+    if fade <= 1e-9:
+        start = max(low, desk_height)
+        return ((high-start)/(high-low), (start+high)/2) if high > start else (0,None)
     lower = desk_height - fade
     if high <= lower:
         return 0, None
@@ -73,12 +78,15 @@ def sync_profile(validated_layout):
     monitor = devices["hue-monitor"]["positionCm"]
     width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
     height = width * 9 / 16
-    desk_height = validated_layout["desk"]["height"]
-    desk_half_width = validated_layout['desk']['width'] / 2
+    zone = zone_points(validated_layout)
 
-    def fade_width(x):
-        lateral_gap = max(0, abs(x - _DESK_CENTER_CM) - desk_half_width)
-        return _EDGE_FADE_CM + lateral_gap
+    def visibility(x, physical_height):
+        bounds = vertical_bounds(zone, x)
+        if bounds is None:
+            return 1
+        lower, upper = bounds
+        return (_point_gain(physical_height, upper, upper-lower) if upper > lower
+                else int(physical_height >= upper))
 
     def screen_point(x, physical_height):
         u = max(0, min(1, (x - monitor["x"]) / width + 0.5))
@@ -96,17 +104,20 @@ def sync_profile(validated_layout):
         "govee": {},
         "plays": {},
         "play_gains": {},
+        'zone': zone,
     }
     for key, side in (("govee-left", "left"), ("govee-right", "right")):
         position = devices[key]["positionCm"]
         base = position["height"] - 60
         samples = []
         gains = []
-        fade = fade_width(position['x'])
+        bounds = vertical_bounds(zone, position['x'])
+        fade = bounds[1]-bounds[0] if bounds is not None else 0
         for segment in range(7):
             low = base + 6 + segment * 128 / 7
             high = base + 6 + (segment + 1) * 128 / 7
-            gain, center = _segment_visibility(low, high, desk_height, fade)
+            gain, center = (_segment_visibility(low, high, bounds[1], fade)
+                            if bounds is not None else (1,(low+high)/2))
             samples.append(screen_point(position['x'], center) if center is not None else None)
             gains.append(gain)
         profile["govee"][side] = {
@@ -119,8 +130,12 @@ def sync_profile(validated_layout):
         if role in _PLAY_CHANNELS:
             position = devices[key]["positionCm"]
             profile["plays"][role] = screen_point(position['x'], position['height'])
-            profile['play_gains'][role] = _point_gain(
-                position['height'], desk_height, fade_width(position['x']))
+            profile['play_gains'][role] = visibility(position['x'], position['height'])
+    strip_anchors = [
+        (-.5,-.5),(-.5,0),(-.5,.5),(-.25,.5),(0,.5),(.25,.5),(.5,.5),(.5,0),(.5,-.5),
+    ]
+    profile['strip_gains'] = [visibility(monitor['x']+u*width, monitor['height']+v*height)
+                              for u,v in strip_anchors]
     encoded = json.dumps(profile, sort_keys=True, separators=(",", ":"), allow_nan=False)
     profile["signature"] = hashlib.sha256(encoded.encode()).hexdigest()
     return profile
@@ -157,6 +172,11 @@ def project_native_frame(frame, profile):
     """Project enabled physical Play colors from the original capture palette."""
     _validate_frame(frame)
     result = copy.deepcopy(frame)
+    if 'strip' in profile['native_roles'] and 'strip_gains' in profile:
+        if len(profile['strip_gains']) != 9:
+            raise ValueError('Expected nine monitor-strip visibility gains')
+        for index,gain in enumerate(profile['strip_gains'],2):
+            result[index] = _attenuate(frame[index], gain)
     for role, channel in _PLAY_CHANNELS.items():
         if role in profile["native_roles"]:
             result[channel] = _attenuate(_sample(frame, profile["plays"][role]),

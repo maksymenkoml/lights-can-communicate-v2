@@ -66,6 +66,23 @@ def discovery_server(fetch):
 
 
 class StudioTests(unittest.TestCase):
+    def test_zone_survives_older_client_save_and_explicit_null_resets_it(self):
+        from test_desk_layout import layout
+        from test_floor_zone_contract import custom_zone
+
+        with discovery_server(lambda: {}) as request:
+            data = layout()
+            data['syncZone'] = custom_zone()
+            saved = request('/api/layout', data)
+            older = layout()
+            older['desk']['width'] = 180
+            saved = request('/api/layout', older, **{'If-Match': saved['revision']})
+            self.assertEqual(saved['layout']['syncZone'], data['syncZone'])
+            older['syncZone'] = None
+            reset = request('/api/layout', older, **{'If-Match': saved['revision']})
+            self.assertNotIn('syncZone', reset['layout'])
+            self.assertEqual(request('/api/layout'), reset)
+
     def test_discovery_proxy_preserves_public_metadata_and_hides_private_fields(self):
         snapshot = {"connected": True, "devices": [catalog_device(ip="private-ip")],
                     "providers": {"govee": "ready", "hue": "ready"}, "token": "secret"}

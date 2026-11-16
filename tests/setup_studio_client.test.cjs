@@ -64,7 +64,7 @@ async function harness({remote=saved(),conflict,postHandler,storage=new Map(),pi
    return response(200,{layout:payload,revision:'r3'});
   }});
  vm.runInContext(code,context);await settle();
- return {posts,storage,nodes,pilotRequests,active:()=>documentModel.activeElement,run:source=>vm.runInContext(source,context),event:(name,target)=>{for(const fn of events.get(name)||[])fn({target});},
+ return {posts,storage,nodes,pilotRequests,active:()=>documentModel.activeElement,run:source=>vm.runInContext(source,context),event:(name,target,extra={})=>{for(const fn of events.get(name)||[])fn({target,...extra});},
   async visible(visible){documentModel.hidden=!visible;for(const fn of events.get('visibilitychange')||[])fn();await settle();},
   async wake(ms,delay){now+=ms;for(const [id,item]of [...timers])if(item.delay===delay&&item.at<=now){timers.delete(id);item.fn();}await settle();},
   async advance(ms){const end=now+ms;while(true){const next=[...timers].filter(([,item])=>item.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;const [id,item]=next;now=item.at;timers.delete(id);item.fn();await settle();}now=end;await settle();},async poll(){
@@ -490,4 +490,174 @@ test('known online power-off hides light without color history while unknown pow
  assert.equal(zone(app,'play-center').getAttribute('data-output'),'off');assert.equal(zone(app,'play-center').getAttribute('opacity'),'0');
  snapshot.lamps['play-center'].on=null;await app.advance(200);
  assert.equal(zone(app,'play-center').getAttribute('data-output'),'neutral');assert.equal(zone(app,'play-center').getAttribute('opacity'),'.35');
+});
+
+const customZone=()=>({version:1,points:[{u:-1.625,h:0},{u:1.625,h:0},{u:1.625,h:-65},{u:1,h:-15},{u:-1,h:-15},{u:-1.625,h:-65}]});
+const keyEvent=(target,key)=>({target,key,preventDefault(){this.prevented=true;}});
+test('floor clamps loaded and rotated physical fixtures without moving the table',async()=>{
+ const remote=saved();remote.devices[0].positionCm.height=-10;remote.devices[3].positionCm.height=-10;remote.devices[4].positionCm.height=-10;remote.devices[4].orientation='vertical';
+ remote.devices.push({id:'virtual-strip',shape:'strip',name:'Strip',scale:80,positionCm:{x:100,height:-5}});
+ const app=await harness({remote});
+ assert.equal(app.run('heightCm(layout.devices[0])'),60);assert.equal(app.run('heightCm(layout.devices[3])'),5);assert.equal(app.run('heightCm(layout.devices[4])'),15);assert.equal(app.run('heightCm(layout.devices[6])'),5);
+ const stage=app.nodes.get('#stage'),before=JSON.stringify(app.run('packLayout()'));
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-desk]'),pointerId:7,clientX:500,clientY:450});stage.dispatch('pointermove',{clientX:700,clientY:800});stage.dispatch('pointerup',{});
+ stage.dispatch('keydown',keyEvent(stage.querySelector('[data-desk]'),'ArrowDown'));assert.equal(JSON.stringify(app.run('packLayout()')),before);
+ app.run("selected='play-left'");app.event('change',{name:'orientation',value:'vertical'});assert.equal(app.run('heightCm(layout.devices[3])'),15);
+ assert.match(stage.innerHTML,/cy="294.25" rx="21" ry="5"/);assert.ok(stage.querySelector('.floor-line'));assert.match(stage.innerHTML,/Підлога · 0 см/);
+});
+test('all physical orientations stay above floor after mouse and keyboard movement',async()=>{
+ const app=await harness(),stage=app.nodes.get('#stage');
+ for(const [id,minimum]of [['govee-left',60],['play-left',5],['play-center',15],['hue-monitor',105]]){
+  if(id==='play-center')app.run("layout.devices[4].orientation='vertical';render()");
+  const node=stage.querySelector(`[data-lamp="${id}"]`);
+  stage.dispatch('pointerdown',{target:node,pointerId:8,clientX:0,clientY:0});stage.dispatch('pointermove',{clientX:0,clientY:5000});stage.dispatch('pointerup',{});
+  assert.ok(app.run(`heightCm(layout.devices.find(d=>d.id==='${id}'))`)>=minimum);
+  stage.dispatch('keydown',keyEvent(stage.querySelector(`[data-lamp="${id}"]`),'ArrowDown'));
+  assert.ok(app.run(`heightCm(layout.devices.find(d=>d.id==='${id}'))`)>=minimum);
+ }
+});
+test('zone validation rejects malformed crossing and nonmonotone geometry and interpolates world sections',async()=>{
+ const app=await harness();assert.equal(app.run(`validSyncZone(${JSON.stringify(customZone())})`),true);
+ for(const mutate of [z=>z.points.pop(),z=>z.points[0].u=true,z=>z.points[0].u=21,z=>z.points[0].h=401,z=>z.extra=true,z=>z.points[2].extra=1,z=>z.points[3].u=z.points[4].u,z=>z.points[4].h=2,z=>z.version=2]){
+  const config=customZone();mutate(config);assert.equal(app.run(`validSyncZone(${JSON.stringify(config)})`),false);
+ }
+ const points=[{x:-30,height:85},{x:230,height:85},{x:230,height:20},{x:180,height:70},{x:20,height:70},{x:-30,height:20}];
+ app.run(`layout.syncZone=${JSON.stringify(customZone())}`);
+ assert.deepEqual(JSON.parse(app.run('JSON.stringify(syncZonePoints())')),points);
+ assert.deepEqual(JSON.parse(app.run('JSON.stringify(syncZoneBounds(syncZonePoints(),-5))')),[45,85]);assert.equal(app.run('syncZoneBounds(syncZonePoints(),-31)'),null);
+ assert.deepEqual(JSON.parse(app.run('JSON.stringify(worldToSyncZone(syncZonePoints()))')),customZone());
+ app.run('layout.desk.width=240;layout.desk.height=100');assert.deepEqual(JSON.parse(app.run('JSON.stringify(syncZonePoints()[0])')),{x:-95,height:100});
+});
+test('default zone covers enabled fixture and monitor extent without attaching to hidden placements',async()=>{
+ const app=await harness();app.run('layout.devices[0].pos.x=-100;layout.devices[1].enabled=false;layout.devices[1].pos.x=200');
+ const points=JSON.parse(app.run('JSON.stringify(syncZonePoints())'));
+ assert.equal(points[0].x,-220);assert.equal(points[1].x,230);assert.equal(points[5].height,-170);assert.equal(points[4].height,70);
+ assert.equal(app.run('packLayout().syncZone'),null);
+});
+test('Sync shows smooth fading bands behind objects and a closed foreground contour with six accessible corners',async()=>{
+ const app=await harness();app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage');
+ const bands=stage.querySelectorAll('.sync-functional-band');assert.equal(bands.length,20);
+ assert.ok(Number(bands[0].getAttribute('fill-opacity'))>Number(bands.at(-1).getAttribute('fill-opacity')));
+ assert.equal(new Set(bands.map(n=>n.getAttribute('d'))).size,20);
+ assert.match(stage.querySelector('.sync-functional-limit').getAttribute('d'),/Z$/);
+ assert.equal(stage.querySelectorAll('[data-sync-corner]').length,6);
+ for(const corner of stage.querySelectorAll('[data-sync-corner]')){assert.equal(corner.getAttribute('tabindex'),'0');assert.ok(corner.getAttribute('aria-label'));}
+ assert.ok(stage.innerHTML.indexOf('class="sync-functional"')<stage.innerHTML.indexOf('class="desk-target"'));
+ assert.ok(stage.innerHTML.indexOf('class="sync-outline"')>stage.innerHTML.lastIndexOf('data-lamp='));
+});
+test('viewport and foreground guides include functional below-floor geometry and freeze for corner drag',async()=>{
+ const remote=saved();remote.syncZone=customZone();remote.syncZone.points[2].h=-300;remote.syncZone.points[5].h=-300;
+ const app=await harness({remote});app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage');
+ const [left,top,width,height]=stage.getAttribute('viewBox').split(' ').map(Number),bottom=top+height;
+ assert.ok(bottom>1925);assert.equal(stage.querySelector('.table-center-axis').getAttribute('d'),`M500 ${top}V${bottom}`);
+ assert.ok(stage.innerHTML.indexOf('class="reference-guides"')>stage.innerHTML.lastIndexOf('data-lamp='));
+ assert.match(stage.querySelector('.table-baseline').getAttribute('d'),new RegExp(`M${left} .*H${left+width}`));
+ const old=stage.getAttribute('viewBox');stage.dispatch('pointerdown',{target:stage.querySelector('[data-sync-corner="5"]'),pointerId:3,clientX:-150,clientY:1925});stage.dispatch('pointermove',{clientX:-200,clientY:2200});
+ assert.equal(stage.getAttribute('viewBox'),old);stage.dispatch('pointerup',{});assert.notEqual(stage.getAttribute('viewBox'),old);
+});
+test('corner drag saves only on finish and Escape restores the gesture without history or autosave',async()=>{
+ const app=await harness();app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage'),before=JSON.stringify(app.run('packLayout()'));
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-sync-corner="0"]'),pointerId:3,clientX:-150,clientY:425});stage.dispatch('pointermove',{clientX:-175,clientY:400});await app.flush();assert.equal(app.posts.length,0);
+ app.event('keydown',stage,{key:'Escape'});assert.equal(JSON.stringify(app.run('packLayout()')),before);assert.equal(app.run('history.length'),0);assert.equal(app.run('editGeneration'),0);
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-sync-corner="0"]'),pointerId:4,clientX:-150,clientY:425});stage.dispatch('pointermove',{clientX:-175,clientY:400});stage.dispatch('pointerup',{});await app.flush();
+ assert.equal(app.posts.length,1);assert.equal(app.posts[0].syncZone.points[0].h,5);assert.equal(app.active().dataset.syncCorner,'0');assert.deepEqual(app.posts[0].devices,saved().devices);
+});
+test('every corner has five-centimeter keyboard edits with focus undo reset and invalid-shape rejection',async()=>{
+ const app=await harness();app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage');
+ for(let i=0;i<6;i++){
+  const before=JSON.parse(app.run('JSON.stringify(syncZonePoints())'));stage.dispatch('keydown',keyEvent(stage.querySelector(`[data-sync-corner="${i}"]`),i<2?'ArrowUp':'ArrowDown'));
+  assert.equal(app.run(`syncZonePoints()[${i}].height`),before[i].height+(i<2?5:-5));assert.equal(app.active().dataset.syncCorner,String(i));
+ }
+ await app.flush();assert.equal(app.posts.length,1);assert.ok(app.nodes.get('#reset-sync-zone').hidden===false);
+ const before=JSON.stringify(app.run('layout.syncZone')),generation=app.run('editGeneration');
+ app.run('moveSyncCorner(3, {x: syncZonePoints()[4].x, height: 70})');assert.equal(JSON.stringify(app.run('layout.syncZone')),before);assert.equal(app.run('editGeneration'),generation);
+ app.run("actions['reset-sync-zone']()");await app.flush();assert.equal(app.posts.at(-1).syncZone,null);assert.equal(app.nodes.get('#reset-sync-zone').hidden,true);
+ app.run('layout=history.pop();dirty();render()');await app.flush();assert.deepEqual(app.posts.at(-1).syncZone,JSON.parse(before));
+});
+test('custom zone survives reload conflicts and undo without changing poses or mutating input data',async()=>{
+ const remote=saved();remote.syncZone=customZone();const input=JSON.stringify(remote),app=await harness({remote});
+ assert.equal(JSON.stringify(remote),input);app.run('layout.devices[0].scale=40;dirty()');await app.flush();assert.deepEqual(app.posts[0].syncZone,remote.syncZone);
+ const conflict=structuredClone(remote);conflict.devices[0].positionCm.x=50;const merged=await harness({remote,conflict});merged.event('change',{id:'show-sync-bounds',checked:true});
+ merged.nodes.get('#stage').dispatch('keydown',keyEvent(merged.nodes.get('#stage').querySelector('[data-sync-corner="0"]'),'ArrowUp'));await merged.flush();
+ assert.equal(merged.posts.at(-1).syncZone.points[0].h,5);assert.equal(merged.posts.at(-1).devices[0].positionCm.x,50);
+ merged.run('layout=history.pop();dirty();render()');await merged.flush();assert.deepEqual(merged.posts.at(-1).syncZone,remote.syncZone);assert.equal(merged.posts.at(-1).devices[0].positionCm.x,50);
+});
+
+test('all six corners support mouse gestures without writing until release',async()=>{
+ const app=await harness();app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage');
+ for(let index=0;index<6;index++){
+  const before=JSON.parse(app.run('JSON.stringify(syncZonePoints())')),p=before[index],x=p.x*5,y=850-p.height*5;
+  const generations=app.run('editGeneration');
+  stage.dispatch('pointerdown',{target:stage.querySelector(`[data-sync-corner="${index}"]`),pointerId:index+10,clientX:x,clientY:y});
+  stage.dispatch('pointermove',{clientX:x,clientY:y+(index<2?-25:25)});
+  assert.equal(app.run('editGeneration'),generations);assert.equal(app.run(`syncZonePoints()[${index}].height`),p.height+(index<2?5:-5));
+  stage.dispatch('pointerup',{});assert.equal(app.run('editGeneration'),generations+1);assert.equal(app.active().dataset.syncCorner,String(index));
+ }
+ await app.flush();assert.equal(app.posts.length,1);assert.deepEqual(app.posts[0].devices,saved().devices);
+});
+test('invalid corner gestures leave the automatic shape history and autosave untouched',async()=>{
+ const app=await harness();app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage'),before=JSON.stringify(app.run('packLayout()'));
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-sync-corner="3"]'),pointerId:12,clientX:900,clientY:500});
+ stage.dispatch('pointermove',{clientX:0,clientY:500});stage.dispatch('pointerup',{});await app.flush();
+ assert.equal(JSON.stringify(app.run('packLayout()')),before);assert.equal(app.run('history.length'),0);assert.equal(app.run('editGeneration'),0);assert.equal(app.posts.length,0);
+});
+test('simple x-monotone polygons allow concave lower chains and pinched outer sections',async()=>{
+ const app=await harness();
+ const pinched={version:1,points:[{u:-1,h:0},{u:1,h:0},{u:2,h:-40},{u:.5,h:-5},{u:-.5,h:-5},{u:-2,h:-40}]};
+ assert.equal(app.run(`validSyncZone(${JSON.stringify(pinched)})`),true);
+ app.run(`layout.syncZone=${JSON.stringify(pinched)}`);
+ assert.deepEqual(JSON.parse(app.run('JSON.stringify(syncZoneBounds(syncZonePoints(),-60))')),[45,45]);
+ assert.deepEqual(JSON.parse(app.run('JSON.stringify(syncZoneBounds(syncZonePoints(),100))')),[80,85]);
+ const crossing=customZone();crossing.points[0].u=0;crossing.points[5]={u:-2,h:-100};crossing.points[4]={u:-1,h:-1};
+ assert.equal(app.run(`validSyncZone(${JSON.stringify(crossing)})`),false);
+ const nonmonotone=structuredClone(pinched);nonmonotone.points[0].u=1.5;
+ assert.equal(app.run(`validSyncZone(${JSON.stringify(nonmonotone)})`),false);
+});
+test('desk resizing follows saved zone coordinates while fixture geometry and identities stay fixed',async()=>{
+ const remote=saved();remote.syncZone=customZone();const app=await harness({remote});
+ app.event('change',{id:'desk-width',value:'200',valueAsNumber:200});app.event('change',{id:'desk-height',value:'100',valueAsNumber:100});await app.flush();
+ const result=app.posts.at(-1);assert.deepEqual(result.syncZone,remote.syncZone);assert.deepEqual(result.devices.filter(d=>d.id!=='hue-monitor'),remote.devices.filter(d=>d.id!=='hue-monitor'));
+ assert.equal(result.devices[2].positionCm.height,125);assert.deepEqual(JSON.parse(app.run('JSON.stringify(syncZonePoints()[0])')),{x:-62.5,height:100});
+});
+test('zone merges preserve remote-only zone edits and explicit local reset across conflicts',async()=>{
+ const remote=saved(),conflict=saved();conflict.syncZone=customZone();
+ const app=await harness({remote,conflict});app.run('layout.devices[0].scale=40;dirty()');await app.flush();assert.deepEqual(app.posts.at(-1).syncZone,conflict.syncZone);
+ const reset=await harness({remote:conflict,conflict:{...conflict,room:'Remote'}});reset.run("actions['reset-sync-zone']()");await reset.flush();
+ assert.equal(reset.posts.at(-1).syncZone,null);assert.equal(reset.posts.at(-1).room,'Remote');
+ const loaded=await harness({remote:reset.posts.at(-1)});assert.equal(loaded.run('layout.syncZone'),null);assert.equal(loaded.nodes.get('#reset-sync-zone').hidden,true);
+});
+test('an older autosave conflict never persists an unfinished corner gesture',async()=>{
+ const remote=saved();remote.syncZone=customZone();const conflict=structuredClone(remote);conflict.devices[0].positionCm.x=50;
+ const app=await harness({remote,conflict});app.run('layout.devices[0].scale=40;dirty()');app.event('change',{id:'show-sync-bounds',checked:true});const stage=app.nodes.get('#stage');
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-sync-corner="0"]'),pointerId:3,clientX:-150,clientY:425});stage.dispatch('pointermove',{clientX:-150,clientY:400});
+ await app.flush();assert.equal(app.posts.length,2);assert.deepEqual(app.posts.at(-1).syncZone,remote.syncZone);assert.equal(app.run('layout.syncZone.points[0].h'),5);
+ stage.dispatch('pointerup',{});await app.flush();assert.equal(app.posts.at(-1).syncZone.points[0].h,5);assert.equal(app.posts.at(-1).devices[0].positionCm.x,50);
+});
+
+// Match the API's canonical responses: null resets, omission preserves a custom zone.
+function canonicalLayoutPost(stored,payload){
+ const canonical=structuredClone(payload);
+ if(!Object.hasOwn(payload,'syncZone')&&stored.syncZone)canonical.syncZone=structuredClone(stored.syncZone);
+ if(canonical.syncZone===null)delete canonical.syncZone;
+ return canonical;
+}
+test('undoing the first custom edit explicitly clears the server zone when canonical Auto omits its field',async()=>{
+ let stored=saved();
+ const app=await harness({remote:stored,postHandler:payload=>{stored=canonicalLayoutPost(stored,payload);return response(200,{layout:stored,revision:'canonical'});}});
+ app.run(`remember();layout.syncZone=${JSON.stringify(customZone())};dirty()`);await app.flush();assert.deepEqual(stored.syncZone,customZone());
+ app.event('keydown',app.nodes.get('#stage'),{key:'z',ctrlKey:true,preventDefault(){}});await app.flush();
+ assert.equal(app.posts.at(-1).syncZone,null);assert.equal(Object.hasOwn(stored,'syncZone'),false);assert.equal(app.run('validSyncZone(layout.syncZone)'),false);
+ assert.deepEqual(stored.devices,saved().devices);
+});
+test('a successful canonical Auto reset does not erase a later remote zone during a brightness conflict',async()=>{
+ const remote=saved();remote.syncZone=customZone();const conflict=saved();conflict.syncZone=customZone();conflict.syncZone.points[0].h=5;
+ let stored=structuredClone(remote);
+ const app=await harness({remote,conflict,postHandler:(payload,count)=>{
+  if(count===2){stored=structuredClone(conflict);return response(409,{error:'layout changed'});}
+  stored=canonicalLayoutPost(stored,payload);return response(200,{layout:stored,revision:'canonical-'+count});
+ }});
+ app.run("actions['reset-sync-zone']()");await app.flush();assert.equal(Object.hasOwn(stored,'syncZone'),false);assert.equal(app.run('Object.hasOwn(serverBaseline,"syncZone")'),false);
+ app.run('layout.devices[0].scale=40;dirty()');await app.flush();
+ assert.equal(app.posts.length,3);assert.deepEqual(stored.syncZone,conflict.syncZone);assert.deepEqual(app.posts.at(-1).syncZone,conflict.syncZone);
+ assert.deepEqual(stored.devices[0],{...remote.devices[0],scale:40});assert.deepEqual(stored.devices.slice(1),remote.devices.slice(1));
 });

@@ -52,7 +52,7 @@ def number(value, low, high):
 
 
 def validate_layout(value):
-    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "devices"}
+    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "devices", "syncZone"}
     if not isinstance(value, dict) or set(value) - allowed or value.get("version") != 3:
         raise ValueError("Expected a version-three desk layout")
     if value.get("gridStepCm", 5) != 5:
@@ -126,10 +126,30 @@ def validate_layout(value):
                     or type(zones) is not int or not 1 <= zones <= 32):
                 raise ValueError("Invalid identity-bound layout metadata")
             device.update(name=name, model=model, shape=shape, zones=zones)
+        device['positionCm']['height'] = max(height, minimum_anchor_height(
+            device, result['monitorInches']))
         result["devices"].append(device)
     if not set(ROLES) <= seen:
         raise ValueError("The selected six device roles must remain present")
+    if value.get('syncZone') is not None:
+        from sync_zone import validate_zone
+
+        result['syncZone'] = validate_zone(value['syncZone'])
     return result
+
+
+def minimum_anchor_height(device, monitor_inches):
+    """Keep the complete schematic body above the floor on the five-cm grid."""
+    identifier = device['id']
+    if identifier == 'hue-monitor':
+        display_height = monitor_inches * 2.54 * 9 / math.hypot(16, 9)
+        return math.ceil((display_height / 2 + 4.8) / 5) * 5
+    shape = ('floor' if identifier in ('govee-left','govee-right') else
+             'bar' if identifier in ('play-left','play-center','play-right')
+             else device.get('shape'))
+    if shape == 'floor':
+        return 60
+    return 15 if shape == 'bar' and device.get('orientation') == 'vertical' else 5
 
 
 def positions(layout, gradient=True):

@@ -32,7 +32,7 @@ class DiscoveryIntegrationTests(unittest.TestCase):
             "zones": 7,
             "scale": 65,
             "orientation": "vertical",
-            "positionCm": {"x": -100, "height": 0},
+            "positionCm": {"x": -100, "height": 60},
         }
         value["devices"].append(added)
         try:

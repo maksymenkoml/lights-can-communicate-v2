@@ -149,14 +149,13 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertEqual(project_govee_frame(raw, "left", profile), [(0, 0, 0)] * 7)
         self.assertNotEqual(project_govee_frame(raw, "right", profile), [(0, 0, 0)] * 7)
 
-    def test_signature_ignores_metadata_scale_noneffective_width_orientation_and_row_order(self):
+    def test_signature_ignores_metadata_scale_orientation_and_row_order(self):
         data = layout()
         before = sync_profile(data)
         self.assertEqual(before["basis"], "screen-perimeter-v1")
         self.assertEqual(len(before["signature"]), 64)
         int(before["signature"], 16)
         data["room"] = "Renamed"
-        data["desk"]["width"] = 180
         for row in data["devices"]:
             row.update(scale=20, name="Renamed", orientation="vertical", enabled=True)
         data["devices"].reverse()

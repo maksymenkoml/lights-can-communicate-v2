@@ -32,6 +32,8 @@ CONTRACTS = [
     "test_capture_composition",
     "test_native_location_cache",
     "test_sync_visibility_fade",
+    "test_sync_zone",
+    "test_floor_zone_contract",
 ]
 RUNTIME = [
     "live_adapter",
@@ -49,6 +51,7 @@ RUNTIME = [
     "stream_http",
     "stream_diagnostics",
     "sync_projection",
+    "sync_zone",
     "native_location_cache",
 ]
 

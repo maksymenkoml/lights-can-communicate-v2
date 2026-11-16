@@ -32,7 +32,7 @@ const removable=id=>enrolled(id)||id?.startsWith('virtual-')||realDevice(id);
 function defaults(){const data={version:3,room:'Mykola Office',desk:clone(deskDefaults),monitorInches:32,devices:clone(seed)};data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;}
 function load(savedOverride){
  try{
-  const saved=savedOverride||JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1'));
+  const saved=clone(savedOverride||JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1')));
   if(![1,2,3].includes(saved?.version)||!Array.isArray(saved.devices))return defaults();
   const data=defaults();data.desk={width:clamp(saved.desk?.width??160,80,240),height:clamp(saved.desk?.height??85,50,120)};data.monitorInches=clamp(saved.monitorInches??32,19,55);data.room=String(saved.room||data.room).slice(0,40);
   data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,enabled:s.enabled!==false,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'||d.shape==='floor'?-100:0,100)}}:d;});
@@ -41,6 +41,7 @@ function load(savedOverride){
    const real=realDevice(s.id),name=String(s.name||'Нова лампа').slice(0,real?80:35);
    data.devices.push({id:s.id,name,short:real?name:'Нова лампа',model:real?String(s.model||'').slice(0,64):'Макет',shape,enabled:s.enabled!==false,zones:real?clamp(s.zones,1,32):shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,shape==='floor'?-100:0,100)}});
   }
+  if(Object.hasOwn(saved,'syncZone')&&(saved.syncZone===null||validSyncZone(saved.syncZone)))data.syncZone=clone(saved.syncZone);
   data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;
  }catch{return defaults();}
 }
@@ -125,11 +126,10 @@ function room(){
  const monitor=screen(),cx=monitor.pos.x*10,cy=stageY(monitor),{width:w,height:h}=monitorSize();
  const DESK_WIDTH=layout.desk.width*UNITS_PER_CM,DESK_Y=deskTop(layout.desk);
  const left=500-DESK_WIDTH/2,right=500+DESK_WIDTH/2;
- return `<path class="detail-line" d="M-1000 ${FLOOR_Y}H2000"/>
- <g class="desk-target" data-desk role="button" tabindex="0" aria-label="Розміри столу: ${layout.desk.width} на ${layout.desk.height} см">
+ return `<g class="desk-target" data-desk role="button" tabindex="0" aria-label="Розміри столу: ${layout.desk.width} на ${layout.desk.height} см">
  <rect class="desk-hit" x="${left-12}" y="${DESK_Y-12}" width="${DESK_WIDTH+24}" height="85"/>
- <rect class="desk-shape" x="${left+7.5}" y="${DESK_Y+25}" width="25" height="${FLOOR_Y-DESK_Y-25}" rx="3"/>
- <rect class="desk-shape" x="${right-32.5}" y="${DESK_Y+25}" width="25" height="${FLOOR_Y-DESK_Y-25}" rx="3"/>
+ <rect class="desk-shape" x="${left+7.5}" y="${DESK_Y+25}" width="25" height="${FLOOR_Y-DESK_Y-25.5}" rx="3"/>
+ <rect class="desk-shape" x="${right-32.5}" y="${DESK_Y+25}" width="25" height="${FLOOR_Y-DESK_Y-25.5}" rx="3"/>
  <rect class="desk-shape" x="${left}" y="${DESK_Y}" width="${DESK_WIDTH}" height="25" rx="4"/>
  <text class="desk-measurement" x="500" y="${DESK_Y+12.5}">${layout.desk.width} см</text>
  <text class="desk-measurement" x="${right-20}" y="${(DESK_Y+25+FLOOR_Y)/2}" transform="rotate(-90 ${right-20} ${(DESK_Y+25+FLOOR_Y)/2})">${layout.desk.height} см</text></g>
@@ -145,7 +145,7 @@ function lamp(d,glow=false){
  let body='',light='',dividers='',box,nameY;
  if(d.shape==='floor'){
   const base=300,top=base-GOVEE_HEIGHT_CM*UNITS_PER_CM,lightBottom=270,lightLength=lightBottom-top-10;
-  body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="20" stroke-linecap="butt"/><path d="M0 279v19" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="300" rx="21" ry="5"/>`;
+  body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="20" stroke-linecap="butt"/><path d="M0 279v15.25" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="294.25" rx="21" ry="5"/>`;
   light=Array.from({length:d.zones},(_,i)=>{
    const bottom=lightBottom-i*lightLength/d.zones,length=lightLength/d.zones;
    const gap=glow||d.zones===1?0:5;
@@ -186,36 +186,112 @@ function lamp(d,glow=false){
  if(glow)return `<g class="wall-glow" transform="translate(${x},${y})">${light}</g>`;
  return `<g class="lamp ${selected===d.id?'selected':''}" data-lamp="${d.id}" role="button" tabindex="0" aria-label="${esc(d.name)}" aria-pressed="${selected===d.id}" transform="translate(${x},${y})"><rect class="hit ${attached?'strip-hit':''}" x="${box[0]-18}" y="${box[1]-12}" width="${box[2]+36}" height="${box[3]+24}" rx="12"/><rect class="halo" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" rx="12"/>${body}${light}${dividers}<text class="lamp-name long-name" x="0" y="${nameY}">${esc(d.name)}</text><text class="lamp-name short-name" x="0" y="${nameY}">${esc(d.short)}</text></g>`;
 }
+// Vertical polygon sections are shared by validation, shading and the runtime contract.
+function syncZoneBounds(points,x){
+ if(!Array.isArray(points)||points.length!==6||!Number.isFinite(x))return null;
+ const intersections=syncZoneIntersections(points,x);
+ return intersections.length?[Math.min(...intersections),Math.max(...intersections)]:null;
+}
+function syncZoneIntersections(points,x){
+ const intersections=[];
+ for(let i=0;i<points.length;i++){
+  const a=points[i],b=points[(i+1)%points.length];
+  if(x<Math.min(a.x,b.x)||x>Math.max(a.x,b.x))continue;
+  if(a.x===b.x)intersections.push(a.height,b.height);
+  else if(x===a.x)intersections.push(a.height);
+  else if(x===b.x)intersections.push(b.height);
+  else intersections.push(a.height+(x-a.x)/(b.x-a.x)*(b.height-a.height));
+ }
+ return [...new Set(intersections)];
+}
+function validSyncZone(config){
+ const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+ if(!exact(config,['version','points'])||config.version!==1||!Array.isArray(config.points)||config.points.length!==6)return false;
+ if(!config.points.every(p=>exact(p,['u','h'])&&typeof p.u==='number'&&Number.isFinite(p.u)&&Math.abs(p.u)<=20&&typeof p.h==='number'&&Number.isFinite(p.h)&&Math.abs(p.h)<=400))return false;
+ const p=config.points;
+ if(new Set(p.map(point=>JSON.stringify([point.u,point.h]))).size!==6)return false;
+ if(!(p[0].u<p[1].u&&p[5].u<p[4].u&&p[4].u<p[3].u&&p[3].u<p[2].u))return false;
+ const slope=(p[1].h-p[0].h)/(p[1].u-p[0].u),top=x=>p[0].h+slope*(x-p[0].u);
+ if(p.slice(2).some(point=>top(point.u)-point.h<1))return false;
+ const cross=(a,b,c)=>(b.u-a.u)*(c.h-a.h)-(b.h-a.h)*(c.u-a.u);
+ const on=(a,b,c)=>cross(a,b,c)===0&&c.u>=Math.min(a.u,b.u)&&c.u<=Math.max(a.u,b.u)&&c.h>=Math.min(a.h,b.h)&&c.h<=Math.max(a.h,b.h);
+ for(let i=0;i<6;i++)for(let j=i+1;j<6;j++){
+  if(j===i+1||(i===0&&j===5))continue;
+  const a=p[i],b=p[(i+1)%6],c=p[j],d=p[(j+1)%6];
+  const opposite=(a,b)=>(a<0&&b>0)||(b<0&&a>0);
+  if((opposite(cross(a,b,c),cross(a,b,d))&&opposite(cross(c,d,a),cross(c,d,b)))||on(a,b,c)||on(a,b,d)||on(c,d,a)||on(c,d,b))return false;
+ }
+ if(p.reduce((area,a,i)=>{const b=p[(i+1)%6];return area+(a.u*b.h-b.u*a.h);},0)>=0)return false;
+ const xs=[...new Set(p.map(point=>point.u))].sort((a,b)=>a-b);
+ const sections=[...xs,...xs.slice(1).map((x,i)=>(xs[i]+x)/2)];
+ const world=p.map(point=>({x:point.u,height:point.h}));
+ return sections.every(x=>syncZoneIntersections(world,x).length<=2);
+}
+function worldToSyncZone(points,data=layout){
+ return {version:1,points:points.map(p=>({u:(p.x-100)/(data.desk.width/2),h:p.height-data.desk.height}))};
+}
+function syncZonePoints(data=layout){
+ if(validSyncZone(data.syncZone))return data.syncZone.points.map(p=>({x:100+p.u*data.desk.width/2,height:data.desk.height+p.h}));
+ const deskLeft=100-data.desk.width/2,deskRight=100+data.desk.width/2;
+ const rows=data.devices.filter(enabled),monitor=data.devices.find(d=>d.id==='hue-monitor')||seed[2];
+ const halfMonitor=monitorSize(data.monitorInches).width/UNITS_PER_CM/2,monitorX=monitor.pos.x*2;
+ const left=Math.floor(Math.min(deskLeft-50,...rows.map(d=>d.pos.x*2-20),monitorX-halfMonitor-20)/STEP_CM)*STEP_CM;
+ const right=Math.ceil(Math.max(deskRight+50,...rows.map(d=>d.pos.x*2+20),monitorX+halfMonitor+20)/STEP_CM)*STEP_CM;
+ const lower=x=>data.desk.height-15-Math.max(0,deskLeft-x,x-deskRight);
+ return [{x:left,height:data.desk.height},{x:right,height:data.desk.height},{x:right,height:lower(right)},{x:deskRight,height:lower(deskRight)},{x:deskLeft,height:lower(deskLeft)},{x:left,height:lower(left)}];
+}
 function syncFadeY(x){
+ if(validSyncZone(layout.syncZone)){const bounds=syncZoneBounds(syncZonePoints(),x/UNITS_PER_CM);return bounds?FLOOR_Y-bounds[0]*UNITS_PER_CM:null;}
  const outside=Math.max(0,Math.abs(x-500)-layout.desk.width*UNITS_PER_CM/2);
  return deskTop(layout.desk)+15*UNITS_PER_CM+outside;
 }
-function syncBounds(left,right){
+const svgZonePoint=p=>`${p.x*UNITS_PER_CM} ${FLOOR_Y-p.height*UNITS_PER_CM}`;
+function zonePath(points){return `M${points.map(svgZonePoint).join('L')}Z`;}
+function syncBounds(points){
  if(!showSyncBounds)return '';
- const tableY=deskTop(layout.desk),half=layout.desk.width*UNITS_PER_CM/2;
- const edgeLeft=500-half,edgeRight=500+half,near=syncFadeY(500);
- const lower=`M${left} ${syncFadeY(left)}L${edgeLeft} ${near}H${edgeRight}L${right} ${syncFadeY(right)}`;
- return `<defs><clipPath id="sync-bounds-clip"><rect x="${left}" y="${tableY-4}" width="${right-left}" height="${FLOOR_Y-tableY+4}"/></clipPath></defs>
- <g class="sync-functional" clip-path="url(#sync-bounds-clip)" aria-hidden="true" pointer-events="none">
- <path class="sync-functional-band" d="${lower}V${tableY}H${left}Z"/>
- <path class="sync-functional-top" d="M${left} ${tableY}H${right}"/>
- <path class="sync-functional-limit" d="${lower}"/>
- <text class="sync-functional-label" x="500" y="${near+18}">Згасання Sync · 15 см</text></g>`;
+ // At each vertex x, upper and lower boundaries are linear. Interpolating them
+ // produces disjoint isobands even for a sloping top or a concave lower chain.
+ const xs=[...new Set(points.map(p=>p.x))].sort((a,b)=>a-b),sections=xs.map(x=>({x,bounds:syncZoneBounds(points,x)}));
+ const boundary=t=>sections.map(({x,bounds:[lower,upper]})=>({x,height:upper+(lower-upper)*t}));
+ const bands=Array.from({length:20},(_,i)=>{
+  const strength=1-(i+.5)/20,alpha=.27*strength*strength*(3-2*strength);
+  return `<path class="sync-functional-band" fill-opacity="${alpha.toFixed(5)}" d="${zonePath([...boundary(i/20),...boundary((i+1)/20).reverse()])}"/>`;
+ }).join('');
+ return `<g class="sync-functional" aria-hidden="true" pointer-events="none">${bands}</g>`;
+}
+function syncOutline(points){
+ if(!showSyncBounds)return '';
+ const names=['Верхній лівий','Верхній правий','Нижній правий','Внутрішній правий','Внутрішній лівий','Нижній лівий'];
+ return `<g class="sync-outline"><path class="sync-functional-limit" d="${zonePath(points)}" pointer-events="none"/>${points.map((p,i)=>`<rect class="sync-corner" data-sync-corner="${i}" x="${p.x*UNITS_PER_CM-8}" y="${FLOOR_Y-p.height*UNITS_PER_CM-8}" width="16" height="16" rx="2" tabindex="0" role="button" aria-label="${names[i]} кут Sync: ${Math.round(p.x-100)} см від центру, ${Math.round(p.height)} см від підлоги. Стрілки: 5 см"/>`).join('')}</g>`;
+}
+function moveSyncCorner(index,position){
+ const points=syncZonePoints();
+ points[index]={x:clamp(Math.round(position.x/STEP_CM)*STEP_CM,-400,600),height:clamp(Math.round(position.height/STEP_CM)*STEP_CM,-400,500)};
+ const config=worldToSyncZone(points);if(!validSyncZone(config))return false;
+ if(JSON.stringify(config)===JSON.stringify(worldToSyncZone(syncZonePoints())))return false;
+ layout.syncZone=config;return true;
 }
 function renderStage(){
+ const focus=document.activeElement,focusCorner=stage.contains(focus)?focus?.dataset?.syncCorner:undefined;
  const deskHalf=layout.desk.width*UNITS_PER_CM/2;
- const fixtures=layout.devices.filter(enabled),bounds=layout.devices.filter(d=>enabled(d)||d.id==='hue-monitor');
- const top=Math.min(0,stageY(screen())-monitorSize().height/2-70,...fixtures.filter(d=>d.shape==='floor').map(d=>stageY(d)-380-70));
- const left=Math.min(-150,500-deskHalf-100,...bounds.map(d=>d.pos.x*10-(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
- const right=Math.max(1150,500+deskHalf+100,...bounds.map(d=>d.pos.x*10+(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
+ const fixtures=layout.devices.filter(enabled),bounds=layout.devices.filter(d=>enabled(d)||d.id==='hue-monitor'),zone=syncZonePoints();
+ let top=Math.min(0,stageY(screen())-monitorSize().height/2-70,...fixtures.filter(d=>d.shape==='floor').map(d=>stageY(d)-380-70));
+ let left=Math.min(-150,500-deskHalf-100,...bounds.map(d=>d.pos.x*10-(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
+ let right=Math.max(1150,500+deskHalf+100,...bounds.map(d=>d.pos.x*10+(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
+ let bottom=STAGE_HEIGHT;
+ if(showSyncBounds){left=Math.min(left,...zone.map(p=>p.x*UNITS_PER_CM-45));right=Math.max(right,...zone.map(p=>p.x*UNITS_PER_CM+45));top=Math.min(top,...zone.map(p=>FLOOR_Y-p.height*UNITS_PER_CM-45));bottom=Math.max(bottom,...zone.map(p=>FLOOR_Y-p.height*UNITS_PER_CM+55));}
+ if(dragging){const viewport=stage.getAttribute('viewBox').split(' ').map(Number);[left,top]=viewport;right=left+viewport[2];bottom=top+viewport[3];}
+ else stage.setAttribute('viewBox',`${left} ${top} ${right-left} ${bottom-top}`);
  const cx=screen().pos.x*10,cy=stageY(screen()),tableY=deskTop(layout.desk);
  const guides=`<g class="reference-guides" aria-hidden="true" pointer-events="none">
- <path class="table-center-axis" d="M500 ${top}V${STAGE_HEIGHT}"/>
- <path class="monitor-axis" d="M${cx} ${top}V${STAGE_HEIGHT}M${left} ${cy}H${right}"/>
+ <path class="table-center-axis" d="M500 ${top}V${bottom}"/>
+ <path class="monitor-axis" d="M${cx} ${top}V${bottom}M${left} ${cy}H${right}"/>
  <path class="table-baseline" d="M${left} ${tableY}H${right}"/></g>`;
- if(!dragging)stage.setAttribute('viewBox',`${left} ${top} ${right-left} ${STAGE_HEIGHT-top}`);
+ const floor=`<rect class="subfloor" x="${left}" y="${FLOOR_Y}" width="${right-left}" height="${Math.max(0,bottom-FLOOR_Y)}"/><path class="floor-line" d="M${left} ${FLOOR_Y}H${right}"/><text class="floor-label" x="${left+20}" y="${FLOOR_Y+26}">Підлога · 0 см</text>`;
  $('#show-sync-bounds').checked=showSyncBounds;
- stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><pattern id="grid-major" width="${GRID*2}" height="${GRID*2}" patternUnits="userSpaceOnUse"><path d="M${GRID*2} 0H0V${GRID*2}" fill="none" stroke="#718878" stroke-width="1.2"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${STAGE_HEIGHT-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid-major)" opacity=".45"/><g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${fixtures.map(d=>lamp(d,true)).join('')}</g>`+guides+syncBounds(left,right)+room()+fixtures.map(d=>lamp(d)).join('');
+ $('#reset-sync-zone').hidden=!validSyncZone(layout.syncZone);
+ stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><pattern id="grid-major" width="${GRID*2}" height="${GRID*2}" patternUnits="userSpaceOnUse"><path d="M${GRID*2} 0H0V${GRID*2}" fill="none" stroke="#718878" stroke-width="1.2"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${bottom-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${bottom-top}" fill="url(#grid)" opacity=".45"/><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${bottom-top}" fill="url(#grid-major)" opacity=".45"/>${floor}${syncBounds(zone)}<g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${fixtures.map(d=>lamp(d,true)).join('')}</g>`+room()+fixtures.map(d=>lamp(d)).join('')+guides+syncOutline(zone);
+ if(focusCorner!==undefined)stage.querySelector(`[data-sync-corner="${focusCorner}"]`)?.focus({preventScroll:true});
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
@@ -235,12 +311,13 @@ function autoSnap(d,desk=layout.desk,inches=layout.monitorInches){
  const size=monitorSize(inches);
  const attached=d.id==='hue-monitor',floor=d.shape==='floor';
  const monitorMaxY=Math.floor((deskTop(desk)-size.height/2-5)/GRID);
+ const minimumHeight=floor?60:d.shape==='bar'&&d.orientation==='vertical'?15:5;
  d.pos.x=clamp(Math.round(d.pos.x*10/GRID),-COLS,COLS*2)*GRID/10;
- d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.floor((FLOOR_Y-250*UNITS_PER_CM)/GRID)):floor?(FLOOR_Y-300*UNITS_PER_CM)/GRID:1,floor?(FLOOR_Y-300)/GRID:attached?monitorMaxY:Math.floor((FLOOR_Y-10*UNITS_PER_CM)/GRID))*GRID/STAGE_HEIGHT*100;
+ d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.floor((FLOOR_Y-250*UNITS_PER_CM)/GRID)):floor?(FLOOR_Y-300*UNITS_PER_CM)/GRID:1,attached?monitorMaxY:Math.floor((FLOOR_Y-minimumHeight*UNITS_PER_CM)/GRID))*GRID/STAGE_HEIGHT*100;
 }
 
 function packLayout(data=layout){
- return {version:3,gridStepCm:STEP_CM,room:data.room,desk:clone(data.desk),monitorInches:data.monitorInches,devices:data.devices.map(d=>({
+ return {version:3,gridStepCm:STEP_CM,room:data.room,desk:clone(data.desk),monitorInches:data.monitorInches,syncZone:clone(data.syncZone??null),devices:data.devices.map(d=>({
   id:d.id,scale:d.scale,orientation:d.orientation||'horizontal',
   ...(!enabled(d)?{enabled:false}:{}),
   positionCm:d.positionCm?clone(d.positionCm):{x:Math.round(d.pos.x/100*COLS)*STEP_CM,height:heightCm(d)},
@@ -251,6 +328,9 @@ function mergeLayouts(base,local,remote){
  const result=clone(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
  for(const key of ['room','monitorInches'])field(result,key,base[key],local[key]);
+ // The API omits automatic geometry in canonical responses. Treat that as
+ // equivalent to this client's explicit null, while retaining genuine resets.
+ field(result,'syncZone',base.syncZone??null,local.syncZone??null);
  for(const key of ['width','height'])field(result.desk,key,base.desk[key],local.desk[key]);
  const old=new Map(base.devices.map(d=>[d.id,d])),mine=new Map(local.devices.map(d=>[d.id,d]));
  for(const [id,previous]of old)if(!mine.has(id))result.devices=result.devices.filter(d=>d.id!==id);
@@ -267,12 +347,19 @@ function mergeLayouts(base,local,remote){
 function readServerBase(){try{return JSON.parse(localStorage.getItem(KEY+'-base'));}catch{return null;}}
 let serverReady=false,revision=null,pendingLayout=null,saving=false,saveTimer,retryTimer,offlineNotice=false;
 let serverBaseline=readServerBase()||packLayout();
-function save(){try{const saved=packLayout();localStorage.setItem(KEY,JSON.stringify(saved));if(editGeneration>0)localStorage.setItem(KEY+'-pending','true');pendingLayout=saved;clearTimeout(saveTimer);if(serverReady)saveTimer=setTimeout(flushLayout,300);}catch{notify('Браузер не дозволив зберегти макет');}}
+function persistableLayout(){
+ const saved=packLayout(),original=dragging?.corner!==undefined?history.at(-1):null;
+ // A save already in flight may conflict while a corner is still moving.
+ // Keep its committed zone while the unfinished geometry stays on screen.
+ if(original)saved.syncZone=clone(original.syncZone??null);
+ return saved;
+}
+function save(){try{const saved=persistableLayout();localStorage.setItem(KEY,JSON.stringify(saved));if(editGeneration>0)localStorage.setItem(KEY+'-pending','true');pendingLayout=saved;clearTimeout(saveTimer);if(serverReady)saveTimer=setTimeout(flushLayout,300);}catch{notify('Браузер не дозволив зберегти макет');}}
 function acceptBaseline(saved){serverBaseline=clone(saved.layout);revision=saved.revision;localStorage.setItem(KEY+'-base',JSON.stringify(serverBaseline));}
 function reconcile(saved,base=serverBaseline){
  const merged=mergeLayouts(base,packLayout(),saved.layout);
  history=history.map(item=>load(mergeLayouts(base,packLayout(item),saved.layout)));
- layout=load(merged);acceptBaseline(saved);localStorage.setItem(KEY,JSON.stringify(packLayout()));render();
+ layout=load(merged);acceptBaseline(saved);localStorage.setItem(KEY,JSON.stringify(persistableLayout()));render();
 }
 async function flushLayout(){
  if(saving||!serverReady)return;saving=true;
@@ -281,7 +368,7 @@ async function flushLayout(){
   while(pendingLayout){
    const payload=pendingLayout,base=clone(serverBaseline);pendingLayout=null;
    const response=await fetch('/api/layout',{method:'POST',headers:{'Content-Type':'application/json','If-Match':`"${revision||''}"`},body:JSON.stringify(payload)});
-   if(response.status===409&&conflicts++<2){const current=await fetch('/api/layout');if(!current.ok)throw new Error('offline');const remote=await current.json();reconcile(remote,base);pendingLayout=packLayout();continue;}
+   if(response.status===409&&conflicts++<2){const current=await fetch('/api/layout');if(!current.ok)throw new Error('offline');const remote=await current.json();reconcile(remote,base);pendingLayout=persistableLayout();continue;}
    if(!response.ok){pendingLayout=pendingLayout||payload;throw new Error('save');}
    acceptBaseline(await response.json());if(!pendingLayout)localStorage.removeItem(KEY+'-pending');offlineNotice=false;
   }
@@ -345,7 +432,7 @@ function addSelected(){
  for(const item of devices){const placement=discoveryPlacement(item);if(placement){placement.enabled=true;selected=placement.id;continue;}const d={id:item.id,name:item.name,short:item.name,model:item.model,shape:item.shape,zones:item.zones,scale:80,rate:0,orientation:'horizontal',pos:{x:50,y:72}};autoSnap(d);layout.devices.push(d);selected=d.id;}
  dirty();render();closeDiscovery();
 }
-const actions={add,'add-selected':addSelected,'close-modal':closeDiscovery,deselect:()=>{selected=null;render();},remove:()=>{const d=current();if(selected==='monitor'||!removable(d?.id))return;remember();if(enrolled(d.id))d.enabled=false;else layout.devices=layout.devices.filter(row=>row.id!==d.id);selected=null;dirty();render();}};
+const actions={add,'reset-sync-zone':()=>{if(!validSyncZone(layout.syncZone))return;remember();layout.syncZone=null;dirty();renderStage();},'add-selected':addSelected,'close-modal':closeDiscovery,deselect:()=>{selected=null;render();},remove:()=>{const d=current();if(selected==='monitor'||!removable(d?.id))return;remember();if(enrolled(d.id))d.enabled=false;else layout.devices=layout.devices.filter(row=>row.id!==d.id);selected=null;dirty();render();}};
 document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  if(button.dataset.action)actions[button.dataset.action]?.();
@@ -364,7 +451,7 @@ document.addEventListener('change',event=>{
   else monitor.pos.x=(event.target.valueAsNumber+100)/(COLS*STEP_CM)*100;
   autoSnap(monitor);dirty();render();return;
  }
- if(event.target.name==='orientation'&&current()?.shape==='bar'){remember();current().orientation=event.target.value==='vertical'?'vertical':'horizontal';dirty();renderStage();return;}
+ if(event.target.name==='orientation'&&current()?.shape==='bar'){remember();current().orientation=event.target.value==='vertical'?'vertical':'horizontal';autoSnap(current());dirty();renderStage();return;}
  if(event.target.id==='monitor-inches'){if(!event.target.value||!Number.isFinite(event.target.valueAsNumber)){renderSelection();return;}remember();layout.monitorInches=Math.round(clamp(event.target.value,19,55)*10)/10;autoSnap(screen());dirty();render();return;}
  if(!['desk-width','desk-height'].includes(event.target.id))return;
  const height=event.target.id==='desk-height',key=height?'height':'width';
@@ -377,19 +464,51 @@ document.addEventListener('change',event=>{
 document.addEventListener('pointerdown',event=>{if(event.target.id==='brightness')remember();});
 document.addEventListener('input',event=>{if(event.target.id!=='brightness'||!current())return;current().scale=clamp(event.target.value,0,100);$('#brightness-value').textContent=Math.round(current().scale)+'%';dirty();renderStage();});
 stage.addEventListener('pointerdown',event=>{
+ const corner=event.target.closest('[data-sync-corner]');
+ if(corner){
+  const index=Number(corner.dataset.syncCorner);remember();selected=null;
+  dragging={corner:index,start:point(event),points:syncZonePoints(),moved:false};
+  stage.setPointerCapture(event.pointerId);corner.focus({preventScroll:true});renderSelection();return;
+ }
  if(event.target.closest('[data-desk]')){selected='desk';renderSelection();return;}
  const node=event.target.closest('[data-lamp],[data-monitor]');
  if(!node){selected=null;render();return;}
  selected=node.hasAttribute('data-monitor')?'monitor':node.dataset.lamp;const d=current();remember();dragging={id:d.id,start:point(event),pos:clone(d.pos),moved:false};stage.setPointerCapture(event.pointerId);if(selected==='monitor'){stage.querySelectorAll('.selected').forEach(item=>item.classList.remove('selected'));node.classList.add('selected');renderSelection();}else render();
 });
 stage.addEventListener('pointermove',event=>{
- if(!dragging)return;const p=point(event),d=current();const dx=(p.x-dragging.start.x)/10,dy=(p.y-dragging.start.y)/STAGE_HEIGHT*100;
+ if(!dragging)return;const p=point(event);
+ if(dragging.corner!==undefined){
+  const original=dragging.points[dragging.corner];
+  if(moveSyncCorner(dragging.corner,{x:original.x+(p.x-dragging.start.x)/UNITS_PER_CM,height:original.height-(p.y-dragging.start.y)/UNITS_PER_CM})){
+   dragging.moved=JSON.stringify(syncZonePoints())!==JSON.stringify(dragging.points);renderStage();
+  }
+  return;
+ }
+ const d=current();if(!d)return;
+ const dx=(p.x-dragging.start.x)/10,dy=(p.y-dragging.start.y)/STAGE_HEIGHT*100;
  d.pos={x:dragging.pos.x+dx,y:dragging.pos.y+dy};autoSnap(d);dragging.moved=d.pos.x!==dragging.pos.x||d.pos.y!==dragging.pos.y;renderStage();
 });
-function finishDrag(){if(!dragging)return;const moved=dragging.moved;if(moved)dirty();else history.pop();dragging=null;if(moved)renderStage();renderSelection();stage.querySelector(selected==='monitor'?'[data-monitor]':`[data-lamp="${selected}"]`)?.focus({preventScroll:true});}
-stage.addEventListener('pointerup',finishDrag);stage.addEventListener('pointercancel',finishDrag);
+function dragFocus(gesture){return gesture.corner!==undefined?`[data-sync-corner="${gesture.corner}"]`:selected==='monitor'?'[data-monitor]':`[data-lamp="${selected}"]`;}
+function finishDrag(){
+ if(!dragging)return;const gesture=dragging,moved=gesture.moved;
+ dragging=null;
+ if(moved)dirty();else {const original=history.pop();if(gesture.corner!==undefined&&original){if(Object.hasOwn(original,'syncZone'))layout.syncZone=clone(original.syncZone);else delete layout.syncZone;}}
+ renderStage();renderSelection();stage.querySelector(dragFocus(gesture))?.focus({preventScroll:true});
+}
+function cancelDrag(){
+ if(!dragging)return false;const gesture=dragging,original=history.pop();dragging=null;
+ if(original)layout=original;
+ render();stage.querySelector(dragFocus(gesture))?.focus({preventScroll:true});return true;
+}
+stage.addEventListener('pointerup',finishDrag);stage.addEventListener('pointercancel',cancelDrag);
 stage.addEventListener('click',event=>{if(event.target.closest('[data-monitor]')){selected='monitor';renderSelection();stage.querySelector('[data-monitor]')?.focus({preventScroll:true});return;}const node=event.target.closest('[data-lamp]');if(node&&selected!==node.dataset.lamp)choose(node.dataset.lamp);});
 stage.addEventListener('keydown',event=>{
+ const corner=event.target.closest('[data-sync-corner]');
+ if(corner){
+  if(!event.key.startsWith('Arrow'))return;event.preventDefault();const index=Number(corner.dataset.syncCorner),p=syncZonePoints()[index];
+  const x=p.x+(event.key==='ArrowLeft'?-STEP_CM:event.key==='ArrowRight'?STEP_CM:0),height=p.height+(event.key==='ArrowUp'?STEP_CM:event.key==='ArrowDown'?-STEP_CM:0);
+  remember();if(!moveSyncCorner(index,{x,height})){history.pop();return;}dirty();renderStage();stage.querySelector(`[data-sync-corner="${index}"]`)?.focus({preventScroll:true});return;
+ }
  if(event.target.closest('[data-desk]')&&(event.key==='Enter'||event.key===' ')){event.preventDefault();selected='desk';renderSelection();return;}
  const node=event.target.closest('[data-lamp],[data-monitor]');if(!node)return;
  const id=node.hasAttribute('data-monitor')?'monitor':node.dataset.lamp;
@@ -397,7 +516,7 @@ stage.addEventListener('keydown',event=>{
  if(!event.key.startsWith('Arrow'))return;event.preventDefault();selected=id;remember();const d=current(),stepX=GRID/10,stepY=GRID/STAGE_HEIGHT*100;
  if(event.key==='ArrowLeft')d.pos.x-=stepX;if(event.key==='ArrowRight')d.pos.x+=stepX;if(event.key==='ArrowUp')d.pos.y-=stepY;if(event.key==='ArrowDown')d.pos.y+=stepY;autoSnap(d);dirty();render();stage.querySelector(selected==='monitor'?'[data-monitor]':`[data-lamp="${selected}"]`)?.focus({preventScroll:true});
 });
-document.addEventListener('keydown',event=>{if(event.key==='Escape'){selected=null;render();}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'&&history.length&&document.activeElement?.tagName!=='INPUT'){event.preventDefault();layout=history.pop();if(!['desk','monitor'].includes(selected)&&!layout.devices.some(d=>d.id===selected))selected=null;dirty();render();}});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){if(cancelDrag())return;selected=null;render();}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'&&history.length&&document.activeElement?.tagName!=='INPUT'){event.preventDefault();if(dragging){cancelDrag();return;}layout=history.pop();if(!['desk','monitor'].includes(selected)&&!layout.devices.some(d=>d.id===selected))selected=null;dirty();render();}});
 render();
 save();
 connectLayout();

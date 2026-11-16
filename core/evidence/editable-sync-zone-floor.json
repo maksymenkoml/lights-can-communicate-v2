@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-16",
+  "version": "0.1.0.dev8",
+  "artifact_sha256": "95107f0ae3a5559b54406ff8c843cbe1b8ec76d5583db3b4876b8e3119a60c54",
+  "status": "PASS automated, local API and runtime cutover; active HDMI/optical checks not repeated in this slice.",
+  "model": {
+    "saved_zone": "six table-relative points; horizontal scales with half desk width, vertical follows tabletop",
+    "fade": "vertical polygon sections and smoothstep",
+    "fixture_visibility": "integrated Govee segments; Play centers; nine physical monitor-edge anchors",
+    "floor": "physical body clamps; fixed table on floor; functional zone and labels may extend below",
+    "guides": "full scene; dashed references and solid functional contour",
+    "compatibility": "missing field preserves custom zone on older client save; explicit null resets to Auto"
+  },
+  "automated": {
+    "mac_python": {
+      "run": 531,
+      "skipped": 14,
+      "failures": 0
+    },
+    "isolated_linux_python": {
+      "run": 531,
+      "skipped": 4,
+      "failures": 0
+    },
+    "node_ui": 59,
+    "node_power": 63,
+    "archive_whole_color": {
+      "run": 283,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failures": 0
+    },
+    "archive_gradient": {
+      "run": 241,
+      "mac_skipped": 0,
+      "linux_skipped": 2,
+      "failures": 0
+    },
+    "ruff_and_pre_push": "pass",
+    "independent_review": "PASS geometry/runtime and UI; two float-parity cases plus save/reset regressions fixed and tested"
+  },
+  "visual_verification": "Synthetic SVG rendered using actual client markup; owner browser was not opened. Optical/browser appearance remains owner-observed.",
+  "private_evidence_directory": "experiments/hue-bridge/state/archives/editable-sync-zone-floor-2026-11-16",
+  "live": {
+    "core_version": "0.1.0.dev8",
+    "ui_restarted": true,
+    "bridge_recreated_pinned_image": true,
+    "source_stop": "existing authorized virtual Hue API after mobile app stopped responding",
+    "udp_ingress_verified": true,
+    "custom_zone_persisted": true,
+    "exact_core_profile_signature_verified": true,
+    "owner_layout_restored": true,
+    "identities_and_brightness_preserved": true,
+    "power_commands_sent_by_checks": false,
+    "active_video_check": "not performed; source was already idle before cutover and remains stopped"
+  }
+}

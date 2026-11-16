@@ -252,3 +252,20 @@ The glow layer uses screen blending so dim emitted colors cannot darken the grid
 Real streaming checks confirmed three black Play outputs and the expected graded
 Govee output, with owner power and layout preserved. See
 `evidence/sync-soft-visibility.json` for exact tests and acceptance limits.
+
+## Editable Sync visibility and floor constraints
+
+`0.1.0.dev8` shares a validated six-point visibility polygon between Light Studio
+and the adapter. Optional v3 `syncZone` stores horizontal positions relative to
+half the table width and vertical offsets from its top. Custom points therefore
+follow table resizing. Missing/null selects the automatic 15 cm band and lateral
+spread. A save from an older client that omits the field preserves a custom zone;
+explicit null resets it.
+
+Vertical polygon sections supply the lower/upper smoothstep bounds. Govee retains
+analytic segment integration and weighted sample positions; Play and the nine
+physical monitor-strip anchors use point visibility. Each samples the original
+capture palette before attenuation and calibration. Scene playback remains
+independent. Source capture channels, identities, power and native membership
+are unchanged. The layout canonicalizer also keeps physical bodies above the
+floor; the table has dimensions only and cannot move off the floor.

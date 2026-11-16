@@ -43,6 +43,17 @@ positions use the floor as their height origin.
 Selecting the desk opens just width and tabletop height. Defaults are
 160 and 85 cm; both persist with the layout. Changing height carries the
 monitor with the tabletop. The view expands to fit wider desks.
+The table stays fixed on the floor. Moving or rotating a physical fixture and
+resizing/moving the monitor clamps its full body above the floor; older saved
+below-floor anchors are raised on load. Labels can extend into the shaded strip
+below the floor, but physical objects cannot.
+
+Reference guides span the complete scene, including the monitor center, table
+center and tabletop. The optional Sync bounds use a closed solid perimeter and
+smoothstep-weighted shading. All six corners can move on the 5 cm grid. Edits
+autosave, support undo and affect actual Sync output. Custom points stay attached
+to table width and tabletop height; Auto restores the placement-derived 15 cm
+band and lateral spread. Functional bounds may extend below the floor.
 
 Selecting the monitor edits its diagonal in inches (default 32, 16:9).
 The display and attached strip resize together and the diagonal persists.

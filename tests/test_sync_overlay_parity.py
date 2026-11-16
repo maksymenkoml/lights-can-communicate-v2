@@ -9,10 +9,68 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'experiments/hue-bridge'))
 from sync_projection import sync_profile  # noqa: E402
+from sync_zone import validate_zone, vertical_bounds, zone_points  # noqa: E402
 from test_sync_projection import layout  # noqa: E402
 
 
 class SyncOverlayParityTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'UI parity requires the local Node runtime')
+    def test_custom_zone_validation_and_sections_match_client(self):
+        root = Path(__file__).resolve().parents[1]
+        base = {'version':1,'points':[{'u':u,'h':h} for u,h in
+                                     ((-2,0),(2,0),(2,-65),(1,-15),(-1,-15),(-2,-65))]}
+        skew = copy.deepcopy(base)
+        skew['points'][0]['h'] = 10
+        narrow = copy.deepcopy(base)
+        for point in narrow['points'][2:]:
+            point['h'] = -1+5e-9
+        invalid = copy.deepcopy(base)
+        invalid['points'][3]['u'] = -3
+        near_vertex = copy.deepcopy(base)
+        for point in near_vertex['points'][2:]:
+            point['h'] = -15
+        near_vertex['points'][3]['u'] = -0.9999999999999999
+        cases = [base,skew,narrow,invalid,near_vertex]
+        xs = [-100,-60,0,20,50,100,150,180,260,300]
+        script = """
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const source=fs.readFileSync('tests/setup_studio_client.test.cjs','utf8').split('\\ntest(')[0];
+const cases=JSON.parse(process.argv[1]),xs=JSON.parse(process.argv[2]);
+vm.runInNewContext(source+`
+harness().then(app=>console.log(JSON.stringify(cases.map(config=>{
+ const valid=app.run('validSyncZone('+JSON.stringify(config)+')');
+ if(!valid)return {valid};
+ app.run('layout.syncZone='+JSON.stringify(config));
+ const bounds=xs.map(x=>app.run('syncZoneBounds(syncZonePoints(),'+x+')'));
+ return {valid,points:app.run('syncZonePoints()'),bounds};
+}))));`,{require,__dirname:path.join(process.cwd(),'tests'),structuredClone,
+       AbortController,setImmediate,console,cases,xs});
+"""
+        result = subprocess.run(['node','-e',script,json.dumps(cases),json.dumps(xs)],
+                                cwd=root,capture_output=True,text=True,timeout=10,check=True)
+        actual = json.loads(result.stdout)
+        for config, found in zip(cases,actual):
+            try:
+                validate_zone(config)
+                valid = True
+            except ValueError:
+                valid = False
+            self.assertEqual(found['valid'],valid)
+            if not valid:
+                continue
+            data = layout()
+            data['monitorInches'] = 32
+            data['syncZone'] = config
+            points = zone_points(data)
+            self.assertEqual(found['points'],points)
+            for x,bounds in zip(xs,found['bounds']):
+                expected = vertical_bounds(points,x)
+                if expected is None:
+                    self.assertIsNone(bounds)
+                else:
+                    for a,b in zip(bounds,expected):
+                        self.assertAlmostEqual(a,b)
+
     @unittest.skipUnless(shutil.which('node'), 'UI parity requires the local Node runtime')
     def test_frontend_boundary_matches_backend_for_desk_sizes_and_lateral_distances(self):
         root = Path(__file__).resolve().parents[1]
