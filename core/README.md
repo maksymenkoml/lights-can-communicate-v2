@@ -163,3 +163,37 @@ parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six ro
 calibration, HomeKit identities, pairing and geometry were retained. The NAS was
 not changed. The previous archive/configuration remain available for rollback.
 See `evidence/native-hue-profile.json` for tests, live frame samples and limits.
+
+## Stream recovery diagnostics
+
+`0.1.0.dev5` reuses the authenticated bridge-to-adapter HTTP connection for
+latest-frame delivery. Authentication is checked on every request; only fully
+consumed stream requests opt into reuse. Non-stream routes and rejected requests
+close their connections. Failed messages are not replayed; the next attempt uses
+the latest queued frame, with the existing timestamp/sequence/session fences.
+
+An established video output can reserve its last physical colors for up to two
+seconds after its last accepted frame, without sending expired frames. During
+that interval the UI reports waiting and scene writes remain paused. Explicit
+Stop, shutdown, confirmed native Off or unsafe native state releases immediately;
+longer gaps restore the scene. Native Off retains the blocked-session rule.
+
+Authenticated adapter status now includes video transition counters and recent
+sanitized events. Receiver status includes frame age, HTTP failure categories,
+latency, successful-forward gaps, coalescing/expiry counts and connection counts.
+Persistent journals in the existing state directory are
+`adapter-stream-health.jsonl` and `bridge-stream-health.jsonl`. Each retains at
+most 256 KiB plus one `.1` backup, mode `0600`, and 64 copied recent events in
+memory. Only fixed state/reason labels and numeric metrics are recorded. No
+credentials, frame payloads, exception text or device addresses are logged by
+these journals. A journal failure increments `write_errors` without interrupting
+output. Existing protocol request logs are separate.
+
+On the Mac pilot, stop Sync Box before recreating the bridge container, wait for
+the API/UDP guard, verify ingress, then start Box/Sync. A live Box sending into
+the container startup window has coincided with a broken Docker Desktop UDP
+publication; a running in-container guard alone is not proof of host ingress.
+The control-datagram counter and actual DTLS frame counter are distinct checks.
+This operational recovery is not an automatic Docker Desktop repair mechanism.
+See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
+sequential live observation windows, tests and measurement limits.

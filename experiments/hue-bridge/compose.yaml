@@ -30,6 +30,8 @@ services:
       - ./entertainment_stream.py:/probe/entertainment_stream.py:ro
       - ./entertainment_receiver.py:/probe/entertainment_receiver.py:ro
       - ./udp_port_guard.py:/probe/udp_port_guard.py:ro
+      - ./stream_http.py:/probe/stream_http.py:ro
+      - ./stream_diagnostics.py:/probe/stream_diagnostics.py:ro
       - ./scene_play_intent.py:/probe/scene_play_intent.py:ro
       - ./gradient_profile.py:/probe/gradient_profile.py:ro
       - ./hue_resource_compat.py:/probe/hue_resource_compat.py:ro

@@ -23,6 +23,8 @@ CONTRACTS = [
     "test_live_preview",
     "test_native_profile",
     "test_native_profile_integration",
+    "test_stream_http",
+    "test_stream_diagnostics",
 ]
 RUNTIME = [
     "live_adapter",
@@ -37,6 +39,8 @@ RUNTIME = [
     "video_output",
     "bridge_output",
     "smart_lighting_core.native_profile",
+    "stream_http",
+    "stream_diagnostics",
 ]
 
 

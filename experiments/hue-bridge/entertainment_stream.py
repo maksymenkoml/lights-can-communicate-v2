@@ -204,6 +204,12 @@ class VideoLease:
                 self.frame = None
             return self.session is not None and self.frame is not None
 
+    def holding(self):
+        """Reserve an established output briefly; never return an expired frame."""
+        with self.lock:
+            return (not self.stopping and self.session is not None
+                    and 0 <= self.clock() - self.seen <= 2)
+
     def submit(self, message):
         if not isinstance(message, dict) or message.get("action") not in ("frame", "stop"):
             raise ValueError("Invalid stream action")

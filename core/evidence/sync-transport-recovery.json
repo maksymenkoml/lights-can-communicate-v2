@@ -1,0 +1,61 @@
+{
+  "date": "2026-11-16",
+  "version": "0.1.0.dev5",
+  "artifact_sha256": "995e17f415a35660996ce6c6cb60e72174d49feabcc44ab65e8cdffa1aaca6a4",
+  "status": "PASS for synthetic contracts and live transport/API observation windows; owner visual confirmation recorded separately.",
+  "diagnosis": [
+    "During active PS5 video, DTLS receive counts advanced while bridge-to-Mac HTTP delivery failed and host frame age exceeded 0.5 seconds.",
+    "The host expired its video lease, released native streaming and restored the scene; release/restart added further waiting.",
+    "A separate container-to-host GET probe reproduced 20 network failures in 200 requests, with maximum elapsed 305.1 ms. The reported ENETUNREACH can be the last dual-stack attempt; the exact underlying Docker/kernel fault was not established."
+  ],
+  "before_window": {
+    "source": "samples-165222.jsonl",
+    "samples": 593,
+    "seconds": 120.154,
+    "state_seconds": {"active": 103.114, "waiting": 16.226, "foreign": 0.813},
+    "receiver_frames": 7184,
+    "host_frames": 1672
+  },
+  "after_window": {
+    "source": "samples-171851.jsonl",
+    "samples": 590,
+    "seconds": 120.023,
+    "state_seconds": {"active": 120.023},
+    "receiver_frames": 7180,
+    "host_frames": 2192,
+    "http_connections": 1,
+    "http_failures": 0,
+    "expired_outbox_frames": 0,
+    "maximum_successful_forward_gap_seconds": 0.25786,
+    "maximum_send_ms": 23.649,
+    "hidden_video_transitions_between_start_and_final_capture": 0
+  },
+  "measurement_limits": [
+    "Sequential observation windows on the same physical setup and owner-run PS5 game, not a controlled network microbenchmark.",
+    "The separate GET probe overlapped part of the before window; actual DTLS frame volumes remained comparable.",
+    "No injected live packet loss and no optical color measurement; pause/Stop/Off precedence was covered by synthetic protocol tests.",
+    "The first attempted after window had no video because UDP publication failed; it is preserved as samples-171534.jsonl and excluded from the active-video comparison."
+  ],
+  "automated": {
+    "mac_python": {"run": 433, "skipped": 14, "failures": 0},
+    "isolated_linux_python": {"run": 433, "skipped": 2, "failures": 0},
+    "node_ui": 28,
+    "node_power": 63,
+    "archive_whole_color": {"run": 188, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "archive_gradient": {"run": 146, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "ruff_and_pre_push": "pass",
+    "review": "PASS after terminal Stop and unsafe-hold journal reason fixes, with RED/GREEN regressions."
+  },
+  "persistent_diagnostics": {
+    "files": ["adapter-stream-health.jsonl", "bridge-stream-health.jsonl"],
+    "mode": "0600",
+    "maximum_bytes_per_file": 262144,
+    "rotated_backups_per_file": 1,
+    "ram_events_per_process": 64,
+    "credentials_payloads_addresses_and_exception_text": "excluded"
+  },
+  "preserved": ["power state", "virtual IDs and pairing", "HomeKit IDs and scenes", "calibration", "saved layout", "native profile and credentials", "NAS installation"],
+  "operational_limit": "Stop Box before container recreation, then verify host UDP ingress before resuming. Automated Docker Desktop publication repair remains separate.",
+  "final_state": "Sync left active on the same six fixtures; no game launched by the agent and no third Govee enrolled.",
+  "private_evidence_directory": "experiments/hue-bridge/state/archives/sync-intermittent-2026-11-16"
+}

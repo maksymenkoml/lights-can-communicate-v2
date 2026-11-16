@@ -19,6 +19,8 @@ PILOT_MODULES = (
     "power_owner",
     "video_output",
     "bridge_output",
+    "stream_http",
+    "stream_diagnostics",
 )
 CORE_MODULES = (
     "__init__", "__main__", "config", "cli", "discovery", "hue_discovery", "live_preview",

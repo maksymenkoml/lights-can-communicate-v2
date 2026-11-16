@@ -146,16 +146,67 @@ class VideoTests(unittest.TestCase):
         self.assertTrue(all(name != "turn" for name, _ in self.sent))
         self.assertEqual(govee_stream_state((0, 0, 0))["rgb"], [0, 0, 0])
 
-    def test_video_leases_expire_release_native_stream_and_clear_dedup(self):
+    def test_long_video_gap_releases_native_stream_and_clears_dedup(self):
         self.lease.submit(envelope())
         self.output.process_once()
         self.output.render()
         self.assertTrue(self.output.active())
         self.assertEqual(len(self.relay.frames), 1)
-        self.now += 0.6
+        self.now += 2.1
         self.output.process_once()
         self.assertFalse(self.output.active())
         self.assertEqual(self.relay.stopped, 1)
+
+    def test_short_transport_gap_holds_output_without_sending_stale_frames_or_restoring_scene(self):
+        self.lease.submit(envelope())
+        self.output.process_once()
+        self.output.render()
+        sent = len(self.sent)
+        self.now += 0.8
+        self.assertFalse(self.lease.active())
+        self.assertFalse(self.output.process_once())
+        self.output.render()
+        self.assertTrue(self.output.active())
+        self.assertEqual(self.relay.stopped, 0)
+        self.assertEqual(len(self.relay.frames), 1)
+        self.assertEqual(len(self.sent), sent)
+        self.assertTrue(all(not p.value.get('restore_requested') for p in self.proxies))
+        self.assertEqual(self.output.snapshot()['last_result'],
+                         'waiting for fresh frames; output held')
+        self.lease.submit(envelope(sequence=2))
+        self.assertTrue(self.output.process_once())
+        self.assertEqual(self.relay.started, 1)
+        self.assertEqual(len(self.relay.frames), 2)
+
+    def test_explicit_stop_and_confirmed_native_off_interrupt_gap_hold_immediately(self):
+        for reason in ('stop', 'off', 'unsafe', 'shutdown'):
+            self.setUp()
+            self.lease.submit(envelope())
+            self.output.process_once()
+            self.now += 0.8
+            self.output.process_once()
+            if reason == 'stop':
+                self.lease.submit(envelope('stop', sequence=2))
+            elif reason == 'off':
+                self.proxies[0].value['native_on'] = False
+            elif reason == 'unsafe':
+                self.proxies[0].value['healthy'] = False
+            else:
+                self.lease.close()
+            self.output.process_once()
+            self.assertFalse(self.output.ready)
+            self.assertEqual(self.relay.stopped, 1)
+            event = self.output.diagnostics.snapshot()['events'][-1]
+            self.assertEqual(event['reason'], {
+                'stop':'explicit_stop','off':'native_off',
+                'unsafe':'native_unavailable','shutdown':'shutdown',
+            }[reason])
+            if reason == 'off':
+                self.assertEqual(self.output.blocked_session, 'test-session')
+                self.proxies[0].value['native_on'] = True
+                self.lease.submit(envelope(sequence=2))
+                self.assertFalse(self.output.process_once())
+                self.assertEqual(self.relay.started, 1)
 
     def test_source_before_lights_on_waits_then_resumes_without_source_restart(self):
         for proxy in self.proxies:

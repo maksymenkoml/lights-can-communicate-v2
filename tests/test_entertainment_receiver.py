@@ -1,3 +1,4 @@
+import http.client
 import io
 import sys
 import unittest
@@ -10,6 +11,47 @@ from test_entertainment_stream import colors  # noqa: E402
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_transport_failures_have_sanitized_counters_and_recover_with_latest_frame(self):
+        now = [1000.0]
+        attempts = []
+
+        def send(message):
+            attempts.append(message['sequence'])
+            if len(attempts) == 1:
+                raise TimeoutError('private-token private-address')
+
+        out = StreamOutbox('http://adapter', 'private-token', sender=send,
+                           clock=lambda: now[0], monotonic=lambda: now[0])
+        out.frame(colors())
+        self.assertFalse(out.forward_once())
+        self.assertEqual(out.snapshot()['error_counts'], {'timeout': 1})
+        self.assertEqual(out.snapshot()['consecutive_failures'], 1)
+        out.frame(colors())
+        out.frame(colors())
+        now[0] += .1
+        self.assertTrue(out.forward_once())
+        self.assertEqual(attempts, [1, 3])
+        snapshot = out.snapshot()
+        self.assertEqual(snapshot['coalesced'], 1)
+        self.assertEqual(snapshot['failed'], 1)
+        self.assertEqual(snapshot['forwarded'], 1)
+        self.assertEqual(snapshot['consecutive_failures'], 0)
+        self.assertEqual([e['reason'] for e in out.diagnostics.snapshot()['events']],
+                         ['transport_error', 'transport_recovered'])
+        self.assertNotIn('private', str(snapshot) + str(out.diagnostics.snapshot()))
+
+    def test_protocol_error_does_not_kill_the_outbox(self):
+        def bad_response(_):
+            raise http.client.BadStatusLine('secret')
+
+        out = StreamOutbox('http://adapter', 'token',
+                           sender=bad_response,
+                           clock=lambda: 1000)
+        out.frame(colors())
+        self.assertFalse(out.forward_once())
+        self.assertEqual(out.snapshot()['error_counts'], {'protocol': 1})
+        self.assertNotIn('secret', str(out.diagnostics.snapshot()))
+
     def test_rejected_http_response_is_closed_before_retrying_fresh_frame(self):
         response = io.BytesIO(b"temporarily unavailable")
         error = urllib.error.HTTPError("http://adapter/stream", 503, "Unavailable", {}, response)
@@ -51,6 +93,8 @@ class ReceiverTests(unittest.TestCase):
         out.forward_once()
         self.assertEqual(sent[-1]["action"], "stop")
         self.assertNotIn("colors", sent[-1])
+        event = out.diagnostics.snapshot()['events'][-1]
+        self.assertEqual((event['state'], event['reason']), ('stopped', 'explicit_stop'))
 
     def test_expired_frame_is_not_replayed_after_delivery_delay(self):
         now = [1000.0]

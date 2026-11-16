@@ -37,6 +37,7 @@ from HueObjects import (  # noqa: E402
     Scene,
     StreamEvent,
 )
+from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
@@ -295,6 +296,7 @@ entertainment_receiver = EntertainmentReceiver(
     local_secret("adapter-token", 24),
     enabled=include_entertainment and not (state / "live-output-hold").exists(),
     udp_guard=udp_guard,
+    diagnostics=StreamDiagnostics(state / 'bridge-stream-health.jsonl'),
 )
 if include_entertainment:
     entertainment_receiver.bind(area)

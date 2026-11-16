@@ -4,6 +4,7 @@ import threading
 import time
 
 from entertainment_stream import GOVEE_CHANNELS, VideoLease
+from stream_diagnostics import StreamDiagnostics
 
 
 def govee_stream_state(rgb, stops=None):
@@ -19,7 +20,8 @@ def govee_stream_state(rgb, stops=None):
 
 
 class VideoOutput:
-    def __init__(self, controller, relay, proxies, lease=None, clock=time.monotonic):
+    def __init__(self, controller, relay, proxies, lease=None, clock=time.monotonic,
+                 diagnostics=None):
         self.controller, self.relay, self.proxies = controller, relay, list(proxies)
         self.lease = lease or VideoLease()
         self.ready = False
@@ -32,9 +34,13 @@ class VideoOutput:
         self.last_safety_failure = None
         self.clock = clock
         self.warmup_until = 0
+        self.diagnostics = diagnostics or StreamDiagnostics()
+        self.transitions = {}
+        self.last_event = None
 
     def active(self):
-        return self.lease.active() or self.cleanup_pending
+        return (self.lease.active() or self.cleanup_pending
+                or (self.ready and self.lease.holding()))
 
     def submit(self, message):
         return self.lease.submit(message)
@@ -86,6 +92,20 @@ class VideoOutput:
             if self.cleanup_pending and not self.ready:
                 self.release()
             if latest is None:
+                if self.ready and self.lease.holding():
+                    if self.safe():
+                        self.last_result = "waiting for fresh frames; output held"
+                        return False
+                    fresh_off = any(s.get('healthy') and s.get('native_on') is False
+                                    and s.get('native_age') is not None and s['native_age'] <= 2
+                                    for s in (p.snapshot() for p in self.proxies))
+                    if fresh_off:
+                        self.blocked_session = self.lease.session
+                    self.release()
+                    self.next_retry = self.clock() + 1
+                    self.last_result = ('native off; source restart required' if fresh_off
+                                        else 'native state stale; waiting to retry')
+                    return False
                 if self.ready or self.cleanup_pending:
                     self.release()
                 self.last_result = "idle"
@@ -167,6 +187,41 @@ class VideoOutput:
             self.next_retry = self.clock() + 1
             self.last_result = "native relay unavailable"
             return False
+        finally:
+            self.observe()
+
+    def observe(self):
+        """Record bounded transitions, never raw exceptions or resource identifiers."""
+        try:
+            result = self.last_result
+            lease = self.lease.snapshot()
+            if result == 'streaming':
+                state, reason = 'streaming', 'frames_received'
+            elif result == 'waiting for fresh frames; output held':
+                state, reason = 'holding', 'frame_gap'
+            elif result == 'idle':
+                state, reason = (
+                    ('stopped', 'shutdown') if self.lease.stopping else
+                    ('waiting', 'starting') if not lease['frames_received'] else
+                    ('idle', 'explicit_stop' if self.lease.session is None else 'grace_elapsed'))
+            elif result == 'native relay unavailable':
+                state, reason = 'unavailable', 'relay_error'
+            elif result == 'foreign native stream':
+                state, reason = 'waiting', 'native_foreign'
+            elif result == 'native off; source restart required':
+                state, reason = 'stopped', 'native_off'
+            else:
+                state, reason = 'waiting', 'native_unavailable'
+            key = (state, reason)
+            if key != self.last_event:
+                self.transitions[reason] = self.transitions.get(reason, 0) + 1
+                self.last_event = key
+            self.diagnostics.record(state, reason, {
+                'frame_age': lease['frame_age'], 'frames_received': lease['frames_received'],
+                'frames_sent': self.frames_sent,
+            })
+        except Exception:
+            pass  # Passive diagnostics must not change rendering or recovery.
 
     def render(self):
         with self.lock:
@@ -199,4 +254,6 @@ class VideoOutput:
             "last_result": self.last_result,
             "last_safety_failure": self.last_safety_failure,
             "govee": self.controller.snapshot(),
+            "transitions": dict(self.transitions),
+            "diagnostics": self.diagnostics.snapshot(),
         }

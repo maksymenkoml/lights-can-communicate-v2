@@ -24,6 +24,7 @@ from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
+from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
 import smart_lighting as lan  # noqa: E402
@@ -434,6 +435,11 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            keep_alive = getattr(self, "stream_keep_alive", False)
+            self.send_header("Connection", "keep-alive" if keep_alive else "close")
+            self.close_connection = not keep_alive
+            if keep_alive:
+                self.connection.settimeout(2)
             self.end_headers()
             self.wfile.write(data)
 
@@ -442,6 +448,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                                        token.encode())
 
         def do_GET(self):
+            self.stream_keep_alive = False
             if not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
             if self.path == "/discovery" and catalog is not None:
@@ -470,6 +477,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             self.respond(200, result)
 
         def do_POST(self):
+            self.stream_keep_alive = False
             if self.path == "/power-owner":
                 if power_owner is None or power_token is None:
                     return self.respond(404, {"error": "not found"})
@@ -495,6 +503,10 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                                               "observed": controller.power_observations()})
                 elif self.path == "/stream":
                     accepted = video_output.submit(payload)
+                    # Only an authenticated, fully consumed stream envelope may
+                    # reuse its connection. Other routes retain legacy closure.
+                    self.stream_keep_alive = (
+                        self.headers.get("Connection", "").lower() == "keep-alive")
                 elif isinstance(payload, dict) and payload.get("side") in hue_proxies:
                     accepted = hue_proxies[payload["side"]].submit(payload)
                 else:
@@ -585,6 +597,7 @@ def main(argv=None, service_info=None):
             HueEntertainmentRelay(stream_config, layout_store=layout_store, preview=preview,
                                   profile=native_profile),
             hue_proxies.values(),
+            diagnostics=StreamDiagnostics(state_dir / 'adapter-stream-health.jsonl'),
         )
         for proxy in hue_proxies.values():
             proxy.output_lock = video.lock

@@ -52,8 +52,9 @@ class AdapterLifecycleTests(unittest.TestCase):
                 stop.wait()
 
         class Video:
-            def __init__(self, controller, relay, proxies):
+            def __init__(self, controller, relay, proxies, diagnostics=None):
                 self.controller = controller
+                self.diagnostics = diagnostics
                 self.lease = VideoLease()
                 self.lock = threading.RLock()
 

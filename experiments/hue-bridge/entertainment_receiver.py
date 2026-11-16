@@ -1,22 +1,26 @@
 """Opt-in virtual DTLS receiver; native Hue credentials never enter this container."""
 
 import copy
-import json
+import errno
+import http.client
 import os
 import select
+import socket
 import subprocess
 import threading
 import time
 import urllib.error
-import urllib.request
 import uuid
 
 from entertainment_stream import AREA_ID, GROUP_ID, FrameBuffer, decode_frame
+from stream_diagnostics import StreamDiagnostics
+from stream_http import StreamHttpSender
 from udp_port_guard import UdpPortGuard  # noqa: F401
 
 
 class StreamOutbox:
-    def __init__(self, url, token, sender=None, clock=time.time):
+    def __init__(self, url, token, sender=None, clock=time.time,
+                 monotonic=time.monotonic, diagnostics=None):
         self.url, self.token, self.clock = url.rstrip("/"), token, clock
         self.sender = sender or self.post
         self.session = str(uuid.uuid4())
@@ -26,9 +30,19 @@ class StreamOutbox:
         self.forwarded = 0
         self.last_error = None
         self.last_http_status = None
+        self.monotonic = monotonic
+        self.diagnostics = diagnostics or StreamDiagnostics()
+        self.http_sender = None
+        self.failed = self.coalesced = self.expired = self.consecutive_failures = 0
+        self.last_send_ms = self.max_send_ms = self.max_success_gap = 0
+        self.last_success = None
+        self.error_counts = {}
+        self.last_error_category = None
 
     def submit(self, action, colors=None):
         with self.lock:
+            if self.pending is not None:
+                self.coalesced += 1
             self.sequence += 1
             self.pending = {
                 "action": action,
@@ -46,34 +60,69 @@ class StreamOutbox:
         self.submit("stop")
 
     def post(self, message):
-        req = urllib.request.Request(
-            self.url + "/stream",
-            method="POST",
-            data=json.dumps(message).encode(),
-            headers={"Content-Type": "application/json", "X-Adapter-Token": self.token},
-        )
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(req, timeout=0.3) as response:
-            result = json.load(response)
-        if not isinstance(result, dict) or result.get("accepted") is not True:
-            raise ValueError("Frame rejected by host")
+        if self.http_sender is None:
+            self.http_sender = StreamHttpSender(self.url, self.token)
+        self.http_sender.post(message)
 
     def forward_once(self):
         with self.lock:
             message, self.pending = self.pending, None
-        if message is None or self.clock() - message["issued_at"] > 0.5:
+        if message is None:
             return False
+        if self.clock() - message["issued_at"] > 0.5:
+            with self.lock:
+                self.expired += 1
+            return False
+        started = self.monotonic()
         try:
             self.sender(message)
-        except (OSError, ValueError) as error:
-            self.last_error = type(error).__name__
-            self.last_http_status = getattr(error, "code", None)
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            reason = getattr(error, 'reason', error)
+            code = getattr(reason, 'errno', None)
+            category = (
+                'timeout' if isinstance(reason, TimeoutError) else
+                'dns' if isinstance(reason, socket.gaierror) else
+                'unreachable' if code in (errno.ENETUNREACH, errno.EHOSTUNREACH) else
+                'refused' if code == errno.ECONNREFUSED else
+                'http' if isinstance(error, urllib.error.HTTPError) else
+                'rejected' if isinstance(error, ValueError) else
+                'protocol' if isinstance(error, http.client.HTTPException) else 'other'
+            )
+            with self.lock:
+                self.last_error = type(error).__name__
+                self.last_http_status = getattr(error, "code", None)
+                self.last_error_category = category
+                self.failed += 1
+                self.consecutive_failures += 1
+                self.error_counts[category] = self.error_counts.get(category, 0) + 1
+                self.last_send_ms = (self.monotonic() - started) * 1000
+                self.max_send_ms = max(self.max_send_ms, self.last_send_ms)
+                self.diagnostics.record('unavailable', 'transport_error', {
+                    'failed': self.failed, 'consecutive_failures': self.consecutive_failures,
+                    'duration_ms': self.last_send_ms, 'errno': code,
+                    'http_status': self.last_http_status,
+                })
             if isinstance(error, urllib.error.HTTPError):
                 error.close()
             return False
-        self.forwarded += 1
-        self.last_error = None
-        self.last_http_status = None
+        with self.lock:
+            recovered = self.consecutive_failures > 0
+            now = self.monotonic()
+            if self.last_success is not None:
+                self.max_success_gap = max(self.max_success_gap, now - self.last_success)
+            self.last_success = now
+            self.last_send_ms = (now - started) * 1000
+            self.max_send_ms = max(self.max_send_ms, self.last_send_ms)
+            self.forwarded += 1
+            self.consecutive_failures = 0
+            self.last_error = self.last_http_status = self.last_error_category = None
+            self.diagnostics.record(
+                'stopped' if message['action'] == 'stop' else 'streaming',
+                'explicit_stop' if message['action'] == 'stop' else
+                'transport_recovered' if recovered else 'frames_received', {
+                    'forwarded': self.forwarded, 'failed': self.failed,
+                    'duration_ms': self.last_send_ms,
+                })
         return True
 
     def snapshot(self):
@@ -83,13 +132,29 @@ class StreamOutbox:
                 "forwarded": self.forwarded,
                 "last_error": self.last_error,
                 "last_http_status": self.last_http_status,
+                "failed": self.failed,
+                "consecutive_failures": self.consecutive_failures,
+                "coalesced": self.coalesced,
+                "expired": self.expired,
+                "last_send_ms": self.last_send_ms,
+                "max_send_ms": self.max_send_ms,
+                "last_success_age": (self.monotonic() - self.last_success
+                                     if self.last_success is not None else None),
+                "max_success_gap": self.max_success_gap,
+                "last_error_category": self.last_error_category,
+                "error_counts": dict(self.error_counts),
+                "connections": self.http_sender.connections if self.http_sender else 0,
             }
 
     def run(self, done):
-        while not done.is_set():
+        try:
+            while not done.is_set():
+                self.forward_once()
+                done.wait(0.05)
             self.forward_once()
-            done.wait(0.05)
-        self.forward_once()
+        finally:
+            if self.http_sender is not None:
+                self.http_sender.close()
 
 
 def dtls_diagnostic(line):
@@ -109,7 +174,8 @@ def dtls_diagnostic(line):
 
 
 class EntertainmentReceiver:
-    def __init__(self, url, token, openssl="openssl", enabled=False, udp_guard=None):
+    def __init__(self, url, token, openssl="openssl", enabled=False, udp_guard=None,
+                 diagnostics=None):
         self.url, self.token, self.openssl, self.enabled = url, token, openssl, enabled
         self.udp_guard = udp_guard
         self.lock = threading.RLock()
@@ -127,6 +193,8 @@ class EntertainmentReceiver:
             "last_result": "waiting",
         }
         self.current_outbox = None
+        self.diagnostics = diagnostics or StreamDiagnostics()
+        self.last_frame_seen = None
 
     def bind(self, group):
         """Fence the vendor API's synchronous Start/Stop state transitions."""
@@ -156,6 +224,9 @@ class EntertainmentReceiver:
                 result["outbox"] = self.current_outbox.snapshot()
             if self.udp_guard is not None:
                 result["udp_guard"] = self.udp_guard.snapshot()
+            result['frame_age'] = (time.monotonic() - self.last_frame_seen
+                                   if self.last_frame_seen is not None else None)
+            result['diagnostics'] = self.diagnostics.snapshot()
             return result
 
     def shutdown(self, timeout=5):
@@ -216,7 +287,7 @@ class EntertainmentReceiver:
             self.serving = True
             self.serving_group = group
             self.serving_generation = generation
-        outbox = StreamOutbox(self.url, self.token)
+        outbox = StreamOutbox(self.url, self.token, diagnostics=self.diagnostics)
         self.current_outbox = outbox
         done = threading.Event()
         process = None
@@ -313,6 +384,7 @@ class EntertainmentReceiver:
                             active=True, last_result="receiving", version=packet[9], area_id=AREA_ID
                         )
                         self.status["frames_received"] += 1
+                        self.last_frame_seen = last_data
         except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
             known = {
                 "Invalid HueStream header",
