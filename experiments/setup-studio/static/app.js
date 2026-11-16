@@ -138,7 +138,10 @@ function lamp(d,glow=false){
  if(d.shape==='floor'){
   const base=300,top=base-GOVEE_HEIGHT_CM*UNITS_PER_CM,lightBottom=270,lightLength=lightBottom-top-5;
   body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="11" stroke-linecap="butt"/><path d="M0 279v19" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="300" rx="21" ry="5"/>`;
-  light=Array.from({length:d.zones},(_,i)=>`<path class="light" d="M0 ${lightBottom-i*lightLength/d.zones}v${-lightLength/d.zones-1}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="5" stroke-linecap="round"/>`).join('');
+  light=Array.from({length:d.zones},(_,i)=>{
+   const bottom=lightBottom-i*lightLength/d.zones,length=lightLength/d.zones;
+   return `<path class="light" d="M0 ${bottom-(glow?0:5)}v${-length+(glow?-1:10)}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="5" stroke-linecap="round"/>${glow?'':`<circle class="light zone-node" cx="0" cy="${bottom-length/2}" r="4" ${zoneAttributes(d.id,i,'fill')}/>`}`;
+  }).join('');
   box=[-37,top-15,74,base-top+35];nameY=345;
  }else if(attached){
   const size=monitorSize(),w=size.width/2+9,h=size.height/2+9;
@@ -148,13 +151,18 @@ function lamp(d,glow=false){
   light=points.map(([px,py],i)=>{
    const previous=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];
    // Each anchor owns the U-path up to the midpoint toward its neighbours.
-   return `<path class="light-path" d="M${(previous[0]+px)/2} ${(previous[1]+py)/2}L${px} ${py}L${(next[0]+px)/2} ${(next[1]+py)/2}" ${zoneAttributes(d.id,i,'stroke',glow)}/><circle class="light" cx="${px}" cy="${py}" r="4" ${zoneAttributes(d.id,i,'fill',glow)}/>`;
+   return `<path class="light-path" d="M${(previous[0]+px)/2} ${(previous[1]+py)/2}L${px} ${py}L${(next[0]+px)/2} ${(next[1]+py)/2}" ${zoneAttributes(d.id,i,'stroke',glow)}/><circle class="light ${glow?'':'zone-node'}" cx="${px}" cy="${py}" r="4" ${zoneAttributes(d.id,i,'fill',glow)}/>`;
   }).join('');
   box=[-w-15,-h-15,w*2+30,h*2+30];nameY=-h-29;
  }else{
   const length=d.shape==='strip'?220:PLAY_LENGTH_CM*UNITS_PER_CM;
   body=`<rect class="fixture" x="${vertical?-9:-length/2}" y="${vertical?-length/2:-9}" width="${vertical?18:length}" height="${vertical?length:18}" rx="8"/>`;
-  light=`<path class="light" d="${vertical?`M0 ${-length/2+7}v${length-14}`:`M${-length/2+7} 0h${length-14}`}" ${zoneAttributes(d.id,0,'stroke',glow)} stroke-width="6" stroke-linecap="round"/>`;
+  light=Array.from({length:d.zones},(_,i)=>{
+   const span=(length-14)/d.zones,start=-length/2+7+i*span;
+   const gap=glow||d.zones===1?0:Math.min(5,span/4),center=start+span/2;
+   const path=vertical?`M0 ${start+gap}v${span-gap*2}`:`M${start+gap} 0h${span-gap*2}`;
+   return `<path class="light" d="${path}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="6" stroke-linecap="round"/>${glow?'':`<circle class="light zone-node" cx="${vertical?0:center}" cy="${vertical?center:0}" r="4" ${zoneAttributes(d.id,i,'fill')}/>`}`;
+  }).join('');
   box=vertical?[-27,-length/2-15,54,length+30]:[-length/2-14,-26,length+28,52];nameY=vertical?length/2+35:39;
  }
  if(glow)return `<g class="wall-glow" transform="translate(${x},${y})">${light}</g>`;

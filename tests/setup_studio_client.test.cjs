@@ -190,7 +190,7 @@ const liveSnapshot=(overrides={})=>({version:1,connected:true,mode:'sync',sync:{
  'play-center':{online:true,on:true,brightness:50,colors:[[81,29,7]],source:'sync-output',stale:false},
  'hue-monitor':{online:true,on:true,brightness:100,colors:[[1,0,0],[2,0,0],[3,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0]],source:'sync-output',stale:false}
 },...overrides});
-const zones=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-lamp]').filter(node=>node.dataset.previewLamp===id&&!node.hasAttribute('data-preview-glow'));
+const zones=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-lamp]').filter(node=>node.dataset.previewLamp===id&&node.tagName==='PATH'&&!node.hasAttribute('data-preview-glow'));
 const zone=(app,id,index=0)=>zones(app,id).find(node=>node.dataset.zone===String(index));
 const glows=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-glow]').filter(node=>node.dataset.previewLamp===id);
 test('wall glow follows calibrated zones behind furniture without becoming an interactive lamp',async()=>{
