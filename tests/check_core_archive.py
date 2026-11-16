@@ -31,6 +31,7 @@ CONTRACTS = [
     "test_native_composition",
     "test_capture_composition",
     "test_native_location_cache",
+    "test_sync_visibility_fade",
 ]
 RUNTIME = [
     "live_adapter",

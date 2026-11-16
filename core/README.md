@@ -226,8 +226,29 @@ stream even if cache persistence fails. No accessory IDs, credentials or NAS
 installation are replaced.
 
 Local scene exclusion/rejoin and inactive native-area subset/restore have passed
-real API checks. Real PS5 Sync projection acceptance is pending an active HDMI
-signal; source/archive/Linux tests and capture metadata acceptance are recorded
-in `evidence/layout-composition.json`. Rollback retains the prior artifact and
+real API checks. The owner subsequently confirmed working output and a live
+capture stream was observed. Source/archive/Linux checks and capture acceptance
+are recorded in `evidence/layout-composition.json`. Rollback retains the prior artifact and
 the original layout/native-area snapshots; restore those baseline memberships
 before running a legacy artifact that does not understand composition selection.
+
+## Soft desk visibility in Sync
+
+`0.1.0.dev7` replaces v6's hard tabletop cutoff and unconditional Play wall-wash
+lift. Light below the desk fades over 15 cm at the table edge. The band widens by
+one centimeter for each centimeter of lateral distance outside the desk's sides;
+desk width and saved fixture position determine it. Monitor offset does not move
+the desk shadow. This is a front-wall approximation with a 1:1 spread, not a
+measured optical model.
+
+Govee uses the integrated visibility of each emitting segment and samples its
+brightness-weighted centroid. Play uses its saved physical height: deeply placed
+fixtures receive black, while near-edge fixtures fade smoothly. Included native
+fixtures stay in the owned stream with black output so a previous scene cannot
+shine through. Visibility attenuates raw RGB16 before existing calibration;
+composition, power, native membership and scene playback stay independent of it.
+The glow layer uses screen blending so dim emitted colors cannot darken the grid.
+
+Real streaming checks confirmed three black Play outputs and the expected graded
+Govee output, with owner power and layout preserved. See
+`evidence/sync-soft-visibility.json` for exact tests and acceptance limits.

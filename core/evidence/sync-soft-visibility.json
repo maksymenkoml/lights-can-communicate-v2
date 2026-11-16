@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-16",
+  "version": "0.1.0.dev7",
+  "artifact_sha256": "c6b2e962fc044ee0b25b6d5bec83b144b3f530096ca47f5c69f33fe450ecaf73",
+  "status": "PASS for synthetic tests and live output-command acceptance; optical fade tuning remains user-observed.",
+  "owner_rule": "In Sync only, fade15cm below tabletop, broader downward with lateral distance beyond desk side edges; deeply placed Play must be dark.",
+  "model": {
+    "edge_fade_cm": 15,
+    "extra_fade_cm_per_lateral_cm": 1,
+    "curve": "smoothstep",
+    "floor_sampling": "integrated segment visibility and brightness-weighted centroid",
+    "play_sampling": "saved physical height without virtual tabletop lift",
+    "power_and_scene_membership": "unchanged",
+    "legacy_gain_default": 1
+  },
+  "automated": {
+    "mac_python": {"run": 512, "skipped": 14, "failures": 0},
+    "isolated_linux_python": {"run": 512, "skipped": 2, "failures": 0},
+    "node_ui": 40,
+    "node_power": 63,
+    "archive_whole_color": {"run": 267, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "archive_gradient": {"run": 225, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "ruff_and_pre_push": "pass",
+    "independent_review": "PASS; analytic smoothstep integral/centroid checked against numerical integration"
+  },
+  "live": {
+    "core_only_cutover": "dev6 stopped before dev7; capture container, native profile, credentials and NAS unchanged",
+    "stream_recovered": true,
+    "current_lateral_gaps_cm": {"left": 15, "right": 15},
+    "current_fade_cm": {"left": 30, "right": 30},
+    "current_floor_gains_rounded": [0, 0, 0.011, 0.5, 0.989, 1, 1],
+    "play_gains": {"hue_left": 0, "hue_center": 0, "hue_right": 0},
+    "steady_samples": 10,
+    "steady_frames_received_delta": 63,
+    "play_colors_every_sample": [[0, 0, 0]],
+    "steady_connection_and_failure_counters": "unchanged after cutover recovery",
+    "power_requests": {"left": true, "right": true},
+    "cutover_limit": "The outbox recorded connection failures during core replacement and then recovered; no claim of zero cutover interruption."
+  },
+  "limits": [
+    "The lateral spread is an initial 1:1 front-wall estimate; no beam-depth or optical measurement was performed.",
+    "Scene code was unchanged and its existing full-zone contracts passed; no additional live Stop/Start was forced for this slice.",
+    "The owner browser was not opened automatically; CSS blending was checked statically and UI behavior by the existing contracts."
+  ],
+  "private_evidence_directory": "experiments/hue-bridge/state/archives/sync-soft-visibility-2026-11-16"
+}

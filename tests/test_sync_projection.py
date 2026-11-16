@@ -41,13 +41,16 @@ def frame(size=18):
 
 
 class SyncProjectionTests(unittest.TestCase):
-    def test_default_floor_lamps_hide_four_segments_and_sample_visible_intersection(self):
+    def test_default_floor_lamps_fade_below_desk_and_keep_upper_samples(self):
         profile = sync_profile(layout())
         for side, u in (("left", 0), ("right", 1)):
-            self.assertEqual(profile["govee"][side]["visible"], [False] * 4 + [True] * 3)
+            self.assertEqual(profile["govee"][side]["visible"], [False] * 3 + [True] * 4)
             samples = profile["govee"][side]["samples"]
-            self.assertEqual(samples[:4], [None] * 4)
-            for point, v in zip(samples[4:], (26 / 315, 89 / 210, 523 / 630)):
+            self.assertEqual(samples[:3], [None] * 3)
+            self.assertEqual(samples[3], (u, 0))
+            self.assertGreater(samples[4][1], 11 / 630)
+            self.assertLess(samples[4][1], 26 / 315)
+            for point, v in zip(samples[5:], (89 / 210, 523 / 630)):
                 self.assertAlmostEqual(point[0], u)
                 self.assertAlmostEqual(point[1], v)
 
@@ -59,13 +62,12 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertTrue(all(point is not None for point in profile["govee"]["left"]["samples"]))
         self.assertEqual(profile["govee"]["left"]["samples"][-1], (0, 1))
 
-    def test_segment_that_ends_at_desk_is_hidden_and_next_samples_its_full_span(self):
+    def test_segment_that_ends_at_lower_fade_boundary_is_hidden(self):
         data = layout()
-        data["desk"]["height"] = 6 + 4 * 128 / 7
+        data["desk"]["height"] = 6 + 4 * 128 / 7 + 15
         samples = sync_profile(data)["govee"]["left"]["samples"]
         self.assertEqual(samples[:4], [None] * 4)
-        # Fifth segment spans 79 1/7..97 3/7, center 88 2/7 cm.
-        self.assertAlmostEqual(samples[4][1], 11 / 630)
+        self.assertIsNotNone(samples[4])
 
     def test_monitor_size_and_position_change_samples_without_moving_capture_palette(self):
         data = layout()
@@ -82,15 +84,20 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertEqual({key: projected[key] for key in range(2, 11)},
                          {key: raw[key] for key in range(2, 11)})
 
-    def test_play_below_desk_stays_visible_and_orientation_has_no_effect(self):
+    def test_deep_play_is_dark_and_near_play_orientation_has_no_effect(self):
         data = layout()
         before = sync_profile(data)
         self.assertEqual(before["plays"], {
             "hue_left": (0.125, 0), "hue_center": (0.5, 0), "hue_right": (0.875, 0),
         })
+        self.assertEqual(set(before['play_gains'].values()), {0})
         data["devices"][3]["positionCm"]["height"] = 80
         data["devices"][3]["orientation"] = "vertical"
         self.assertEqual(sync_profile(data)["plays"], before["plays"])
+        vertical = sync_profile(data)
+        self.assertGreater(vertical['play_gains']['hue_left'], 0)
+        data['devices'][3]['orientation'] = 'horizontal'
+        self.assertEqual(sync_profile(data)['play_gains'], vertical['play_gains'])
 
     def test_interior_sample_uses_nearest_edge_and_outside_sample_clamps_to_corner(self):
         data = layout()
@@ -101,7 +108,10 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertEqual(plays["hue_center"], (1, 1))
 
     def test_native_projection_interpolates_bottom_palette_from_original_frame(self):
-        profile = sync_profile(layout())
+        data = layout()
+        for row in data['devices'][3:]:
+            row['positionCm']['height'] = 85
+        profile = sync_profile(data)
         raw = frame()
         original = copy.deepcopy(raw)
         projected = project_native_frame(raw, profile)
@@ -118,6 +128,7 @@ class SyncProjectionTests(unittest.TestCase):
         profile["govee"]["left"]["samples"] = [
             None, (0, 0.25), (0, 0.75), (0.125, 1), (0.875, 1), (1, 0.25), (1, 0),
         ]
+        profile['govee']['left']['gains'] = [1]*7
         raw = frame(14)
         self.assertEqual(project_govee_frame(raw, "left", profile), [
             (0, 0, 0), (2500, 5000, 7500), (3500, 7000, 10500),
@@ -138,7 +149,7 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertEqual(project_govee_frame(raw, "left", profile), [(0, 0, 0)] * 7)
         self.assertNotEqual(project_govee_frame(raw, "right", profile), [(0, 0, 0)] * 7)
 
-    def test_signature_ignores_metadata_scale_desk_width_orientation_and_row_order(self):
+    def test_signature_ignores_metadata_scale_noneffective_width_orientation_and_row_order(self):
         data = layout()
         before = sync_profile(data)
         self.assertEqual(before["basis"], "screen-perimeter-v1")

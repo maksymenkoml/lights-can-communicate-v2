@@ -18,11 +18,53 @@ _ROLES = {
     "play-right": "hue_right",
 }
 _PLAY_CHANNELS = {"hue_left": 11, "hue_center": 12, "hue_right": 13}
+_DESK_CENTER_CM = 100
+_EDGE_FADE_CM = 15
 # Clockwise perimeter distance from the bottom-left corner; coordinates have v up.
 _PALETTE = (
     (0, 2), (0.5, 3), (1, 4), (1.25, 5), (1.5, 6), (1.75, 7),
     (2, 8), (2.5, 9), (3, 10), (3.25, 13), (3.5, 12), (3.75, 11), (4, 2),
 )
+
+
+def _point_gain(height, desk_height, fade):
+    t = max(0, min(1, (height - desk_height + fade) / fade))
+    return t * t * (3 - 2 * t)
+
+
+def _segment_visibility(low, high, desk_height, fade):
+    """Average the smooth penumbra over a segment and find its lit centroid."""
+    lower = desk_height - fade
+    if high <= lower:
+        return 0, None
+    if low >= desk_height:
+        return 1, (low + high) / 2
+
+    def integral(height):
+        if height <= lower:
+            return 0, 0
+        if height >= desk_height:
+            return (fade / 2 + height - desk_height,
+                    lower * fade / 2 + .35 * fade ** 2
+                    + (height ** 2 - desk_height ** 2) / 2)
+        t = (height - lower) / fade
+        area = fade * (t ** 3 - .5 * t ** 4)
+        moment = lower * area + fade ** 2 * (.75 * t ** 4 - .4 * t ** 5)
+        return area, moment
+
+    a0, m0 = integral(low)
+    a1, m1 = integral(high)
+    area = a1 - a0
+    if area <= 0:
+        return 0, None
+    return (max(0, min(1, area / (high - low))),
+            max(low, min(high, (m1 - m0) / area)))
+
+
+def _attenuate(rgb, gain):
+    if type(gain) not in (int, float) or not math.isfinite(gain) or not 0 <= gain <= 1:
+        raise ValueError('Invalid Sync visibility gain')
+    return tuple(round(value * gain) for value in rgb)
 
 
 def sync_profile(validated_layout):
@@ -32,6 +74,11 @@ def sync_profile(validated_layout):
     width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
     height = width * 9 / 16
     desk_height = validated_layout["desk"]["height"]
+    desk_half_width = validated_layout['desk']['width'] / 2
+
+    def fade_width(x):
+        lateral_gap = max(0, abs(x - _DESK_CENTER_CM) - desk_half_width)
+        return _EDGE_FADE_CM + lateral_gap
 
     def screen_point(x, physical_height):
         u = max(0, min(1, (x - monitor["x"]) / width + 0.5))
@@ -48,29 +95,32 @@ def sync_profile(validated_layout):
         "native_roles": [role for role in enabled if role not in ("left", "right")],
         "govee": {},
         "plays": {},
+        "play_gains": {},
     }
     for key, side in (("govee-left", "left"), ("govee-right", "right")):
         position = devices[key]["positionCm"]
         base = position["height"] - 60
         samples = []
+        gains = []
+        fade = fade_width(position['x'])
         for segment in range(7):
             low = base + 6 + segment * 128 / 7
             high = base + 6 + (segment + 1) * 128 / 7
-            visible_low = max(low, desk_height)
-            samples.append(
-                screen_point(position["x"], (visible_low + high) / 2)
-                if high > visible_low else None
-            )
+            gain, center = _segment_visibility(low, high, desk_height, fade)
+            samples.append(screen_point(position['x'], center) if center is not None else None)
+            gains.append(gain)
         profile["govee"][side] = {
             "samples": samples,
             "visible": [sample is not None for sample in samples],
+            'gains': gains,
+            'fade_cm': fade,
         }
     for key, role in _ROLES.items():
         if role in _PLAY_CHANNELS:
             position = devices[key]["positionCm"]
-            profile["plays"][role] = screen_point(
-                position["x"], max(position["height"], desk_height)
-            )
+            profile["plays"][role] = screen_point(position['x'], position['height'])
+            profile['play_gains'][role] = _point_gain(
+                position['height'], desk_height, fade_width(position['x']))
     encoded = json.dumps(profile, sort_keys=True, separators=(",", ":"), allow_nan=False)
     profile["signature"] = hashlib.sha256(encoded.encode()).hexdigest()
     return profile
@@ -109,7 +159,8 @@ def project_native_frame(frame, profile):
     result = copy.deepcopy(frame)
     for role, channel in _PLAY_CHANNELS.items():
         if role in profile["native_roles"]:
-            result[channel] = _sample(frame, profile["plays"][role])
+            result[channel] = _attenuate(_sample(frame, profile["plays"][role]),
+                                         profile.get('play_gains', {}).get(role, 1))
     return result
 
 
@@ -120,5 +171,9 @@ def project_govee_frame(frame, side, profile):
         raise ValueError("Expected a left or right floor-lamp role")
     if side not in profile["enabled_roles"]:
         return [(0, 0, 0)] * 7
-    return [_sample(frame, point) if point is not None else (0, 0, 0)
-            for point in profile["govee"][side]["samples"]]
+    row = profile['govee'][side]
+    gains = row.get('gains', [1] * 7)
+    if len(row['samples']) != 7 or len(gains) != 7:
+        raise ValueError('Expected seven projected segments')
+    return [_attenuate(_sample(frame, point), gain) if point is not None else (0, 0, 0)
+            for point, gain in zip(row['samples'], gains)]
