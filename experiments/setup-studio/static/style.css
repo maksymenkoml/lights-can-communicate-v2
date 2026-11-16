@@ -17,4 +17,4 @@
 
 .sync-status{display:inline-block;padding:5px 9px;border:1px solid #46534d;border-radius:5px;font-size:11px;color:#a3b2aa;background:#202a25}.sync-status[data-state="active"]{color:#d5edbf;border-color:#748e60}.sync-status[data-state="paused"]{color:#d9cda9;border-color:#736b51}[data-preview-lamp]{transition:stroke 160ms linear,fill 160ms linear,opacity 160ms linear;pointer-events:none}
 .wall-glow-layer{opacity:.68;pointer-events:none}.wall-glow .light,.wall-glow .light-path{stroke-width:110px;pointer-events:none}
-.zone-node{stroke:#172320;stroke-width:1.5;pointer-events:none}
+.zone-divider{fill:none;stroke:#bdd0bf;stroke-width:2;stroke-linecap:round;pointer-events:none}
