@@ -137,6 +137,33 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(self.one()["ambiguous"])
         self.assertFalse(self.one()["selectable"])
 
+    def test_malformed_identity_blocks_only_known_peer_until_ttl_despite_valid_rescan(self):
+        self.scan(deviceName="Affected")
+        self.scan(device=OTHER, ip="192.168.1.20", deviceName="Unrelated")
+        original = {row["name"]: row["id"] for row in self.catalog.snapshot()["devices"]}
+        self.now = 101
+        self.catalog.observe_govee({"device": "invalid"}, "192.168.1.10")
+        rows = {row["name"]: row for row in self.catalog.snapshot()["devices"]}
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(rows["Affected"]["ambiguous"])
+        self.assertFalse(rows["Affected"]["selectable"])
+        self.assertTrue(rows["Unrelated"]["selectable"])
+        self.assertFalse(rows["Unrelated"]["ambiguous"])
+        for now in (102, 121):
+            self.now = now
+            self.scan()
+            self.scan(device=OTHER, ip="192.168.1.20")
+            rows = {row["name"]: row for row in self.catalog.snapshot()["devices"]}
+            self.assertTrue(rows["Affected"]["ambiguous"])
+            self.assertFalse(rows["Affected"]["selectable"])
+            self.assertTrue(rows["Unrelated"]["selectable"])
+        self.now = 121.01
+        self.scan()
+        rows = {row["name"]: row for row in self.catalog.snapshot()["devices"]}
+        self.assertFalse(rows["Affected"]["ambiguous"])
+        self.assertTrue(rows["Affected"]["selectable"])
+        self.assertEqual({name: row["id"] for name, row in rows.items()}, original)
+
     def test_peer_address_is_used_instead_of_advertised_ip(self):
         self.scan(ip="192.168.1.10")
         self.catalog.observe_govee({"device": OTHER, "sku": "H6076", "ip": "192.168.1.10"},

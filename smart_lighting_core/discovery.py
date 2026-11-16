@@ -125,11 +125,16 @@ class DeviceCatalog:
         if not isinstance(data, dict):
             return
         identity, address = _mac(data.get("device")), _local_ip(peer_ip)
-        if identity is None or address is None:
+        if address is None:
             return
         now = self._now(now)
         with self._lock:
             self._prune(now)
+            if identity is None:
+                for known in self._entries.values():
+                    if known["provider"] == "govee" and address in known["addresses"]:
+                        known["blocked_until"] = max(known["blocked_until"], now + self._ttl)
+                return
             entry = self._entry("govee", identity, identity, now)
             if entry is None:
                 # Even an unadmitted identity can contradict an admitted address.

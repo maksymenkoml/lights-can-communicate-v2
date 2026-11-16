@@ -52,6 +52,9 @@ Authenticated adapter `GET /discovery` returns:
 IDs; it prevents duplicate placements. No IP, physical ID or credentials are
 required in the UI projection. The setup server proxies this as `/api/discovery`
 with its existing local-origin/Host checks. Provider failures remain recoverable.
+`online` means fresh discovery inventory observation. For Hue this is the paired
+Bridge inventory, not physical Zigbee reachability; a known Bridge light may be
+placed while physically unreachable. No output authorization follows from it.
 
 ## Layout compatibility
 
