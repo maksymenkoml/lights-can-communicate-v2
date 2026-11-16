@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+branch=$(git symbolic-ref --quiet --short HEAD) || {
+    echo 'Create a feature branch before committing or pushing; detached HEAD is read-only.' >&2
+    exit 1
+}
+case "$branch" in
+    main|master)
+        echo 'Create a feature branch before committing or pushing; main/master are read-only.' >&2
+        exit 1
+        ;;
+esac
+
+if [ "${1:-}" = pre-push ]; then
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        case "$remote_ref" in
+            refs/heads/main|refs/heads/master)
+                echo "Push rejected: protected destination $remote_ref. Open a pull request." >&2
+                exit 1
+                ;;
+        esac
+    done
+fi

@@ -9,6 +9,34 @@ Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
 This is a local experiment, not a background service.
 
+## Development
+
+Use a feature branch; `main`/`master` are read-only for development. Only the owner
+merges PRs. Shared coding-agent instructions are in [AGENTS.md](AGENTS.md), with
+entry points for Claude Code, Gemini CLI and GitHub Copilot. Cursor/Codex can read
+the root instructions directly.
+
+Install Python 3.10+, Node.js 24+ and [uv](https://docs.astral.sh/uv/), then run:
+
+```sh
+sh scripts/setup-dev.sh
+```
+
+This prepares the pinned development-only Ruff tool and installs tracked Git
+hooks. Pre-commit checks the staged snapshot, leaving unstaged edits untouched.
+Pre-push runs the full lint/test/archive suite and rejects protected destination
+refs, including `git push origin HEAD:main`. To run it manually on a feature branch:
+
+```sh
+sh .githooks/pre-push </dev/null
+```
+
+GitHub Actions runs offline contracts for PRs and main updates, plus the pinned
+diyHue integration image with networking disabled. No runtime credentials or
+physical devices are required. Dependabot checks Actions, development requirements
+and the Compose image. Local hooks require setup in each clone and can be changed
+by a repository administrator; they do not replace hosted branch protection.
+
 When Hue reports dynamic scene playback, Govee animate locally through that
 palette. This matches the scene's colors, not the instantaneous Hue colors or
 animation phase.

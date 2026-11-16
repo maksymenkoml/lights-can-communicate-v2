@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+sh .githooks/guard-branch pre-commit
+python3 -B scripts/check-staged.py
