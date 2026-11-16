@@ -141,6 +141,36 @@ class SetupLiveStatusTests(unittest.TestCase):
             data["preview"]["lamps"]["hue-monitor"]["colors"] = colors
             self.assertEqual(studio.project_status(data)["lamps"]["hue-monitor"]["colors"], [])
 
+    def test_foreign_fallback_ignores_stale_or_unselected_native_metadata(self):
+        data = status()
+        data["hue_strip"]["native_mode"] = "streaming"
+        for change in (
+            {"healthy": False},
+            {"native_age": None},
+            {"native_age": 3},
+            {"native_on": None},
+        ):
+            with self.subTest(change=change):
+                candidate = json.loads(json.dumps(data))
+                candidate["hue_strip"].update(change)
+                self.assertEqual(
+                    studio.project_status(candidate, source_active=False)["sync"]["state"], "off"
+                )
+                self.assertEqual(
+                    studio.project_status(candidate, source_active=None)["sync"]["state"], "unknown"
+                )
+        self.assertEqual(
+            studio.project_status(data, source_active=False)["sync"]["state"], "foreign"
+        )
+        data["hue_strip"]["native_mode"] = "normal"
+        data["hue_play"]["unselected"] = {
+            "healthy": True,
+            "native_age": 0.1,
+            "native_on": True,
+            "native_mode": "streaming",
+        }
+        self.assertEqual(studio.project_status(data, source_active=False)["sync"]["state"], "off")
+
     def test_source_cache_is_bounded_and_failure_returns_unknown(self):
         self.assertTrue(hasattr(studio, "SourceActivityCache"), "Source cache not implemented")
         now, calls = [0.0], []
@@ -181,6 +211,7 @@ class SetupLiveStatusTests(unittest.TestCase):
                 self.assertEqual(calls, [])
                 data["video"].update(active=False, ready=False)
                 data["preview"]["mode"] = "scene"
+                data["hue_strip"].update(healthy=False, native_age=None, native_mode="streaming")
                 with urllib.request.urlopen(url) as response:
                     self.assertEqual(json.load(response)["sync"]["state"], "off")
                 self.assertEqual(calls, ["source"])

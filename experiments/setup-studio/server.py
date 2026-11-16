@@ -178,8 +178,11 @@ def project_status(data, source_active=None):
           or preview.get("mode") == "waiting"):
         sync_state = mode = "waiting"
     elif preview.get("mode") == "foreign" or any(
-        isinstance(state, dict) and state.get("native_mode") == "streaming"
-        for state in selected.values()
+        isinstance(selected.get(role), dict)
+        and selected[role].get("native_mode") == "streaming"
+        and lamps[identifier]["online"]
+        and lamps[identifier]["on"] is not None
+        for role, identifier in names.items()
     ):
         sync_state = mode = "foreign"
     elif source_active is True:
