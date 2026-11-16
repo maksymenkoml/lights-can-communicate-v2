@@ -60,7 +60,7 @@
       "state": "off"
     }
   ],
-  "power_origin": "Not established. Owner clarification requested; do not override the later Off intent.",
+  "power_origin": "Owner confirmed that the away automation turned the lights Off. Preserve automation power authority.",
   "mirroring": "Connection ended due to iPhone use, followed by connection timeouts after one app restart and foreground retry.",
   "offline_coverage": "Initial source frames while native fixtures are Off wait for all four Hue fixtures to become fresh On, then relay the same source without a restart or power command.",
   "final": {

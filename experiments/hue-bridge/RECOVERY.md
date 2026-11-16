@@ -122,6 +122,45 @@ The renewed live attempt received 1,441 host frames while fixtures were Off, but
 the operator stopped Sync before powering them. No renewed output acceptance is
 claimed. Mirroring subsequently timed out, an existing-client bridge-area Start
 probe received no fresh Box frames and returned the area to Stop, and later
-fresh telemetry showed all six fixtures Off again. The origin of that later Off
-is not established; owner clarification is pending. See
+fresh telemetry showed all six fixtures Off again. The owner confirmed that the
+later Off came from the away automation; its power intent must be preserved. See
 `evidence/renewed-sync-attempt.json`.
+
+
+## Restart recovery activated on the local pilot
+
+The configured Linux receiver now keeps an idle, drop-only UDP socket bound
+before and between OpenSSL sessions. This removes the unbound-port condition
+that accompanied the observed Docker Desktop forwarding failure. It is not an
+automatic repair service for arbitrary Docker proxy failures. Normal Stop does
+not release the guard. Final shutdown fences queued work, stops receiver workers,
+and then closes it. The actual vendor SIGTERM/SIGINT path is chained before its
+configuration saves and hard exit; timeout leaves the guard open until process
+exit instead of closing it under a running worker.
+
+Play intent is stored independently for the six selected virtual lights, using
+scene references in a bounded private 0600 file. Cold replay uses the existing
+scene renderer and strips power fields. Existing owner/native power gates remain
+authoritative. Startup hold skips replay and serving while keeping idle UDP
+bound. Scene Stop, accepted manual changes and static recall cancel affected intent;
+a rejected API change does not. Missing state preserves previous startup behavior.
+
+The activated pilot restored six dynamic lights after a cold recreation. All six
+fixtures were already On and stayed On at each captured checkpoint; no explicit
+power command was sent. This is live On-state preservation, not a live all-Off
+replay claim. Isolated fixtures cover all-Off replay, a partial manual override,
+static cancellation, startup hold, rejected gradient HTTP 400 and signal cleanup.
+
+Two real Box Start/Stop cycles then succeeded without recreating the container
+between them. Fresh frames reached the host, all four native Hue fixtures entered
+streaming, and both selected Govee had seven-zone targets. After the second Stop,
+native Hue returned to normal and all six virtual lights retained dynamic Play.
+Three controlled datagrams on each localhost/LAN-self route arrived at the idle
+guard after each Stop, unlike the earlier unguarded failure. The final state is
+Vapor wave DESK Play with Sync stopped. No new visual timing acceptance is implied.
+
+Fresh verification: 295 Python tests run locally (13 skipped), the same full
+suite in the pinned isolated image (2 skipped), 63 Node power checks, 5 UI checks
+and Ruff, with no failures. The scoped correction review has no remaining blocker.
+See `evidence/restart-recovery.json`. The Hue app required a phone-side relaunch
+after a Mirroring splash-screen stall; this is separate from transport recovery.

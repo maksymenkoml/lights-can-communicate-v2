@@ -1,0 +1,174 @@
+{
+  "recorded_at": "2026-11-16T02:27:51.615514+00:00",
+  "code_commit": "956198733b30aa45ffb23d37852aa770a587d6f0",
+  "scope": "Local pilot restart recovery and two real Sync Box Start/Stop cycles; telemetry and transport evidence, without new physical acceptance.",
+  "checks": {
+    "local_python": {
+      "run": 295,
+      "skipped": 13,
+      "failed": 0
+    },
+    "pinned_linux_python": {
+      "run": 295,
+      "skipped": 2,
+      "failed": 0
+    },
+    "node_power_passed": 63,
+    "ui_passed": 5,
+    "ruff": "pass",
+    "scoped_review": "both prior P2 addressed; no new blocker"
+  },
+  "cold_restart": {
+    "replayed_lights": 6,
+    "persisted_lights": 6,
+    "dynamic_lights": 6,
+    "intent_file_mode": "0600",
+    "virtual_ids_preserved": true,
+    "power_state_preserved": "All six were already On and stayed On at every captured checkpoint. No explicit power command sent. Off-safe replay was tested only in isolated fixtures."
+  },
+  "idle_udp": [
+    {
+      "case": "idle-after-first-activation",
+      "routes": [
+        {
+          "route": "127.0.0.1",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        },
+        {
+          "route": "192.168.10.117",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        }
+      ]
+    },
+    {
+      "case": "idle-after-cold-replay",
+      "routes": [
+        {
+          "route": "127.0.0.1",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        },
+        {
+          "route": "192.168.10.117",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        }
+      ]
+    },
+    {
+      "case": "idle-after-mirroring-recovery",
+      "routes": [
+        {
+          "route": "127.0.0.1",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        },
+        {
+          "route": "192.168.10.117",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        }
+      ]
+    },
+    {
+      "case": "idle-after-real-stop",
+      "routes": [
+        {
+          "route": "127.0.0.1",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        },
+        {
+          "route": "192.168.10.117",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        }
+      ]
+    },
+    {
+      "case": "idle-after-second-stop",
+      "routes": [
+        {
+          "route": "127.0.0.1",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        },
+        {
+          "route": "192.168.10.117",
+          "sent": 3,
+          "discard_delta": 3,
+          "running": true
+        }
+      ]
+    }
+  ],
+  "real_sync": {
+    "first": {
+      "video": {
+        "active": true,
+        "ready": true,
+        "frames_received": 15840,
+        "frames_sent": 12313,
+        "frame_age": 0.049321916012559086
+      }
+    },
+    "second": {
+      "video": {
+        "active": true,
+        "ready": true,
+        "frames_received": 16426,
+        "frames_sent": 12834,
+        "frame_age": 0.18609429197385907
+      },
+      "receiver": {
+        "frames_received": 3771,
+        "dtls_diagnostics": {
+          "client_hello": 1,
+          "handshake_finished": 1
+        },
+        "last_result": "receiving",
+        "last_error": null
+      }
+    },
+    "govee_active_sides": [
+      "left",
+      "right"
+    ],
+    "govee_zone_counts": {
+      "left": 7,
+      "right": 7
+    },
+    "container_recreated_between_start_stop_cycles": false
+  },
+  "final": {
+    "sync_active": false,
+    "native_modes": {
+      "strip": "normal",
+      "hue_left": "normal",
+      "hue_center": "normal",
+      "hue_right": "normal"
+    },
+    "dynamic_lights": 6,
+    "persisted_play_lights": 6,
+    "idle_udp_guard_running": true
+  },
+  "boundaries": [
+    "No new optical timing or visual smoothness acceptance. Earlier owner PS5 acceptance is separate.",
+    "Third Govee excluded; only the two pinned sides targeted.",
+    "Persistent Linux bind prevents the observed idle unbound-port condition; arbitrary Docker Desktop proxy failures are not automatically repaired.",
+    "No NAS package deployment or HomeKit identity change.",
+    "Hue app needed a manual phone relaunch after a Mirroring splash-screen stall.",
+    "An interrupted save or broader host power loss has separate durability limits; atomic replace is not a whole-system recovery guarantee."
+  ]
+}
