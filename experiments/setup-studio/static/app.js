@@ -272,7 +272,8 @@ function moveSyncCorner(index,position){
  layout.syncZone=config;return true;
 }
 function renderStage(){
- const focus=document.activeElement,focusCorner=stage.contains(focus)?focus?.dataset?.syncCorner:undefined;
+ const focus=document.activeElement;
+ const focusSelector=!stage.contains(focus)?null:focus.hasAttribute('data-sync-corner')?`[data-sync-corner="${focus.dataset.syncCorner}"]`:focus.hasAttribute('data-lamp')?`[data-lamp="${focus.dataset.lamp}"]`:focus.hasAttribute('data-monitor')?'[data-monitor]':focus.hasAttribute('data-desk')?'[data-desk]':null;
  const deskHalf=layout.desk.width*UNITS_PER_CM/2;
  const fixtures=layout.devices.filter(enabled),bounds=layout.devices.filter(d=>enabled(d)||d.id==='hue-monitor'),zone=syncZonePoints();
  let top=Math.min(0,stageY(screen())-monitorSize().height/2-70,...fixtures.filter(d=>d.shape==='floor').map(d=>stageY(d)-380-70));
@@ -282,6 +283,14 @@ function renderStage(){
  if(showSyncBounds){left=Math.min(left,...zone.map(p=>p.x*UNITS_PER_CM-45));right=Math.max(right,...zone.map(p=>p.x*UNITS_PER_CM+45));top=Math.min(top,...zone.map(p=>FLOOR_Y-p.height*UNITS_PER_CM-45));bottom=Math.max(bottom,...zone.map(p=>FLOOR_Y-p.height*UNITS_PER_CM+55));}
  if(dragging){const viewport=stage.getAttribute('viewBox').split(' ').map(Number);[left,top]=viewport;right=left+viewport[2];bottom=top+viewport[3];}
  else stage.setAttribute('viewBox',`${left} ${top} ${right-left} ${bottom-top}`);
+ // xMidYMid meet leaves visible space outside viewBox when the SVG aspect ratio
+ // differs. Extend only the backdrop/guides into it, keeping fixtures at scale.
+ const rect=stage.getBoundingClientRect();
+ if(rect.width>0&&rect.height>0){
+  const scale=Math.min(rect.width/(right-left),rect.height/(bottom-top));
+  const extraX=(rect.width/scale-(right-left))/2,extraY=(rect.height/scale-(bottom-top))/2;
+  left-=extraX;right+=extraX;top-=extraY;bottom+=extraY;
+ }
  const cx=screen().pos.x*10,cy=stageY(screen()),tableY=deskTop(layout.desk);
  const guides=`<g class="reference-guides" aria-hidden="true" pointer-events="none">
  <path class="table-center-axis" d="M500 ${top}V${bottom}"/>
@@ -291,7 +300,7 @@ function renderStage(){
  $('#show-sync-bounds').checked=showSyncBounds;
  $('#reset-sync-zone').hidden=!validSyncZone(layout.syncZone);
  stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><pattern id="grid-major" width="${GRID*2}" height="${GRID*2}" patternUnits="userSpaceOnUse"><path d="M${GRID*2} 0H0V${GRID*2}" fill="none" stroke="#718878" stroke-width="1.2"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${bottom-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${bottom-top}" fill="url(#grid)" opacity=".45"/><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${bottom-top}" fill="url(#grid-major)" opacity=".45"/>${floor}${syncBounds(zone)}<g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${fixtures.map(d=>lamp(d,true)).join('')}</g>`+room()+fixtures.map(d=>lamp(d)).join('')+guides+syncOutline(zone);
- if(focusCorner!==undefined)stage.querySelector(`[data-sync-corner="${focusCorner}"]`)?.focus({preventScroll:true});
+ if(focusSelector)stage.querySelector(focusSelector)?.focus({preventScroll:true});
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
@@ -518,6 +527,7 @@ stage.addEventListener('keydown',event=>{
 });
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){if(cancelDrag())return;selected=null;render();}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'&&history.length&&document.activeElement?.tagName!=='INPUT'){event.preventDefault();if(dragging){cancelDrag();return;}layout=history.pop();if(!['desk','monitor'].includes(selected)&&!layout.devices.some(d=>d.id===selected))selected=null;dirty();render();}});
 render();
+new ResizeObserver(()=>renderStage()).observe(stage);
 save();
 connectLayout();
 watchPreview();

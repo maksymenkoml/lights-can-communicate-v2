@@ -9,10 +9,16 @@ function saved(){return {version:3,gridStepCm:5,room:'Office',desk:{width:160,he
  ['play-left',70,40,100],['play-center',100,40,50],['play-right',130,40,100]
 ].map(([id,x,height,scale])=>({id,positionCm:{x,height},scale,orientation:'horizontal'}))};}
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
+function assertPathCoordinates(node,expected){
+ const actual=node.getAttribute('d').match(/-?(?:\d*\.)?\d+(?:e[+-]?\d+)?/gi).map(Number);
+ assert.equal(actual.length,expected.length);
+ actual.forEach((value,index)=>assert.ok(Math.abs(value-expected[index])<1e-8,`${value} != ${expected[index]}`));
+}
 async function settle(){for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));}
 const discovered=(overrides={})=>({id:'device-'+ 'a'.repeat(32),provider:'govee',name:'Third <lamp>',model:'H6076',shape:'floor',zones:7,supported:true,online:true,selectable:true,ambiguous:false,layout_id:null,height_cm:136,width_cm:null,...overrides});
-async function harness({remote=saved(),conflict,postHandler,storage=new Map(),pilot={version:1,connected:false,mode:'unknown',sync:{state:'unknown'},lamps:{}},discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}}}={}){
+async function harness({remote=saved(),conflict,postHandler,viewport={width:0,height:0},storage=new Map(),pilot={version:1,connected:false,mode:'unknown',sync:{state:'unknown'},lamps:{}},discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}}}={}){
  const nodes=new Map(),timers=new Map(),posts=[],events=new Map(),pilotRequests=[];let timer=0,gets=0,now=0;
+ let resizeCallback;
  const body={tagName:'BODY'},documentModel={activeElement:body,hidden:false};
  const matches=(element,selector)=>{
   if(selector.endsWith(':not(:disabled)'))return !element.disabled&&matches(element,selector.slice(0,-15));
@@ -30,6 +36,7 @@ async function harness({remote=saved(),conflict,postHandler,storage=new Map(),pi
    focus(){if(!this.disabled)documentModel.activeElement=this;},closest(selector){return selector.split(',').some(s=>matches(this,s))?this:null;},
    addEventListener(name,fn){listeners.set(name,fn);},dispatch(name,event){listeners.get(name)?.(event);},
    setPointerCapture(id){this.capture=id;},getScreenCTM:()=>({inverse:()=>({})}),
+   getBoundingClientRect:()=>({left:0,top:0,...viewport}),
    showModal(){this.open=true;},close(){this.open=false;}};
   for(const [key,value]of attributes)element.setAttribute(key,value);
   return element;
@@ -52,6 +59,7 @@ async function harness({remote=saved(),conflict,postHandler,storage=new Map(),pi
  const context=vm.createContext({structuredClone,document:documentModel,
   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
   AbortController,performance:{now:()=>now},DOMPoint:class{constructor(x,y){this.x=x;this.y=y;}matrixTransform(){return this;}},
+  ResizeObserver:class{constructor(callback){resizeCallback=callback;}observe(){}},
   setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay,at:now+delay});return timer;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options)=>{
    if(url==='/api/pilot'){pilotRequests.push(options);return response(200,await (typeof pilot==='function'?pilot(options):pilot));}
@@ -65,6 +73,7 @@ async function harness({remote=saved(),conflict,postHandler,storage=new Map(),pi
   }});
  vm.runInContext(code,context);await settle();
  return {posts,storage,nodes,pilotRequests,active:()=>documentModel.activeElement,run:source=>vm.runInContext(source,context),event:(name,target,extra={})=>{for(const fn of events.get(name)||[])fn({target,...extra});},
+  resize(width,height){Object.assign(viewport,{width,height});resizeCallback?.([{target:node('#stage')}]);},
   async visible(visible){documentModel.hidden=!visible;for(const fn of events.get('visibilitychange')||[])fn();await settle();},
   async wake(ms,delay){now+=ms;for(const [id,item]of [...timers])if(item.delay===delay&&item.at<=now){timers.delete(id);item.fn();}await settle();},
   async advance(ms){const end=now+ms;while(true){const next=[...timers].filter(([,item])=>item.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;const [id,item]=next;now=item.at;timers.delete(id);item.fn();await settle();}now=end;await settle();},async poll(){
@@ -77,6 +86,34 @@ test('server layout is authoritative on ordinary reload',async()=>{
  const data=saved();data.devices[0].positionCm.x=50;
  const app=await harness({remote:data});await app.flush();
  assert.equal(app.run('layout.devices[0].pos.x'),25);assert.equal(app.posts.length,0);
+});
+test('floor and horizontal guides cover wide SVG letterboxing without changing layout',async()=>{
+ const app=await harness({viewport:{width:1800,height:900}}),stage=app.nodes.get('#stage');
+ assert.equal(stage.getAttribute('viewBox'),'-150 0 1300 900');
+ assert.equal(stage.querySelector('.floor-line').getAttribute('d'),'M-400 850H1400');
+ assert.equal(stage.querySelector('.table-baseline').getAttribute('d'),'M-400 425H1400');
+ assertPathCoordinates(stage.querySelector('.monitor-axis'),[500,0,900,-400,300,1400]);
+ const subfloor=stage.querySelector('.subfloor');assert.equal(+subfloor.getAttribute('x'),-400);assert.equal(+subfloor.getAttribute('width'),1800);
+ assert.equal(app.posts.length,0);
+});
+test('resize extends vertical guides and subfloor into tall letterboxing without moving fixtures',async()=>{
+ const app=await harness({viewport:{width:1800,height:900}}),stage=app.nodes.get('#stage');
+ const before=JSON.stringify(app.run('packLayout()')),viewBox=stage.getAttribute('viewBox');
+ app.resize(650,900);
+ assert.equal(stage.querySelector('.table-center-axis').getAttribute('d'),'M500 -450V1350');
+ assertPathCoordinates(stage.querySelector('.monitor-axis'),[500,-450,1350,-150,300,1150]);
+ assert.equal(+stage.querySelector('.subfloor').getAttribute('height'),500);
+ assert.equal(stage.getAttribute('viewBox'),viewBox);assert.equal(JSON.stringify(app.run('packLayout()')),before);
+ await app.flush();assert.equal(app.posts.length,0);
+});
+test('resizing the editor preserves keyboard focus on lamps monitor desk and Sync corners',async()=>{
+ const app=await harness({viewport:{width:1800,height:900}}),stage=app.nodes.get('#stage');
+ app.event('change',{id:'show-sync-bounds',checked:true});
+ for(const selector of ['[data-lamp="play-center"]','[data-monitor]','[data-desk]','[data-sync-corner="3"]']){
+  stage.querySelector(selector).focus();app.resize(650,900);
+  assert.equal(app.active(),stage.querySelector(selector),selector);
+ }
+ await app.flush();assert.equal(app.posts.length,0);
 });
 test('Sync visibility is an opt-in persistent view preference without layout or control writes',async()=>{
  const storage=new Map(),app=await harness({storage});

@@ -49,7 +49,10 @@ below-floor anchors are raised on load. Labels can extend into the shaded strip
 below the floor, but physical objects cannot.
 
 Reference guides span the complete scene, including the monitor center, table
-center and tabletop. The optional Sync bounds use a closed solid perimeter and
+center and tabletop. Floor, grid and guides include the SVG's visible margins
+when its container has a different aspect ratio from the scene. Container resize
+updates those extents without moving fixtures or saving layout changes; the
+mobile stage also fills the entire editor. The optional Sync bounds use a closed solid perimeter and
 smoothstep-weighted shading. All six corners can move on the 5 cm grid. Edits
 autosave, support undo and affect actual Sync output. Custom points stay attached
 to table width and tabletop height; Auto restores the placement-derived 15 cm
