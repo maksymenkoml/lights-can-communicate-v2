@@ -250,6 +250,24 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
         result = self.run_archive("--config", str(self.config), "--check")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["native_video"])
+        malformed = [
+            {k: v for k, v in stream.items() if k != "hue_key"},
+            {**stream, "hue_key": ["PRIVATE_STREAM_KEY"]},
+            {**stream, "hue_key": ""},
+            {**stream, "hue_key": "invalid\nPRIVATE_STREAM_KEY"},
+            {**stream, "application_id": {"secret": "PRIVATE_IDENTITY"}},
+            {**stream, "application_id": ""},
+            {**stream, "application_id": True},
+        ]
+        for value in malformed:
+            with self.subTest(fields=list(value)):
+                (self.folder / "stream.json").write_text(json.dumps(value))
+                invalid = self.run_archive("--config", str(self.config), "--check")
+                self.assertNotEqual(invalid.returncode, 0)
+                self.assertNotIn("PRIVATE_STREAM_KEY", invalid.stdout + invalid.stderr)
+                self.assertNotIn("PRIVATE_IDENTITY", invalid.stdout + invalid.stderr)
+                self.assertNotIn("Traceback", invalid.stderr)
+        (self.folder / "stream.json").write_text(json.dumps(stream))
         stream["bridge"] = "192.168.99.3"
         (self.folder / "stream.json").write_text(json.dumps(stream))
         self.assertNotEqual(self.run_archive("--config", str(self.config), "--check").returncode, 0)

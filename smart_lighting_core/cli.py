@@ -4,6 +4,7 @@ import argparse
 import hmac
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -12,6 +13,10 @@ import sys
 
 from . import __version__
 from .config import ConfigError, load_config, read_json
+
+
+def _hue_identity(value):
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value) is not None
 
 
 def _credential(path):
@@ -59,7 +64,7 @@ def prepare(config):
         hue = None
         if config.hue_config_file:
             hue = read_json(config.hue_config_file, "Hue configuration")
-            if not isinstance(hue.get("hue_key"), str) or not 1 <= len(hue["hue_key"]) <= 128:
+            if not _hue_identity(hue.get("hue_key")):
                 raise ConfigError("Invalid Hue credential")
             live_adapter.HueStripProxy(live_adapter.PinnedHueClient(hue))
             if config.hue_play:
@@ -69,6 +74,10 @@ def prepare(config):
                     )
         if config.hue_stream_config_file:
             stream = read_json(config.hue_stream_config_file, "Hue stream configuration")
+            if not _hue_identity(stream.get("hue_key")) or (
+                "application_id" in stream and not _hue_identity(stream["application_id"])
+            ):
+                raise ConfigError("Invalid native stream credential or identity")
             if stream.get("bridge") != hue.get("bridge"):
                 raise ConfigError("Scene and stream Hue bridges must match")
             live_adapter.HueEntertainmentRelay(stream)
