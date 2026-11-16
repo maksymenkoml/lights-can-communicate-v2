@@ -79,10 +79,25 @@ def fixture_request(g):
         scene_id = result["data"][0]["rid"]
         (state / "fixture-scene-id").write_text(scene_id)
         g["configManager"].bridgeConfig.save_config(backup=False)
+        # Exercise the real asynchronous worker boundary deterministically: API
+        # acceptance/intent persistence do not promise that playback has started.
+        original_factory = g["Scene"].Thread
+        def delayed_scene_thread(*args, **kwargs):
+            thread = original_factory(*args, **kwargs)
+            actual = getattr(thread, "thread", thread)
+            original_run = actual.run
+            def delayed_run():
+                time.sleep(.15)
+                original_run()
+            actual.run = delayed_run
+            return thread
+        g["Scene"].Thread = delayed_scene_thread
         response = client.put("/clip/v2/resource/scene/" + scene_id,
                               json={"recall": {"action": "dynamic_palette"}}, headers=headers)
         assert response.status_code == 200 and not response.get_json().get("errors")
         wait_for(lambda: intent.snapshot()["remembered_lights"] == 6)
+        wait_for(lambda: all(lights[slot].dynamics["status"] == "dynamic_palette"
+                             for slot in selected))
         before = (state / "scene-play-intent.json").read_bytes()
         generation = g["play_guard"].generations["1"]
         response = client.put("/clip/v2/resource/light/" + lights["1"].id_v2,
