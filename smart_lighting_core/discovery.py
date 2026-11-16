@@ -71,6 +71,8 @@ class DeviceCatalog:
         self._clock, self._ttl, self._max_devices = clock, ttl, max_devices
         self._lock = threading.RLock()
         self._entries = {}
+        self._contradictory_peers = {}
+        self._govee_blocked_until = float("-inf")
         self._providers = {"govee": "unavailable", "hue": "unavailable"}
         self._legacy_roles = {}
         if isinstance(legacy_roles, dict):
@@ -94,6 +96,10 @@ class DeviceCatalog:
         return 0 <= now - seen <= self._ttl
 
     def _prune(self, now):
+        self._contradictory_peers = {
+            address: seen for address, seen in self._contradictory_peers.items()
+            if self._fresh(seen, now)
+        }
         for entry in self._entries.values():
             entry["addresses"] = {
                 address: seen for address, seen in entry["addresses"].items()
@@ -131,6 +137,12 @@ class DeviceCatalog:
         with self._lock:
             self._prune(now)
             if identity is None:
+                if (address in self._contradictory_peers
+                        or len(self._contradictory_peers) < self._max_devices):
+                    self._contradictory_peers[address] = now
+                else:
+                    # Retain every live marker. Overflow blocks Govee selection globally.
+                    self._govee_blocked_until = max(self._govee_blocked_until, now + self._ttl)
                 for known in self._entries.values():
                     if known["provider"] == "govee" and address in known["addresses"]:
                         known["blocked_until"] = max(known["blocked_until"], now + self._ttl)
@@ -142,6 +154,9 @@ class DeviceCatalog:
                     if other["provider"] == "govee" and address in other["addresses"]:
                         other["blocked_until"] = now + self._ttl
                 return
+            contradiction = self._contradictory_peers.get(address)
+            if contradiction is not None:
+                entry["blocked_until"] = max(entry["blocked_until"], contradiction + self._ttl)
             for other in self._entries.values():
                 if (other is not entry and other["provider"] == "govee"
                         and address in other["addresses"]):
@@ -232,7 +247,8 @@ class DeviceCatalog:
                 online = (self._providers[entry["provider"]] == "ready"
                           and self._fresh(entry["seen"], now))
                 ambiguous = entry["ambiguous"] if entry["provider"] == "hue" else (
-                    entry["blocked_until"] >= now or len(entry["addresses"]) > 1
+                    self._govee_blocked_until >= now or entry["blocked_until"] >= now
+                    or len(entry["addresses"]) > 1
                     or any(len(owners[address]) > 1 for address in entry["addresses"])
                 )
                 rows.append({

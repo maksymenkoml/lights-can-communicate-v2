@@ -164,6 +164,65 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(rows["Affected"]["selectable"])
         self.assertEqual({name: row["id"] for name, row in rows.items()}, original)
 
+    def test_malformed_peer_before_first_valid_identity_blocks_through_exact_ttl(self):
+        self.now = 99.9
+        self.catalog.observe_govee({"device": "invalid"}, "192.168.1.10")
+        self.assertEqual(self.catalog.snapshot()["devices"], [])
+        self.now = 100
+        self.scan(deviceName="Affected")
+        self.scan(device=OTHER, ip="192.168.1.20", deviceName="Unrelated")
+        original = {row["name"]: row["id"] for row in self.catalog.snapshot()["devices"]}
+        for now in (100, 100.1, 119.9):
+            self.now = now
+            self.scan()
+            self.scan(device=OTHER, ip="192.168.1.20")
+            rows = {row["name"]: row for row in self.catalog.snapshot()["devices"]}
+            self.assertTrue(rows["Affected"]["ambiguous"])
+            self.assertFalse(rows["Affected"]["selectable"])
+            self.assertTrue(rows["Unrelated"]["selectable"])
+            self.assertFalse(rows["Unrelated"]["ambiguous"])
+        self.now = 119.91
+        self.scan()
+        rows = {row["name"]: row for row in self.catalog.snapshot()["devices"]}
+        self.assertTrue(rows["Affected"]["selectable"])
+        self.assertFalse(rows["Affected"]["ambiguous"])
+        self.assertEqual({name: row["id"] for name, row in rows.items()}, original)
+
+    def test_contradictory_peer_pressure_has_bounded_memory_and_fails_closed_until_ttl(self):
+        self.catalog = DeviceCatalog(clock=lambda: self.now, ttl=20, max_devices=2)
+        tracemalloc.start()
+        try:
+            for suffix in range(1000):
+                self.catalog.observe_govee({"device": "invalid"},
+                                          f"192.168.{suffix // 250}.{suffix % 250 + 1}")
+            gc.collect()
+            before = tracemalloc.get_traced_memory()[0]
+            for suffix in range(1000, 4000):
+                self.catalog.observe_govee({"device": "invalid"},
+                                          f"192.168.{suffix // 250}.{suffix % 250 + 1}")
+            gc.collect()
+            self.assertLess(tracemalloc.get_traced_memory()[0] - before, 100_000)
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(self.catalog.snapshot()["devices"], [])
+        self.scan(ip="192.168.0.1", deviceName="First contradictory peer")
+        self.scan(device=OTHER, ip="192.168.15.250", deviceName="Last contradictory peer")
+        original = {row["id"] for row in self.catalog.snapshot()["devices"]}
+        for now in (100, 119.9, 120):
+            self.now = now
+            self.scan(ip="192.168.0.1")
+            self.scan(device=OTHER, ip="192.168.15.250")
+            rows = self.catalog.snapshot()["devices"]
+            self.assertTrue(all(row["ambiguous"] for row in rows))
+            self.assertTrue(all(not row["selectable"] for row in rows))
+        self.now = 120.01
+        self.scan(ip="192.168.0.1")
+        self.scan(device=OTHER, ip="192.168.15.250")
+        rows = self.catalog.snapshot()["devices"]
+        self.assertEqual({row["id"] for row in rows}, original)
+        self.assertTrue(all(row["selectable"] for row in rows))
+        self.assertTrue(all(not row["ambiguous"] for row in rows))
+
     def test_peer_address_is_used_instead_of_advertised_ip(self):
         self.scan(ip="192.168.1.10")
         self.catalog.observe_govee({"device": OTHER, "sku": "H6076", "ip": "192.168.1.10"},
