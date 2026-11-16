@@ -3,6 +3,9 @@ const clone = value => structuredClone(value);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp = (v,min,max) => Math.min(max,Math.max(min,Number(v)||0));
 const KEY='light-studio-grid-v3';
+const VIEW_SYNC_KEY='light-studio-view-sync-bounds-v1';
+let showSyncBounds=false;
+try{showSyncBounds=localStorage.getItem(VIEW_SYNC_KEY)==='true';}catch{}
 const GRID=25, STEP_CM=5, COLS=40;
 const STAGE_HEIGHT=900, FLOOR_Y=850, UNITS_PER_CM=GRID/STEP_CM;
 const deskDefaults={width:160,height:85};
@@ -183,6 +186,22 @@ function lamp(d,glow=false){
  if(glow)return `<g class="wall-glow" transform="translate(${x},${y})">${light}</g>`;
  return `<g class="lamp ${selected===d.id?'selected':''}" data-lamp="${d.id}" role="button" tabindex="0" aria-label="${esc(d.name)}" aria-pressed="${selected===d.id}" transform="translate(${x},${y})"><rect class="hit ${attached?'strip-hit':''}" x="${box[0]-18}" y="${box[1]-12}" width="${box[2]+36}" height="${box[3]+24}" rx="12"/><rect class="halo" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" rx="12"/>${body}${light}${dividers}<text class="lamp-name long-name" x="0" y="${nameY}">${esc(d.name)}</text><text class="lamp-name short-name" x="0" y="${nameY}">${esc(d.short)}</text></g>`;
 }
+function syncFadeY(x){
+ const outside=Math.max(0,Math.abs(x-500)-layout.desk.width*UNITS_PER_CM/2);
+ return deskTop(layout.desk)+15*UNITS_PER_CM+outside;
+}
+function syncBounds(left,right){
+ if(!showSyncBounds)return '';
+ const tableY=deskTop(layout.desk),half=layout.desk.width*UNITS_PER_CM/2;
+ const edgeLeft=500-half,edgeRight=500+half,near=syncFadeY(500);
+ const lower=`M${left} ${syncFadeY(left)}L${edgeLeft} ${near}H${edgeRight}L${right} ${syncFadeY(right)}`;
+ return `<defs><clipPath id="sync-bounds-clip"><rect x="${left}" y="${tableY-4}" width="${right-left}" height="${FLOOR_Y-tableY+4}"/></clipPath></defs>
+ <g class="sync-functional" clip-path="url(#sync-bounds-clip)" aria-hidden="true" pointer-events="none">
+ <path class="sync-functional-band" d="${lower}V${tableY}H${left}Z"/>
+ <path class="sync-functional-top" d="M${left} ${tableY}H${right}"/>
+ <path class="sync-functional-limit" d="${lower}"/>
+ <text class="sync-functional-label" x="500" y="${near+18}">Згасання Sync · 15 см</text></g>`;
+}
 function renderStage(){
  const deskHalf=layout.desk.width*UNITS_PER_CM/2;
  const fixtures=layout.devices.filter(enabled),bounds=layout.devices.filter(d=>enabled(d)||d.id==='hue-monitor');
@@ -191,10 +210,12 @@ function renderStage(){
  const right=Math.max(1150,500+deskHalf+100,...bounds.map(d=>d.pos.x*10+(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
  const cx=screen().pos.x*10,cy=stageY(screen()),tableY=deskTop(layout.desk);
  const guides=`<g class="reference-guides" aria-hidden="true" pointer-events="none">
+ <path class="table-center-axis" d="M500 ${top}V${STAGE_HEIGHT}"/>
  <path class="monitor-axis" d="M${cx} ${top}V${STAGE_HEIGHT}M${left} ${cy}H${right}"/>
  <path class="table-baseline" d="M${left} ${tableY}H${right}"/></g>`;
  if(!dragging)stage.setAttribute('viewBox',`${left} ${top} ${right-left} ${STAGE_HEIGHT-top}`);
- stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><pattern id="grid-major" width="${GRID*2}" height="${GRID*2}" patternUnits="userSpaceOnUse"><path d="M${GRID*2} 0H0V${GRID*2}" fill="none" stroke="#718878" stroke-width="1.2"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${STAGE_HEIGHT-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid-major)" opacity=".45"/><g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${fixtures.map(d=>lamp(d,true)).join('')}</g>`+guides+room()+fixtures.map(d=>lamp(d)).join('');
+ $('#show-sync-bounds').checked=showSyncBounds;
+ stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><pattern id="grid-major" width="${GRID*2}" height="${GRID*2}" patternUnits="userSpaceOnUse"><path d="M${GRID*2} 0H0V${GRID*2}" fill="none" stroke="#718878" stroke-width="1.2"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${STAGE_HEIGHT-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid-major)" opacity=".45"/><g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${fixtures.map(d=>lamp(d,true)).join('')}</g>`+guides+syncBounds(left,right)+room()+fixtures.map(d=>lamp(d)).join('');
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
@@ -330,6 +351,11 @@ document.addEventListener('click',event=>{
  if(button.dataset.action)actions[button.dataset.action]?.();
 });
 document.addEventListener('change',event=>{
+ if(event.target.id==='show-sync-bounds'){
+  showSyncBounds=event.target.checked;
+  try{localStorage.setItem(VIEW_SYNC_KEY,String(showSyncBounds));}catch{}
+  renderStage();return;
+ }
  if(event.target.dataset?.discovery){const id=event.target.dataset.discovery;if(event.target.checked)discoveryChoices.add(id);else discoveryChoices.delete(id);renderDiscovery();return;}
  if(['monitor-height','monitor-offset'].includes(event.target.id)){
   if(!event.target.value||!Number.isFinite(event.target.valueAsNumber)){renderSelection();return;}

@@ -78,6 +78,35 @@ test('server layout is authoritative on ordinary reload',async()=>{
  const app=await harness({remote:data});await app.flush();
  assert.equal(app.run('layout.devices[0].pos.x'),25);assert.equal(app.posts.length,0);
 });
+test('Sync visibility is an opt-in persistent view preference without layout or control writes',async()=>{
+ const storage=new Map(),app=await harness({storage});
+ assert.equal(app.nodes.get('#stage').querySelector('.sync-functional'),null);
+ const before=JSON.stringify(app.run('packLayout()'));
+ app.event('change',{id:'show-sync-bounds',checked:true});
+ assert.ok(app.nodes.get('#stage').querySelector('.sync-functional'));
+ assert.equal(JSON.stringify(app.run('packLayout()')),before);
+ assert.equal(app.run('editGeneration'),0);assert.equal(app.run('history.length'),0);
+ await app.flush();assert.equal(app.posts.length,0);
+ const reloaded=await harness({storage});
+ assert.ok(reloaded.nodes.get('#stage').querySelector('.sync-functional'));
+ reloaded.event('change',{id:'show-sync-bounds',checked:false});
+ assert.equal(reloaded.nodes.get('#stage').querySelector('.sync-functional'),null);
+});
+test('functional fade follows desk edges while desk and monitor center guides remain independent',async()=>{
+ const app=await harness();
+ assert.equal(app.run('syncFadeY(500)'),500);
+ assert.equal(app.run('syncFadeY(100)'),500);
+ assert.equal(app.run('syncFadeY(25)'),575);
+ assert.equal(app.run('syncFadeY(975)'),575);
+ const center=app.nodes.get('#stage').querySelector('.table-center-axis').getAttribute('d');
+ app.run('screen().pos.x+=10;renderStage()');
+ assert.equal(app.nodes.get('#stage').querySelector('.table-center-axis').getAttribute('d'),center);
+ assert.match(app.nodes.get('#stage').querySelector('.monitor-axis').getAttribute('d'),/^M600 /);
+ assert.equal(app.run('syncFadeY(25)'),575);
+ app.run('layout.desk.width=100;layout.desk.height=95;renderStage()');
+ assert.equal(app.run('syncFadeY(100)'),600);
+ assert.equal(app.posts.length,0);
+});
 test('409 merges a local brightness edit with remote geometry instead of overwriting it',async()=>{
  const remote=saved();remote.devices[0].positionCm.x=50;
  const app=await harness({conflict:remote});
