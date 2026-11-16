@@ -12,6 +12,7 @@ import urllib.request
 import uuid
 
 from entertainment_stream import AREA_ID, GROUP_ID, FrameBuffer, decode_frame
+from udp_port_guard import UdpPortGuard  # noqa: F401
 
 
 class StreamOutbox:
@@ -108,11 +109,14 @@ def dtls_diagnostic(line):
 
 
 class EntertainmentReceiver:
-    def __init__(self, url, token, openssl="openssl", enabled=False):
+    def __init__(self, url, token, openssl="openssl", enabled=False, udp_guard=None):
         self.url, self.token, self.openssl, self.enabled = url, token, openssl, enabled
+        self.udp_guard = udp_guard
         self.lock = threading.RLock()
         self.listener_condition = threading.Condition(self.lock)
+        self.closed = False
         self.serving = False
+        self.serving_group = None
         self.generation = None
         self.serving_generation = None
         self.bound_group = None
@@ -150,7 +154,29 @@ class EntertainmentReceiver:
             result = copy.deepcopy(self.status)
             if self.current_outbox is not None:
                 result["outbox"] = self.current_outbox.snapshot()
+            if self.udp_guard is not None:
+                result["udp_guard"] = self.udp_guard.snapshot()
             return result
+
+    def shutdown(self, timeout=5):
+        """Fence new Starts and stop workers before releasing persistent UDP ingress.
+
+        Call from the application finalizer, never from a receiver worker. A
+        timeout leaves the guard bound; retry after the blocked worker exits.
+        """
+        with self.listener_condition:
+            self.closed = True
+            self.enabled = False
+            self.status["enabled"] = False
+            self.generation = object()
+            group = self.serving_group or self.bound_group
+            if group is not None:
+                group.update_attr({"stream": {"active": False, "owner": None}})
+            self.listener_condition.notify_all()
+            if not self.listener_condition.wait_for(lambda: not self.serving, timeout=timeout):
+                raise TimeoutError("DTLS worker still running; UDP guard retained")
+        if self.udp_guard is not None:
+            self.udp_guard.close()
 
     def serve(self, group, user):
         from services.entertainment import _psk_value
@@ -168,6 +194,8 @@ class EntertainmentReceiver:
                 self.status["last_result"] = "stream client has no key"
             return
         with self.listener_condition:
+            if self.closed:
+                return
             if self.bound_group is group:
                 generation = self.generation
                 if group.stream.get("owner") != user.username:
@@ -186,6 +214,7 @@ class EntertainmentReceiver:
             if not group.stream.get("active"):
                 return
             self.serving = True
+            self.serving_group = group
             self.serving_generation = generation
         outbox = StreamOutbox(self.url, self.token)
         self.current_outbox = outbox
@@ -212,7 +241,7 @@ class EntertainmentReceiver:
                     user.username,
                     "-nocert",
                     "-accept",
-                    "2100",
+                    self.udp_guard.accept_address if self.udp_guard is not None else "2100",
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -332,4 +361,5 @@ class EntertainmentReceiver:
                 )
                 self.status["last_result"] = end_reason
                 self.serving = False
+                self.serving_group = None
                 self.listener_condition.notify_all()
