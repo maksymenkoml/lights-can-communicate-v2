@@ -136,17 +136,17 @@ function lamp(d,glow=false){
  const vertical=d.shape==='floor'||(d.shape==='bar'&&d.orientation==='vertical');
  let body='',light='',dividers='',box,nameY;
  if(d.shape==='floor'){
-  const base=300,top=base-GOVEE_HEIGHT_CM*UNITS_PER_CM,lightBottom=270,lightLength=lightBottom-top-5;
-  body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="11" stroke-linecap="butt"/><path d="M0 279v19" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="300" rx="21" ry="5"/>`;
+  const base=300,top=base-GOVEE_HEIGHT_CM*UNITS_PER_CM,lightBottom=270,lightLength=lightBottom-top-10;
+  body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="20" stroke-linecap="butt"/><path d="M0 279v19" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="300" rx="21" ry="5"/>`;
   light=Array.from({length:d.zones},(_,i)=>{
    const bottom=lightBottom-i*lightLength/d.zones,length=lightLength/d.zones;
    const gap=glow||d.zones===1?0:5;
-   return `<path class="light" d="M0 ${bottom-gap}v${-length+(glow?-1:gap*2)}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="5" stroke-linecap="round"/>`;
+   return `<path class="light" d="M0 ${bottom-gap}v${-length+(glow?-1:gap*2)}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="14" stroke-linecap="round"/>`;
   }).join('');
-  if(!glow)dividers=Array.from({length:d.zones-1},(_,i)=>`<path class="zone-divider" d="M-7 ${lightBottom-(i+1)*lightLength/d.zones}h14"/>`).join('');
+  if(!glow)dividers=Array.from({length:d.zones-1},(_,i)=>`<path class="zone-divider" d="M-6 ${lightBottom-(i+1)*lightLength/d.zones}h12"/>`).join('');
   box=[-37,top-15,74,base-top+35];nameY=345;
  }else if(attached){
-  const size=monitorSize(),w=size.width/2+9,h=size.height/2+9;
+  const size=monitorSize(),w=size.width/2+14,h=size.height/2+14;
   const points=[[-w,h],[-w,0],[-w,-h],[-w/2,-h],[0,-h],[w/2,-h],[w,-h],[w,0],[w,h]];
   const path=`M${-w} ${h}V${-h}H${w}V${h}`;
   body=`<path class="strip-back" d="${path}"/>`;
@@ -157,21 +157,21 @@ function lamp(d,glow=false){
   }).join('');
   if(!glow)dividers=points.slice(1).map(([nx,ny],i)=>{
    const [px,py]=points[i],mx=(px+nx)/2,my=(py+ny)/2;
-   return `<path class="zone-divider" d="${px===nx?`M${mx-7} ${my}h14`:`M${mx} ${my-7}v14`}"/>`;
+   return `<path class="zone-divider" d="${px===nx?`M${mx-6} ${my}h12`:`M${mx} ${my-6}v12`}"/>`;
   }).join('');
   box=[-w-15,-h-15,w*2+30,h*2+30];nameY=-h-29;
  }else{
-  const length=d.shape==='strip'?220:PLAY_LENGTH_CM*UNITS_PER_CM;
-  body=`<rect class="fixture" x="${vertical?-9:-length/2}" y="${vertical?-length/2:-9}" width="${vertical?18:length}" height="${vertical?length:18}" rx="8"/>`;
+  const length=d.shape==='strip'?220:PLAY_LENGTH_CM*UNITS_PER_CM,inset=10;
+  body=`<rect class="fixture" x="${vertical?-14:-length/2}" y="${vertical?-length/2:-14}" width="${vertical?28:length}" height="${vertical?length:28}" rx="10"/>`;
   light=Array.from({length:d.zones},(_,i)=>{
-   const span=(length-14)/d.zones,start=-length/2+7+i*span;
+   const span=(length-inset*2)/d.zones,start=-length/2+inset+i*span;
    const gap=glow||d.zones===1?0:Math.min(5,span/4);
    const path=vertical?`M0 ${start+gap}v${span-gap*2}`:`M${start+gap} 0h${span-gap*2}`;
-   return `<path class="light" d="${path}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="6" stroke-linecap="round"/>`;
+   return `<path class="light" d="${path}" ${zoneAttributes(d.id,i,'stroke',glow)} stroke-width="18" stroke-linecap="round"/>`;
   }).join('');
   if(!glow)dividers=Array.from({length:d.zones-1},(_,i)=>{
-   const boundary=-length/2+7+(i+1)*(length-14)/d.zones;
-   return `<path class="zone-divider" d="${vertical?`M-7 ${boundary}h14`:`M${boundary} -7v14`}"/>`;
+   const boundary=-length/2+inset+(i+1)*(length-inset*2)/d.zones;
+   return `<path class="zone-divider" d="${vertical?`M-6 ${boundary}h12`:`M${boundary} -6v12`}"/>`;
   }).join('');
   box=vertical?[-27,-length/2-15,54,length+30]:[-length/2-14,-26,length+28,52];nameY=vertical?length/2+35:39;
  }
