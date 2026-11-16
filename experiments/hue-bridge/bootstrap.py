@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from types import FunctionType
 
 # The upstream pairing handler logs generated API keys at INFO. Keep them private.
 logging.disable(logging.CRITICAL)
@@ -556,6 +557,39 @@ def probe_status():
     )
 
 
+def receiver_shutdown_main(upstream_main, receiver):
+    """Chain receiver cleanup before the vendor's signal handler and hard exit.
+
+    Give only this main invocation a signal facade. Other modules retain the
+    original signal module, registration function and os._exit behavior.
+    """
+    signals = upstream_main.__globals__["signal"]
+
+    class ReceiverSignals:
+        def __getattr__(self, name):
+            return getattr(signals, name)
+
+        def signal(self, signum, handler):
+            if signum in (signals.SIGTERM, signals.SIGINT) and callable(handler):
+                vendor_handler = handler
+
+                def shutdown(signum, frame):
+                    try:
+                        receiver.shutdown()
+                    finally:
+                        # Preserve vendor config saves and exit even on timeout.
+                        # The receiver retains its guard if workers cannot stop.
+                        vendor_handler(signum, frame)
+
+                handler = shutdown
+            return signals.signal(signum, handler)
+
+    namespace = dict(upstream_main.__globals__, signal=ReceiverSignals())
+    return FunctionType(upstream_main.__code__, namespace, upstream_main.__name__,
+                        upstream_main.__defaults__, upstream_main.__closure__)
+
+
+main = receiver_shutdown_main(main, entertainment_receiver)
 os.environ["TZ"] = "America/Toronto"
 time.tzset()
 try:

@@ -204,10 +204,12 @@ class ScenePlayIntent:
 
         def manual_state(lamp, values, advertise=True):
             with controller.guard.lock:
-                if (set(values) & MANUAL_FIELDS
-                        and controller.guard.worker_generation(lamp) is None):
+                manual = (set(values) & MANUAL_FIELDS
+                          and controller.guard.worker_generation(lamp) is None)
+                result = set_state(lamp, values, advertise)
+                if manual:
                     controller.cancel([lamp])
-                return set_state(lamp, values, advertise)
+                return result
 
         scene_module.Thread = create_thread
         scene_module.Scene.activate = activate_scene

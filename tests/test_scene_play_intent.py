@@ -51,6 +51,8 @@ class ScenePlayIntentTests(unittest.TestCase):
                 self.state = {"on": False}
 
             def _setV1State(self, state, advertise=True):
+                if state.get("gradient") == {"points": []}:
+                    raise ValueError("Rejected gradient")
                 self.state.update(state)
                 calls.append((self.id_v1, copy.deepcopy(state)))
 
@@ -136,6 +138,19 @@ class ScenePlayIntentTests(unittest.TestCase):
         self.assertEqual(len(self.read()), 3)
         self.lights["2"]._setV1State({"on": False})
         self.assertEqual(self.read(), {"1": SCENE_ID, "3": SCENE_ID})
+
+    def test_rejected_manual_change_preserves_persisted_intent_and_pending_worker(self):
+        self.play()
+        before = self.path.read_bytes()
+        generation = self.guard.generations["1"]
+        with self.assertRaisesRegex(ValueError, "Rejected gradient"):
+            self.lights["1"]._setV1State({"gradient": {"points": []}})
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(len(self.controller.intents), 3)
+        self.assertEqual(self.guard.generations["1"], generation)
+        QueuedThread.queued[0].run()
+        self.assertEqual(self.lights["1"].dynamics["status"], "dynamic_palette")
+        self.assertEqual(len(self.calls), 1)
 
     def test_stop_cancels_scene_members_but_static_recall_only_affected_lightstates(self):
         self.play()
