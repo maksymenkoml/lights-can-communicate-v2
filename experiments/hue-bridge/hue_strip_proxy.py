@@ -147,9 +147,11 @@ def merge_hue_body(previous, update):
 
 class HueStripProxy:
     def __init__(
-        self, client, clock=time.monotonic, wall_clock=time.time, role="strip", layout_store=None
+        self, client, clock=time.monotonic, wall_clock=time.time, role="strip", layout_store=None,
+        preview=None,
     ):
         self.layout_store = layout_store
+        self.preview = preview
         self.role = role
         self.resource_id = getattr(client, "resource_id", STRIP_ID)
         if {"strip": STRIP_ID, **PLAY_IDS}.get(role) != self.resource_id:
@@ -316,6 +318,11 @@ class HueStripProxy:
                         self.last_result = "scene output paused"
                         return False
                     self.client.write(body)
+                    if self.preview is not None:
+                        try:
+                            self.preview.record_hue(self.role, body)
+                        except Exception:
+                            pass  # Passive telemetry cannot change successful output.
                 self.applied = self.generation
                 self.applied_scale = scale
                 self.restore = False

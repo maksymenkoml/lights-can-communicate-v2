@@ -221,10 +221,12 @@ class StudioTests(unittest.TestCase):
         result = studio.project_status(
             {
                 "hue_key": "secret-key",
-                "video": {"active": True, "ready": True, "session": "private-session"},
+                "video": {"active": True, "ready": True, "frame_age": .1,
+                          "session": "private-session"},
                 "targets": [
                     {
                         "side": "left",
+                        "status_age": .1,
                         "native": {
                             "identity_verified": True,
                             "onOff": 1,
@@ -237,6 +239,7 @@ class StudioTests(unittest.TestCase):
                 "hue_play": {
                     "hue_center": {
                         "healthy": True,
+                        "native_age": .1,
                         "native_on": True,
                         "native_brightness": 39,
                         "last_payload": {"sensitive": "secret-body"},
@@ -247,7 +250,8 @@ class StudioTests(unittest.TestCase):
         encoded = json.dumps(result)
         self.assertEqual(result["mode"], "sync")
         self.assertEqual(
-            result["lamps"]["govee-left"], {"online": True, "on": True, "brightness": 51}
+            {key: result["lamps"]["govee-left"][key] for key in ("online", "on", "brightness")},
+            {"online": True, "on": True, "brightness": 51}
         )
         for forbidden in ("secret-", "private-session", "third", "last_payload"):
             self.assertNotIn(forbidden, encoded)

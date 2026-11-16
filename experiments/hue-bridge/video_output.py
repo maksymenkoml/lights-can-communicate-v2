@@ -193,6 +193,8 @@ class VideoOutput:
         return {
             **self.lease.snapshot(),
             "ready": self.ready,
+            "cleanup_pending": self.cleanup_pending and not self.ready,
+            "native_owned": bool(getattr(self.relay, "owned", False)),
             "frames_sent": self.frames_sent,
             "last_result": self.last_result,
             "last_safety_failure": self.last_safety_failure,

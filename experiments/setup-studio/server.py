@@ -5,6 +5,8 @@ import json
 import math
 import re
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -68,18 +70,75 @@ def public_catalog(data):
     }
 
 
-def project_status(data):
-    video = data.get("video", {})
-    selected = {"strip": data.get("hue_strip", {}), **data.get("hue_play", {})}
+def _number(value, low, high):
+    return type(value) in (int, float) and low <= value <= high and math.isfinite(value)
+
+
+def _fresh(value, limit):
+    return _number(value, 0, limit)
+
+
+def _rgb_colors(value):
+    if (
+        not isinstance(value, list)
+        or not 1 <= len(value) <= 9
+        or any(
+            not isinstance(row, (list, tuple))
+            or len(row) != 3
+            or any(type(c) is not int or not 0 <= c <= 255 for c in row)
+            for row in value
+        )
+    ):
+        return []
+    return [list(row) for row in value]
+
+
+def _sample_zones(colors, count):
+    if not colors or len(colors) == count:
+        return colors
+    if len(colors) == 1:
+        return [list(colors[0]) for _ in range(count)]
+    result = []
+    for index in range(count):
+        position = index * (len(colors) - 1) / max(1, count - 1)
+        start = int(position)
+        end = min(start + 1, len(colors) - 1)
+        result.append([round(a + (b - a) * (position - start))
+                       for a, b in zip(colors[start], colors[end])])
+    return result
+
+
+def _unavailable(mode="unknown"):
+    return {"version": 1, "connected": False, "mode": mode, "sync": {"state": mode}, "lamps": {}}
+
+
+def project_status(data, source_active=None):
+    """Read-only, bounded UI projection of emitted colors and observed power."""
+    if not isinstance(data, dict):
+        return _unavailable()
+    video = data.get("video") if isinstance(data.get("video"), dict) else {}
+    preview = data.get("preview")
+    if (
+        not isinstance(preview, dict)
+        or type(preview.get("version")) is not int
+        or preview.get("version") != 1
+    ):
+        preview = {}
+    preview_lamps = preview.get("lamps") if isinstance(preview.get("lamps"), dict) else {}
     lamps = {}
-    for target in data.get("targets", []):
-        if target.get("side") not in ("left", "right"):
+    rows = data.get("targets") if isinstance(data.get("targets"), list) else []
+    for target in rows[:128]:
+        if not isinstance(target, dict) or target.get("side") not in ("left", "right"):
             continue
-        native = target.get("native") or {}
+        native = target.get("native") if isinstance(target.get("native"), dict) else {}
+        online = native.get("identity_verified") is True and _fresh(target.get("status_age"), 0.75)
+        power = native.get("onOff")
         lamps["govee-" + target["side"]] = {
-            "online": native.get("identity_verified") is True,
-            "on": native.get("onOff") == 1,
-            "brightness": native.get("brightness"),
+            "online": online,
+            "on": bool(power) if online and type(power) is int and power in (0, 1) else None,
+            "brightness": native.get("brightness")
+            if _number(native.get("brightness"), 0, 100)
+            else None,
         }
     names = {
         "strip": "hue-monitor",
@@ -87,26 +146,153 @@ def project_status(data):
         "hue_center": "play-center",
         "hue_right": "play-right",
     }
+    hue_play = data.get("hue_play") if isinstance(data.get("hue_play"), dict) else {}
+    selected = {"strip": data.get("hue_strip"), **hue_play}
     for role, identifier in names.items():
-        state = selected.get(role, {})
+        state = selected.get(role) if isinstance(selected.get(role), dict) else {}
+        online = state.get("healthy") is True and _fresh(state.get("native_age"), 2)
         lamps[identifier] = {
-            "online": state.get("healthy") is True,
-            "on": state.get("native_on"),
-            "brightness": state.get("native_brightness"),
+            "online": online,
+            "on": state.get("native_on")
+            if online and type(state.get("native_on")) is bool
+            else None,
+            "brightness": state.get("native_brightness")
+            if _number(state.get("native_brightness"), 0, 100)
+            else None,
         }
+    emitted = (
+        video.get("active") is True
+        and video.get("ready") is True
+        and _fresh(video.get("frame_age"), 0.5)
+        and video.get("last_result", "streaming") == "streaming"
+    )
+    if preview and preview.get("mode") != "sync":
+        emitted = False
+    if emitted:
+        sync_state, mode = "active", "sync"
+    elif (preview.get("mode") == "foreign" and video.get("native_owned") is not True
+          and video.get("cleanup_pending") is not True):
+        sync_state = mode = "foreign"
+    elif (video.get("active") is True or video.get("cleanup_pending") is True
+          or video.get("ready") is True or video.get("native_owned") is True
+          or preview.get("mode") == "waiting"):
+        sync_state = mode = "waiting"
+    elif preview.get("mode") == "foreign" or any(
+        isinstance(state, dict) and state.get("native_mode") == "streaming"
+        for state in selected.values()
+    ):
+        sync_state = mode = "foreign"
+    elif source_active is True:
+        sync_state = mode = "waiting"
+    elif source_active is False:
+        sync_state, mode = "off", "scene"
+    else:
+        sync_state = mode = "unknown"
+    for identifier in ROLES:
+        lamp = lamps.setdefault(identifier, {"online": False, "on": None, "brightness": None})
+        row = preview_lamps.get(identifier)
+        row = row if isinstance(row, dict) else {}
+        source = (
+            row.get("source") if row.get("source") in ("scene-output", "sync-output") else "unknown"
+        )
+        stale = (row.get("stale") is not False or not lamp["online"]
+                 or row.get("online") is not True or row.get("on") is not True)
+        colors = _rgb_colors(row.get("colors"))
+        if (
+            lamp["on"] is not True
+            or stale
+            or source == "unknown"
+            or source == "sync-output"
+            and not emitted
+            or mode == "foreign"
+            and identifier in names.values()
+        ):
+            colors = []
+        count = 9 if identifier == "hue-monitor" else 7 if identifier.startswith("govee-") else 1
+        lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale)
     return {
+        "version": 1,
         "connected": True,
-        "mode": "sync"
-        if video.get("active") and video.get("ready")
-        else "waiting"
-        if video.get("active")
-        else "scene",
+        "mode": mode,
+        "sync": {"state": sync_state},
         "lamps": lamps,
     }
 
 
-def handler_for(token_file, layout_file=None, catalog_fetch=None):
+class SourceActivityCache:
+    """Single-flight receiver metadata, independent from physical device IO."""
+
+    def __init__(self, fetch, clock=time.monotonic, ttl=1):
+        self.fetch, self.clock, self.ttl = fetch, clock, ttl
+        self.lock = threading.Lock()
+        self.next_refresh = float("-inf")
+        self.value = None
+
+    def get(self):
+        with self.lock:
+            now = self.clock()
+            if now >= self.next_refresh:
+                try:
+                    value = self.fetch()
+                    self.value = value if type(value) is bool else None
+                except Exception as error:
+                    if isinstance(error, urllib.error.HTTPError):
+                        error.close()
+                    self.value = None
+                self.next_refresh = now + self.ttl
+            return self.value
+
+
+class _NoLocalRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _read_local_json(url, timeout, headers=None):
+    request = urllib.request.Request(url, headers=headers or {})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoLocalRedirect())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(262145)
+        if len(raw) > 262144:
+            raise ValueError("Oversize local status")
+        return json.loads(raw)
+    except urllib.error.HTTPError as error:
+        error.close()
+        raise
+
+
+def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=None,
+                source_fetch=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
+
+    def default_source_fetch():
+        data = _read_local_json("http://127.0.0.1/probe/status", 0.25)
+        receiver = data.get("entertainment") if isinstance(data, dict) else None
+        return receiver.get("active") if isinstance(receiver, dict) else None
+
+    source_cache = SourceActivityCache(source_fetch or default_source_fetch)
+
+    def pilot():
+        if (store.path.parent / "live-output-hold").exists():
+            return _unavailable("paused")
+        try:
+            if pilot_fetch is not None:
+                data = pilot_fetch()
+            else:
+                token = token_file.read_text().strip()
+                data = _read_local_json(
+                    "http://127.0.0.1:19880/status", 0.5, {"X-Adapter-Token": token}
+                )
+            result = project_status(data)
+            if not result["connected"] or result["sync"]["state"] != "unknown":
+                return result
+            return project_status(data, source_active=source_cache.get())
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return _unavailable()
+
 
     def discovery():
         try:
@@ -184,17 +370,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None):
             if path == "/api/discovery":
                 return self.respond(200, discovery())
             if path == "/api/pilot":
-                try:
-                    token = token_file.read_text().strip()
-                    request = urllib.request.Request(
-                        "http://127.0.0.1:19880/status", headers={"X-Adapter-Token": token}
-                    )
-                    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                    with opener.open(request, timeout=1) as response:
-                        data = json.load(response)
-                    return self.respond(200, project_status(data))
-                except (OSError, ValueError, KeyError, TypeError):
-                    return self.respond(200, {"connected": False, "mode": "unknown", "lamps": {}})
+                return self.respond(200, pilot())
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):

@@ -89,9 +89,11 @@ class DtlsConnection:
 
 class HueEntertainmentRelay:
     def __init__(
-        self, config, requester=None, connection_factory=DtlsConnection, layout_store=None
+        self, config, requester=None, connection_factory=DtlsConnection, layout_store=None,
+        preview=None,
     ):
         self.layout_store = layout_store
+        self.preview = preview
         if (
             config.get("area_id") != NATIVE_AREA_ID
             or not isinstance(config.get("client_key"), str)
@@ -241,10 +243,14 @@ class HueEntertainmentRelay:
             if self.layout_store is not None
             else None
         )
-        self.connection.send(
-            encode_frame(NATIVE_AREA_ID, native_colors(frame, scales), self.sequence)
-        )
+        channels = native_colors(frame, scales)
+        self.connection.send(encode_frame(NATIVE_AREA_ID, channels, self.sequence))
         self.sequence = (self.sequence + 1) % 256
+        if self.preview is not None:
+            try:
+                self.preview.record_native_channels(channels)
+            except Exception:
+                pass  # Passive telemetry cannot interrupt the native stream.
 
     def stop(self):
         if self.connection is not None:

@@ -29,6 +29,7 @@ from video_output import VideoOutput  # noqa: E402
 import smart_lighting as lan  # noqa: E402
 from smart_lighting_core.discovery import DeviceCatalog  # noqa: E402
 from smart_lighting_core.hue_discovery import HueDiscoveryReader  # noqa: E402
+from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
 
 
 def number(value, low, high):
@@ -413,7 +414,7 @@ class PilotController:
 
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
-                power_owner=None, power_token=None, service_info=None, catalog=None):
+                power_owner=None, power_token=None, service_info=None, catalog=None, preview=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -459,6 +460,12 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 result["power_owner"] = power_owner.snapshot()
             if service_info is not None:
                 result["service"] = dict(service_info)
+            if preview is not None:
+                try:
+                    output_snapshot = preview.snapshot()
+                except Exception:
+                    output_snapshot = {}
+                result["preview"] = build_preview(result, output_snapshot)
             self.respond(200, result)
 
         def do_POST(self):
@@ -527,6 +534,7 @@ def main(argv=None, service_info=None):
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
     power_owner = power_token = None
+    preview = OutputPreviewStore()
     sender = lan.send_to_target
     if args.power_owner_token_file:
         power_token = args.power_owner_token_file.read_text().strip()
@@ -536,19 +544,23 @@ def main(argv=None, service_info=None):
             raise ValueError("Invalid power owner credential")
         power_owner = PowerOwner(config["targets"])
         sender = power_owner.wrap(sender)
-    controller = PilotController(config["targets"], sender=sender, layout_store=layout_store,
+    controller = PilotController(config["targets"],
+                                 sender=preview.wrap_govee(sender, "scene-output"),
+                                 layout_store=layout_store,
                                  power_owner=power_owner)
     hue_proxies = {}
     hue_config = None
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
-        hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config), layout_store=layout_store)
+        hue_proxies["strip"] = HueStripProxy(PinnedHueClient(hue_config), layout_store=layout_store,
+                                            preview=preview)
         if args.hue_play:
             for role, resource in PLAY_IDS.items():
                 hue_proxies[role] = HueStripProxy(
                     PinnedHueClient(hue_config, resource_id=resource),
                     role=role,
                     layout_store=layout_store,
+                    preview=preview,
                 )
         controller.pause_gate = lambda: all(proxy.govee_allowed() for proxy in hue_proxies.values())
     video = None
@@ -557,9 +569,11 @@ def main(argv=None, service_info=None):
         if stream_config.get("bridge") != hue_config["bridge"]:
             raise ValueError("Stream and scene bridge must match")
         video = VideoOutput(
-            PilotController(config["targets"], sender=sender, layout_store=layout_store,
+            PilotController(config["targets"],
+                            sender=preview.wrap_govee(sender, "sync-output"),
+                            layout_store=layout_store,
                             power_owner=power_owner),
-            HueEntertainmentRelay(stream_config, layout_store=layout_store),
+            HueEntertainmentRelay(stream_config, layout_store=layout_store, preview=preview),
             hue_proxies.values(),
         )
         for proxy in hue_proxies.values():
@@ -590,6 +604,7 @@ def main(argv=None, service_info=None):
             power_token=power_token,
             service_info=service_info,
             catalog=catalog,
+            preview=preview,
         ),
     )
     video_thread = http_thread = None

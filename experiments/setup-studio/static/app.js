@@ -24,7 +24,6 @@ const seed=[
 const typeNames={floor:'Торшер RGBIC',strip:'Стрічка',bar:'Світлова панель'};
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
 const removable=id=>id?.startsWith('virtual-')||realDevice(id);
-const palette=['#809bc4','#a98bbd','#cb9cae','#dab493','#cfc49b'].map(hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)));
 function defaults(){const data={version:3,room:'Mykola Office',desk:clone(deskDefaults),monitorInches:32,devices:clone(seed)};data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;}
 function load(savedOverride){
  try{
@@ -49,12 +48,69 @@ let editGeneration=0;
 function dirty(){editGeneration++;save();}
 function notify(text){$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3000);}
 function point(event){return new DOMPoint(event.clientX,event.clientY).matrixTransform(stage.getScreenCTM().inverse());}
-function color(d,index){
- const relative=d.pos.x/100*.52+(1-d.pos.y/100)*.3+index/Math.max(1,d.zones-1)*.17;
- const p=((relative%1)+1)%1*(palette.length-1),j=Math.floor(p),t=p-j;
- const rgb=palette[j].map((v,k)=>Math.round((v+(palette[Math.min(j+1,palette.length-1)][k]-v)*t)*(.3+.7*d.scale/100)));
- return `rgb(${rgb.join(',')})`;
+const PREVIEW_POLL_MS=200,PREVIEW_DEADLINE_MS=1000,PREVIEW_FRESH_MS=1500;
+const syncLabels={active:'активний',waiting:'очікування',off:'неактивний',foreign:'зовнішній',unknown:'невідомо',paused:'пауза'};
+const previewFixtureIds=new Set(seed.map(d=>d.id));
+let previewSnapshot=null,previewReceivedAt=-Infinity,previewRequest=null,previewGeneration=0,previewTimer,previewWatchdog;
+function previewFresh(){return !document.hidden&&performance.now()-previewReceivedAt<PREVIEW_FRESH_MS;}
+function zonePaint(id,index){
+ const neutral={color:'#52635a',opacity:'.35',state:'neutral'};
+ if(!previewFresh()||!previewSnapshot?.connected||!['scene','sync','waiting','unknown'].includes(previewSnapshot.mode)||!previewFixtureIds.has(id))return neutral;
+ const lamp=previewSnapshot.lamps?.[id];
+ if(!lamp||lamp.online!==true)return neutral;
+ if(lamp.on===false)return {color:neutral.color,opacity:'0',state:'off'};
+ if(lamp.on!==true||lamp.stale!==false||!['scene-output','sync-output'].includes(lamp.source)||!Array.isArray(lamp.colors))return neutral;
+ const rgb=lamp.colors[lamp.colors.length===1?0:index];
+ if(!Array.isArray(rgb)||rgb.length!==3||!rgb.every(value=>Number.isInteger(value)&&value>=0&&value<=255))return neutral;
+ return {color:`rgb(${rgb.join(',')})`,opacity:'1',state:'active'};
 }
+function zoneAttributes(id,index,attribute){
+ const paint=zonePaint(id,index);
+ return `data-preview-lamp="${id}" data-zone="${index}" data-color-attribute="${attribute}" data-output="${paint.state}" ${attribute}="${paint.color}" opacity="${paint.opacity}"`;
+}
+function paintPreview(){
+ // Telemetry changes only existing color attributes, never layout or focused controls.
+ for(const node of stage.querySelectorAll('[data-preview-lamp]')){
+  const paint=zonePaint(node.dataset.previewLamp,Number(node.dataset.zone));
+  for(const [key,value]of [[node.dataset.colorAttribute,paint.color],['opacity',paint.opacity],['data-output',paint.state]])if(node.getAttribute(key)!==value)node.setAttribute(key,value);
+ }
+ const state=previewFresh()&&previewSnapshot&&(previewSnapshot.connected||previewSnapshot.sync?.state==='paused')?previewSnapshot.sync?.state:'unknown';
+ const safeState=Object.hasOwn(syncLabels,state)?state:'unknown',badge=$('#sync-status'),label=`Sync: ${syncLabels[safeState]}`;
+ if(badge.textContent!==label)badge.textContent=label;
+ if(badge.dataset.state!==safeState)badge.setAttribute('data-state',safeState);
+}
+function expirePreview(){previewSnapshot=null;previewReceivedAt=-Infinity;paintPreview();}
+function watchPreview(){
+ clearTimeout(previewWatchdog);
+ if(document.hidden)return;
+ paintPreview();
+ const remaining=PREVIEW_FRESH_MS-(performance.now()-previewReceivedAt);
+ if(remaining>0)previewWatchdog=setTimeout(watchPreview,remaining);
+}
+async function refreshPreview(){
+ if(document.hidden||previewRequest)return;
+ const generation=++previewGeneration,controller=new AbortController();
+ let deadline,rejectCancelled;
+ const cancelled=new Promise((_,reject)=>{rejectCancelled=reject;});
+ const request={controller,cancel:()=>{controller.abort();rejectCancelled(new Error('preview cancelled'));}};
+ previewRequest=request;
+ deadline=setTimeout(request.cancel,PREVIEW_DEADLINE_MS);
+ try{
+  const snapshot=await Promise.race([fetch('/api/pilot',{signal:controller.signal,cache:'no-store'}).then(async response=>{if(!response.ok)throw new Error('preview unavailable');return response.json();}),cancelled]);
+  if(generation!==previewGeneration||document.hidden)return;
+  previewSnapshot=snapshot;previewReceivedAt=performance.now();watchPreview();
+ }catch{if(generation===previewGeneration)expirePreview();}
+ finally{
+  clearTimeout(deadline);
+  if(previewRequest===request)previewRequest=null;
+  if(generation===previewGeneration&&!document.hidden)previewTimer=setTimeout(refreshPreview,PREVIEW_POLL_MS);
+ }
+}
+document.addEventListener('visibilitychange',()=>{
+ ++previewGeneration;clearTimeout(previewTimer);clearTimeout(previewWatchdog);
+ previewRequest?.cancel();previewRequest=null;expirePreview();
+ if(!document.hidden){watchPreview();refreshPreview();}
+});
 function room(){
  const monitor=screen(),cx=monitor.pos.x*10,cy=stageY(monitor),{width:w,height:h}=monitorSize();
  const DESK_WIDTH=layout.desk.width*UNITS_PER_CM,DESK_Y=deskTop(layout.desk);
@@ -80,19 +136,23 @@ function lamp(d){
  if(d.shape==='floor'){
   const base=300,top=base-GOVEE_HEIGHT_CM*UNITS_PER_CM,lightBottom=270,lightLength=lightBottom-top-5;
   body=`<path d="M0 ${top}V279" stroke="#51644f" stroke-width="11" stroke-linecap="butt"/><path d="M0 279v19" stroke="#71826a" stroke-width="2"/><ellipse class="fixture" cx="0" cy="300" rx="21" ry="5"/>`;
-  light=Array.from({length:d.zones},(_,i)=>`<path class="light" d="M0 ${lightBottom-i*lightLength/d.zones}v${-lightLength/d.zones-1}" stroke="${color(d,i)}" stroke-width="5" stroke-linecap="round"/>`).join('');
+  light=Array.from({length:d.zones},(_,i)=>`<path class="light" d="M0 ${lightBottom-i*lightLength/d.zones}v${-lightLength/d.zones-1}" ${zoneAttributes(d.id,i,'stroke')} stroke-width="5" stroke-linecap="round"/>`).join('');
   box=[-37,top-15,74,base-top+35];nameY=345;
  }else if(attached){
   const size=monitorSize(),w=size.width/2+9,h=size.height/2+9;
   const points=[[-w,h],[-w,0],[-w,-h],[-w/2,-h],[0,-h],[w/2,-h],[w,-h],[w,0],[w,h]];
   const path=`M${-w} ${h}V${-h}H${w}V${h}`;
   body=`<path class="strip-back" d="${path}"/>`;
-  light=`<path class="light-path" d="${path}" stroke="${color(d,4)}"/>`+points.map(([px,py],i)=>`<circle class="light" cx="${px}" cy="${py}" r="4" fill="${color(d,i)}"/>`).join('');
+  light=points.map(([px,py],i)=>{
+   const previous=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];
+   // Each anchor owns the U-path up to the midpoint toward its neighbours.
+   return `<path class="light-path" d="M${(previous[0]+px)/2} ${(previous[1]+py)/2}L${px} ${py}L${(next[0]+px)/2} ${(next[1]+py)/2}" ${zoneAttributes(d.id,i,'stroke')}/><circle class="light" cx="${px}" cy="${py}" r="4" ${zoneAttributes(d.id,i,'fill')}/>`;
+  }).join('');
   box=[-w-15,-h-15,w*2+30,h*2+30];nameY=-h-29;
  }else{
   const length=d.shape==='strip'?220:PLAY_LENGTH_CM*UNITS_PER_CM;
   body=`<rect class="fixture" x="${vertical?-9:-length/2}" y="${vertical?-length/2:-9}" width="${vertical?18:length}" height="${vertical?length:18}" rx="8"/>`;
-  light=`<path class="light" d="${vertical?`M0 ${-length/2+7}v${length-14}`:`M${-length/2+7} 0h${length-14}`}" stroke="${color(d,0)}" stroke-width="6" stroke-linecap="round"/>`;
+  light=`<path class="light" d="${vertical?`M0 ${-length/2+7}v${length-14}`:`M${-length/2+7} 0h${length-14}`}" ${zoneAttributes(d.id,0,'stroke')} stroke-width="6" stroke-linecap="round"/>`;
   box=vertical?[-27,-length/2-15,54,length+30]:[-length/2-14,-26,length+28,52];nameY=vertical?length/2+35:39;
  }
  return `<g class="lamp ${selected===d.id?'selected':''}" data-lamp="${d.id}" role="button" tabindex="0" aria-label="${esc(d.name)}" aria-pressed="${selected===d.id}" transform="translate(${x},${y})"><rect class="hit ${attached?'strip-hit':''}" x="${box[0]-18}" y="${box[1]-12}" width="${box[2]+36}" height="${box[3]+24}" rx="12"/><rect class="halo" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" rx="12"/>${body}${light}<text class="lamp-name long-name" x="0" y="${nameY}">${esc(d.name)}</text><text class="lamp-name short-name" x="0" y="${nameY}">${esc(d.short)}</text></g>`;
@@ -279,3 +339,5 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'){selected=nu
 render();
 save();
 connectLayout();
+watchPreview();
+refreshPreview();
