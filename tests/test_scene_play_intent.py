@@ -5,6 +5,7 @@ import gc
 import json
 import sys
 import tempfile
+import threading
 import unittest
 import uuid
 import weakref
@@ -23,8 +24,9 @@ OTHER_ID = str(uuid.UUID(int=2))
 class QueuedThread:
     queued = []
 
-    def __init__(self, target, args=()):
+    def __init__(self, target, args=(), daemon=None):
         self.target, self.args = target, args
+        self.daemon = threading.current_thread().daemon if daemon is None else daemon
 
     def start(self):
         self.queued.append(self)
@@ -306,6 +308,30 @@ class ScenePlayIntentTests(unittest.TestCase):
                     self.scene.palette["color"][0]["color"]["xy"][field] = 10**400
                 self.play()
                 self.assertEqual(self.read(), {})
+
+    def test_replay_workers_are_daemon_from_main_thread_with_real_thread_factory(self):
+        self.play()
+        self.assertIs(threading.current_thread(), threading.main_thread())
+        self.module.Thread = self.guard.thread_factory(
+            threading.Thread, self.Lamp.dynamicScenePlay, index_selector=desk_palette_index)
+        workers = []
+        with patch.object(threading.Thread, "start", autospec=True,
+                          side_effect=workers.append):
+            self.assertEqual(self.controller.replay(), ["1", "2", "3"])
+        self.assertEqual(len(workers), 3)
+        self.assertTrue(all(worker.daemon for worker in workers))
+        for worker in workers:
+            worker.run()
+        self.assertEqual([slot for slot, _ in self.calls], ["1", "2", "3"])
+        self.assertEqual(self.calls[1][1]["color"]["xy"]["x"], 0.6)
+
+    def test_explicit_play_preserves_thread_daemon_inheritance(self):
+        self.play()
+        inherited = threading.current_thread().daemon
+        self.assertEqual([worker.daemon for worker in QueuedThread.queued], [inherited] * 3)
+        QueuedThread.queued = []
+        self.assertEqual(self.controller.replay(), ["1", "2", "3"])
+        self.assertEqual([worker.daemon for worker in QueuedThread.queued], [True] * 3)
 
 
 @unittest.skipUnless(Path("/opt/hue-emulator/HueObjects/Scene.py").exists(),

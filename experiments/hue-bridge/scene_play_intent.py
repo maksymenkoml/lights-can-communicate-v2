@@ -237,8 +237,9 @@ class ScenePlayIntent:
                 index = members.index(lamp) % len(next(iter(palette.values())))
                 try:
                     lamp.dynamics["speed"] = scene.speed
+                    # Startup runs on the main thread; recovery must not block process exit.
                     self.scene_module.Thread(target=lamp.dynamicScenePlay,
-                                             args=(palette, index)).start()
+                                             args=(palette, index), daemon=True).start()
                 except (OSError, RuntimeError, ValueError) as error:
                     replay_error = type(error).__name__
                     continue
