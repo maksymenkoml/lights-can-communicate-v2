@@ -259,7 +259,13 @@ class HueStripProxy:
             self.wake.set()
         return True
 
+    def included(self):
+        enabled = getattr(self.layout_store, "enabled", None)
+        return enabled(self.role) if enabled is not None else True
+
     def govee_allowed(self):
+        if not self.included():
+            return True
         with self.state_lock:
             return bool(
                 self.healthy
@@ -275,6 +281,12 @@ class HueStripProxy:
 
     def process_once(self):
         try:
+            if not self.included():
+                with self.command_lock:
+                    self.restore = True
+                with self.state_lock:
+                    self.last_result = "excluded from composition"
+                return False
             native = self.client.read()
             if native.get("id") != self.resource_id or native.get("mode") not in (
                 "normal",
@@ -332,7 +344,7 @@ class HueStripProxy:
                     max(0, remaining) if remaining > 0 or duration == 0 else 400
                 )
                 with self.output_lock:
-                    if not self.write_gate():
+                    if not self.included() or not self.write_gate():
                         self.restore = True
                         self.healthy = True
                         self.last_result = "scene output paused"

@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-16",
+  "version": "0.1.0.dev6",
+  "artifact_sha256": "7bc882e05c28a87a1f3fc52ccb5bb4296a85fabc6e0596afcd82dbf1490561cb",
+  "status": "Implemented and active locally; real scene/API acceptance passed, PS5 Sync projection acceptance pending signal confirmation.",
+  "automated": {
+    "mac_python": {"run": 505, "skipped": 14, "failures": 0},
+    "isolated_linux_python": {"run": 505, "skipped": 2, "failures": 0},
+    "node_ui": {"run": 40, "failures": 0},
+    "node_power": {"run": 63, "failures": 0},
+    "archive_whole_color": {"run": 260, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "archive_gradient": {"run": 218, "mac_skipped": 0, "linux_skipped": 2, "failures": 0},
+    "ruff_and_syntax": "pass",
+    "pre_push": "pass before final black-glow UI regression; final UI40 and syntax/Ruff passed separately without backend changes",
+    "independent_reviews": "PASS after current-color rejoin, owner-takeover and disk-independent release fixes"
+  },
+  "behavior": [
+    "V3 optional enabled membership defaults true; remove/reload/rejoin preserves enrolled IDs, geometry and calibration.",
+    "Monitor anchor remains independent of strip inclusion; excluded fixtures do not affect viewport; raised Govee base85cm/anchor145cm roundtrips and exposes seven modeled zones.",
+    "Stable virtual capture topology provides raw screen-perimeter samples; geometry changes project locally without changing wire counts.",
+    "Only Sync masks hidden H6076 segments; scenes preserve all seven zones. Play uses a broad wall-wash default below the desk.",
+    "Excluded physical writers stop; internal desired scene caches remain current. Native subset maps bridge-returned channel IDs and preserves foreign ownership.",
+    "Private location cache retains excluded service metadata and equalization; file/directory fsync precedes membership mutation; cleanup does not require cache persistence.",
+    "Black masked segments have no background glow; preview never treats excluded fixtures as fresh output or foreign stream blockers."
+  ],
+  "live_acceptance": {
+    "existing_power_preserved": true,
+    "virtual_ids_preserved": true,
+    "owner_layout_semantics_restored": true,
+    "capture_api_channels": 18,
+    "capture_api_coordinates_match_basis": true,
+    "native_inactive_subset_probe": {"selected_lights": 3, "channels": 11, "area_id_preserved": true},
+    "native_restore": {"selected_lights": 4, "channels": 12, "original_equalization_restored": true},
+    "native_probe_note": "Omitting equalization reset values; explicit restoration passed and production cache/PUT now retains those fields.",
+    "actual_private_cache": {"services": 4, "mode": "0600", "directory_fsync": "completed"},
+    "scene_exclusion": "Central Play writes stayed at45 across8 samples while other native writes and Govee commands advanced.",
+    "scene_rejoin": "Central Play resumed writes; final verification count330, same original composition restored.",
+    "scene_govee_zone_counts": {"left": 7, "right": 7},
+    "current_layout_modeled_sync_visible_zones": {"left": 3, "right": 3},
+    "ps5_sync_projection": "pending active HDMI signal confirmation; no post-update source stream started",
+    "owner_browser_opened": false,
+    "game_launched_by_agent": false,
+    "nas_changed": false,
+    "third_govee_targeted": false
+  },
+  "limits": [
+    "Known enrolled inventory only; new discovery bindings are still configuration-only.",
+    "Front-wall defaults do not infer beam tilt, depth or exact optical occlusion.",
+    "Optical color matching and physical PS5 Sync handoff remain pending; API/command samples are not optical measurement."
+  ],
+  "private_evidence_directory": "experiments/hue-bridge/state/archives/layout-composition-2026-11-16"
+}

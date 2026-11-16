@@ -197,3 +197,37 @@ The control-datagram counter and actual DTLS frame counter are distinct checks.
 This operational recovery is not an automatic Docker Desktop repair mechanism.
 See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
 sequential live observation windows, tests and measurement limits.
+
+## Light Studio composition and projection
+
+`0.1.0.dev6` uses saved Light Studio placement and optional v3 `enabled:false`
+membership for the six enrolled fixtures. Exclusion retains inventory identity,
+position and calibration; picker rejoin restores that same row. The monitor anchor
+remains editable independently of strip membership. Raised floor fixtures can
+retain anchor heights up to 300 cm and fit the viewport. Other discovered bindings
+remain configuration-only until explicit physical enrollment is implemented.
+
+Sync captures a stable screen-perimeter palette using the existing virtual
+resources/channels, then projects raw RGB16 samples locally onto the current
+physical layout. Moving fixtures no longer changes capture topology. H6076's
+seven emitting segments use a front-wall visibility estimate above desk height;
+hidden segments receive black only in Sync. Play uses the default broad wall-wash
+projection at least at desk height. Scenes continue using every zone of included
+fixtures. This is a geometry approximation, not optical/ray-traced calibration.
+
+Physical scene/video gates exclude removed fixtures. Native Sync reconciles a
+subset of the same authorized four-light inventory in the same native area,
+validates bridge readback and maps returned channel IDs by service/index. It does
+not keep removed Play fixtures in an owned stream with black frames. Foreign
+owners remain fenced. The private `native-location-cache.json` preserves full
+service locations and equalization factors for rejoin after restart; atomic file
+and directory sync complete before membership PUT. Cleanup can release an owned
+stream even if cache persistence fails. No accessory IDs, credentials or NAS
+installation are replaced.
+
+Local scene exclusion/rejoin and inactive native-area subset/restore have passed
+real API checks. Real PS5 Sync projection acceptance is pending an active HDMI
+signal; source/archive/Linux tests and capture metadata acceptance are recorded
+in `evidence/layout-composition.json`. Rollback retains the prior artifact and
+the original layout/native-area snapshots; restore those baseline memberships
+before running a legacy artifact that does not understand composition selection.

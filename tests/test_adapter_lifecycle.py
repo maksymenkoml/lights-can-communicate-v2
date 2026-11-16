@@ -44,6 +44,9 @@ class AdapterLifecycleTests(unittest.TestCase):
             def govee_allowed(self):
                 return True
 
+            def included(self):
+                return True
+
         class Discovery:
             def __init__(self, *args, **kwargs):
                 pass
@@ -57,6 +60,9 @@ class AdapterLifecycleTests(unittest.TestCase):
                 self.diagnostics = diagnostics
                 self.lease = VideoLease()
                 self.lock = threading.RLock()
+
+            def active(self):
+                return self.lease.active()
 
             def run(self, stop):
                 workers.append((threading.current_thread(), stop))

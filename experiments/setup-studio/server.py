@@ -146,6 +146,16 @@ def project_status(data, source_active=None):
         "hue_center": "play-center",
         "hue_right": "play-right",
     }
+    role_lamps = {'left':'govee-left', 'right':'govee-right', **names}
+    composition = data.get('composition')
+    included = set(role_lamps.values())
+    if composition is not None:
+        selected_roles = (composition.get('enabled_roles')
+                          if isinstance(composition, dict) else None)
+        included = ({role_lamps[role] for role in selected_roles}
+                    if isinstance(selected_roles, list) and len(selected_roles) <= 6
+                    and all(type(role) is str and role in role_lamps for role in selected_roles)
+                    else set())
     hue_play = data.get("hue_play") if isinstance(data.get("hue_play"), dict) else {}
     selected = {"strip": data.get("hue_strip"), **hue_play}
     for role, identifier in names.items():
@@ -179,6 +189,7 @@ def project_status(data, source_active=None):
         sync_state = mode = "waiting"
     elif preview.get("mode") == "foreign" or any(
         isinstance(selected.get(role), dict)
+        and identifier in included
         and selected[role].get("native_mode") == "streaming"
         and lamps[identifier]["online"]
         and lamps[identifier]["on"] is not None
@@ -199,7 +210,8 @@ def project_status(data, source_active=None):
             row.get("source") if row.get("source") in ("scene-output", "sync-output") else "unknown"
         )
         stale = (row.get("stale") is not False or not lamp["online"]
-                 or row.get("online") is not True or row.get("on") is not True)
+                 or row.get("online") is not True or row.get("on") is not True
+                 or identifier not in included)
         colors = _rgb_colors(row.get("colors"))
         if (
             lamp["on"] is not True
@@ -212,7 +224,8 @@ def project_status(data, source_active=None):
         ):
             colors = []
         count = 9 if identifier == "hue-monitor" else 7 if identifier.startswith("govee-") else 1
-        lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale)
+        lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
+                    included=identifier in included)
     return {
         "version": 1,
         "connected": True,

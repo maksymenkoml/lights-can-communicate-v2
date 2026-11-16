@@ -1,0 +1,182 @@
+"""Pure layout projection contracts with hand-derived screen samples."""
+
+import copy
+import math
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+from sync_projection import (  # noqa: E402
+    project_govee_frame,
+    project_native_frame,
+    sync_profile,
+)
+
+
+def layout():
+    # An 80 by 45 cm screen makes the physical-coordinate expectations simple.
+    return {
+        "version": 3,
+        "room": "Office",
+        "desk": {"width": 160, "height": 85},
+        "monitorInches": math.hypot(80, 45) / 2.54,
+        "devices": [
+            {"id": key, "positionCm": {"x": x, "height": height}, "scale": 100}
+            for key, x, height in (
+                ("govee-left", 20, 60),
+                ("govee-right", 180, 60),
+                ("hue-monitor", 100, 110),
+                ("play-left", 70, 40),
+                ("play-center", 100, 40),
+                ("play-right", 130, 40),
+            )
+        ],
+    }
+
+
+def frame(size=18):
+    return {channel: (channel * 1000, channel * 2000, channel * 3000)
+            for channel in range(size)}
+
+
+class SyncProjectionTests(unittest.TestCase):
+    def test_default_floor_lamps_hide_four_segments_and_sample_visible_intersection(self):
+        profile = sync_profile(layout())
+        for side, u in (("left", 0), ("right", 1)):
+            self.assertEqual(profile["govee"][side]["visible"], [False] * 4 + [True] * 3)
+            samples = profile["govee"][side]["samples"]
+            self.assertEqual(samples[:4], [None] * 4)
+            for point, v in zip(samples[4:], (26 / 315, 89 / 210, 523 / 630)):
+                self.assertAlmostEqual(point[0], u)
+                self.assertAlmostEqual(point[1], v)
+
+    def test_raising_base_above_desk_exposes_all_seven_segments(self):
+        data = layout()
+        data["devices"][0]["positionCm"]["height"] = 150
+        profile = sync_profile(data)
+        self.assertEqual(profile["govee"]["left"]["visible"], [True] * 7)
+        self.assertTrue(all(point is not None for point in profile["govee"]["left"]["samples"]))
+        self.assertEqual(profile["govee"]["left"]["samples"][-1], (0, 1))
+
+    def test_segment_that_ends_at_desk_is_hidden_and_next_samples_its_full_span(self):
+        data = layout()
+        data["desk"]["height"] = 6 + 4 * 128 / 7
+        samples = sync_profile(data)["govee"]["left"]["samples"]
+        self.assertEqual(samples[:4], [None] * 4)
+        # Fifth segment spans 79 1/7..97 3/7, center 88 2/7 cm.
+        self.assertAlmostEqual(samples[4][1], 11 / 630)
+
+    def test_monitor_size_and_position_change_samples_without_moving_capture_palette(self):
+        data = layout()
+        before = sync_profile(data)
+        data["monitorInches"] *= 1.1
+        larger = sync_profile(data)
+        self.assertNotEqual(larger["govee"], before["govee"])
+        data["devices"][2]["positionCm"]["height"] += 5
+        moved = sync_profile(data)
+        self.assertLess(moved["govee"]["left"]["samples"][4][1],
+                        larger["govee"]["left"]["samples"][4][1])
+        raw = frame()
+        projected = project_native_frame(raw, moved)
+        self.assertEqual({key: projected[key] for key in range(2, 11)},
+                         {key: raw[key] for key in range(2, 11)})
+
+    def test_play_below_desk_stays_visible_and_orientation_has_no_effect(self):
+        data = layout()
+        before = sync_profile(data)
+        self.assertEqual(before["plays"], {
+            "hue_left": (0.125, 0), "hue_center": (0.5, 0), "hue_right": (0.875, 0),
+        })
+        data["devices"][3]["positionCm"]["height"] = 80
+        data["devices"][3]["orientation"] = "vertical"
+        self.assertEqual(sync_profile(data)["plays"], before["plays"])
+
+    def test_interior_sample_uses_nearest_edge_and_outside_sample_clamps_to_corner(self):
+        data = layout()
+        data["devices"][3]["positionCm"] = {"x": 65, "height": 110}
+        data["devices"][4]["positionCm"] = {"x": 200, "height": 200}
+        plays = sync_profile(data)["plays"]
+        self.assertEqual(plays["hue_left"], (0, 0.5))
+        self.assertEqual(plays["hue_center"], (1, 1))
+
+    def test_native_projection_interpolates_bottom_palette_from_original_frame(self):
+        profile = sync_profile(layout())
+        raw = frame()
+        original = copy.deepcopy(raw)
+        projected = project_native_frame(raw, profile)
+        self.assertEqual(projected[11], (6500, 13000, 19500))
+        self.assertEqual(projected[12], (12000, 24000, 36000))
+        self.assertEqual(projected[13], (11500, 23000, 34500))
+        self.assertEqual(raw, original)
+        self.assertIsNot(projected, raw)
+        self.assertEqual(set(projected), set(raw))
+        self.assertEqual(projected[14], raw[14])
+
+    def test_govee_projection_interpolates_rgb16_without_brightness(self):
+        profile = sync_profile(layout())
+        profile["govee"]["left"]["samples"] = [
+            None, (0, 0.25), (0, 0.75), (0.125, 1), (0.875, 1), (1, 0.25), (1, 0),
+        ]
+        raw = frame(14)
+        self.assertEqual(project_govee_frame(raw, "left", profile), [
+            (0, 0, 0), (2500, 5000, 7500), (3500, 7000, 10500),
+            (4500, 9000, 13500), (7500, 15000, 22500),
+            (9500, 19000, 28500), (10000, 20000, 30000),
+        ])
+        self.assertEqual(raw, frame(14))
+
+    def test_disabled_roles_are_excluded_native_raw_colors_retained_and_govee_black(self):
+        data = layout()
+        for index in (0, 2, 3):
+            data["devices"][index]["enabled"] = False
+        profile = sync_profile(data)
+        self.assertEqual(profile["enabled_roles"], ["right", "hue_center", "hue_right"])
+        self.assertEqual(profile["native_roles"], ["hue_center", "hue_right"])
+        raw = frame()
+        self.assertEqual(project_native_frame(raw, profile)[11], raw[11])
+        self.assertEqual(project_govee_frame(raw, "left", profile), [(0, 0, 0)] * 7)
+        self.assertNotEqual(project_govee_frame(raw, "right", profile), [(0, 0, 0)] * 7)
+
+    def test_signature_ignores_metadata_scale_desk_width_orientation_and_row_order(self):
+        data = layout()
+        before = sync_profile(data)
+        self.assertEqual(before["basis"], "screen-perimeter-v1")
+        self.assertEqual(len(before["signature"]), 64)
+        int(before["signature"], 16)
+        data["room"] = "Renamed"
+        data["desk"]["width"] = 180
+        for row in data["devices"]:
+            row.update(scale=20, name="Renamed", orientation="vertical", enabled=True)
+        data["devices"].reverse()
+        self.assertEqual(sync_profile(data)["signature"], before["signature"])
+        data["devices"][0]["positionCm"]["x"] -= 5
+        self.assertNotEqual(sync_profile(data)["signature"], before["signature"])
+        data = layout()
+        data["devices"][0]["enabled"] = False
+        self.assertNotEqual(sync_profile(data)["signature"], before["signature"])
+
+    def test_malformed_frames_fail_closed_even_for_disabled_roles(self):
+        profile = sync_profile(layout())
+        profile["enabled_roles"] = []
+        profile["native_roles"] = []
+        bad_frames = [None, [], {key: rgb for key, rgb in frame().items() if key != 12}]
+        for color in ((-1, 0, 0), (65536, 0, 0), (1.5, 0, 0), (True, 0, 0),
+                      (0, 0), "RGB"):
+            raw = frame()
+            raw[17] = color
+            bad_frames.append(raw)
+        for raw in bad_frames:
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    project_native_frame(raw, profile)
+                with self.assertRaises(ValueError):
+                    project_govee_frame(raw, "left", profile)
+
+    def test_unknown_govee_side_is_rejected(self):
+        with self.assertRaises(ValueError):
+            project_govee_frame(frame(), "extra", sync_profile(layout()))
+
+
+if __name__ == "__main__":
+    unittest.main()

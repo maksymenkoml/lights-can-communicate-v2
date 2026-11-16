@@ -31,6 +31,7 @@ PREVIEW_FIELDS = {
     "short",
     "zones",
     "rate",
+    "enabled",
 }
 
 
@@ -102,6 +103,11 @@ def validate_layout(value):
             "positionCm": {"x": x, "height": height},
             "orientation": orientation,
         }
+        enabled = row.get('enabled', True)
+        if type(enabled) is not bool:
+            raise ValueError('Invalid composition membership')
+        if not enabled:
+            device['enabled'] = False
         if key.startswith("virtual-"):
             shape, name = row.get("shape"), row.get("name", "Нова лампа")
             if (
@@ -210,6 +216,23 @@ class LayoutStore:
                 if ROLES.get(device["id"]) == role:
                     return device["scale"] / 100
         return fallback
+
+    def enabled(self, role, fallback=True):
+        data = self.snapshot()
+        if data:
+            for device in data['devices']:
+                if device['id'] == role or ROLES.get(device['id']) == role:
+                    return device.get('enabled', True)
+        elif self.path.exists():
+            # A corrupt saved selection is not permission to resume every lamp.
+            return False
+        return fallback
+
+    def sync_profile(self):
+        from sync_projection import sync_profile
+
+        data = self.snapshot()
+        return sync_profile(data) if data is not None else None
 
     def save(self, value):
         data = validate_layout(value)

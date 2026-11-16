@@ -21,6 +21,8 @@ PILOT_MODULES = (
     "bridge_output",
     "stream_http",
     "stream_diagnostics",
+    "sync_projection",
+    "native_location_cache",
 )
 CORE_MODULES = (
     "__init__", "__main__", "config", "cli", "discovery", "hue_discovery", "live_preview",

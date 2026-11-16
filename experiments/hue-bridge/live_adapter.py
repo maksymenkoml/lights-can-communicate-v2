@@ -227,8 +227,21 @@ class PilotController:
                                 "sample": sample if valid else None}
             return result
 
+    def included(self, side):
+        enabled = getattr(self.layout_store, "enabled", None)
+        return enabled(side) if enabled is not None else True
+
+    def clear_side(self, side):
+        """Forget output work while retaining the accepted source ordering fence."""
+        with self.lock:
+            for values in (self.jobs, self.last_sent, self.last_refresh, self.next_send):
+                values.pop(side, None)
+
     def target(self, side):
         with self.lock:
+            if not self.included(side):
+                self.clear_side(side)
+                return None
             job = self.jobs.get(side)
             if job is None:
                 return None
@@ -281,9 +294,8 @@ class PilotController:
             ):
                 return False
             self.accepted[side] = (session, sequence, issued)
-            if not desired["on"]:
-                self.jobs.pop(side, None)
-                self.last_sent.pop(side, None)
+            if not desired["on"] or not self.included(side):
+                self.clear_side(side)
                 return True
             initial = self.target(side)
             if initial is None:
@@ -305,11 +317,17 @@ class PilotController:
 
     def render(self):
         with self.lock:
+            for side in self.by_side:
+                if not self.included(side):
+                    self.clear_side(side)
             if self.pause_gate is not None and not self.pause_gate():
                 self.last_sent.clear()
                 return
             now = self.clock()
             for side, device in self.by_side.items():
+                if not self.included(side):
+                    self.clear_side(side)
+                    continue
                 if self.power_owner is not None:
                     revision = self.power_owner.revision(side)
                     if self.power_revisions.get(side) != revision:
@@ -456,6 +474,12 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             if self.path != "/status":
                 return self.respond(404, {"error": "not found"})
             result = controller.snapshot()
+            loader = getattr(getattr(controller, "layout_store", None), "sync_profile", None)
+            profile = loader() if loader is not None else None
+            if profile is not None:
+                result["composition"] = {
+                    "enabled_roles": profile["enabled_roles"], "signature": profile["signature"],
+                }
             if hue_proxy is not None:
                 result["hue_strip"] = hue_proxy.snapshot()
             if hue_play_proxies:
@@ -543,8 +567,16 @@ def main(argv=None, service_info=None):
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     config = json.loads(args.targets.read_text())
     layout_store = LayoutStore(state_dir / "desk-layout.json")
+    composition_profile = layout_store.sync_profile()
     for device in config["targets"]:
-        device["segment_count"] = 7 if GRADIENT_MODE else 0
+        known_h6076 = device.get("sku") == "H6076" or device.get("model") == "H6076"
+        auto_segments = composition_profile is not None and known_h6076
+        if device.get("segment_count", 0) != 7 and (GRADIENT_MODE or auto_segments):
+            device["segment_count"] = 7
+            if auto_segments:
+                device.setdefault("max_gradient_packets_per_second", 2)
+        else:
+            device.setdefault("segment_count", 0)
     if not args.token_file.exists():
         descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:
@@ -583,7 +615,6 @@ def main(argv=None, service_info=None):
                     preview=preview,
                     profile=native_profile,
                 )
-        controller.pause_gate = lambda: all(proxy.govee_allowed() for proxy in hue_proxies.values())
     video = None
     if args.hue_stream_config:
         stream_config = json.loads(args.hue_stream_config.read_text())
@@ -594,14 +625,19 @@ def main(argv=None, service_info=None):
                             sender=preview.wrap_govee(sender, "sync-output"),
                             layout_store=layout_store,
                             power_owner=power_owner),
-            HueEntertainmentRelay(stream_config, layout_store=layout_store, preview=preview,
-                                  profile=native_profile),
+            HueEntertainmentRelay(
+                stream_config, layout_store=layout_store, preview=preview, profile=native_profile,
+                location_cache_file=state_dir / "native-location-cache.json"),
             hue_proxies.values(),
             diagnostics=StreamDiagnostics(state_dir / 'adapter-stream-health.jsonl'),
         )
         for proxy in hue_proxies.values():
             proxy.output_lock = video.lock
             proxy.write_gate = lambda: not video.active()
+    controller.pause_gate = lambda: (
+        (video is None or not video.active())
+        and all(proxy.govee_allowed() for proxy in hue_proxies.values() if proxy.included())
+    )
     lan.CONFIG = args.targets
     legacy_roles = {("govee", lan.device_key(device)): "govee-" + device["side"]
                     for device in controller.targets}

@@ -42,6 +42,17 @@ if GRADIENT_MODE:
     POSITIONS[0], POSITIONS[1] = (-0.7, 0.8, -0.8), (0.7, 0.8, -0.8)
     POSITIONS.extend([(-0.7, 0.8, 0), (-0.7, 0.8, 0.8), (0.7, 0.8, 0), (0.7, 0.8, 0.8)])
 
+# Stable capture positions correspond exactly to sync_projection's semantic UV
+# perimeter. Physical placements never change this source sampling basis.
+CAPTURE_POSITIONS = list(POSITIONS)
+CAPTURE_POSITIONS[5], CAPTURE_POSITIONS[7] = (-0.2, 0.8, 0.4), (0.2, 0.8, 0.4)
+CAPTURE_POSITIONS[11:14] = [(-0.2, 0.8, -0.4), (0, 0.8, -0.4), (0.2, 0.8, -0.4)]
+CAPTURE_POSITIONS[0], CAPTURE_POSITIONS[1] = (-0.4, 0.8, -0.4), (0.4, 0.8, -0.4)
+if GRADIENT_MODE:
+    CAPTURE_POSITIONS[14:18] = [
+        (-0.4, 0.8, 0), (-0.4, 0.8, 0.4), (0.4, 0.8, 0), (0.4, 0.8, 0.4),
+    ]
+
 
 def validate_colors(rows):
     if not isinstance(rows, list) or len(rows) != len(CHANNELS):

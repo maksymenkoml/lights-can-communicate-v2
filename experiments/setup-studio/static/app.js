@@ -23,25 +23,27 @@ const seed=[
 ];
 const typeNames={floor:'Торшер RGBIC',strip:'Стрічка',bar:'Світлова панель'};
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
-const removable=id=>id?.startsWith('virtual-')||realDevice(id);
+const enrolled=id=>seed.some(d=>d.id===id);
+const enabled=d=>d.enabled!==false;
+const removable=id=>enrolled(id)||id?.startsWith('virtual-')||realDevice(id);
 function defaults(){const data={version:3,room:'Mykola Office',desk:clone(deskDefaults),monitorInches:32,devices:clone(seed)};data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;}
 function load(savedOverride){
  try{
   const saved=savedOverride||JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('light-studio-simple-v2')||localStorage.getItem('light-studio-layout-v1'));
   if(![1,2,3].includes(saved?.version)||!Array.isArray(saved.devices))return defaults();
   const data=defaults();data.desk={width:clamp(saved.desk?.width??160,80,240),height:clamp(saved.desk?.height??85,50,120)};data.monitorInches=clamp(saved.monitorInches??32,19,55);data.room=String(saved.room||data.room).slice(0,40);
-  data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'?-100:0,100)}}:d;});
+  data.devices=data.devices.map(d=>{const s=saved.devices.find(x=>x.id===d.id);if(s?.positionCm)s.pos=positionFromCm(s.positionCm);return s?{...d,enabled:s.enabled!==false,scale:clamp(s.scale??d.scale,0,100),orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??d.pos.x,-100,200),y:clamp(s.pos?.y??d.pos.y,d.id==='hue-monitor'||d.shape==='floor'?-100:0,100)}}:d;});
   for(const s of saved.devices.filter(x=>/^virtual-[a-z0-9]+$/.test(x.id||'')||realDevice(x.id)).slice(0,6)){
    const shape=Object.hasOwn(typeNames,s.shape)?s.shape:'bar';if(s.positionCm)s.pos=positionFromCm(s.positionCm);
    const real=realDevice(s.id),name=String(s.name||'Нова лампа').slice(0,real?80:35);
-   data.devices.push({id:s.id,name,short:real?name:'Нова лампа',model:real?String(s.model||'').slice(0,64):'Макет',shape,zones:real?clamp(s.zones,1,32):shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,0,100)}});
+   data.devices.push({id:s.id,name,short:real?name:'Нова лампа',model:real?String(s.model||'').slice(0,64):'Макет',shape,enabled:s.enabled!==false,zones:real?clamp(s.zones,1,32):shape==='floor'?7:shape==='strip'?9:1,scale:clamp(s.scale??80,0,100),rate:0,orientation:s.orientation==='vertical'?'vertical':'horizontal',pos:{x:clamp(s.pos?.x??50,-100,200),y:clamp(s.pos?.y??70,shape==='floor'?-100:0,100)}});
   }
   data.devices.forEach(d=>autoSnap(d,data.desk,data.monitorInches));return data;
  }catch{return defaults();}
 }
 let layout=load(),selected=null,dragging=null,history=[],toastTimer;
 const stage=$('#stage');
-const current=()=>layout.devices.find(d=>d.id===(selected==='monitor'?'hue-monitor':selected));
+const current=()=>layout.devices.find(d=>d.id===(selected==='monitor'?'hue-monitor':selected)&&(selected==='monitor'||enabled(d)));
 const screen=()=>layout.devices.find(d=>d.id==='hue-monitor')||seed[2];
 function remember(){history.push(clone(layout));if(history.length>25)history.shift();}
 let editGeneration=0;
@@ -64,16 +66,19 @@ function zonePaint(id,index){
  if(!Array.isArray(rgb)||rgb.length!==3||!rgb.every(value=>Number.isInteger(value)&&value>=0&&value<=255))return neutral;
  return {color:`rgb(${rgb.join(',')})`,opacity:'1',state:'active'};
 }
+function previewOpacity(paint,glow){
+ return glow&&(paint.state!=='active'||paint.color==='rgb(0,0,0)')?'0':paint.opacity;
+}
 function zoneAttributes(id,index,attribute,glow=false){
  const paint=zonePaint(id,index);
- const opacity=glow&&paint.state!=='active'?'0':paint.opacity;
+ const opacity=previewOpacity(paint,glow);
  return `data-preview-lamp="${id}" ${glow?'data-preview-glow="" ':''}data-zone="${index}" data-color-attribute="${attribute}" data-output="${paint.state}" ${attribute}="${paint.color}" opacity="${opacity}"`;
 }
 function paintPreview(){
  // Telemetry changes only existing color attributes, never layout or focused controls.
  for(const node of stage.querySelectorAll('[data-preview-lamp]')){
   const paint=zonePaint(node.dataset.previewLamp,Number(node.dataset.zone));
-  const opacity=node.hasAttribute('data-preview-glow')&&paint.state!=='active'?'0':paint.opacity;
+  const opacity=previewOpacity(paint,node.hasAttribute('data-preview-glow'));
   for(const [key,value]of [[node.dataset.colorAttribute,paint.color],['opacity',opacity],['data-output',paint.state]])if(node.getAttribute(key)!==value)node.setAttribute(key,value);
  }
  const state=previewFresh()&&previewSnapshot&&(previewSnapshot.connected||previewSnapshot.sync?.state==='paused')?previewSnapshot.sync?.state:'unknown';
@@ -179,12 +184,13 @@ function lamp(d,glow=false){
  return `<g class="lamp ${selected===d.id?'selected':''}" data-lamp="${d.id}" role="button" tabindex="0" aria-label="${esc(d.name)}" aria-pressed="${selected===d.id}" transform="translate(${x},${y})"><rect class="hit ${attached?'strip-hit':''}" x="${box[0]-18}" y="${box[1]-12}" width="${box[2]+36}" height="${box[3]+24}" rx="12"/><rect class="halo" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}" rx="12"/>${body}${light}${dividers}<text class="lamp-name long-name" x="0" y="${nameY}">${esc(d.name)}</text><text class="lamp-name short-name" x="0" y="${nameY}">${esc(d.short)}</text></g>`;
 }
 function renderStage(){
- const top=Math.min(0,stageY(screen())-monitorSize().height/2-70);
  const deskHalf=layout.desk.width*UNITS_PER_CM/2;
- const left=Math.min(-150,500-deskHalf-100,...layout.devices.map(d=>d.pos.x*10-(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
- const right=Math.max(1150,500+deskHalf+100,...layout.devices.map(d=>d.pos.x*10+(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
+ const fixtures=layout.devices.filter(enabled),bounds=layout.devices.filter(d=>enabled(d)||d.id==='hue-monitor');
+ const top=Math.min(0,stageY(screen())-monitorSize().height/2-70,...fixtures.filter(d=>d.shape==='floor').map(d=>stageY(d)-380-70));
+ const left=Math.min(-150,500-deskHalf-100,...bounds.map(d=>d.pos.x*10-(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
+ const right=Math.max(1150,500+deskHalf+100,...bounds.map(d=>d.pos.x*10+(d.id==='hue-monitor'?monitorSize().width/2+70:100)));
  if(!dragging)stage.setAttribute('viewBox',`${left} ${top} ${right-left} ${STAGE_HEIGHT-top}`);
- stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${STAGE_HEIGHT-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/><g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${layout.devices.map(d=>lamp(d,true)).join('')}</g>`+room()+layout.devices.map(d=>lamp(d)).join('');
+ stage.innerHTML=`<defs><pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"><path d="M${GRID} 0H0V${GRID}" fill="none" stroke="#3b4c40" stroke-width="1"/><circle cx="0" cy="0" r="1.5" fill="#607858"/></pattern><filter id="wall-soft" filterUnits="userSpaceOnUse" x="${left-200}" y="${top-200}" width="${right-left+400}" height="${STAGE_HEIGHT-top+400}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="32"/></filter></defs><rect x="${left-200}" y="${top}" width="${right-left+400}" height="${STAGE_HEIGHT-top}" fill="url(#grid)" opacity=".45"/><g class="wall-glow-layer" filter="url(#wall-soft)" aria-hidden="true" pointer-events="none">${fixtures.map(d=>lamp(d,true)).join('')}</g>`+room()+fixtures.map(d=>lamp(d)).join('');
 }
 function renderSelection(){
  const d=current(),panel=$('#selection-panel');panel.hidden=!d&&!['desk','monitor'].includes(selected);
@@ -198,19 +204,20 @@ function renderSelection(){
  const elevation=heightCm(d)-(d.shape==='floor'?60:0);
  panel.innerHTML=`<button class="close" data-action="deselect" aria-label="Закрити параметри лампи">×</button><h2>${esc(d.name)}</h2><p>${esc(d.model)} · ${typeNames[d.shape]}${d.shape==='floor'?` · ${GOVEE_HEIGHT_CM} см`:d.shape==='bar'?` · ${PLAY_LENGTH_CM} см`:''}</p><div class="automatic"><i>✓</i>${horizontal} · ${elevation} см від підлоги</div><div class="brightness"><label for="brightness">Яскравість <output id="brightness-value">${Math.round(d.scale)}%</output></label><input id="brightness" type="range" min="0" max="100" step="1" value="${d.scale}" aria-label="Яскравість вибраної лампи"></div>${d.shape==='bar'?`<fieldset class="orientation"><legend>Розташування</legend><label><input type="radio" name="orientation" value="horizontal" ${d.orientation!=='vertical'?'checked':''}>Горизонтально</label><label><input type="radio" name="orientation" value="vertical" ${d.orientation==='vertical'?'checked':''}>Вертикально</label></fieldset>`:''}${realDevice(d.id)?'<p class="placement-note">Ця лампа ще не отримує кольори. Параметри стосуються розташування й калібрування.</p>':''}${removable(d.id)?'<button class="remove" data-action="remove">Прибрати з макета</button>':''}`;
 }
-function render(){renderStage();renderSelection();$('.room').textContent=layout.room;}
+function render(){if(selected&&!['desk','monitor'].includes(selected)&&!current()){selected=null;dragging=null;}renderStage();renderSelection();$('.room').textContent=layout.room;}
 function choose(id){selected=id;render();}
 function autoSnap(d,desk=layout.desk,inches=layout.monitorInches){
  const size=monitorSize(inches);
  const attached=d.id==='hue-monitor',floor=d.shape==='floor';
  const monitorMaxY=Math.floor((deskTop(desk)-size.height/2-5)/GRID);
  d.pos.x=clamp(Math.round(d.pos.x*10/GRID),-COLS,COLS*2)*GRID/10;
- d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.floor((FLOOR_Y-250*UNITS_PER_CM)/GRID)):floor?Math.ceil((GOVEE_HEIGHT_CM*UNITS_PER_CM-300+20)/GRID):1,floor?(FLOOR_Y-300)/GRID:attached?monitorMaxY:Math.floor((FLOOR_Y-10*UNITS_PER_CM)/GRID))*GRID/STAGE_HEIGHT*100;
+ d.pos.y=clamp(Math.round(stageY(d)/GRID),attached?Math.min(monitorMaxY,Math.floor((FLOOR_Y-250*UNITS_PER_CM)/GRID)):floor?(FLOOR_Y-300*UNITS_PER_CM)/GRID:1,floor?(FLOOR_Y-300)/GRID:attached?monitorMaxY:Math.floor((FLOOR_Y-10*UNITS_PER_CM)/GRID))*GRID/STAGE_HEIGHT*100;
 }
 
 function packLayout(data=layout){
  return {version:3,gridStepCm:STEP_CM,room:data.room,desk:clone(data.desk),monitorInches:data.monitorInches,devices:data.devices.map(d=>({
   id:d.id,scale:d.scale,orientation:d.orientation||'horizontal',
+  ...(!enabled(d)?{enabled:false}:{}),
   positionCm:d.positionCm?clone(d.positionCm):{x:Math.round(d.pos.x/100*COLS)*STEP_CM,height:heightCm(d)},
   ...(realDevice(d.id)?{shape:d.shape,name:d.name,model:d.model,zones:d.zones}:d.id.startsWith('virtual-')?{shape:d.shape,name:d.name}:{})
  }))};
@@ -227,6 +234,7 @@ function mergeLayouts(base,local,remote){
   if(!previous){if(!target)result.devices.push(clone(current));continue;}
   if(!target){if(!equal(previous,current))result.devices.push(clone(current));continue;}
   for(const key of ['scale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
+  field(target,'enabled',enabled(previous)?undefined:false,enabled(current)?undefined:false);
   for(const key of ['x','height'])field(target.positionCm,key,previous.positionCm[key],current.positionCm[key]);
  }
  return result;
@@ -271,12 +279,14 @@ async function connectLayout(){
 }
 
 let discoverySnapshot=null,discoveryChoices=new Set(),discoveryTimer,discoveryLoading=null,discoverySession=0;
+const discoveryPlacement=d=>layout.devices.find(row=>row.id===d.layout_id||row.id===d.id);
 function discoveryReason(d){
- if(layout.devices.some(row=>row.id===d.id||row.id===d.layout_id))return 'Уже на макеті';
+ const placement=discoveryPlacement(d);
+ if(placement&&enabled(placement))return 'Уже на макеті';
  if(d.ambiguous)return 'Неоднозначна ідентичність';
  if(!d.supported||!Object.hasOwn(typeNames,d.shape))return 'Не підтримується';
  if(!d.online)return 'Не в мережі';
- if(!d.selectable)return 'Недоступна для додавання';
+ if(!d.selectable&&!(placement&&enrolled(placement.id)&&placement.id===d.layout_id))return 'Недоступна для додавання';
  return '';
 }
 function renderDiscovery(){
@@ -284,10 +294,11 @@ function renderDiscovery(){
  const focusSelector=content.contains(active)?realDevice(active.dataset?.discovery)?`[data-discovery="${active.dataset.discovery}"]`:active.dataset?.action==='add-selected'?'[data-action="add-selected"]':null:null;
  const devices=discoverySnapshot?.devices||[],available=discoverySnapshot?.connected===true;
  const count=devices.filter(d=>!discoveryReason(d)&&discoveryChoices.has(d.id)).length;
+ const additions=devices.filter(d=>!discoveryReason(d)&&discoveryChoices.has(d.id)&&!discoveryPlacement(d)).length;
  const providerStates=Object.values(discoverySnapshot?.providers||{});
  const providerIssue=available&&providerStates.some(status=>['unavailable','stale'].includes(status));
  const searching=available&&providerStates.includes('discovering');
- content.innerHTML=`<h2>Додати лампи</h2><p>Обери знайдені лампи для розташування на макеті.</p><div class="discovery-status" role="status">${!discoverySnapshot?'Шукаємо лампи…':!available?'Пошук ламп недоступний. Спробуємо знову автоматично.':providerIssue?'Частина джерел пошуку недоступна. Список оновлюється автоматично.':searching?'Шукаємо лампи… Список оновлюється автоматично.':!devices.length?'Поки немає знайдених ламп. Список оновлюється автоматично.':'Знайдені лампи'}</div><div class="discovery-list">${devices.map(d=>{const reason=discoveryReason(d),disabled=reason||!available;return `<label class="discovery-item ${disabled?'unavailable':''}"><input type="checkbox" data-discovery="${esc(d.id)}" ${disabled?'disabled':''} ${discoveryChoices.has(d.id)?'checked':''}><span><strong>${esc(d.name)}</strong><small>${esc(d.model)} · ${esc(typeNames[d.shape]||'Пристрій')}${reason?` · ${esc(reason)}`:''}</small></span></label>`;}).join('')}</div><div class="discovery-footer"><span>${layout.devices.length}/12 ламп на макеті</span><button class="button primary" data-action="add-selected" ${!available||!count||count>12-layout.devices.length?'disabled':''}>Додати вибрані${count?` (${count})`:''}</button></div><div class="top-help">Нова лампа ще не отримує кольори. Тут налаштовується лише розташування й калібрування.</div>`;
+ content.innerHTML=`<h2>Додати лампи</h2><p>Обери знайдені лампи для розташування на макеті.</p><div class="discovery-status" role="status">${!discoverySnapshot?'Шукаємо лампи…':!available?'Пошук ламп недоступний. Спробуємо знову автоматично.':providerIssue?'Частина джерел пошуку недоступна. Список оновлюється автоматично.':searching?'Шукаємо лампи… Список оновлюється автоматично.':!devices.length?'Поки немає знайдених ламп. Список оновлюється автоматично.':'Знайдені лампи'}</div><div class="discovery-list">${devices.map(d=>{const reason=discoveryReason(d),disabled=reason||!available;return `<label class="discovery-item ${disabled?'unavailable':''}"><input type="checkbox" data-discovery="${esc(d.id)}" ${disabled?'disabled':''} ${discoveryChoices.has(d.id)?'checked':''}><span><strong>${esc(d.name)}</strong><small>${esc(d.model)} · ${esc(typeNames[d.shape]||'Пристрій')}${reason?` · ${esc(reason)}`:''}</small></span></label>`;}).join('')}</div><div class="discovery-footer"><span>${layout.devices.length}/12 збережених ламп</span><button class="button primary" data-action="add-selected" ${!available||!count||additions>12-layout.devices.length?'disabled':''}>Додати вибрані${count?` (${count})`:''}</button></div><div class="top-help">Нова лампа ще не отримує кольори. Тут налаштовується лише розташування й калібрування.</div>`;
  if(focusSelector)content.querySelector(focusSelector+':not(:disabled)')?.focus({preventScroll:true});
 }
 async function refreshDiscovery(session=discoverySession){
@@ -304,12 +315,12 @@ function add(){
 function addSelected(){
  if(!discoverySnapshot?.connected)return;
  const devices=discoverySnapshot.devices.filter(d=>realDevice(d.id)&&discoveryChoices.has(d.id)&&!discoveryReason(d));
- if(!devices.length)return;if(layout.devices.length+devices.length>12){notify('У цьому макеті може бути до 12 ламп');return;}
+ if(!devices.length)return;if(layout.devices.length+devices.filter(d=>!discoveryPlacement(d)).length>12){notify('У цьому макеті може бути до 12 ламп');return;}
  remember();
- for(const item of devices){if(layout.devices.some(d=>d.id===item.id))continue;const d={id:item.id,name:item.name,short:item.name,model:item.model,shape:item.shape,zones:item.zones,scale:80,rate:0,orientation:'horizontal',pos:{x:50,y:72}};autoSnap(d);layout.devices.push(d);selected=d.id;}
+ for(const item of devices){const placement=discoveryPlacement(item);if(placement){placement.enabled=true;selected=placement.id;continue;}const d={id:item.id,name:item.name,short:item.name,model:item.model,shape:item.shape,zones:item.zones,scale:80,rate:0,orientation:'horizontal',pos:{x:50,y:72}};autoSnap(d);layout.devices.push(d);selected=d.id;}
  dirty();render();closeDiscovery();
 }
-const actions={add,'add-selected':addSelected,'close-modal':closeDiscovery,deselect:()=>{selected=null;render();},remove:()=>{if(!removable(current()?.id))return;remember();layout.devices=layout.devices.filter(d=>d.id!==selected);selected=null;dirty();render();}};
+const actions={add,'add-selected':addSelected,'close-modal':closeDiscovery,deselect:()=>{selected=null;render();},remove:()=>{const d=current();if(selected==='monitor'||!removable(d?.id))return;remember();if(enrolled(d.id))d.enabled=false;else layout.devices=layout.devices.filter(row=>row.id!==d.id);selected=null;dirty();render();}};
 document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  if(button.dataset.action)actions[button.dataset.action]?.();

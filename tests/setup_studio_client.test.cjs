@@ -193,6 +193,130 @@ const liveSnapshot=(overrides={})=>({version:1,connected:true,mode:'sync',sync:{
 const zones=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-lamp]').filter(node=>node.dataset.previewLamp===id&&node.tagName==='PATH'&&!node.hasAttribute('data-preview-glow'));
 const zone=(app,id,index=0)=>zones(app,id).find(node=>node.dataset.zone===String(index));
 const glows=(app,id)=>app.nodes.get('#stage').querySelectorAll('[data-preview-glow]').filter(node=>node.dataset.previewLamp===id);
+test('a Govee raised onto an 85 cm desk saves and reloads its 145 cm anchor without moving existing fixtures',async()=>{
+ const app=await harness(),stage=app.nodes.get('#stage');
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-lamp="govee-left"]'),pointerId:7,clientX:100,clientY:550});
+ stage.dispatch('pointermove',{clientX:100,clientY:125});stage.dispatch('pointerup',{});await app.flush();
+ const result=app.posts.at(-1);
+ assert.deepEqual(result.devices[0].positionCm,{x:20,height:145});
+ assert.deepEqual(result.devices.slice(1),saved().devices.slice(1));
+ assert.match(app.nodes.get('#selection-panel').innerHTML,/85 см від підлоги/);
+ const reloaded=await harness({remote:result});reloaded.run('layout.devices[0].scale=40;dirty()');await reloaded.flush();
+ assert.deepEqual(reloaded.posts.at(-1).devices[0].positionCm,{x:20,height:145});
+});
+test('negative stage coordinates round-trip raised enrolled real and virtual floors up to the 300 cm anchor bound',async()=>{
+ const remote=saved();remote.devices[0].positionCm.height=300;
+ remote.devices.push({id:discovered().id,name:'Raised real',model:'H6076',shape:'floor',zones:7,scale:80,positionCm:{x:100,height:200}},
+  {id:'virtual-raised',name:'Raised drawing',shape:'floor',scale:80,positionCm:{x:150,height:180}});
+ const app=await harness({remote});app.run('layout.devices[0].scale=40;dirty()');await app.flush();
+ for(const [index,height]of [[0,300],[6,200],[7,180]])assert.deepEqual(app.posts.at(-1).devices[index].positionCm,{x:remote.devices[index].positionCm.x,height});
+ app.run('layout.devices[0].pos.y=-500;autoSnap(layout.devices[0]);dirty()');await app.flush();assert.equal(app.posts.at(-1).devices[0].positionCm.height,300);
+ app.run('layout.devices[0].pos.y=500;autoSnap(layout.devices[0]);dirty()');await app.flush();assert.equal(app.posts.at(-1).devices[0].positionCm.height,60);
+});
+test('stage bounds include the whole active raised floor but ignore an excluded high distant floor',async()=>{
+ const baseline=await harness(),remote=saved();remote.devices[0].positionCm={x:-200,height:300};remote.devices[0].enabled=false;
+ const hidden=await harness({remote});assert.equal(hidden.nodes.get('#stage').getAttribute('viewBox'),baseline.nodes.get('#stage').getAttribute('viewBox'));
+ remote.devices[0].enabled=true;const active=await harness({remote});
+ const [left,top]=active.nodes.get('#stage').getAttribute('viewBox').split(' ').map(Number);
+ assert.ok(top<=-1100);assert.ok(left<=-1100);
+});
+test('raising a floor freezes the viewport during dragging and expands it after release',async()=>{
+ const app=await harness(),stage=app.nodes.get('#stage'),original=stage.getAttribute('viewBox');
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-lamp="govee-left"]'),pointerId:7,clientX:100,clientY:550});
+ stage.dispatch('pointermove',{clientX:100,clientY:-150});assert.equal(stage.getAttribute('viewBox'),original);
+ stage.dispatch('pointermove',{clientX:100,clientY:-650});assert.equal(stage.getAttribute('viewBox'),original);
+ stage.dispatch('pointerup',{});assert.ok(Number(stage.getAttribute('viewBox').split(' ')[1])<=-1100);
+});
+test('each enrolled role can leave the composition without deleting its saved inventory row',async()=>{
+ const app=await harness({pilot:liveSnapshot()});
+ for(const row of saved().devices){
+  app.run(`choose('${row.id}')`);
+  assert.ok(app.nodes.get('#selection-panel').querySelector('[data-action="remove"]'));
+  app.run('actions.remove()');await app.flush();
+  assert.deepEqual(app.posts.at(-1).devices.find(d=>d.id===row.id),{...row,enabled:false});
+  assert.equal(app.nodes.get('#stage').querySelector(`[data-lamp="${row.id}"]`),null);
+  assert.equal(zones(app,row.id).length,0);assert.equal(glows(app,row.id).length,0);
+ }
+ assert.equal(app.posts.at(-1).devices.length,6);
+ assert.ok(app.nodes.get('#stage').querySelector('[data-monitor]'));
+ assert.equal(app.nodes.get('#selection-panel').hidden,true);
+});
+test('disabled fixtures survive reload while the monitor remains independently editable',async()=>{
+ const remote=saved();remote.devices[2].enabled=false;remote.devices[3].enabled=false;
+ remote.devices.push({id:discovered().id,name:'Saved placement',model:'H6076',shape:'floor',zones:7,scale:45,enabled:false,positionCm:{x:150,height:60}});
+ const app=await harness({remote,pilot:liveSnapshot()});
+ assert.equal(app.nodes.get('#stage').querySelector('[data-lamp="hue-monitor"]'),null);
+ assert.equal(app.nodes.get('#stage').querySelector(`[data-lamp="${discovered().id}"]`),null);
+ assert.equal(glows(app,'hue-monitor').length,0);
+ const monitor=app.nodes.get('#stage').querySelector('[data-monitor]');
+ app.nodes.get('#stage').dispatch('click',{target:monitor});
+ app.event('change',{id:'monitor-offset',value:'25',valueAsNumber:25});await app.flush();
+ assert.deepEqual(app.posts.at(-1).devices[2],{...remote.devices[2],positionCm:{x:125,height:110}});
+ assert.equal(app.posts.at(-1).devices[3].enabled,false);assert.equal(app.posts.at(-1).devices[6].enabled,false);
+ assert.ok(app.nodes.get('#stage').querySelector('[data-monitor]'));
+ assert.equal(app.posts.at(-1).devices[0].enabled,undefined);
+});
+test('an inactive discovered role rejoins at capacity with its identity geometry and calibration intact',async()=>{
+ const remote=saved();Object.assign(remote.devices[3],{enabled:false,scale:35,orientation:'vertical',positionCm:{x:55,height:70}});
+ for(let i=0;i<6;i++)remote.devices.push({id:'virtual-'+i,name:'Drawing',shape:'bar',scale:80,positionCm:{x:100,height:40}});
+ const item=discovered({layout_id:'play-left',selectable:false,shape:'bar',zones:1,model:'Hue Play'});
+ const app=await harness({remote,discovery:{connected:true,devices:[item],providers:{hue:'ready'}}});
+ app.run('add()');await settle();
+ const checkbox=app.nodes.get('#modal-content').querySelector(`[data-discovery="${item.id}"]`);assert.equal(checkbox.disabled,false);
+ app.event('change',{dataset:{discovery:item.id},checked:true});
+ assert.equal(app.nodes.get('#modal-content').querySelector('[data-action="add-selected"]').disabled,false);
+ app.run('addSelected()');await app.flush();
+ assert.equal(app.posts.at(-1).devices.length,12);
+ assert.deepEqual(app.posts.at(-1).devices[3],{id:'play-left',scale:35,orientation:'vertical',positionCm:{x:55,height:70}});
+ assert.equal(app.posts.at(-1).devices.some(d=>d.id===item.id),false);
+ assert.equal(app.run('selected'),'play-left');assert.ok(app.nodes.get('#stage').querySelector('[data-lamp="play-left"]'));
+});
+test('inactive role rejoin keeps discovery safety checks and new placements still need free inventory capacity',async()=>{
+ const remote=saved();remote.devices[0].enabled=false;
+ for(let i=0;i<6;i++)remote.devices.push({id:'virtual-'+i,name:'Drawing',shape:'bar',scale:80,positionCm:{x:100,height:40}});
+ let item=discovered({layout_id:'govee-left',selectable:false});
+ const app=await harness({remote,discovery:()=>({connected:true,devices:[item,discovered({id:'device-'+'b'.repeat(32)})],providers:{govee:'ready'}})});
+ app.run('add()');await settle();
+ for(const changes of [{ambiguous:true},{supported:false},{online:false}]){
+  item=discovered({layout_id:'govee-left',selectable:false,...changes});await app.poll();
+  assert.equal(app.nodes.get('#modal-content').querySelector(`[data-discovery="${item.id}"]`).disabled,true);
+ }
+ item=discovered({layout_id:'govee-left',selectable:false});await app.poll();
+ for(const id of [item.id,'device-'+'b'.repeat(32)])app.event('change',{dataset:{discovery:id},checked:true});
+ assert.equal(app.nodes.get('#modal-content').querySelector('[data-action="add-selected"]').disabled,true);
+ app.run('addSelected()');assert.equal(app.posts.length,0);assert.equal(app.run('layout.devices[0].enabled'),false);
+});
+test('composition removal merges independent remote geometry and undo preserves that geometry',async()=>{
+ const remote=saved();remote.devices[0].positionCm.x=50;remote.devices[2].positionCm.x=125;
+ const app=await harness({conflict:remote});app.run("choose('govee-left');actions.remove()");await app.flush();
+ assert.deepEqual(app.posts.at(-1).devices[0],{...remote.devices[0],enabled:false});
+ assert.deepEqual(app.posts.at(-1).devices[2],remote.devices[2]);
+ app.run('layout=history.pop();dirty();render()');await app.flush();
+ assert.deepEqual(app.posts.at(-1).devices[0],remote.devices[0]);
+ assert.ok(app.nodes.get('#stage').querySelector('[data-lamp="govee-left"]'));
+});
+test('offline membership drafts merge remote calibration and default true does not override remote removal',async()=>{
+ const base=saved(),draft=saved(),remote=saved();draft.devices[3].enabled=false;remote.devices[3].scale=35;remote.devices[3].orientation='vertical';
+ remote.devices[2].positionCm.x=125;
+ const storage=new Map([['light-studio-grid-v3',JSON.stringify(draft)],['light-studio-grid-v3-base',JSON.stringify(base)],['light-studio-grid-v3-pending','true']]);
+ const app=await harness({remote,storage});await app.flush();
+ assert.deepEqual(app.posts.at(-1).devices[3],{...remote.devices[3],enabled:false});assert.deepEqual(app.posts.at(-1).devices[2],remote.devices[2]);
+ const explicit=saved();explicit.devices[0].enabled=true;
+ const removed=saved();removed.devices[0].enabled=false;
+ const next=await harness({remote:explicit,conflict:removed});next.run('layout.devices[0].scale=40;dirty()');await next.flush();
+ assert.equal(next.posts.at(-1).devices[0].enabled,false);assert.equal(next.posts.at(-1).devices[0].scale,40);
+});
+test('remote removal ends a fixture drag and clears its selection without affecting the monitor',async()=>{
+ const remote=saved();remote.devices[4].enabled=false;
+ const app=await harness({conflict:remote}),stage=app.nodes.get('#stage');
+ stage.dispatch('pointerdown',{target:stage.querySelector('[data-lamp="play-center"]'),pointerId:7,clientX:500,clientY:500});
+ stage.dispatch('pointermove',{clientX:550,clientY:500});
+ app.run('dirty()');await app.flush();
+ assert.equal(app.run('dragging'),null);assert.equal(app.run('selected'),null);
+ assert.equal(app.nodes.get('#selection-panel').hidden,true);
+ assert.doesNotThrow(()=>stage.dispatch('pointermove',{clientX:575,clientY:500}));
+ assert.ok(stage.querySelector('[data-monitor]'));
+});
 test('wall glow follows calibrated zones behind furniture without becoming an interactive lamp',async()=>{
  const app=await harness({pilot:liveSnapshot()}),stage=app.nodes.get('#stage');
  assert.equal(glows(app,'govee-left').length,7);
@@ -214,6 +338,13 @@ test('wall glow clears on Off or unavailable output and returns with fresh scene
  assert.equal(glow.getAttribute('opacity'),'1');
  await app.visible(false);assert.equal(glow.getAttribute('opacity'),'0');
  assert.equal(stage.writes,writes);assert.equal(app.posts.length,0);
+});
+test('hidden black Sync segments have no background emission while visible zones keep their colors',async()=>{
+ const snapshot=liveSnapshot();snapshot.lamps['govee-left'].colors.splice(0,4,...Array.from({length:4},()=>[0,0,0]));
+ const app=await harness({pilot:snapshot});
+ assert.deepEqual(glows(app,'govee-left').map(node=>node.getAttribute('opacity')),['0','0','0','0','1','1','1']);
+ assert.equal(zone(app,'govee-left',0).getAttribute('stroke'),'rgb(0,0,0)');
+ assert.equal(app.posts.length,0);
 });
 test('live output paints calibrated RGB once, seven bottom-to-top Govee zones and all nine U-path segments',async()=>{
  const app=await harness({pilot:liveSnapshot()});

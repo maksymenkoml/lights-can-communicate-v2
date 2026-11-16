@@ -17,6 +17,7 @@ HUE_ROLES = {
     "hue_right": "play-right",
 }
 LAMP_IDS = ("govee-left", "govee-right", *HUE_ROLES.values())
+ROLE_LAMPS = {'left':'govee-left', 'right':'govee-right', **HUE_ROLES}
 SOURCES = ("scene-output", "sync-output")
 
 
@@ -177,9 +178,14 @@ class OutputPreviewStore:
 
     def record_native_channels(self, channels):
         # These channels already include layout calibration and video intensity.
+        if isinstance(channels, (tuple, list)) and len(channels) == 12:
+            channels = dict(enumerate(channels))
+        if (not isinstance(channels, dict)
+                or any(type(index) is not int or not 0 <= index < 12 for index in channels)):
+            raise ValueError('Invalid native preview channels')
         samples = {
-            index: [round(value / 65535 * 255) for value in _rgb(channels[index], 65535)]
-            for index in range(12)
+            index: [round(value / 65535 * 255) for value in _rgb(rgb, 65535)]
+            for index, rgb in channels.items()
         }
         with self.lock:
             for lamp, indices in (
@@ -188,7 +194,8 @@ class OutputPreviewStore:
                 ("play-right", [2]),
                 ("hue-monitor", range(3, 12)),
             ):
-                self._update(lamp, "sync-output", [samples[index] for index in indices], 100)
+                if all(index in samples for index in indices):
+                    self._update(lamp, "sync-output", [samples[index] for index in indices], 100)
 
     def snapshot(self):
         with self.lock:
@@ -217,6 +224,14 @@ def build_preview(adapter_status, output_snapshot):
         "hue-monitor": status.get("hue_strip"),
         **{lamp: hue_play.get(role) for role, lamp in HUE_ROLES.items() if role != "strip"},
     }
+    composition = status.get('composition')
+    included = set(ROLE_LAMPS.values())
+    if composition is not None:
+        selected = composition.get('enabled_roles') if isinstance(composition, dict) else None
+        included = ({ROLE_LAMPS[role] for role in selected}
+                    if isinstance(selected, list) and len(selected) <= 6
+                    and all(type(role) is str and role in ROLE_LAMPS for role in selected)
+                    else set())
     cleanup = video.get("cleanup_pending") is True or video.get("cleanupPending") is True
     sync = (
         video.get("active") is True
@@ -226,7 +241,8 @@ def build_preview(adapter_status, output_snapshot):
         and not cleanup
     )
     foreign = (
-        any(_hue_fresh(value) and value["native_mode"] == "streaming" for value in hue.values())
+        any(lamp in included and _hue_fresh(value) and value["native_mode"] == "streaming"
+            for lamp, value in hue.items())
         and video.get("native_owned") is not True
     )
     mode = (
@@ -297,8 +313,9 @@ def build_preview(adapter_status, output_snapshot):
             "online": True if fresh else None,
             "on": on,
             "brightness": brightness,
-            "colors": colors if fresh and on else [],
+            "colors": colors if fresh and on and lamp in included else [],
             "source": source,
-            "stale": not fresh or not valid,
+            "stale": not fresh or not valid or lamp not in included,
+            "included": lamp in included,
         }
     return {"version": 1, "mode": mode, "lamps": lamps}

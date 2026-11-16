@@ -107,7 +107,7 @@ class GradientStreamTests(unittest.TestCase):
             "original_area_api": lambda area: {},
             "GROUP_ID": stream.GROUP_ID,
             "SLOT_CHANNELS": stream.SLOT_CHANNELS,
-            "POSITIONS": stream.POSITIONS,
+            "CAPTURE_POSITIONS": stream.CAPTURE_POSITIONS,
             "uuid": uuid,
             "layout_store": SimpleNamespace(snapshot=lambda: None),
             "GRADIENT_MODE": True,

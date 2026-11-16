@@ -25,6 +25,12 @@ CONTRACTS = [
     "test_native_profile_integration",
     "test_stream_http",
     "test_stream_diagnostics",
+    "test_sync_projection",
+    "test_layout_composition_contract",
+    "test_composition_output",
+    "test_native_composition",
+    "test_capture_composition",
+    "test_native_location_cache",
 ]
 RUNTIME = [
     "live_adapter",
@@ -41,6 +47,8 @@ RUNTIME = [
     "smart_lighting_core.native_profile",
     "stream_http",
     "stream_diagnostics",
+    "sync_projection",
+    "native_location_cache",
 ]
 
 

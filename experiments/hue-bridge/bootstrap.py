@@ -23,9 +23,13 @@ from hue_events import install_event_journal, install_event_route  # noqa: E402
 event_journal = install_event_journal()
 
 import configManager  # noqa: E402
-from desk_layout import LayoutStore, layout_event  # noqa: E402
-from desk_layout import positions as layout_positions  # noqa: E402
-from entertainment_stream import GRADIENT_MODE, GROUP_ID, POSITIONS, SLOT_CHANNELS  # noqa: E402
+from desk_layout import LayoutStore  # noqa: E402
+from entertainment_stream import (  # noqa: E402
+    CAPTURE_POSITIONS,
+    GRADIENT_MODE,
+    GROUP_ID,
+    SLOT_CHANNELS,
+)
 from flask import abort, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 from hue_resource_compat import canonical_collection, install_resource_compat  # noqa: E402
@@ -192,7 +196,7 @@ if include_entertainment:
         lamp = config["lights"][slot]
         area.add_light(lamp)
         area.locations[lamp] = [
-            dict(zip(("x", "y", "z"), POSITIONS[channel])) for channel in channels
+            dict(zip(("x", "y", "z"), CAPTURE_POSITIONS[channel])) for channel in channels
         ]
 
     original_area_api = EntertainmentConfiguration.EntertainmentConfiguration.getV2Api
@@ -200,10 +204,9 @@ if include_entertainment:
     def desk_area_api(area):
         result = original_area_api(area)
         if area.id_v2 == GROUP_ID:
-            layout = (
-                layout_store.snapshot() if not (state / "layout-geometry-hold").exists() else None
-            )
-            coordinates = layout_positions(layout, GRADIENT_MODE) if layout else POSITIONS
+            # Capture anchors stay fixed; physical geometry is projected by the
+            # host from Light Studio without changing the Box's stream topology.
+            coordinates = CAPTURE_POSITIONS
             result["channels"] = []
             locations = []
             for slot, channels in SLOT_CHANNELS.items():
@@ -247,29 +250,6 @@ if include_entertainment:
         return result
 
     Light.Light.getV2Entertainment = desk_light_entertainment
-
-    def watch_layout():
-        previous = list(POSITIONS)
-        while True:
-            try:
-                if (state / "layout-geometry-hold").exists():
-                    time.sleep(0.25)
-                    continue
-                layout = layout_store.snapshot()
-                coordinates = layout_positions(layout, GRADIENT_MODE) if layout else list(POSITIONS)
-                if coordinates != previous:
-                    for slot, channels in SLOT_CHANNELS.items():
-                        area.locations[config["lights"][slot]] = [
-                            dict(zip(("x", "y", "z"), coordinates[channel])) for channel in channels
-                        ]
-                    payload = desk_area_api(area)
-                    StreamEvent(layout_event(payload))
-                    previous = coordinates
-            except (OSError, ValueError, KeyError, TypeError):
-                pass
-            time.sleep(0.25)
-
-    threading.Thread(target=watch_layout, daemon=True, name="desk-layout").start()
 
 if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
@@ -376,7 +356,18 @@ def forward_selected_state(lamp, values, advertise=True):
         if power_feedback is not None:
             values = power_feedback.constrain(lamp, values)
         result = original_set_state(lamp, values, advertise)
+        if changed and lamp.id_v1 in selected_slots:
+            # Retain the current virtual color mode even while physical output
+            # is excluded, so a later rejoin cannot revive an older palette.
+            for field, kind in (
+                ('gradient','gradient'), ('xy','xy'), ('ct','ct'), ('hue','hs'), ('sat','hs'),
+            ):
+                if field in values:
+                    lamp.protocol_cfg['proxy_color_kind'] = kind
+                    break
         if changed and lamp.id_v1 in selected_slots and live_output is not None:
+            # Keep the Core's desired-state cache current while excluded; its
+            # hardware membership gates prevent physical writes until rejoin.
             selected = {
                 key: lamp.state[key]
                 for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
@@ -384,16 +375,6 @@ def forward_selected_state(lamp, values, advertise=True):
             }
             if lamp.id_v1 in {"3", "4", "5", "6"} or (GRADIENT_MODE and lamp.id_v1 in {"1", "2"}):
                 selected["_changed"] = sorted(values)
-                for field, kind in (
-                    ("gradient", "gradient"),
-                    ("xy", "xy"),
-                    ("ct", "ct"),
-                    ("hue", "hs"),
-                    ("sat", "hs"),
-                ):
-                    if field in values:
-                        lamp.protocol_cfg["proxy_color_kind"] = kind
-                        break
                 selected["_color_kind"] = lamp.protocol_cfg.get(
                     "proxy_color_kind", "ct" if lamp.state.get("colormode") == "ct" else "xy"
                 )
@@ -404,17 +385,46 @@ def forward_selected_state(lamp, values, advertise=True):
 Light.Light._setV1State = forward_selected_state
 
 
-def resume_power_color(lamp):
+def resume_power_color(lamp, full=False):
+    if (live_output is None
+            or not layout_store.enabled(live_output.slots.get(lamp.id_v1, ''))):
+        return
     selected = {
         key: lamp.state[key]
         for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
         if key in lamp.state
     }
-    selected["_changed"] = ["on"]
     selected["_color_kind"] = lamp.protocol_cfg.get(
         "proxy_color_kind", "ct" if lamp.state.get("colormode") == "ct" else "xy"
     )
+    color_fields = {'gradient':['gradient'], 'ct':['ct'], 'xy':['xy'], 'hs':['hue','sat']}
+    selected['_changed'] = (
+        ['on','bri'] + color_fields[selected['_color_kind']] if full else ['on'])
     live_output.submit(lamp.id_v1, selected, 0)
+
+
+def reconcile_membership(previous):
+    current = {role:layout_store.enabled(role) for role in live_output.slots.values()}
+    if previous is not None:
+        for slot, role in live_output.slots.items():
+            if current[role] and not previous.get(role, True):
+                # Rejoin uses the current virtual scene with a new envelope.
+                resume_power_color(config['lights'][slot], full=True)
+    return current
+
+
+def watch_layout():
+    previous = None
+    while True:
+        try:
+            previous = reconcile_membership(previous)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        time.sleep(.25)
+
+
+if live_output is not None:
+    threading.Thread(target=watch_layout, daemon=True, name='desk-composition').start()
 
 
 def publish_power_groups(changed_slots):
