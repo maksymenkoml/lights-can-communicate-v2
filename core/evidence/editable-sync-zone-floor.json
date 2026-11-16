@@ -2,7 +2,7 @@
   "date": "2026-11-16",
   "version": "0.1.0.dev8",
   "artifact_sha256": "95107f0ae3a5559b54406ff8c843cbe1b8ec76d5583db3b4876b8e3119a60c54",
-  "status": "PASS automated, local API and runtime cutover; active HDMI/optical checks not repeated in this slice.",
+  "status": "PASS automated, local API, runtime cutover and active HDMI transport/preview checks; optical appearance remains owner-observed.",
   "model": {
     "saved_zone": "six table-relative points; horizontal scales with half desk width, vertical follows tabletop",
     "fade": "vertical polygon sections and smoothstep",
@@ -52,6 +52,27 @@
     "owner_layout_restored": true,
     "identities_and_brightness_preserved": true,
     "power_commands_sent_by_checks": false,
-    "active_video_check": "not performed; source was already idle before cutover and remains stopped"
+    "active_video_check": {
+      "samples": 10,
+      "frames_received_delta": 339,
+      "frames_sent_delta": 268,
+      "max_sampled_frame_age_seconds": 0.053339165984652936,
+      "new_forwarding_errors": 0,
+      "new_state_transitions": 0,
+      "ui_sync_states": [
+        "active"
+      ],
+      "seven_zone_preview_on_both_govee": true,
+      "lowest_two_govee_zones_black_in_all_samples": true,
+      "current_layout_signature_matches": true,
+      "owner_custom_zone_preserved": true,
+      "current_play_gains": {
+        "hue_left": 0.648,
+        "hue_center": 0.648,
+        "hue_right": 0.648
+      },
+      "optical_acceptance": "not independently observed; this verifies emitted commands and transport"
+    },
+    "source_resume": "Owner started Sync directly on iPhone after Mirroring stopped reliably delivering navigation; new DTLS session streamed normally."
   }
 }
