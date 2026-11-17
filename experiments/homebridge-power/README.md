@@ -143,9 +143,9 @@ heartbeats do not override a Hue-local Off; unavailable/expired authority does
 not invent a physical power change. While Home is Off, scene On values are
 masked in the model, Hue API and events.
 
-This is Home-to-Hue state feedback, not a Hue-to-Home power command path. Power
-commands originating in Hue are not translated into the NAS owner's On setter
-by this slice. Brightness/color feedback from unrelated controllers is also
+The installed feedback slice is Home-to-Hue only. The source implementation
+described under "Explicit Hue App power commands" adds the reverse path and
+requires separate activation on the existing installation. Brightness/color feedback from unrelated controllers is also
 outside its scope.
 
 Fourteen unit tests cover role validation, expired/malformed snapshots, repeated and
@@ -295,3 +295,50 @@ requires an uninterrupted mirroring session; this is not proof of a bridge or
 Hue app bug. Sync showed PS5 Disconnected, so no renewed video test was started.
 Final native/API states are both Off with the original Vapor wave DESK Play
 restored. See `../hue-bridge/evidence/iphone-confirmed-power-live.json`.
+
+## Explicit Hue App power commands
+
+Issue #11 adds a reverse command channel over the existing authenticated owner
+heartbeat. The gateway forwards successful explicit v1/v2 light and group On/Off
+requests for the selected two Govee roles. Scene recall, animation, color-only
+updates and unselected accessories do not send physical power requests.
+
+The core advertises `power_request_version: 1`. The owner retains its legacy
+heartbeat until it receives this capability. A capable owner then advertises
+registered role revisions and bounded results through optional `power_requests`.
+The reply delivers at most two role commands and acknowledges retained results.
+The existing coordinated setter performs each physical operation. Native power
+confirmation, color drain, SDK debounce guards and ordinary Home control remain
+in force. A newer Home request or an expired command prevents a stale Hue write.
+
+The gateway uses its existing adapter credential for `POST /power-request`.
+That endpoint accepts only a fresh request ID and boolean left/right states.
+It does not accept device addresses, accessory IDs or arbitrary commands. The
+owner credential remains separate. No new NAS listener or credential is required.
+Requests have a bounded 12-second lifetime. The core reports success only after
+owner completion and matching fresh native observations. Concurrent requests for
+a busy role, unavailable/legacy authority, stale intent and unconfirmed power
+return an error. A grouped request can partially complete physically. The gateway
+refreshes actual owner state and reports failure without rolling other lights back.
+
+The broker retains 64 bounded request records for replay protection, including
+completed requests after their active deadline. It evicts a completed record only
+when another request needs space and its accepted payloads are outside the
+freshness window. A full cache rejects new requests while all replay fences are
+still valid. Owner command results and replay records are
+also bounded. Closing or replacing the owner does not replay queued commands.
+The gateway rechecks the existing live-output hold before requesting power.
+
+Install the updated core and gateway before updating the optional NAS overlay.
+New owners retain ordinary Home control with an older core through capability
+negotiation. A rollback from a capable core to an older core also requires an
+owner restart to clear negotiated capabilities. Keep the existing private state,
+HomeKit pairing, accessories, scenes and calibration. This source change does
+not install an overlay, restart a service or authorize physical activation.
+
+Offline coverage includes real Node-to-Python HTTP round trips through the
+coordinated setter with synthetic telemetry, stale/replay/session fences, and
+actual pinned diyHue v1/v2 light/group routes. Scene recall retains external Off,
+and failed explicit requests reconcile the virtual state from fresh authority.
+Physical Hue App timing, real NAS operation and optical/device acceptance require
+separate authorized live checks. They are not established by these offline tests.

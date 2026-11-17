@@ -30,7 +30,7 @@ from entertainment_stream import (  # noqa: E402
     GROUP_ID,
     SLOT_CHANNELS,
 )
-from flask import abort, jsonify, request  # noqa: E402
+from flask import abort, g, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 from hue_resource_compat import canonical_collection, install_resource_compat  # noqa: E402
 from HueObjects import (  # noqa: E402
@@ -258,6 +258,7 @@ configManager.bridgeConfig.save_config(backup=False)
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
 from entertainment_receiver import EntertainmentReceiver, UdpPortGuard  # noqa: E402
 from flaskUI import restful, v2restapi  # noqa: E402
+from hue_power_requests import HuePowerRequests, HuePowerUnavailable  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from power_feedback import PowerFeedback  # noqa: E402
@@ -314,6 +315,7 @@ original_set_state = Light.Light._setV1State
 original_dynamic_play = Light.Light.dynamicScenePlay
 play_guard = PlayGuard()
 power_feedback = None
+power_requests = None
 
 
 Scene.Thread = play_guard.thread_factory(
@@ -467,6 +469,10 @@ if live_output is not None:
         resume=resume_power_color, publish_groups=publish_power_groups,
     )
     power_feedback.refresh_once()
+    power_requests = HuePowerRequests(
+        live_output.url, live_output.token, config["lights"], config["groups"], power_feedback,
+        enabled=lambda: not (state / "live-output-hold").exists(),
+    )
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
 
@@ -501,6 +507,12 @@ install_event_route(app, event_journal, current_event_snapshot,
                     authorize=lambda headers: "user" in v2restapi.authorizeV2(headers))
 
 
+@app.before_request
+def remember_power_state():
+    if power_requests is not None:
+        g.power_request_before = power_requests.snapshot()
+
+
 @app.after_request
 def record_request(response):
     if request.method == "GET" and request.path.rstrip("/") == "/clip/v2/resource":
@@ -513,6 +525,17 @@ def record_request(response):
     if len(parts) > 2 and parts[1] == "api" and parts[2] not in ("", "config"):
         parts[2] = "<key>"
     payload = request.get_json(silent=True)
+    if power_requests is not None:
+        try:
+            power_requests.after_request(request.method, request.path, response.status_code,
+                                         payload, response.get_json(silent=True),
+                                         previous=getattr(g, "power_request_before", None))
+        except HuePowerUnavailable:
+            error = {"description": "Power request was not confirmed"}
+            response = (jsonify([{"error": {"type": 901, **error}}])
+                        if request.path.startswith("/api/")
+                        else jsonify({"errors": [error], "data": []}))
+            response.status_code = 503
     if power_feedback is not None:
         power_feedback.after_request(request.method, request.path, response.status_code, payload)
     event = {

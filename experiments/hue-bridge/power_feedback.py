@@ -28,7 +28,24 @@ class PowerFeedback:
         with opener.open(request, timeout=0.75) as response:
             return json.load(response)
 
-    def refresh_once(self):
+    def restore_known(self, previous):
+        """Undo a rejected virtual write without claiming a fresh physical reading."""
+        changed = set()
+        for slot, value in previous.items():
+            if slot not in self.SLOTS or type(value) is not bool:
+                continue
+            enabled = self.states.get(slot, value)
+            lamp = self.lights[slot]
+            if lamp.state.get("on") is not enabled:
+                lamp.state["on"] = enabled
+                lamp.genStreamEvent({"on": {"on": enabled}})
+                changed.add(slot)
+                if enabled:
+                    self.resume(lamp)
+        if changed:
+            self.publish_groups(changed)
+
+    def refresh_once(self, force=(), fallback=None):
         try:
             payload = self.fetcher()
             authority = payload.get("power_owner") if isinstance(payload, dict) else None
@@ -64,19 +81,27 @@ class PowerFeedback:
                         self.corrections.pop(slot, None)
                     # An unchanged heartbeat must not override a Hue-local Off.
                     # Off remains authoritative even if a scene prewrites state.
-                    if ((new_intent or not enabled) and lamp.state.get("on") is not enabled
+                    if ((new_intent or not enabled or slot in force)
+                            and lamp.state.get("on") is not enabled
                             or (due and not enabled)):
                         lamp.state["on"] = enabled
                         lamp.genStreamEvent({"on": {"on": enabled}})
                         changed.add(slot)
-                    if enabled and new_intent:
+                    if enabled and (new_intent or (slot in force and slot in changed)):
                         self.resume(lamp)
                 if changed:
                     self.publish_groups(changed)
-                self.last_error = None
-            return True
+                missing = set(force) - updates.keys()
+                if fallback and missing:
+                    self.restore_known({slot: value for slot, value in fallback.items()
+                                        if slot in missing})
+                unavailable = set(self.SLOTS) - updates.keys()
+                self.last_error = "PowerAuthorityUnavailable" if unavailable else None
+            return not unavailable
         except (OSError, ValueError, TypeError, KeyError) as error:
             with self.lock:
+                if fallback:
+                    self.restore_known(fallback)
                 self.last_error = type(error).__name__
             return False
 
