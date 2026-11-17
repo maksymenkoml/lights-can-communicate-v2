@@ -17,6 +17,7 @@ PILOT_MODULES = (
     "hue_strip_proxy",
     "pilot_transport",
     "power_owner",
+    "power_requests",
     "video_output",
     "bridge_output",
     "stream_http",

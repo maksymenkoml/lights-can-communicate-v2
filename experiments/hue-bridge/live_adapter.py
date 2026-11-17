@@ -24,6 +24,7 @@ from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
+from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
@@ -434,17 +435,20 @@ class PilotController:
 
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
-                power_owner=None, power_token=None, service_info=None, catalog=None, preview=None):
+                power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
+                power_requests=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
     ):
         raise ValueError("A distinct power owner credential is required")
+    broker = power_requests or (PowerRequests(power_owner) if power_owner is not None else None)
     hue_proxies = dict(hue_play_proxies or {})
     if hue_proxy is not None:
         hue_proxies["strip"] = hue_proxy
 
     class Handler(BaseHTTPRequestHandler):
+        power_requests = broker
         def log_message(self, *args):
             pass
 
@@ -511,7 +515,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     return self.respond(403, {"error": "unauthorized"})
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
-            if self.path not in ("/command", "/stream", "/power-owner") or (
+            if self.path not in ("/command", "/stream", "/power-owner", "/power-request") or (
                 self.path == "/stream" and video_output is None
             ):
                 return self.respond(404, {"error": "not found"})
@@ -521,10 +525,24 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     raise ValueError("Invalid request size")
                 payload = json.loads(self.rfile.read(size))
                 if self.path == "/power-owner":
-                    accepted = power_owner.submit(payload)
+                    if not isinstance(payload, dict):
+                        raise ValueError("Invalid power owner envelope")
+                    capability = validate_capability(payload.get("power_requests"),
+                                                     payload.get("states"))
+                    envelope = {key: value for key, value in payload.items()
+                                if key != "power_requests"}
+                    accepted = power_owner.submit(envelope)
+                    observed = controller.power_observations()
                     return self.respond(200, {"accepted": accepted,
+                                              "power_request_version": 1,
                                               "observer_epoch": controller.observer_epoch,
-                                              "observed": controller.power_observations()})
+                                              "observed": observed,
+                                              **broker.exchange(envelope, capability,
+                                                                observed, accepted)})
+                elif self.path == "/power-request":
+                    if broker is None:
+                        return self.respond(503, {"accepted": False})
+                    return self.respond(200, {"accepted": broker.request(payload)})
                 elif self.path == "/stream":
                     accepted = video_output.submit(payload)
                     # Only an authenticated, fully consumed stream envelope may
@@ -536,6 +554,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 else:
                     accepted = controller.submit(payload)
                 self.respond(200, {"accepted": accepted})
+            except PowerRequestUnavailable:
+                self.respond(503, {"accepted": False})
             except (ValueError, TypeError, KeyError):
                 self.respond(400, {"error": "invalid command"})
 
@@ -585,6 +605,7 @@ def main(argv=None, service_info=None):
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
     power_owner = power_token = None
+    power_requests = None
     preview = OutputPreviewStore()
     sender = lan.send_to_target
     if args.power_owner_token_file:
@@ -594,6 +615,7 @@ def main(argv=None, service_info=None):
                 or hmac.compare_digest(power_token.encode(), token.encode())):
             raise ValueError("Invalid power owner credential")
         power_owner = PowerOwner(config["targets"])
+        power_requests = PowerRequests(power_owner)
         sender = power_owner.wrap(sender)
     controller = PilotController(config["targets"],
                                  sender=preview.wrap_govee(sender, "scene-output"),
@@ -665,6 +687,7 @@ def main(argv=None, service_info=None):
             service_info=service_info,
             catalog=catalog,
             preview=preview,
+            power_requests=power_requests,
         ),
     )
     video_thread = http_thread = None
@@ -721,6 +744,8 @@ def main(argv=None, service_info=None):
         print("Pilot adapter stopped.", flush=True)
     finally:
         stop.set()
+        if power_requests is not None:
+            power_requests.close()
         if http_thread is not None and http_thread.is_alive():
             server.shutdown()
         server.server_close()

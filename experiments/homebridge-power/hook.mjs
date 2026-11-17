@@ -5,6 +5,63 @@ import { setImmediate as nextTurn } from 'node:timers/promises';
 import { DEVICE_ROLES, PowerOwnerClient } from './owner-client.mjs';
 
 const clients = new Map();
+const powerWriteContext = new AsyncLocalStorage();
+const guardedPlatforms = new WeakSet();
+const guardedTransports = new WeakSet();
+const guardedQueues = new WeakSet();
+const guardedBleWrites = new WeakSet();
+
+function checkPowerWrite(accessory) {
+  const remote = powerWriteContext.getStore();
+  if (remote && accessory === remote.accessory) {
+    remote.guard();
+    remote.assertIdentity();
+  }
+}
+
+function guardTransportWrites(platform) {
+  for (const name of ['lanClient', 'awsClient', 'openApiClient', 'bleClient']) {
+    const transport = platform[name];
+    if (!transport || typeof transport.updateDevice !== 'function'
+      || guardedTransports.has(transport)) continue;
+    const update = transport.updateDevice;
+    transport.updateDevice = function (accessory, ...args) {
+      // A failed route can await before the SDK chooses its next transport.
+      checkPowerWrite(accessory);
+      const remote = powerWriteContext.getStore();
+      const selected = remote?.accessory === accessory ? remote : undefined;
+      // Lower BLE writes lack an accessory argument. Clear a different device's
+      // request context before entering this transport's asynchronous operation.
+      return powerWriteContext.run(selected, () => update.call(this, accessory, ...args));
+    };
+    guardedTransports.add(transport);
+  }
+  const ble = platform.bleClient;
+  if (ble && typeof ble.writeWithTimeout === 'function' && !guardedBleWrites.has(ble)) {
+    const write = ble.writeWithTimeout;
+    ble.writeWithTimeout = function (...args) {
+      const remote = powerWriteContext.getStore();
+      // Connection, discovery and encryption can all await after updateDevice.
+      // The pinned SDK calls characteristic.writeAsync immediately in this method.
+      remote?.guard();
+      remote?.assertIdentity();
+      return write.apply(this, args);
+    };
+    guardedBleWrites.add(ble);
+  }
+  const queue = platform.queue;
+  if (!queue || typeof queue.add !== 'function' || guardedQueues.has(queue)) return;
+  const add = queue.add;
+  queue.add = function (task, ...args) {
+    const remote = powerWriteContext.getStore();
+    // External queues may invoke callbacks in the previous task's context.
+    const queued = typeof task === 'function' ? function (...taskArgs) {
+      return powerWriteContext.run(remote, () => task.apply(this, taskArgs));
+    } : task;
+    return add.call(this, queued, ...args);
+  };
+  guardedQueues.add(queue);
+}
 
 export function coordinatedNativeWrites(control, id, client, original) {
   id = String(id).toUpperCase();
@@ -37,6 +94,19 @@ export function coordinatedNativeWrites(control, id, client, original) {
       throw Error('Selected power accessory identity changed');
     }
   };
+  if (typeof control.platform.sendDeviceUpdate === 'function'
+    && !guardedPlatforms.has(control.platform)) {
+    guardTransportWrites(control.platform);
+    const send = control.platform.sendDeviceUpdate;
+    control.platform.sendDeviceUpdate = function (accessory, ...args) {
+      // The SDK can debounce inside the original setter. Recheck at the sender,
+      // while limiting this request's guard to its selected accessory.
+      checkPowerWrite(accessory);
+      guardTransportWrites(this);
+      return send.call(this, accessory, ...args);
+    };
+    guardedPlatforms.add(control.platform);
+  }
   client.observe?.(id, value => {
     if (powerOperations) return;
     assertIdentity();
@@ -44,7 +114,8 @@ export function coordinatedNativeWrites(control, id, client, original) {
     control.service.updateCharacteristic?.(control.hapChar.On, value);
   });
 
-  const power = value => {
+  const power = (value, guard) => {
+    guard?.();
     assertIdentity();
     if (typeof value !== 'boolean') return Promise.reject(Error('Expected owner power boolean'));
     const requestedEpoch = ++epoch;
@@ -57,16 +128,19 @@ export function coordinatedNativeWrites(control, id, client, original) {
       for (const key of ['updateKeyBright', 'updateKeyColour', 'updateKeyCT']) control[key] = Symbol('off');
     }
     const drain = value ? [] : [...activeWrites];
+    const remote = guard ? { accessory: control.accessory, guard, assertIdentity } : undefined;
     pendingPower = client.power(id, value, async () => {
       await Promise.allSettled(drain);
+      guard?.();
       assertIdentity();
-      return original(value);
+      return powerWriteContext.run(remote, () => original(value));
     }, () => {
+      guard?.();
       assertIdentity();
-      return control.platform.sendDeviceUpdate(control.accessory, {
+      return powerWriteContext.run(remote, () => control.platform.sendDeviceUpdate(control.accessory, {
         cmd: 'state', value: value ? 'on' : 'off',
-      });
-    }).then(result => {
+      }));
+    }, guard).then(result => {
       assertIdentity();
       if (client.confirmed?.(id)) control.cacheState = value ? 'on' : 'off';
       if (requestedEpoch === epoch) control.service.updateCharacteristic?.(control.hapChar.On, value);
@@ -138,6 +212,7 @@ export function coordinatedNativeWrites(control, id, client, original) {
       });
     };
   }
+  client.registerPowerHandler?.(id, power);
   return power;
 }
 

@@ -147,7 +147,8 @@ class PowerOwnerTests(unittest.TestCase):
             self.assertEqual(request("/power-owner", "X-Adapter-Token", "adapter-secret",
                                      self.message())[0], 403)
             self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
-                                     self.message()), (200, {"accepted": True,
+                                      self.message()), (200, {"accepted": True,
+                                                              "power_request_version": 1,
                                          "observer_epoch": controller.observer_epoch, "observed": {
                                          "left": {"on": None, "sample": None},
                                          "right": {"on": None, "sample": None},

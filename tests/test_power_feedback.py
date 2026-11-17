@@ -51,6 +51,47 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(self.groups, [{"2"}])
         self.assertTrue(all(self.lights[str(n)].state["on"] for n in range(3, 8)))
 
+    def test_explicit_command_failure_can_restore_fresh_owner_truth_without_new_revision(self):
+        self.feedback.refresh_once()
+        # The vendor applied a Hue Off locally, but the physical setter failed.
+        self.lights["1"].state["on"] = False
+        self.resumed.clear()
+        self.feedback.refresh_once(force={"1"})
+        self.assertTrue(self.lights["1"].state["on"])
+        self.assertEqual(self.resumed, ["1"])
+        self.assertFalse(self.lights["2"].state["on"])
+
+    def test_rejected_off_restores_last_known_state_when_authority_has_expired(self):
+        self.feedback.refresh_once()
+        self.current = status(remaining=0)
+        self.lights["1"].state["on"] = False
+        self.assertFalse(self.feedback.refresh_once(force={"1"}, fallback={"1": True}))
+        self.assertTrue(self.lights["1"].state["on"])
+        self.assertIsNotNone(self.feedback.last_error)
+
+    def test_failed_refresh_preserves_newer_home_off_instead_of_old_request_snapshot(self):
+        self.feedback.refresh_once()
+        previous = {"1": True}
+        self.current = status(left=False, revision=2)
+        self.feedback.refresh_once()
+        self.lights["1"].state["on"] = True
+
+        def unavailable():
+            raise OSError("Synthetic disconnected owner")
+
+        self.feedback.fetcher = unavailable
+        self.assertFalse(self.feedback.refresh_once(force={"1"}, fallback=previous))
+        self.assertFalse(self.lights["1"].state["on"])
+
+    def test_failed_command_without_cached_authority_retains_pre_request_model(self):
+        def unavailable():
+            raise OSError("Synthetic unavailable owner")
+
+        self.feedback.fetcher = unavailable
+        self.lights["1"].state["on"] = False
+        self.feedback.refresh_once(force={"1"}, fallback={"1": True})
+        self.assertTrue(self.lights["1"].state["on"])
+
     def test_feedback_keeps_animation_and_palette_and_does_not_repeat_events(self):
         before = copy.deepcopy(self.lights["2"].state)
         self.feedback.refresh_once()
@@ -76,7 +117,7 @@ class FeedbackTests(unittest.TestCase):
         self.current = status(right=True)
         self.feedback.refresh_once()
         self.current = status(left=False, right=False, remaining=0)
-        self.feedback.refresh_once()
+        self.assertFalse(self.feedback.refresh_once())
         self.assertTrue(self.lights["1"].state["on"])
         self.assertTrue(self.lights["2"].state["on"])
 

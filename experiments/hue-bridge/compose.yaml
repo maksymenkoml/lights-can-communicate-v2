@@ -26,6 +26,7 @@ services:
       - ./bootstrap.py:/probe/bootstrap.py:ro
       - ./bridge_output.py:/probe/bridge_output.py:ro
       - ./power_feedback.py:/probe/power_feedback.py:ro
+      - ./hue_power_requests.py:/probe/hue_power_requests.py:ro
       - ./hue_events.py:/probe/hue_events.py:ro
       - ./entertainment_stream.py:/probe/entertainment_stream.py:ro
       - ./entertainment_receiver.py:/probe/entertainment_receiver.py:ro
