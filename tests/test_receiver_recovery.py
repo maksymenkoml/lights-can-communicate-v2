@@ -1,6 +1,8 @@
 """Real loopback DTLS/HTTP faults; no physical adapter or credentials involved."""
 
 import json
+import os
+import select
 import shutil
 import socket
 import subprocess
@@ -28,6 +30,70 @@ def wait_for(predicate, timeout=4):
     raise AssertionError("Loopback condition not reached")
 
 
+def wait_for_listener(process, timeout=4, limit=4096):
+    """Consume only OpenSSL's bounded preamble, leaving application bytes intact."""
+    deadline = time.monotonic() + timeout
+    line = bytearray()
+    for _ in range(limit):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+            raise TimeoutError("Loopback OpenSSL listener did not become ready")
+        byte = os.read(process.stdout.fileno(), 1)
+        if not byte:
+            # Return failed listeners so the receiver can collect their stderr.
+            return False
+        line.extend(byte)
+        if byte == b"\n":
+            if line == b"ACCEPT\n":
+                return True
+            line.clear()
+    raise ValueError("Loopback OpenSSL readiness preamble exceeded its limit")
+
+
+class ListenerReadinessTests(unittest.TestCase):
+    def child(self, script):
+        process = subprocess.Popen(
+            [sys.executable, "-c", script], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+
+        def close():
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=1)
+
+        self.addCleanup(close)
+        return process
+
+    def test_exact_ready_marker_leaves_first_application_bytes_for_receiver(self):
+        process = self.child(
+            "import os,sys; os.write(1,b'NOTACCEPT\\nACCEPT\\nHueStream-payload'); "
+            "sys.stdin.buffer.read(1)"
+        )
+        self.assertTrue(wait_for_listener(process))
+        self.assertTrue(select.select([process.stdout], [], [], 1)[0])
+        self.assertEqual(os.read(process.stdout.fileno(), 17), b"HueStream-payload")
+
+    def test_failed_listener_eof_preserves_bind_diagnostic_for_receiver(self):
+        process = self.child("import os; os.write(2,b'Address already in use')")
+        self.assertFalse(wait_for_listener(process))
+        self.assertEqual(process.stderr.read(), b"Address already in use")
+
+    def test_silent_listener_has_bounded_readiness_wait(self):
+        process = self.child("import sys; sys.stdin.buffer.read(1)")
+        with self.assertRaises(TimeoutError):
+            wait_for_listener(process, timeout=0.02)
+
+    def test_noisy_listener_has_bounded_preamble(self):
+        process = self.child("import os,sys; os.write(1,b'x'*17); sys.stdin.buffer.read(1)")
+        with self.assertRaises(ValueError):
+            wait_for_listener(process, limit=16)
+
+
 class TestGroup:
     def __init__(self):
         self.id_v2 = GROUP_ID
@@ -50,6 +116,7 @@ class LoopbackReceiver:
         self.servers = []
         self.overlapping_listeners = 0
         self.before_spawn = None
+        self.server_start_delay = 0
         harness = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -87,6 +154,14 @@ class LoopbackReceiver:
                     self.before_spawn()
                 self.overlapping_listeners += int(any(p.poll() is None for p in self.servers))
                 args[args.index("-accept") + 1] = f"127.0.0.1:{self.port}"
+                # OpenSSL emits and flushes ACCEPT after bind when not quiet.
+                args = [arg for arg in args if arg != "-quiet"]
+                if self.server_start_delay:
+                    # Fault injection: process creation precedes the real UDP bind.
+                    args = [sys.executable, "-c",
+                            "import os,sys,time; time.sleep(float(sys.argv[1])); "
+                            "os.execvp(sys.argv[2],sys.argv[2:])",
+                            str(self.server_start_delay), *args]
             elif "s_client" in args:
                 args[args.index("-connect") + 1] = f"127.0.0.1:{self.port}"
             else:
@@ -94,6 +169,16 @@ class LoopbackReceiver:
             process = original_popen(args, **kwargs)
             if "s_server" in args:
                 self.servers.append(process)
+                try:
+                    wait_for_listener(process)
+                except (OSError, ValueError):
+                    process.terminate()
+                    try:
+                        process.communicate(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate(timeout=1)
+                    raise
             return process
 
         self.popen = patch("subprocess.Popen", side_effect=loopback_popen)
@@ -220,6 +305,18 @@ class ReceiverRecoveryTests(unittest.TestCase):
         self.loop.threads[-1].join(3)
         self.assertFalse(self.loop.threads[-1].is_alive())
         self.assertFalse(self.loop.receiver.snapshot()["active"])
+
+    def test_delayed_restarted_listener_accepts_a_fresh_client_without_retry(self):
+        first = self.loop.start()
+        self.loop.frame(first, 11111)
+        wait_for(lambda: len(self.loop.frames()) == 1)
+        self.loop.server_start_delay = 0.15
+        second = self.loop.start()
+        self.loop.frame(second, 22222)
+        wait_for(lambda: len(self.loop.frames()) == 2)
+        self.assertEqual(self.loop.frames()[-1]["colors"][0], [0, 22222, 0, 0])
+        self.assertNotEqual(self.loop.frames()[0]["session"], self.loop.frames()[1]["session"])
+        self.assertEqual(self.loop.overlapping_listeners, 0)
 
     def test_killed_listener_can_be_started_again(self):
         connection = self.loop.start()
