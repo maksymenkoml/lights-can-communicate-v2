@@ -7,16 +7,24 @@ import test from 'node:test';
 import { coordinatedNativeWrites } from '../experiments/homebridge-power/hook.mjs';
 
 const source = readFileSync(process.argv[2], 'utf8');
-assert.equal(createHash('sha256').update(source).digest('hex'),
-  '1cb33db175d1e4fc2b8d0fac3a3f81453b517f314d044be6762414345056902e');
+// Public light.js of each release accepted by prepare_overlay.py.
+const VERIFIED_LIGHT = {
+  '1cb33db175d1e4fc2b8d0fac3a3f81453b517f314d044be6762414345056902e': '11.39.1',
+  '6c46bc033b6c16e173c90095fc0a28ef8c1b20474c99dc4fcf6e23947dcdb831': '11.40.0',
+};
+assert.ok(VERIFIED_LIGHT[createHash('sha256').update(source).digest('hex')],
+  'Light source is not a verified Homebridge Govee release');
 const method = source.slice(source.indexOf('  async internalBrightnessUpdate('),
   source.indexOf('  async internalColourUpdate('));
+// 11.40.0 writers call this helper; it only polls AWS for raw-zone models.
+const refreshStart = source.indexOf('  refreshZonesSoon() {');
+const helpers = refreshStart < 0 ? '' : source.slice(refreshStart, source.indexOf('  externalUpdate(params) {'));
 const RIGHT = 'D4:A5:D2:21:C0:46:4F:55';
 
 function fixture(sleep, send) {
   let key = 0;
   const Native = new Function('sleep', 'generateRandomString', 'platformLang', 'parseError',
-    'return class NativeBrightness {' + method + '}')(sleep, () => String(++key), {}, String);
+    'return class NativeBrightness {' + method + helpers + '}')(sleep, () => String(++key), {}, String);
   const native = { on: true, brightness: 51 };
   const writes = [];
   const control = new Native();
@@ -74,12 +82,21 @@ test('actual SDK in-flight brightness completes before physical Off is sent', as
   assert.deepEqual(f.writes, [{ cmd: 'brightness', value: 80 }, { cmd: 'state', value: 'off' }]);
 });
 
+test('actual SDK zero brightness sends exactly one coordinated Off', async () => {
+  // 11.40.0 turns Home 0% into a native state Off; the owner must send it once.
+  const f = fixture(async () => {});
+  await f.control.internalBrightnessUpdate(0);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.native.on, false);
+  assert.deepEqual(f.writes, [{ cmd: 'state', value: 'off' }]);
+});
+
 const ctMethod = source.slice(source.indexOf('  async internalCTUpdate('),
   source.indexOf('  async internalSceneUpdate('));
 test('actual SDK delayed CT callback cannot revive a Home tile after offline Off', async () => {
   const callbacks = [];
   const Native = new Function('sleep', 'generateRandomString', 'platformLang', 'parseError',
-    'm2hs', 'k2rgb', 'setTimeout', 'return class NativeCT {' + ctMethod + '}')(
+    'm2hs', 'k2rgb', 'setTimeout', 'return class NativeCT {' + ctMethod + helpers + '}')(
     async () => {}, () => 'key', {}, String, () => [1, 2], () => [3, 4, 5],
     callback => { callbacks.push(AsyncResource.bind(callback)); });
   const values = new Map();

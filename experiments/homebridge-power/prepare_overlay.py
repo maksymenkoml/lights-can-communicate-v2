@@ -6,8 +6,18 @@ import json
 import shutil
 from pathlib import Path
 
-VERSION = '11.39.1'
-SOURCE_HASH = '1cb33db175d1e4fc2b8d0fac3a3f81453b517f314d044be6762414345056902e'
+# Public tagged releases whose light handler and accessory factory were compared
+# with the coordinated setter and native writer contracts.
+SUPPORTED_RELEASES = {
+    '11.39.1': {
+        'light': '1cb33db175d1e4fc2b8d0fac3a3f81453b517f314d044be6762414345056902e',
+        'platform': 'bd33669d19765d92a80f1743e939ed0f0c67913f9e029010ebb8b4127f7003ed',
+    },
+    '11.40.0': {
+        'light': '6c46bc033b6c16e173c90095fc0a28ef8c1b20474c99dc4fcf6e23947dcdb831',
+        'platform': '3012b6e7ebbd78142daf0177261c92aabe54dc10aa4ad36e37cef636c1bf3b2a',
+    },
+}
 ORIGINAL_SETTER = '''    this.service.getCharacteristic(this.hapChar.On).onSet(async (value) => {
       await this.internalStateUpdate(value)
     })'''
@@ -19,17 +29,22 @@ PATCHED_SETTER = (
 )
 
 
-def prepare(source, output, expected_hash=SOURCE_HASH):
+def prepare(source, output, release=None):
     source, output = Path(source), Path(output)
     if output.exists() or output.resolve().is_relative_to(source.resolve()):
         raise ValueError('Overlay output must be a new directory outside upstream source')
     package = json.loads((source / 'package.json').read_text())
+    version = package.get('version')
     if (package.get('name') != '@homebridge-plugins/homebridge-govee'
-            or package.get('version') != VERSION):
-        raise ValueError('Only the verified Homebridge Govee version is supported')
+            or version not in SUPPORTED_RELEASES):
+        raise ValueError('Only a verified Homebridge Govee version is supported')
+    release = release or SUPPORTED_RELEASES[version]
     original = (source / 'lib/device/light.js').read_bytes()
-    if hashlib.sha256(original).hexdigest() != expected_hash:
+    if hashlib.sha256(original).hexdigest() != release['light']:
         raise ValueError('Upstream source differs from the verified release')
+    factory = hashlib.sha256((source / 'lib/platform.js').read_bytes()).hexdigest()
+    if factory != release['platform']:
+        raise ValueError('Upstream accessory factory differs from the verified release')
     text = original.decode()
     if text.count(ORIGINAL_SETTER) != 1:
         raise ValueError('Expected exactly one original main-light On setter')
@@ -42,10 +57,9 @@ def prepare(source, output, expected_hash=SOURCE_HASH):
         **{f'lib/smart-lighting-power/{name}': (Path(__file__).parent / name).read_bytes()
            for name in ('owner-client.mjs', 'hook.mjs')},
     }
-    manifest = {'plugin': package['name'], 'version': VERSION,
-                'original_light_sha256': expected_hash,
-                'unchanged_platform_sha256': hashlib.sha256(
-                    (source / 'lib/platform.js').read_bytes()).hexdigest(),
+    manifest = {'plugin': package['name'], 'version': version,
+                'original_light_sha256': release['light'],
+                'unchanged_platform_sha256': factory,
                 'files': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
     output.mkdir(parents=True)
     try:

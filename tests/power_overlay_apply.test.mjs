@@ -7,7 +7,7 @@ import test from 'node:test';
 import { applyOverlay } from '../experiments/homebridge-power/apply-overlay.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
-function fixture() {
+function fixture(version = '11.39.1') {
   const root = fs.mkdtempSync(path.join(tmpdir(), 'tmp_overlay_apply_'));
   const artifact = path.join(root, 'artifact');
   const plugin = path.join(root, 'plugin');
@@ -15,7 +15,7 @@ function fixture() {
   fs.mkdirSync(path.join(plugin, 'lib/device'), { recursive: true });
   fs.mkdirSync(storage);
   fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({
-    name: '@homebridge-plugins/homebridge-govee', version: '11.39.1',
+    name: '@homebridge-plugins/homebridge-govee', version,
   }));
   fs.writeFileSync(path.join(plugin, 'lib/device/light.js'), 'original light');
   fs.writeFileSync(path.join(plugin, 'lib/platform.js'), 'unchanged factory');
@@ -31,7 +31,7 @@ function fixture() {
     fs.writeFileSync(path.join(artifact, name), value);
   }
   fs.writeFileSync(path.join(artifact, 'manifest.json'), JSON.stringify({
-    plugin: '@homebridge-plugins/homebridge-govee', version: '11.39.1',
+    plugin: '@homebridge-plugins/homebridge-govee', version,
     original_light_sha256: digest('original light'),
     unchanged_platform_sha256: digest('unchanged factory'),
     files: Object.fromEntries(Object.entries(files).map(([name, value]) => [name, digest(value)])),
@@ -281,5 +281,83 @@ test('peer edit immediately before upgrade claim is restored without being overw
     assert.throws(() => applyOverlay({ ...f, apply: true }, io), /failed/i);
     assert.equal(injected, true);
     assert.equal(fs.readFileSync(hook, 'utf8'), 'peer after preflight');
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('the verified 11.40.0 release installs while an unverified release writes nothing', () => {
+  const f = fixture('11.40.0');
+  const unknown = fixture('11.41.0');
+  try {
+    const result = applyOverlay({ ...f, apply: true });
+    assert.equal(result.installed, true);
+    assert.equal(result.version, '11.40.0');
+    assert.throws(() => applyOverlay({ ...unknown, apply: true }), /Unsupported plugin version/);
+    assert.deepEqual(fs.readdirSync(unknown.storage).sort(), ['cachedAccessories', 'config.json']);
+    assert.equal(fs.readFileSync(path.join(unknown.plugin, 'lib/device/light.js'), 'utf8'), 'original light');
+  } finally {
+    fs.rmSync(f.root, { recursive: true });
+    fs.rmSync(unknown.root, { recursive: true });
+  }
+});
+
+function upgradedPluginFixture(config) {
+  // A plugin upgrade replaces the package but keeps owner files in storage.
+  const f = fixture('11.40.0');
+  const file = path.join(f.storage, 'smart-lighting-power.json');
+  fs.writeFileSync(file, config ?? fs.readFileSync(path.join(f.artifact, 'power-config.json')), { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  fs.writeFileSync(path.join(f.storage, 'smart-lighting-power-state.json'), '{"left":false}');
+  return { ...f, config: file };
+}
+
+test('reinstall after a plugin upgrade reuses the identical private config', () => {
+  const f = upgradedPluginFixture();
+  try {
+    const inode = fs.statSync(f.config).ino;
+    const ready = applyOverlay(f);
+    assert.equal(ready.ready, true);
+    assert.equal(ready.configReused, true);
+    const result = applyOverlay({ ...f, apply: true });
+    assert.equal(result.installed, true);
+    assert.equal(result.configReused, true);
+    assert.equal(fs.statSync(f.config).ino, inode);
+    assert.equal(fs.readFileSync(path.join(f.storage, 'smart-lighting-power-state.json'), 'utf8'), '{"left":false}');
+    assert.equal(fs.readFileSync(path.join(f.plugin, 'lib/device/light.js'), 'utf8'), 'patched setter');
+    assert.equal(applyOverlay({ ...f, apply: true }).alreadyInstalled, true);
+  } finally { fs.rmSync(f.root, { recursive: true }); }
+});
+
+test('reinstall refuses a different or public existing config without writes', () => {
+  for (const [config, mode, pattern] of [
+    [JSON.stringify({ version: 1, endpoint: 'http://127.0.0.1:19880/power-owner', token: 'b'.repeat(48) }), 0o600,
+      /differs/],
+    [undefined, 0o644, /permission/i],
+  ]) {
+    const f = upgradedPluginFixture(config);
+    try {
+      fs.chmodSync(f.config, mode);
+      const before = fs.readFileSync(f.config);
+      assert.throws(() => applyOverlay({ ...f, apply: true }), pattern);
+      assert.deepEqual(fs.readFileSync(f.config), before);
+      assert.equal(fs.statSync(f.config).mode & 0o777, mode);
+      assert.equal(fs.existsSync(path.join(f.plugin, 'lib/smart-lighting-power')), false);
+      assert.equal(fs.readFileSync(path.join(f.plugin, 'lib/device/light.js'), 'utf8'), 'original light');
+    } finally { fs.rmSync(f.root, { recursive: true }); }
+  }
+});
+
+test('rollback of a reinstall keeps the reused private config', () => {
+  const f = upgradedPluginFixture();
+  try {
+    const light = path.join(f.plugin, 'lib/device/light.js');
+    const inode = fs.statSync(f.config).ino;
+    const io = { ...fs, linkSync: (from, to) => {
+      if (to === light && path.basename(from).startsWith('tmp_smart_light-')) throw Error('fixture publish failure');
+      return fs.linkSync(from, to);
+    } };
+    assert.throws(() => applyOverlay({ ...f, apply: true }, io), /rollback complete/);
+    assert.equal(fs.statSync(f.config).ino, inode);
+    assert.equal(fs.readFileSync(light, 'utf8'), 'original light');
+    assert.equal(fs.existsSync(path.join(f.plugin, 'lib/smart-lighting-power')), false);
   } finally { fs.rmSync(f.root, { recursive: true }); }
 });
