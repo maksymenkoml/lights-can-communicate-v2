@@ -13,8 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from entertainment_stream import NATIVE_AREA_ID, POSITIONS, encode_frame, native_colors
-from hue_strip_proxy import PLAY_IDS, STRIP_ID
+from entertainment_stream import POSITIONS, encode_frame, native_colors
 from native_location_cache import NativeLocationCache
 
 import smart_lighting as lan
@@ -96,15 +95,14 @@ class HueEntertainmentRelay:
         self, config, requester=None, connection_factory=DtlsConnection, layout_store=None,
         preview=None, profile=None, location_cache_file=None,
     ):
-        if profile is not None and not isinstance(profile, NativeHueProfile):
-            raise ValueError("Invalid native Hue profile")
+        if not isinstance(profile, NativeHueProfile):
+            raise ValueError("An explicit native Hue profile is required")
         self.profile = profile
-        self.area_id = profile.area_id if profile is not None else NATIVE_AREA_ID
+        self.area_id = profile.area_id
         self.layout_store = layout_store
         self.preview = preview
         if (
-            (profile is None and config.get("area_id") != NATIVE_AREA_ID)
-            or not isinstance(config.get("client_key"), str)
+            not isinstance(config.get("client_key"), str)
             or len(config["client_key"]) != 32
             or any(x not in "0123456789abcdefABCDEF" for x in config["client_key"])
         ):
@@ -161,15 +159,9 @@ class HueEntertainmentRelay:
         return result
 
     def inventory(self):
-        members = (self.profile.expected_members if self.profile is not None else (
-            ("545ed014-5e70-4039-a5de-51a1daa1dc88", 0),
-            ("07aeef78-efdf-4c8b-b0f7-0202d20e6e0a", 0),
-            ("157ab718-3fd0-4ab2-a5e6-904c5defba6d", 0),
-            *[("967b2eb0-0eb2-4099-9807-cdfed3c6383c", i) for i in range(9)],
-        ))
+        members = self.profile.expected_members
         roles = ("hue_center", "hue_left", "hue_right", "strip")
-        lights = (self.profile.light_ids if self.profile is not None
-                  else {"strip": STRIP_ID, **PLAY_IDS})
+        lights = self.profile.light_ids
         return members, roles, lights
 
     def composition_area(self, area, expected_roles=None, *, persist_locations=True):
@@ -277,25 +269,15 @@ class HueEntertainmentRelay:
             or len(services) != 4
             or any(not isinstance(item, dict) or not isinstance(item.get("rid"), str)
                    for item in services)
-            or (self.profile is not None and any(item.get("rtype") != "light" for item in services))
+            or any(item.get("rtype") != "light" for item in services)
         ):
             raise ValueError("Invalid native area membership")
-        resources = self.profile.resource_ids if self.profile is not None else {
-            STRIP_ID, *PLAY_IDS.values()
-        }
+        resources = self.profile.resource_ids
         if area.get("id") != self.area_id or {
             x.get("rid") for x in services
         } != resources:
             raise ValueError("Native area membership changed")
-        if self.profile is not None:
-            expected = self.profile.expected_members
-        else:
-            expected = [
-                ("545ed014-5e70-4039-a5de-51a1daa1dc88", 0),
-                ("07aeef78-efdf-4c8b-b0f7-0202d20e6e0a", 0),
-                ("157ab718-3fd0-4ab2-a5e6-904c5defba6d", 0),
-                *[("967b2eb0-0eb2-4099-9807-cdfed3c6383c", i) for i in range(9)],
-            ]
+        expected = self.profile.expected_members
         channels = area.get("channels")
         if not isinstance(channels, list) or any(
             not isinstance(channel, dict)
@@ -304,9 +286,8 @@ class HueEntertainmentRelay:
             or len(channel["members"]) != 1
             or not isinstance(channel["members"][0], dict)
             or not isinstance(channel["members"][0].get("service"), dict)
-            or (self.profile is not None and type(channel["members"][0].get("index")) is not int)
-            or (self.profile is not None
-                and channel["members"][0]["service"].get("rtype") != "entertainment")
+            or type(channel["members"][0].get("index")) is not int
+            or channel["members"][0]["service"].get("rtype") != "entertainment"
             for channel in channels
         ):
             raise ValueError("Invalid native channel layout")

@@ -126,6 +126,8 @@ def load_config(path):
         raise ConfigError("Hue Play requires a Hue configuration")
     if resolved["native_profile_file"] and resolved["hue_config_file"] is None:
         raise ConfigError("Native Hue profile requires a Hue configuration")
+    if resolved["hue_config_file"] and resolved["native_profile_file"] is None:
+        raise ConfigError("Hue output requires an explicit native Hue profile")
     if resolved["hue_stream_config_file"] and not options.get("hue_play", False):
         raise ConfigError("Native video requires Hue Play")
     return ServiceConfig(

@@ -3,8 +3,11 @@ import sys
 import unittest
 from pathlib import Path
 
+from smart_lighting_core.native_profile import NativeHueProfile
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-from hue_strip_proxy import PLAY_IDS, STRIP_ID, HueStripProxy, PinnedHueClient, hue_payload  # noqa: E402
+from hue_strip_proxy import HueStripProxy, PinnedHueClient, hue_payload  # noqa: E402
+from test_native_profile import PLAY_IDS, STRIP_ID, profile_data  # noqa: E402
 
 
 def state():
@@ -40,6 +43,8 @@ def command(sequence=1, **values):
 
 class FakeHue:
     def __init__(self):
+        self.profile = NativeHueProfile.from_dict(profile_data())
+        self.resource_id = STRIP_ID
         self.native = {
             "id": STRIP_ID,
             "mode": "normal",
@@ -109,12 +114,14 @@ class HueStripTests(unittest.TestCase):
             return {"data": [{"id": selected, "rid": selected}], "errors": []}
 
         config = {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}
-        client = PinnedHueClient(config, requester=request, resource_id=selected)
+        client = PinnedHueClient(config, requester=request, resource_id=selected,
+                                 profile=NativeHueProfile.from_dict(profile_data()))
         client.read()
         client.write({"color": {"xy": {"x": 0.2, "y": 0.3}}})
         self.assertEqual({item[1] for item in requests}, {"/clip/v2/resource/light/" + selected})
         with self.assertRaises(ValueError):
-            PinnedHueClient(config, resource_id="unselected-light")
+            PinnedHueClient(config, resource_id="unselected-light",
+                            profile=NativeHueProfile.from_dict(profile_data()))
 
     def test_play_proxy_accepts_only_its_configured_role(self):
         client = FakeHue()
@@ -279,7 +286,8 @@ class HueStripTests(unittest.TestCase):
             return {"data": [{"id": STRIP_ID, "rid": STRIP_ID}], "errors": []}
 
         client = PinnedHueClient(
-            {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}, requester=request
+            {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}, requester=request,
+            profile=NativeHueProfile.from_dict(profile_data()),
         )
         client.read()
         client.write(hue_payload(state(), 47))
