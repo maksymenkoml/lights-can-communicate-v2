@@ -55,7 +55,8 @@ Queue only when all requested roles have fresh owner leases and advertised suppo
 Bind commands to the current owner session and role revisions. Keep at most two
 in-flight role commands and 64 bounded request records. Retain completed IDs
 after the active deadline. Evict the oldest fully completed record only when a
-new ID needs space. Reject busy
+new ID needs space and its accepted payload timestamps can no longer pass the
+freshness check. Reject new IDs if every replay fence remains valid. Reject busy
 roles rather than overlapping physical power operations. Expired/session-replaced
 commands cannot be delivered. Duplicate request IDs cannot create another write.
 

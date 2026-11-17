@@ -56,7 +56,7 @@ class HuePowerRequests:
 
     def after_request(self, method, path, status, payload, response, previous=None):
         if method != "PUT" or not 200 <= status < 300 or type(payload) is not dict:
-            return False
+            return
         parts = path.strip("/").split("/")
         v2 = len(parts) == 5 and parts[:3] == ["clip", "v2", "resource"]
         v1 = (len(parts) == 5 and parts[0] == "api"
@@ -64,10 +64,10 @@ class HuePowerRequests:
         if v2:
             resource, rid = parts[3:]
             if resource not in {"light", "grouped_light"} or "on" not in payload:
-                return False
+                return
             if (type(response) is not dict or response.get("errors")
                     or response.get("data") != [{"rid": rid, "rtype": resource}]):
-                return False
+                return
             on = payload["on"]
             if type(on) is not dict or set(on) != {"on"}:
                 raise HuePowerUnavailable("Invalid explicit power request")
@@ -75,19 +75,19 @@ class HuePowerRequests:
         elif v1:
             resource, rid = parts[2:4]
             if "scene" in payload or "on" not in payload:
-                return False
+                return
             address = f"/{resource}/{rid}/{parts[4]}/on"
             if (type(response) is not list or not response
                     or any(type(item) is not dict or "error" in item for item in response)
                     or not any(item.get("success") == {address: payload["on"]}
                                for item in response)):
-                return False
+                return
             value = payload["on"]
         else:
-            return False
+            return
         selected = self._selected(resource, rid, v2)
         if not selected:
-            return False
+            return
         if type(value) is not bool:
             raise HuePowerUnavailable("Invalid explicit power request")
         confirmed = False
@@ -105,4 +105,3 @@ class HuePowerRequests:
             fallback = ({slot: before for slot, before in (previous or {}).items() if slot in slots}
                         if not confirmed else None)
             self.feedback.refresh_once(force=slots, fallback=fallback)
-        return True

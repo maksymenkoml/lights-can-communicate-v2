@@ -371,3 +371,30 @@ class BrokerFenceTests(unittest.TestCase):
         self.assertEqual(outgoing, [])
         worker.join(1)
         self.assertEqual(repeated, [True])
+
+    def test_full_cache_rejects_new_ids_while_original_payloads_remain_valid(self):
+        first = {"id": "0" * 32, "issued_at": self.wall, "states": {"right": False}}
+        for number in range(64):
+            result, commands, worker = self.start({"right": False}, f"{number:032x}")
+            self.revisions["right"] += 1
+            self.exchange([{"id": commands[0]["id"], "success": True}],
+                          observed={"right": {"on": False, "sample": number + 1}})
+            worker.join(1)
+            self.assertEqual(result, [True])
+        refused, outgoing, worker = self.start({"right": False}, "f" * 32)
+        self.assertEqual(outgoing, [])
+        worker.join(1)
+        self.assertEqual(refused, [False])
+        self.assertTrue(self.broker.request(first))
+        self.assertEqual(self.exchange()["power_requests"], [])
+        self.now += 0.4
+        self.wall += 0.4
+        renewed = {**first, "issued_at": self.wall}
+        self.assertTrue(self.broker.request(renewed))
+        self.now += 0.2
+        self.wall += 0.2
+        accepted, outgoing, worker = self.start({"right": False}, "e" * 32)
+        self.assertEqual(len(outgoing), 1)
+        self.assertTrue(self.broker.request(renewed))
+        with self.assertRaises(ValueError):
+            self.broker.request(first)

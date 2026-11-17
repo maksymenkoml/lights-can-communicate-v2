@@ -323,7 +323,9 @@ refreshes actual owner state and reports failure without rolling other lights ba
 
 The broker retains 64 bounded request records for replay protection, including
 completed requests after their active deadline. It evicts a completed record only
-when another request needs space. Owner command results and replay records are
+when another request needs space and its accepted payloads are outside the
+freshness window. A full cache rejects new requests while all replay fences are
+still valid. Owner command results and replay records are
 also bounded. Closing or replacing the owner does not replay queued commands.
 The gateway rechecks the existing live-output hold before requesting power.
 

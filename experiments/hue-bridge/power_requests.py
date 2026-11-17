@@ -159,11 +159,13 @@ class PowerRequests:
             if job is not None:
                 if job["states"] != payload["states"]:
                     raise ValueError("Power request ID was reused")
+                job["issued_at"] = max(job["issued_at"], payload["issued_at"])
             else:
                 oldest = None
                 if len(self.jobs) >= 64:
                     oldest = next((key for key, previous in self.jobs.items()
-                                   if all(command["result"] is not None
+                                   if self.wall_clock() - previous["issued_at"] > MAX_MESSAGE_AGE
+                                   and all(command["result"] is not None
                                           for command in previous["commands"].values())), None)
                 session, roles = self._owner()
                 busy = {role for existing in self.jobs.values()
@@ -179,6 +181,7 @@ class PowerRequests:
                 if oldest is not None:
                     del self.jobs[oldest]
                 job = {"states": dict(payload["states"]), "session": session,
+                       "issued_at": payload["issued_at"],
                        "deadline": now + REQUEST_SECONDS, "commands": {}}
                 for role, on in payload["states"].items():
                     issued = self.wall_clock()
