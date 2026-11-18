@@ -435,8 +435,7 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3)+'" y="'+(my-3)+'" width="'+(mw+6)+'" height="'+(mh+6)+'" rx="9"/></g>';
 }
 // The monitor picture in the Sync view: a soft gradient of the strip's emitted colours
-// while Sync runs; otherwise a fixed demo picture that the lamps preview.
-const DEMO_SCREEN=['#2d4f8a','#2a9d8f','#e9c46a','#f4a261','#c8553d'];
+// while Sync runs; otherwise a fixed radial demo picture that the lamps preview.
 function liveScreenStops(){
  const colors=pilotState()==='active'?emittedColors(strip()):null;
  if(!colors||colors.length<9)return null;
@@ -445,27 +444,41 @@ function liveScreenStops(){
 }
 const syncPreview=()=>mode==='sync'&&pilotState()!=='active';
 const screenDemo=()=>mode==='sync'&&!liveScreenStops();
-const screenStops=()=>liveScreenStops()||DEMO_SCREEN;
-// The demo picture's colour at horizontal position u (0 left, 1 right), as the gradient draws it.
-function demoColor(u){
- const t=clamp(u)*(DEMO_SCREEN.length-1),i=Math.min(Math.floor(t),DEMO_SCREEN.length-2),f=t-i;
- const rgb=hex=>[1,3,5].map(k=>parseInt(hex.slice(k,k+2),16)),a=rgb(DEMO_SCREEN[i]),b=rgb(DEMO_SCREEN[i+1]);
- return rgbHex(a.map((v,k)=>v+(b[k]-v)*f));
+const screenStops=()=>liveScreenStops()||Array(5).fill(SCREEN_DARK);
+const SCREEN_DARK='#1d222b',DEMO_WEDGES=90;
+// The demo picture is a colour wheel around the screen centre, so every point of the
+// perimeter, and so every lamp zone, gets its own hue. u runs left to right, v bottom to top.
+function demoHue(u,v){const a=Math.atan2((v-.5)*2,(u-.5)*2)*180/Math.PI;return (a+360)%360}
+function hueRgb(hue){
+ const s=.62,l=.55,c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs(hue/60%2-1)),m=l-c/2;
+ const [r,g,b]=hue<60?[c,x,0]:hue<120?[x,c,0]:hue<180?[0,c,x]:hue<240?[0,x,c]:hue<300?[x,0,c]:[c,0,x];
+ return [r,g,b].map(v=>(v+m)*255);
 }
+const demoColor=(u,v)=>rgbHex(hueRgb(demoHue(u,v)));
 // What Sync would send each zone from the demo picture: its colour where the zone samples,
 // dimmed by the zone's falloff gain and the lamp's correction.
 function demoColors(l){
  if(!isRole(l.id))return null;
  const rows=syncProjection(l);if(!rows.length)return null;
  const rgb=hex=>[1,3,5].map(k=>parseInt(hex.slice(k,k+2),16)),k=l.scale/100;
- const colors=rows.map(row=>row.point&&row.gain>0?rgb(demoColor(row.point[0])).map(v=>Math.round(v*row.gain*k)):[0,0,0]);
+ const colors=rows.map(row=>row.point&&row.gain>0?rgb(demoColor(row.point[0],row.point[1])).map(v=>Math.round(v*row.gain*k)):[0,0,0]);
  return colors.some(c=>c.some(v=>v>0))?colors:null;
 }
 // The demo watermark is .2 of the screen height with .3em tracking; tracking trails the last letter,
 // so the anchor moves right by half of it (.03 of the height) to centre the letters.
+// Wedges in the screen's normalised space, so a wedge's hue is the hue demoColor gives its points.
+function demoWheelSvg(cx,cy,mw,mh){
+ let out='';
+ for(let i=0;i<DEMO_WEDGES;i++){
+  const a0=i*360/DEMO_WEDGES,a1=(i+1)*360/DEMO_WEDGES,p=a=>{const t=a*Math.PI/180;return (cx+Math.cos(t)*mw)+' '+(cy-Math.sin(t)*mh)};
+  const color=rgbHex(hueRgb((a0+a1)/2));
+  out+='<path d="M'+cx+' '+cy+'L'+p(a0)+'L'+p(a1)+'Z" fill="'+color+'" stroke="'+color+'" stroke-width=".8"/>';
+ }
+ return out;
+}
 function syncScreenSvg({cx,cy,mw,mh}){
- const stops=screenStops(),offsets=[0,25,50,75,100],x=cx-mw/2+5,y=cy-mh/2+5,w=mw-10,h=mh-10;
- return '<g id="sync-screen" pointer-events="none"><defs><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+stops[i]+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)"/><text class="screen-demo" x="'+(cx+h*.03)+'" y="'+cy+'" font-size="'+(+(h*.2).toFixed(1))+'" text-anchor="middle" dominant-baseline="central" opacity="'+(screenDemo()?1:0)+'" data-screen-demo>Demo</text></g>';
+ const stops=screenStops(),offsets=[0,25,50,75,100],x=cx-mw/2+5,y=cy-mh/2+5,w=mw-10,h=mh-10,demo=screenDemo();
+ return '<g id="sync-screen" pointer-events="none"><defs><clipPath id="screen-clip"><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/></clipPath><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+stops[i]+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)" opacity="'+(demo?0:1)+'"/><g id="screen-demo-image" clip-path="url(#screen-clip)" opacity="'+(demo?1:0)+'">'+demoWheelSvg(cx,cy,mw,mh)+'</g><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)"/><text class="screen-demo" x="'+(cx+h*.03)+'" y="'+cy+'" font-size="'+(+(h*.2).toFixed(1))+'" text-anchor="middle" dominant-baseline="central" opacity="'+(demo?1:0)+'" data-screen-demo>Demo</text></g>';
 }
 function syncZones(l,{cx,cy,mw,mh}){
  const x=500+l.x*3.3;
@@ -641,7 +654,7 @@ function paintLive(){
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  const screen=stage.querySelector('#sync-screen');
- if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops[i]));setAttr(screen.querySelector('[data-screen-demo]'),'opacity',screenDemo()?1:0)}
+ if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops[i]));const demo=screenDemo()?1:0;setAttr(screen.querySelector('[data-screen-demo]'),'opacity',demo);setAttr(screen.querySelector('#screen-demo-image'),'opacity',demo);setAttr(screen.querySelector('#screen-image'),'opacity',1-demo)}
  stage.querySelectorAll('#sync-links [data-k]').forEach(n=>{
   const [id,part]=n.dataset.k.split(':'),l=lamps.find(l=>l.id===id);if(!l)return;
   const color=zoneColor(l,+part.slice(1));setAttr(n,part[0]==='r'?'stroke':'fill',color);

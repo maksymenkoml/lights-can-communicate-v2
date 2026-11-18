@@ -552,16 +552,23 @@ test('without running Sync the Sync view previews the demo picture on the screen
  const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'}),'play-left':lit([[0,255,0]],{source:'scene-output',on:false})}})});
  assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00','the view without Sync shows the scene');
  await app.click(app.$('#sync-tool'));
- const stops=[...app.stage.querySelectorAll('#screen-colors stop')].map(s=>s.getAttribute('stop-color'));
- assert.deepEqual(stops,json(app,'DEMO_SCREEN'));
+ assert.equal(app.stage.querySelector('#screen-demo-image').getAttribute('opacity'),'1');
+ assert.equal(app.stage.querySelector('#screen-image').getAttribute('opacity'),'0');
+ assert.equal(app.stage.querySelectorAll('#screen-demo-image path').length,90,'a colour wheel of wedges');
  assert.equal(app.stage.querySelector('[data-screen-demo]').textContent,'Demo');
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'1');
  const left=json(app,'lamps.find(l=>l.id==="govee-left")');
  assert.deepEqual(json(app,'liveColors(lamps.find(l=>l.id==="govee-left"))'),json(app,'demoColors(lamps.find(l=>l.id==="govee-left"))'));
  assert.notEqual(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00','the lamp no longer shows its scene colour');
  assert.equal(app.run('demoColors(lamps.find(l=>l.id==="govee-left"))').length,left.zones);
- assert.equal(app.run('demoColor(0)'),'#2d4f8a');assert.equal(app.run('demoColor(1)'),'#c8553d');
- assert.equal(json(app,'demoColors(lamps.find(l=>l.id==="govee-left"))').at(-1).join(),json(app,'(()=>{const l=lamps.find(l=>l.id==="govee-left"),r=syncProjection(l).at(-1);return [1,3,5].map(k=>Math.round(parseInt(demoColor(r.point[0]).slice(k,k+2),16)*r.gain*l.scale/100))})()').join(),'a zone takes the picture colour where it samples, dimmed by gain and correction');
+ // Right is red, top yellow-green, left cyan, bottom violet: every edge point has its own hue.
+ assert.equal(app.run('demoHue(1,.5)'),0);assert.equal(app.run('demoHue(.5,1)'),90);assert.equal(app.run('demoHue(0,.5)'),180);assert.equal(app.run('demoHue(.5,0)'),270);
+ assert.equal(app.run('demoColor(1,.5)'),'#d34545');
+ const points=json(app,'syncProjection(lamps.find(l=>l.id==="govee-left")).filter(r=>r.point).map(r=>r.point)');
+ const hues=points.map(p=>Math.round(app.run('demoHue('+p.join()+')')));
+ assert.ok(new Set(points.map(String)).size>1);
+ assert.equal(new Set(hues).size,new Set(points.map(String)).size,'zones that sample different screen points get different hues');
+ assert.equal(json(app,'demoColors(lamps.find(l=>l.id==="govee-left"))').at(-1).join(),json(app,'(()=>{const l=lamps.find(l=>l.id==="govee-left"),r=syncProjection(l).at(-1);return [1,3,5].map(k=>Math.round(parseInt(demoColor(...r.point).slice(k,k+2),16)*r.gain*l.scale/100))})()').join(),'a zone takes the picture colour where it samples, dimmed by gain and correction');
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
  assert.ok(rays.length>0);
