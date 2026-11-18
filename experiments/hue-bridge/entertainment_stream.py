@@ -206,6 +206,8 @@ class VideoLease:
         self.received = 0
         self.stopping = False
         self.max_frame_gap = 0
+        # Set for every accepted frame or stop, so the output worker need not poll.
+        self.wake = threading.Event()
 
     def close(self):
         with self.lock:
@@ -263,6 +265,7 @@ class VideoLease:
                     return False
                 self.closed.append(session)
                 self.session, self.frame = None, None
+                self.wake.set()
                 return True
             if self.session and self.session != session:
                 self.closed.append(self.session)
@@ -276,6 +279,7 @@ class VideoLease:
             )
             self.frame = frame
             self.received += 1
+            self.wake.set()
             return True
 
     def latest(self):

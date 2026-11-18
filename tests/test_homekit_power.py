@@ -243,6 +243,25 @@ class HomeKitPowerTests(unittest.TestCase):
             requests.request({"id": "e" * 32, "issued_at": 990.0, "states": {"right": True}})
 
 
+    def test_hue_requests_for_the_settled_state_send_nothing(self):
+        self.power.tick()
+        requests = HomeKitRequests(self.power, wall_clock=lambda: 1000.0)
+        self.assertTrue(requests.request({"id": "c" * 32, "issued_at": 1000.0,
+                                          "states": {"right": True}}))
+        sent = len(self.lamps.sent)
+        self.assertTrue(self.power.settled("right", True))
+        self.assertTrue(requests.request({"id": "d" * 32, "issued_at": 1000.0,
+                                          "states": {"right": True}}))
+        self.assertEqual(len(self.lamps.sent), sent)
+        # A lamp switched off elsewhere is not settled, so the request switches it on.
+        self.lamps.native["right"] = False
+        self.assertFalse(self.power.settled("right", True))
+        self.assertTrue(requests.request({"id": "e" * 32, "issued_at": 1000.0,
+                                          "states": {"right": True}}))
+        self.assertGreater(len(self.lamps.sent), sent)
+        self.lamps.reachable["right"] = False
+        self.assertFalse(self.power.settled("right", True))
+
 class HomeKitRouteTests(unittest.TestCase):
     def setUp(self):
         temp = TemporaryDirectory(prefix="tmp_homekit_route_")

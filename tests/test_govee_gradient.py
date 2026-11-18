@@ -26,14 +26,17 @@ def gradient_stream():
 class GradientProfileTests(unittest.TestCase):
     def test_gradient_payload_validation_precedes_persistent_state_changes(self):
         point = {"color": {"xy": {"x": 0.3, "y": 0.3}}}
-        validate_gradient({"points": [point] * 3})
+        # The Hue app sends up to five points to every gradient light, also
+        # to one that advertises three; the adapter spreads them over the zones.
+        for count in (1, 3, 5):
+            validate_gradient({"points": [point] * count})
         for value in (
             None,
             {},
             {"points": None},
             {"points": []},
             {"points": [None]},
-            {"points": [point] * 4},
+            {"points": [point] * 6},
             {"points": [{"color": {"xy": {"x": True, "y": 0.3}}}]},
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):

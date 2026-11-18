@@ -47,8 +47,10 @@ def validate_capability(value, states):
 
 
 class PowerRequests:
-    def __init__(self, owner):
+    def __init__(self, owner, observe=None):
         self.owner = owner
+        # Fresh identity-verified native power per role, as sent to the owner.
+        self.observe = observe
         self.clock, self.wall_clock = owner.clock, owner.wall_clock
         self.condition = threading.Condition()
         self.session = None
@@ -144,6 +146,26 @@ class PowerRequests:
             self.condition.notify_all()
             return {"power_requests": outgoing, "power_request_acks": acknowledgements}
 
+    def settled(self, states):
+        """Whether Home already wants, and every lamp already has, the requested power.
+
+        The Hue app repeats On with every scene and light change. Such a request
+        changes nothing, so it needs no owner round trip, which takes a heartbeat
+        or more. A role with a command in flight is never settled.
+        """
+        if self.observe is None:
+            return False
+        observed = self.observe()
+        with self.condition:
+            session, roles = self._owner()
+            busy = {role for job in self.jobs.values()
+                    for role, command in job["commands"].items() if command["result"] is None}
+            return session is not None and session == self.session and all(
+                role not in busy and roles[role]["grant_remaining"] > 0
+                and roles[role]["requested_on"] is on
+                and isinstance(observed.get(role), dict) and observed[role].get("on") is on
+                for role, on in states.items())
+
     def request(self, payload):
         if (type(payload) is not dict or set(payload) != {"id", "issued_at", "states"}
                 or not _id(payload["id"]) or not _number(payload["issued_at"])
@@ -152,6 +174,8 @@ class PowerRequests:
                 or set(payload["states"]) - _ROLES
                 or any(type(value) is not bool for value in payload["states"].values())):
             raise ValueError("Invalid explicit power request")
+        if payload["id"] not in self.jobs and self.settled(payload["states"]):
+            return True
         with self.condition:
             now = self.clock()
             self._expire()

@@ -19,7 +19,7 @@ if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
-from govee_segments import interpolate, segment_data  # noqa: E402
+from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
 from homekit_power import (  # noqa: E402
     HomeKitPower,
     HomeKitRequests,
@@ -163,6 +163,13 @@ def native_target(status, fallback):
     return result
 
 
+# DreamView frames per second while Sync streams. Both selected H6076 answered
+# every status poll at ~27 frames/s and started to miss them above ~38.
+STREAM_FRAMES_PER_SECOND = 25
+# The lamp leaves DreamView after a minute without frames; renew the mode well before.
+RAZER_RENEW_SECONDS = 10
+
+
 class PilotController:
     def __init__(
         self,
@@ -202,6 +209,20 @@ class PilotController:
             else None
             for item in self.targets
         }
+        self.stream_rates = {
+            item["side"]: number(item["max_stream_frames_per_second"], 1, 60)
+            if "max_stream_frames_per_second" in item
+            else STREAM_FRAMES_PER_SECOND
+            for item in self.targets
+        }
+        # Sync video streams zoned output through DreamView instead of ptReal.
+        self.streaming = False
+        # Side -> time DreamView was last switched on; kept until it is switched off.
+        self.razer = {}
+        # Brightness last sent while streaming. Video output re-sends every frame
+        # (last_sent is cleared each tick), but an unchanged brightness must not
+        # take a frame slot.
+        self.stream_brightness = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
         if len(self.ids) != 2:
@@ -220,6 +241,16 @@ class PilotController:
         self.skipped_state = {side: 0 for side in self.by_side}
         self.rejected_sends = {side: 0 for side in self.by_side}
         self.color_samples = {side: deque(maxlen=500) for side in self.by_side}
+
+    def set_streaming(self, active):
+        """Use DreamView for zoned video output; scene output switches it off first."""
+        with self.lock:
+            if self.streaming != bool(active):
+                self.streaming = bool(active)
+                self.last_sent.clear()
+                self.stream_brightness.clear()
+                # A ptReal slot can lie seconds ahead; it must not hold the stream.
+                self.next_send.clear()
 
     def update_statuses(self, statuses):
         with self.lock:
@@ -388,6 +419,7 @@ class PilotController:
                     revision = self.power_owner.revision(side)
                     if self.power_revisions.get(side) != revision:
                         self.last_sent.pop(side, None)
+                        self.stream_brightness.pop(side, None)
                         self.power_revisions[side] = revision
                     if not self.power_owner.allowed(side):
                         self.last_sent.pop(side, None)
@@ -400,33 +432,60 @@ class PilotController:
                     if side in self.jobs:
                         self.skipped_state[side] += 1
                     continue
+                if not self.streaming and side in self.razer:
+                    # The lamp ignores other color commands while DreamView is on,
+                    # so leave it even when no scene target is waiting yet.
+                    try:
+                        left = self.sender(device, "razer", razer_mode(False))
+                    except OSError:
+                        left = False
+                    if not left:
+                        # Keep the scene target pending until the lamp leaves DreamView.
+                        self.rejected_sends[side] += 1
+                        continue
+                    self.razer.pop(side)
                 target = self.effective_target(side)
                 if target is None:
                     continue
                 old = self.last_sent.get(side, {})
                 refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
                 updates = []
-                commands = (
-                    [
+                stream = self.streaming and "segments" in target
+                if stream:
+                    commands = [
+                        ("razer", razer_data(target["segments"])),
+                        ("brightness", {"value": target["brightness"]}),
+                    ]
+                elif "segments" in target:
+                    commands = [
                         ("ptReal", segment_data(target["segments"])),
                         ("brightness", {"value": target["brightness"]}),
                     ]
-                    if "segments" in target
-                    else lan.govee_commands(target)
-                )
+                else:
+                    commands = lan.govee_commands(target)
                 for name, data in commands:
                     changed = (
-                        old.get("brightness") != target["brightness"]
+                        (self.stream_brightness.get(side) if stream else old.get("brightness"))
+                        != target["brightness"]
                         if name == "brightness"
                         else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
                         != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
                     )
                     if changed or refresh:
                         updates.append((name, data))
-                rate = self.packet_rates[side]
-                gradient_rate = self.gradient_packet_rates[side]
-                if "segments" in target and gradient_rate is not None:
-                    rate = min(rate, gradient_rate) if rate is not None else gradient_rate
+                mode = None
+                if stream and (side not in self.razer
+                               or now - self.razer[side] >= RAZER_RENEW_SECONDS):
+                    mode = razer_mode(True)
+                if mode is not None:
+                    updates.insert(0, ("razer", mode))
+                if stream:
+                    rate = self.stream_rates[side]
+                else:
+                    rate = self.packet_rates[side]
+                    gradient_rate = self.gradient_packet_rates[side]
+                    if "segments" in target and gradient_rate is not None:
+                        rate = min(rate, gradient_rate) if rate is not None else gradient_rate
                 if (
                     updates
                     and rate is not None
@@ -440,6 +499,10 @@ class PilotController:
                     except OSError:
                         success = False
                     complete = success and complete
+                    if success and data is mode:
+                        self.razer[side] = now
+                    if success and stream and name == "brightness":
+                        self.stream_brightness[side] = data["value"]
                     self.commands_sent += int(success)
                     if not success:
                         self.rejected_sends[side] += 1
@@ -452,7 +515,14 @@ class PilotController:
                             }
                         )
                 if updates and rate is not None:
-                    self.next_send[side] = now + len(updates) / rate
+                    interval = len(updates) / rate
+                    previous = self.next_send.get(side)
+                    if stream and previous is not None and 0 <= now - previous < interval:
+                        # Keep the frame cadence: a render tick that came a little
+                        # late must not stretch every later slot.
+                        self.next_send[side] = previous + interval
+                    else:
+                        self.next_send[side] = now + interval
                 if complete:
                     self.last_sent[side] = target
                     if refresh:
@@ -462,6 +532,8 @@ class PilotController:
         with self.lock:
             return {
                 "active_sides": sorted(self.jobs),
+                "streaming": self.streaming,
+                "dreamview_sides": sorted(self.razer),
                 "commands_sent": self.commands_sent,
                 "skipped_state": dict(self.skipped_state),
                 "rejected_sends": dict(self.rejected_sends),
@@ -749,7 +821,8 @@ def main(argv=None, service_info=None):
             power_owner = PowerOwner(config["targets"])
             power_owner.attach_power(lan.send_to_target,
                                      observe=lambda: controller.power_observations())
-            power_requests = PowerRequests(power_owner)
+            power_requests = PowerRequests(
+                power_owner, observe=lambda: controller.power_observations())
         sender = power_owner.wrap(sender)
     elif args.power_authority == "homekit":
         raise ValueError("HomeKit power requires a power owner credential")

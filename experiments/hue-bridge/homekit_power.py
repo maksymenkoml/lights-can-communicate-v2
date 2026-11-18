@@ -110,6 +110,13 @@ class HomeKitPower:
             return (self.intent.get(side, {}).get("on") is True and side not in self.holds
                     and self.confirmed.get(side, False))
 
+    def settled(self, side, on):
+        """Whether Home already wants, and the lamp already has, this power state."""
+        observed = self.observe().get(side, {})
+        with self.lock:
+            return (self.intent[side]["on"] is on and not self.unconfirmed[side]
+                    and (self.confirmed[side] or not on) and observed.get("on") is on)
+
     def wrap(self, sender):
         def send(device, command, data):
             # Closing the gate takes this lock, so it waits for an in-flight send.
@@ -450,6 +457,9 @@ class HomeKitRequests:
                 or any(type(value) is not bool for value in payload["states"].values())):
             raise ValueError("Invalid explicit power request")
         for side, on in payload["states"].items():
+            # The Hue app repeats On with every scene; a settled lamp needs no write.
+            if self.power.settled(side, on):
+                continue
             if not self.power.set({"role": side, "on": on}):
                 raise PowerRequestUnavailable("Power request was not confirmed")
         return True
