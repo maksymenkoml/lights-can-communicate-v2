@@ -508,13 +508,13 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  const floorStops=[...app.lamp('govee-left').querySelectorAll('stop')].map(s=>s.getAttribute('stop-color'));
  assert.equal(floorStops[0],'#ffffff');assert.equal(floorStops.at(-1),'#0000ff','zones run bottom to top');
  for(const id of ['play-center','play-right','govee-right'])assert.equal(app.lamp(id).querySelector('[data-sync-power]').getAttribute('opacity'),'0',id);
- assert.equal(app.stage.querySelector('#screen-image').getAttribute('opacity'),'1');
+ assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'0','the live picture carries no demo label');
  answer=pilotOk({lamps:{'play-left':lit([[0,128,0]])}});
  await app.advance(200);
  assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00');
  assert.equal(app.stage.querySelector('[data-wash-for="play-left"]').style.getPropertyValue('--beam'),'#00ff00');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
- assert.equal(app.stage.querySelector('#screen-image').getAttribute('opacity'),'0','dark screen without strip colours');
+ assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'1','without strip colours the screen shows the labelled demo picture');
  assert.equal(app.stage.writes,writes,'the stage markup was not rebuilt');
  assert.equal(app.lamp('play-left'),node);
  answer=pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[0,128,0]],{source:'scene-output'})}});
@@ -529,7 +529,7 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
 
 test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  const hues=['#ff0000','#00ff00','#0000ff','#ffff00','#00ffff','#ff00ff','#ffffff'];
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]])}})});
+ const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]]),'hue-monitor':lit(Array(9).fill([9,9,9]))}})});
  await app.click(app.$('#sync-tool'));
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
@@ -539,13 +539,35 @@ test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  assert.equal(app.stage.querySelectorAll('#sync-links .ray').length,rays.length,'the monitor shows every lit lamp');
 });
 
+test('the view without Sync shows only the lamps own light, even while Sync runs',async()=>{
+ const app=await harness({pilot:pilotOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'})}})});
+ assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0','Sync colours stay off the scene');
+ assert.equal(app.lamp('play-right').querySelector('[data-sync-power]').getAttribute('opacity'),'1','own light stays visible');
+ await app.click(app.$('#sync-tool'));
+ assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),'1','the Sync view shows them');
+});
+
+test('without a live picture the monitor shows labelled demo colors and the rays sample them',async()=>{
+ const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'})}})});
+ await app.click(app.$('#sync-tool'));
+ const stops=[...app.stage.querySelectorAll('#screen-colors stop')].map(s=>s.getAttribute('stop-color'));
+ assert.deepEqual(stops,json(app,'DEMO_SCREEN'));
+ assert.equal(app.stage.querySelector('[data-screen-demo]').textContent,'Demo colors');
+ assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'1');
+ app.run('select("govee-left")');await app.settle();
+ const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
+ assert.ok(rays.length>0);
+ for(const ray of rays)assert.equal(ray.getAttribute('stroke'),app.run('demoColor('+ray.dataset.u+')'),'a ray takes the demo colour where it samples');
+ assert.equal(app.run('demoColor(0)'),'#2d4f8a');assert.equal(app.run('demoColor(1)'),'#c8553d');
+});
+
 test('a lamp wash takes its hue from the emitted colours weighted by brightness',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[255,0,0],[0,0,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]])}})});
+ const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[255,0,0],[0,0,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]],{source:'scene-output'})}})});
  assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0001','a nearly-off blue zone does not turn the red lamp purple');
 });
 
 test('dim zones glow faintly in their hue and black zones emit no light',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[0,0,0],[0,0,0],[0,0,0],[64,32,0],[255,128,0],[0,0,0],[0,0,0]]),'play-left':lit([[0,0,64]])}})});
+ const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[0,0,0],[0,0,0],[0,0,0],[64,32,0],[255,128,0],[0,0,0],[0,0,0]],{source:'scene-output'}),'play-left':lit([[0,0,64]],{source:'scene-output'})}})});
  const floor=app.lamp('govee-left'),stops=[...floor.querySelectorAll('stop')];
  // Stops run top to bottom in pairs; zone 4 (index 3 from the bottom) is dim, zone 5 bright.
  const zone=i=>stops[2*(6-i)];

@@ -118,7 +118,8 @@ function liveColors(l){
  if(l.unbound||l.enabled===false||!isRole(l.id)||!pilotFresh()||lampBlocker(l))return null;
  const row=pilot.lamps&&typeof pilot.lamps==='object'?pilot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
- if(row.source!=='scene-output'&&row.source!=='sync-output')return null;
+ // The view without Sync shows the lamps' own light only, even while Sync runs.
+ if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;
  if(!Array.isArray(row.colors)||!row.colors.length||!row.colors.every(validRgb))return null;
  const colors=Array.from({length:l.zones},(_,i)=>row.colors[row.colors.length===1?0:Math.min(i,row.colors.length-1)]);
  return colors.some(c=>c.some(v=>v>0))?colors:null;
@@ -137,6 +138,8 @@ function beamColor(colors){
 // Each lens zone keeps its hue; its opacity is its brightness relative to the lamp's brightest zone.
 function zoneStop(c,level){const z=light(c);return {color:rgbHex(z.rgb),opacity:level>0?opacityText(clamp(z.level/level)):'0'}}
 function lampDark(l){return !liveColors(l)}
+// With the demo picture every Sync lamp shows where it samples; with a live picture only lit lamps do.
+const showsRays=l=>!lampDark(l)||screenDemo();
 function pilotState(){
  if(!pilotFresh())return 'unknown';
  const state=pilot.sync&&typeof pilot.sync==='object'?pilot.sync.state:undefined;
@@ -247,7 +250,10 @@ function syncProjection(l){
  return [{point:syncPoint(l.x,l.h),gain:syncGain(l.x,l.h)}];
 }
 function syncSummary(l){const rows=syncProjection(l);return {rows,active:rows.filter(r=>r.gain>1e-8).length}}
-function zoneColor(l,i){const colors=liveColors(l),c=colors?.[Math.min(i,colors.length-1)];return c&&c.some(v=>v>0)?rgbHex(light(c).rgb):NEUTRAL_RAY}
+function zoneColor(l,i,u){
+ if(screenDemo())return demoColor(u);
+ const colors=liveColors(l),c=colors?.[Math.min(i,colors.length-1)];return c&&c.some(v=>v>0)?rgbHex(light(c).rgb):NEUTRAL_RAY;
+}
 
 // ------------------------------------------------------------- drawing --
 const glyph={floor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 3v17M6 22h10"/><path d="M11 3v13" stroke-width="3" stroke-linecap="round"/></svg>',bar:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="9" width="18" height="6" rx="3"/></svg>',strip:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 20V5h16v15"/></svg>',desk:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 9h20M4 9v12M18 9v12"/></svg>',monitor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="20" height="14" rx="2"/><path d="M11 18v4M6 22h10"/></svg>'};
@@ -400,17 +406,26 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
  return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3)+'" y="'+(my-3)+'" width="'+(mw+6)+'" height="'+(mh+6)+'" rx="9"/></g>';
 }
-// The monitor picture in the Sync view: a soft gradient of the strip's emitted colours.
-const SCREEN_DARK='#1d222b';
-function screenStops(){
+// The monitor picture in the Sync view: a soft gradient of the strip's emitted colours
+// while Sync runs; otherwise a fixed demo picture, so the rays still show where each zone samples.
+const DEMO_SCREEN=['#2d4f8a','#2a9d8f','#e9c46a','#f4a261','#c8553d'];
+function liveScreenStops(){
  const colors=pilotState()==='active'?liveColors(strip()):null;
  if(!colors||colors.length<9)return null;
  const avg=(...cs)=>rgbHex([0,1,2].map(i=>cs.reduce((a,c)=>a+c[i],0)/cs.length));
  return [avg(colors[0],colors[1],colors[2]),rgbHex(colors[3]),rgbHex(colors[4]),rgbHex(colors[5]),avg(colors[6],colors[7],colors[8])];
 }
+const screenDemo=()=>mode==='sync'&&!liveScreenStops();
+const screenStops=()=>liveScreenStops()||DEMO_SCREEN;
+// The demo picture's colour at horizontal position u (0 left, 1 right), as the gradient draws it.
+function demoColor(u){
+ const t=clamp(u)*(DEMO_SCREEN.length-1),i=Math.min(Math.floor(t),DEMO_SCREEN.length-2),f=t-i;
+ const rgb=hex=>[1,3,5].map(k=>parseInt(hex.slice(k,k+2),16)),a=rgb(DEMO_SCREEN[i]),b=rgb(DEMO_SCREEN[i+1]);
+ return rgbHex(a.map((v,k)=>v+(b[k]-v)*f));
+}
 function syncScreenSvg({cx,cy,mw,mh}){
  const stops=screenStops(),offsets=[0,25,50,75,100],x=cx-mw/2+5,y=cy-mh/2+5,w=mw-10,h=mh-10;
- return '<g id="sync-screen" pointer-events="none"><defs><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+(stops?stops[i]:SCREEN_DARK)+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)" opacity="'+(stops?1:0)+'"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)" opacity="'+(stops?1:0)+'" data-screen-shade/></g>';
+ return '<g id="sync-screen" pointer-events="none"><defs><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+stops[i]+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)"/><text class="screen-demo" x="'+cx+'" y="'+(y+h-12)+'" text-anchor="middle" opacity="'+(screenDemo()?1:0)+'" data-screen-demo>Demo colors</text></g>';
 }
 function syncZones(l,{cx,cy,mw,mh}){
  const x=500+l.x*3.3;
@@ -418,16 +433,16 @@ function syncZones(l,{cx,cy,mw,mh}){
   const y=740-(l.form==='floor'?l.h+6+(i+.5)*128/7:l.h)*3.3;
   if(!row.point||row.gain<=0)return {x,y,on:false};
   const [u,v]=row.point;
-  return {x,y,on:true,u,v,sx:cx+(u-.5)*mw,sy:cy+(.5-v)*mh,c:zoneColor(l,i)};
+  return {x,y,on:true,u,v,sx:cx+(u-.5)*mw,sy:cy+(.5-v)*mh,c:zoneColor(l,i,u)};
  });
 }
-function rayMarkup(l,z,i){return '<path class="ray" data-k="'+l.id+':r'+i+'" stroke="'+z.c+'" d="M'+z.x+' '+z.y+'L'+z.sx+' '+z.sy+'"/><rect class="zone-tick" data-k="'+l.id+':t'+i+'" x="'+(z.x-3)+'" y="'+(z.y-3)+'" width="6" height="6" rx="1.5" fill="'+z.c+'"/>'}
-function sampleMarkup(l,z,i){return '<circle class="sample" data-k="'+l.id+':s'+i+'" cx="'+z.sx+'" cy="'+z.sy+'" r="3.5" fill="'+z.c+'"/>'}
+function rayMarkup(l,z,i){return '<path class="ray" data-k="'+l.id+':r'+i+'" data-u="'+z.u+'" stroke="'+z.c+'" d="M'+z.x+' '+z.y+'L'+z.sx+' '+z.sy+'"/><rect class="zone-tick" data-k="'+l.id+':t'+i+'" data-u="'+z.u+'" x="'+(z.x-3)+'" y="'+(z.y-3)+'" width="6" height="6" rx="1.5" fill="'+z.c+'"/>'}
+function sampleMarkup(l,z,i){return '<circle class="sample" data-k="'+l.id+':s'+i+'" data-u="'+z.u+'" cx="'+z.sx+'" cy="'+z.sy+'" r="3.5" fill="'+z.c+'"/>'}
 function syncLinksSvg(geo){
  let out='<g id="sync-links" pointer-events="none">';
  if(selected==='monitor'){
   for(const l of lamps){
-   if(l.id===MONITOR||l.unbound||l.enabled===false||lampDark(l))continue;
+   if(l.id===MONITOR||l.unbound||l.enabled===false||!showsRays(l))continue;
    syncZones(l,geo).forEach((z,i)=>{if(z.on)out+=rayMarkup(l,z,i)+sampleMarkup(l,z,i)});
   }
   return out+'</g>';
@@ -457,7 +472,7 @@ let focusState=new Map(),skipClick=false,menuOpen=false;
 function focusKey(n){return n.dataset.lamp||n.dataset.washFor||n.dataset.select}
 function applyFocus(){
  const on=!!selected&&drag?.handle!=='scale';
- const keep=new Set([selected]);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
+ const keep=new Set([selected]);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&showsRays(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
  const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group');
  nodes.forEach(n=>{
   const key=focusKey(n),want=on&&!keep.has(key)?.22:1,was=focusState.has(key)?focusState.get(key):want;
@@ -565,7 +580,7 @@ function maskWashes(){document.querySelectorAll('#wash-layer [data-wash-for]').f
 function setAttr(node,key,value){if(node&&node.getAttribute(key)!==String(value))node.setAttribute(key,String(value))}
 function setVar(node,key,value){if(node&&node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)}
 function statusKey(){
- return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level]);
+ return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level,screenDemo()]);
 }
 // Telemetry changes existing SVG attributes only: no layout rebuild, no save.
 function paintLive(){
@@ -584,10 +599,10 @@ function paintLive(){
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  const screen=stage.querySelector('#sync-screen');
- if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops?stops[i]:SCREEN_DARK));setAttr(screen.querySelector('#screen-image'),'opacity',stops?1:0);setAttr(screen.querySelector('[data-screen-shade]'),'opacity',stops?1:0)}
+ if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops[i]));setAttr(screen.querySelector('[data-screen-demo]'),'opacity',screenDemo()?1:0)}
  stage.querySelectorAll('#sync-links [data-k]').forEach(n=>{
   const [id,part]=n.dataset.k.split(':'),l=lamps.find(l=>l.id===id);if(!l)return;
-  const color=zoneColor(l,+part.slice(1));setAttr(n,part[0]==='r'?'stroke':'fill',color);
+  const color=zoneColor(l,+part.slice(1),+n.dataset.u);setAttr(n,part[0]==='r'?'stroke':'fill',color);
  });
  paintSwatches();
  const key=statusKey();
