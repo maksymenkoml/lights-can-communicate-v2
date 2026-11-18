@@ -678,7 +678,8 @@ def main(argv=None, service_info=None):
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])
-            power_requests = PowerRequests(power_owner)
+            power_requests = PowerRequests(
+                power_owner, observe=lambda: controller.power_observations())
         sender = power_owner.wrap(sender)
     elif args.power_authority == "homekit":
         raise ValueError("HomeKit power requires a power owner credential")
