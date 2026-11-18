@@ -55,7 +55,8 @@ def plugin_tarball(root, output_dir):
     name = f"{package['name']}-{package['version']}.tgz"
     with (output_dir / name).open("xb") as raw, gzip.GzipFile(
             filename="", mode="wb", fileobj=raw, mtime=0) as stream:
-        stream.write(archive.getvalue())
+        archive.seek(0)
+        shutil.copyfileobj(archive, stream)
     return {"name": package["name"], "version": package["version"], "file": f"plugin/{name}"}
 
 

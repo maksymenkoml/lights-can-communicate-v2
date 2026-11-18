@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -141,12 +142,19 @@ class InstallTests(unittest.TestCase):
         self.assertFalse((self.base / "releases" / (__version__ + ".partial")).exists())
 
     def test_a_different_build_of_an_installed_version_is_refused(self):
-        self.place(__version__)
-        manifest = json.loads((self.base / "releases" / __version__ / "manifest.json").read_text())
-        manifest["files"]["gateway/bootstrap.py"] = "0" * 64
-        (self.base / "releases" / __version__ / "manifest.json").write_text(json.dumps(manifest))
-        with self.assertRaisesRegex(InstallError, "different build"):
-            self.install.stage(self.release)
+        for change in ("files", "compatibility"):
+            with self.subTest(change=change):
+                shutil.rmtree(self.base / "releases", ignore_errors=True)
+                self.place(__version__)
+                path = self.base / "releases" / __version__ / "manifest.json"
+                manifest = json.loads(path.read_text())
+                if change == "files":
+                    manifest["files"]["gateway/bootstrap.py"] = "0" * 64
+                else:
+                    manifest["compatibility"]["state"] = {**STATE_SCHEMAS, "desk_layout": 9}
+                path.write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(InstallError, "different build"):
+                    self.install.stage(self.release)
 
     # Activation and rollback --------------------------------------------
 
@@ -164,6 +172,34 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(backup.stat().st_mode & 0o777, 0o700)
         self.assertEqual(self.journal()["current_backup"], result["backup"])
         self.assertFalse(self.install.activate("1.0.0")["changed"])
+
+    def test_activation_revalidates_the_configuration_changed_after_staging(self):
+        self.install.stage(self.release)
+        self.config["adapter"]["targets_file"] = str(self.base / "missing.json")
+        (self.base / "config" / "core.json").write_text(json.dumps(self.config))
+        with self.assertRaisesRegex(InstallError, "does not validate"):
+            self.install.activate(__version__)
+        self.assertFalse((self.base / "current").exists())
+        self.assertFalse((self.base / "install.json").exists())
+
+    def test_recovery_waits_until_components_are_stopped(self):
+        self.place("1.0.0")
+        with patch.object(Installation, "_point", side_effect=OSError("interrupted")):
+            with self.assertRaises(OSError):
+                self.install.activate("1.0.0")
+        busy = Installation(self.base, probe=lambda _: ["gateway"])
+        with self.assertRaisesRegex(InstallError, "gateway"):
+            busy.recover()
+        self.assertFalse((self.base / "current").exists())
+        self.assertIsNotNone(self.journal()["transaction"])
+        self.install.recover()
+        self.assertEqual(os.readlink(self.base / "current"), "releases/1.0.0")
+
+    def test_start_commands_quote_installation_paths(self):
+        install = Installation(self.base / "it's; touch owned", probe=stopped)
+        for command in install.start_commands():
+            self.assertNotIn("touch", shlex.split(command)[0])
+            self.assertFalse(any(part == "touch" for part in shlex.split(command)))
 
     def test_rollback_without_a_schema_change_keeps_newer_state(self):
         self.place("1.0.0")

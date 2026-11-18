@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -203,7 +204,7 @@ class Installation:
             raise InstallError("Python is older than the release requires")
         target = self.releases / version
         if target.exists():
-            if read_manifest(target)["files"] != manifest["files"]:
+            if read_manifest(target) != manifest:
                 raise InstallError("A different build of this version is already installed")
             return {"version": version, "staged": False}
         self.releases.mkdir(mode=0o755, parents=True, exist_ok=True)
@@ -213,12 +214,7 @@ class Installation:
             shutil.copytree(release, partial, symlinks=True,
                             ignore=shutil.ignore_patterns("services"))
             verify(partial)
-            check = subprocess.run(
-                [self.python, "-I", "-B", str(partial / services.ARCHIVE), "adapter",
-                 "--check", "--config", str(self.config_path)],
-                capture_output=True, timeout=60)
-            if check.returncode != 0:
-                raise InstallError("Configuration does not validate with this release")
+            self._check(partial)
             services.render(self.config(), self.config_path, partial, partial / "services",
                             self.python, link=self.current)
             os.replace(partial, target)
@@ -227,6 +223,15 @@ class Installation:
             raise
         self._sync_dir(self.releases)
         return {"version": version, "staged": True}
+
+    def _check(self, release):
+        """Run the release's own configuration check against the current configuration."""
+        check = subprocess.run(
+            [self.python, "-I", "-B", str(Path(release) / services.ARCHIVE), "adapter",
+             "--check", "--config", str(self.config_path)],
+            capture_output=True, timeout=60)
+        if check.returncode != 0:
+            raise InstallError("Configuration does not validate with this release")
 
     def activate(self, version):
         data = self.recover()
@@ -237,6 +242,8 @@ class Installation:
             return {"active": version, "changed": False}
         config = self.config()
         self._stopped(config)
+        # The configuration may have changed since staging.
+        self._check(self.releases / version)
         data["transaction"] = {"op": "activate", "from": data["current"], "to": version,
                                "backup": self._stamp("activate"), "restore": None,
                                "step": "snapshot"}
@@ -264,7 +271,9 @@ class Installation:
         """Complete an interrupted transaction; every step is repeatable."""
         data = self.journal()
         if data["transaction"] is not None:
-            self._finish(data, self.config())
+            config = self.config()
+            self._stopped(config)
+            self._finish(data, config)
             data = self.journal()
         return data
 
@@ -312,13 +321,13 @@ class Installation:
                 shutil.rmtree(path)
 
     def start_commands(self):
-        folder = self.current / "services"
+        compose = shlex.quote(str(self.current / "services" / "gateway-compose.json"))
+        archive = shlex.quote(str(self.current / services.ARCHIVE))
+        config = shlex.quote(str(self.config_path))
         return [
-            f"docker compose -f '{folder / 'gateway-compose.json'}' up -d --force-recreate",
-            f"python3 -I -B '{self.current / services.ARCHIVE}' adapter "
-            f"--config '{self.config_path}'",
-            f"python3 -I -B '{self.current / services.ARCHIVE}' ready "
-            f"--config '{self.config_path}'",
+            f"docker compose -f {compose} up -d --force-recreate",
+            f"python3 -I -B {archive} adapter --config {config}",
+            f"python3 -I -B {archive} ready --config {config}",
         ]
 
     def status(self):
@@ -334,9 +343,9 @@ class Installation:
                 "transaction": data["transaction"], "backups": backups[-KEEP_BACKUPS:]}
 
 
-def _answers(host, port, timeout=0.5):
+def _answers(host, port):
     try:
-        with socket.create_connection((host, port), timeout=timeout):
+        with socket.create_connection((host, port), timeout=0.5):
             return True
     except OSError:
         return False
