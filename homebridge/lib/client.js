@@ -5,6 +5,9 @@ import { isIPv4 } from 'node:net';
 export const CREDENTIAL_FILE = 'lights-can-communicate.json';
 
 /** Read the private core endpoint and owner credential from Homebridge storage. */
+/** Version of the signed /homekit API; the release manifest records it as core_api.homekit. */
+export const CORE_API = 1;
+
 export function readCredentials(path) {
   const info = statSync(path);
   if (!info.isFile() || (process.platform !== 'win32' && (info.mode & 0o077) !== 0)) {
@@ -98,7 +101,11 @@ export class CoreClient {
 
   async state() {
     const { status, value } = await this.request('GET');
-    if (status !== 200 || !value || value.version !== 1 || typeof value.roles !== 'object') {
+    if (status === 200 && value && value.version !== CORE_API) {
+      // A core upgraded or rolled back without this plugin: never write power.
+      throw new Error(`Core HomeKit API ${value.version} is not supported (plugin expects ${CORE_API})`);
+    }
+    if (status !== 200 || !value || typeof value.roles !== 'object') {
       throw new Error(`Core state unavailable (${status})`);
     }
     return value.roles;

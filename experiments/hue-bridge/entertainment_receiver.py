@@ -173,6 +173,13 @@ def dtls_diagnostic(line):
     return None
 
 
+RECONNECT_IDLE = 0.5
+CANDIDATE_SECONDS = 10
+# Hue bridges end an entertainment session after ten seconds without data;
+# a source that vanished then sees an inactive stream and sends a new Start.
+STREAM_TIMEOUT = 10
+
+
 class EntertainmentReceiver:
     def __init__(self, url, token, openssl="openssl", enabled=False, udp_guard=None,
                  diagnostics=None):
@@ -250,8 +257,6 @@ class EntertainmentReceiver:
             self.udp_guard.close()
 
     def serve(self, group, user):
-        from services.entertainment import _psk_value
-
         if (
             not self.enabled
             or group.id_v2 != GROUP_ID
@@ -287,37 +292,93 @@ class EntertainmentReceiver:
             self.serving = True
             self.serving_group = group
             self.serving_generation = generation
+        self._session(group, user, generation)
+
+    def _last_hello(self):
+        if self.udp_guard is None:
+            return None
+        return self.udp_guard.snapshot()["last_client_hello"]
+
+    def _listen(self, user):
+        from services.entertainment import _psk_value
+
+        return subprocess.Popen(
+            [
+                self.openssl,
+                "s_server",
+                "-4",
+                "-dtls1_2",
+                "-listen",
+                "-quiet",
+                "-state",
+                "-cipher",
+                "PSK-AES128-GCM-SHA256:PSK-AES128-CCM8:PSK-AES128-CCM:@SECLEVEL=0",
+                "-psk",
+                _psk_value(user.client_key),
+                "-psk_identity",
+                user.username,
+                "-nocert",
+                "-accept",
+                self.udp_guard.accept_address if self.udp_guard is not None else "2100",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def _collect(self, process):
+        worker = threading.Thread(target=self._diagnostics_from, args=(process,),
+                                  daemon=True, name="dtls-diagnostics")
+        worker.start()
+        return worker
+
+    def _diagnostics_from(self, process):
+        for line in iter(process.stderr.readline, b""):
+            category = dtls_diagnostic(line)
+            if category:
+                with self.lock:
+                    counts = self.status.setdefault("dtls_diagnostics", {})
+                    counts[category] = counts.get(category, 0) + 1
+
+    @staticmethod
+    def _stop(process, diagnostic_worker=None):
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+        if diagnostic_worker is not None:
+            diagnostic_worker.join(timeout=1)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream:
+                stream.close()
+
+    def _accept(self, outbox, packet, frame):
+        outbox.frame(frame)
+        now = time.monotonic()
+        with self.lock:
+            self.status.update(
+                active=True, last_result="receiving", version=packet[9], area_id=AREA_ID
+            )
+            self.status["frames_received"] += 1
+            self.last_frame_seen = now
+        return now
+
+    def _session(self, group, user, generation):
         outbox = StreamOutbox(self.url, self.token, diagnostics=self.diagnostics)
         self.current_outbox = outbox
         done = threading.Event()
         process = None
         diagnostic_worker = None
         worker = None
+        # A replacement listener for a source that re-handshakes from a new
+        # port; it only takes over after an authenticated, valid frame.
+        candidate = None
         end_reason = "source stopped"
         try:
-            process = subprocess.Popen(
-                [
-                    self.openssl,
-                    "s_server",
-                    "-4",
-                    "-dtls1_2",
-                    "-listen",
-                    "-quiet",
-                    "-state",
-                    "-cipher",
-                    "PSK-AES128-GCM-SHA256:PSK-AES128-CCM8:PSK-AES128-CCM:@SECLEVEL=0",
-                    "-psk",
-                    _psk_value(user.client_key),
-                    "-psk_identity",
-                    user.username,
-                    "-nocert",
-                    "-accept",
-                    self.udp_guard.accept_address if self.udp_guard is not None else "2100",
-                ],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            process = self._listen(user)
             with self.listener_condition:
                 if (
                     self.generation is not generation
@@ -329,19 +390,7 @@ class EntertainmentReceiver:
                 group.stream["_proc"] = process
                 group.stream["owner"] = user.username
                 self.status["dtls_diagnostics"] = {}
-
-            def collect_diagnostics():
-                for line in iter(process.stderr.readline, b""):
-                    category = dtls_diagnostic(line)
-                    if category:
-                        with self.lock:
-                            counts = self.status["dtls_diagnostics"]
-                            counts[category] = counts.get(category, 0) + 1
-
-            diagnostic_worker = threading.Thread(
-                target=collect_diagnostics, daemon=True, name="dtls-diagnostics"
-            )
-            diagnostic_worker.start()
+            diagnostic_worker = self._collect(process)
             with self.lock:
                 self.status.update(active=True, last_result="waiting for DTLS frames")
             worker = threading.Thread(
@@ -350,6 +399,7 @@ class EntertainmentReceiver:
             worker.start()
             parser = FrameBuffer()
             last_data = time.monotonic()
+            answered = last_data
             received = False
             while (
                 group.stream["active"]
@@ -357,15 +407,67 @@ class EntertainmentReceiver:
                 and group.stream.get("_proc") is process
                 and process.poll() is None
             ):
-                idle_for = time.monotonic() - last_data
+                now = time.monotonic()
+                idle_for = now - last_data
                 if not received and idle_for > 45:
                     end_reason = "source timeout"
                     break
+                if received and candidate is None and idle_for > STREAM_TIMEOUT:
+                    end_reason = "source timeout"
+                    break
+                hello = self._last_hello()
+                if (candidate is None and hello is not None and hello > max(last_data, answered)
+                        and idle_for > RECONNECT_IDLE):
+                    # Only a ClientHello during the current pause counts; the
+                    # established association stays until a replacement proves itself.
+                    answered = hello
+                    try:
+                        started = self._listen(user)
+                    except OSError:
+                        # No replacement; the established association keeps serving.
+                        started = None
+                    if started is not None:
+                        candidate = {"process": started, "parser": FrameBuffer(), "since": now,
+                                     "diagnostics": self._collect(started)}
+                if candidate is not None and (candidate["process"].poll() is not None
+                                              or now - candidate["since"] > CANDIDATE_SECONDS):
+                    self._stop(candidate["process"], candidate["diagnostics"])
+                    candidate = None
                 if received and idle_for > 0.5:
                     with self.lock:
                         self.status["last_result"] = "source idle; connection retained"
-                readable, _, _ = select.select([process.stdout], [], [], 0.25)
-                if not readable:
+                streams = [process.stdout]
+                if candidate is not None:
+                    streams.append(candidate["process"].stdout)
+                readable, _, _ = select.select(streams, [], [], 0.25)
+                if candidate is not None and candidate["process"].stdout in readable:
+                    chunk = os.read(candidate["process"].stdout.fileno(), 65536)
+                    accepted = []
+                    for packet in candidate["parser"].feed(chunk) if chunk else ():
+                        try:
+                            accepted.append((packet, decode_frame(packet)))
+                        except ValueError:
+                            continue
+                    if not chunk:
+                        self._stop(candidate["process"], candidate["diagnostics"])
+                        candidate = None
+                    elif accepted:
+                        with self.listener_condition:
+                            if (group.stream.get("_proc") is not process
+                                    or self.generation is not generation):
+                                break
+                            group.stream["_proc"] = candidate["process"]
+                            self.status["reconnects"] = self.status.get("reconnects", 0) + 1
+                        self._stop(process, diagnostic_worker)
+                        process, diagnostic_worker = candidate["process"], candidate["diagnostics"]
+                        parser, candidate = candidate["parser"], None
+                        self.diagnostics.record("waiting", "source_reconnected", {
+                            "client_hellos": self.udp_guard.snapshot()["client_hellos"]})
+                        for packet, frame in accepted:
+                            last_data = self._accept(outbox, packet, frame)
+                        received = True
+                        continue
+                if process.stdout not in readable:
                     continue
                 chunk = os.read(process.stdout.fileno(), 65536)
                 if not chunk:
@@ -375,16 +477,12 @@ class EntertainmentReceiver:
                 with self.lock:
                     self.status["rejected_frames"] = parser.rejected_frames
                 for packet in packets:
-                    frame = decode_frame(packet)
-                    outbox.frame(frame)
+                    last_data = self._accept(outbox, packet, decode_frame(packet))
                     received = True
-                    last_data = time.monotonic()
-                    with self.lock:
-                        self.status.update(
-                            active=True, last_result="receiving", version=packet[9], area_id=AREA_ID
-                        )
-                        self.status["frames_received"] += 1
-                        self.last_frame_seen = last_data
+                if packets and candidate is not None:
+                    # The established source resumed; the attempt was not its.
+                    self._stop(candidate["process"], candidate["diagnostics"])
+                    candidate = None
         except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
             known = {
                 "Invalid HueStream header",
@@ -407,19 +505,10 @@ class EntertainmentReceiver:
         finally:
             outbox.stop()
             done.set()
+            if candidate is not None:
+                self._stop(candidate["process"], candidate["diagnostics"])
             if process is not None:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=1)
-                if diagnostic_worker is not None:
-                    diagnostic_worker.join(timeout=1)
-                for stream in (process.stdin, process.stdout, process.stderr):
-                    if stream:
-                        stream.close()
+                self._stop(process, diagnostic_worker)
             with self.listener_condition:
                 if group.stream.get("_proc") is process:
                     group.stream.pop("_proc", None)
@@ -435,3 +524,7 @@ class EntertainmentReceiver:
                 self.serving = False
                 self.serving_group = None
                 self.listener_condition.notify_all()
+            if end_reason == "source timeout":
+                self.diagnostics.record("idle", "source_timeout")
+            elif end_reason == "DTLS EOF":
+                self.diagnostics.record("unavailable", "dtls_closed")

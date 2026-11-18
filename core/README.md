@@ -243,6 +243,47 @@ membership. A missing, partial or invalid profile blocks Hue startup.
 Keep the previous artifact and configuration for rollback. Do not start a second
 writer. This migration does not deploy the new artifact or change a running service.
 
+## Installation, upgrades and rollback
+
+Each release `manifest.json` declares a `compatibility` contract:
+- configuration versions it reads;
+- durable state schemas it writes;
+- minimum Python and the pinned gateway image;
+- the `/homekit` API version;
+- the bundled Homebridge plugin tarball (`plugin/*.tgz`). The tarball is built
+  deterministically in Python and needs no npm or network.
+
+The plugin refuses a core whose `/homekit` API version differs from its
+`CORE_API`. An installation directory holds `config/core.json`, `state/`,
+`releases/<version>/`, a `current` symlink, `backups/` and the `install.json`
+journal. Run every command from a release archive:
+
+```sh
+python3 -I -B RELEASE/smart-lighting.pyz stage --release RELEASE --base BASE
+python3 -I -B BASE/current/smart-lighting.pyz activate VERSION --base BASE
+python3 -I -B BASE/current/smart-lighting.pyz rollback --base BASE
+python3 -I -B BASE/current/smart-lighting.pyz status --base BASE
+```
+
+`stage` does the following and never changes the active release:
+1. Verifies every manifest hash.
+2. Checks the configuration version and the Python version.
+3. Runs the new archive's `adapter --check`.
+4. Renders supervisor files whose paths go through `BASE/current`.
+
+`activate` and `rollback` refuse while the adapter, Setup Studio or gateway
+still answers locally. They snapshot durable state (without logs, request
+logs or stream journals) and swap `current` atomically. They print the start
+commands but never start, stop or restart services.
+
+`rollback` restores the upgrade snapshot only when the two releases declare
+different state schemas. Even then, the state it replaces is kept in the
+rollback snapshot first. Each step is journaled and repeatable, so after an
+interruption the next command finishes the transaction. The five newest
+snapshots and the current upgrade point are kept. Activation and rollback of
+the live installation still need the owner's approval; these commands never
+publish packages.
+
 ## Stream recovery diagnostics
 
 `0.1.0.dev5` reuses the authenticated bridge-to-adapter HTTP connection for
@@ -276,6 +317,32 @@ The control-datagram counter and actual DTLS frame counter are distinct checks.
 This operational recovery is not an automatic Docker Desktop repair mechanism.
 See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
 sequential live observation windows, tests and measurement limits.
+
+### Source reconnection without a new Start
+
+`openssl s_server -listen` serves one DTLS association and then only receives
+datagrams from that peer. A source that vanished without `close_notify` and
+handshakes again from a new port, without a new REST Start, previously reached
+only the UDP guard, which discarded its ClientHello; the retained session
+waited indefinitely until a phone Stop/Start. The guard now counts DTLS
+ClientHello records it discards and remembers when the last one arrived. When
+the current association has been idle for more than 0.5 seconds and a
+ClientHello arrived during that pause, the receiver starts a second listener
+beside it. The established association keeps receiving its own peer. The
+replacement takes over only after it completes the PSK handshake and delivers
+a valid frame; otherwise it is stopped after ten seconds, or as soon as the
+established source resumes. An unauthenticated or stale ClientHello therefore
+cannot disconnect a working source. Stop, a superseding Start and shutdown
+end both listeners.
+
+A source that vanishes and does not handshake again at all (a Sync Box reboot)
+previously left the stream active indefinitely after its first frame; the Box
+then saw its old session as active and never sent a new Start. As on a Hue
+bridge, an established session now ends after ten seconds without data, the
+stream becomes inactive and the source can start again. The bridge journal records `source_reconnected`,
+`source_timeout` and `dtls_closed`, and receiver status counts `reconnects`.
+`tests/test_receiver_reconnect.py`
+reproduces the vanished-client case with real OpenSSL DTLS (Linux only).
 
 ## Light Studio composition and projection
 
