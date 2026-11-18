@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import * as hap from '../homebridge/node_modules/@homebridge/hap-nodejs/dist/index.js';
 import { IdentifierCache } from '../homebridge/node_modules/@homebridge/hap-nodejs/dist/lib/model/IdentifierCache.js';
-import { readCredentials } from '../homebridge/lib/client.js';
+import { CoreClient, readCredentials, sign } from '../homebridge/lib/client.js';
 import {
   LightsCanCommunicatePlatform, PLATFORM_NAME, PLUGIN_NAME, UNAVAILABLE_MS,
 } from '../homebridge/lib/platform.js';
@@ -205,6 +205,30 @@ test('polling mirrors the core state and marks the lamps unavailable only after 
   await platform.poll();
   assert.equal(service.getCharacteristic(hap.Characteristic.On).statusCode,
     hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+});
+
+test('requests are signed and never carry the credential itself', async () => {
+  assert.equal(sign('b'.repeat(64), 'POST', '/homekit', '1000.000', 'c'.repeat(32),
+    JSON.stringify({ role: 'left', on: true })),
+  '7f700addbd1e66dda66bc369cb670882c6e92ce71c92c587658fbf9e2b21fa64');
+  const token = 'b'.repeat(64);
+  const seen = [];
+  const fetch = async (url, init) => {
+    seen.push({ url, init });
+    return new Response(JSON.stringify({ accepted: true, version: 1, roles: {} }));
+  };
+  const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token },
+    { fetch, now: () => 1000000 });
+  await client.set({ role: 'right', on: true });
+  await client.set({ role: 'right', on: true });
+  const [first, second] = seen;
+  assert.equal(first.url, 'http://192.168.99.10:19880/homekit');
+  assert.ok(!JSON.stringify(first.init).includes(token));
+  const headers = first.init.headers;
+  assert.equal(headers['X-LCC-Timestamp'], '1000.000');
+  assert.equal(headers['X-LCC-Signature'], sign(token, 'POST', '/homekit', '1000.000',
+    headers['X-LCC-Nonce'], first.init.body));
+  assert.notEqual(headers['X-LCC-Nonce'], second.init.headers['X-LCC-Nonce']);
 });
 
 test('the core credential must be a private, well-formed file', () => {

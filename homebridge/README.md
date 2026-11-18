@@ -18,6 +18,9 @@ It replaces the version-specific overlay of `@homebridge-plugins/homebridge-gove
   closed until native On is confirmed, and applies Home brightness and color
   only while no scene or Sync owns the lamp. A write that the core cannot
   confirm is reported to HomeKit as a communication failure.
+- Requests to `/homekit` are signed with HMAC-SHA256 over method, path, time,
+  a one-time nonce and the body hash; the credential itself never travels, a
+  capture cannot be replayed, and clocks must agree within two seconds.
 - The plugin polls `GET /homekit` every second and shows the core's intent.
   Changes made outside HomeKit (for example in the Govee app) are adopted by
   the core after a short settling time. After five seconds without the core,

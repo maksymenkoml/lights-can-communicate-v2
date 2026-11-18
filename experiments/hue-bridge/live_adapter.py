@@ -20,7 +20,7 @@ if Path(__file__).is_file():
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, segment_data  # noqa: E402
-from homekit_power import HomeKitPower, HomeKitRequests  # noqa: E402
+from homekit_power import HomeKitPower, HomeKitRequests, SignatureVerifier  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
@@ -445,6 +445,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
     ):
         raise ValueError("A distinct power owner credential is required")
     broker = power_requests or (PowerRequests(power_owner) if power_owner is not None else None)
+    signatures = SignatureVerifier(power_token) if homekit is not None else None
     hue_proxies = dict(hue_play_proxies or {})
     if hue_proxy is not None:
         hue_proxies["strip"] = hue_proxy
@@ -478,7 +479,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
         def do_GET(self):
             self.stream_keep_alive = False
             if self.path == "/homekit" and homekit is not None:
-                if not self.owner_authorized():
+                if not signatures.verify("GET", self.path, self.headers, b""):
                     return self.respond(403, {"error": "unauthorized"})
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
@@ -527,7 +528,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 if (power_owner is None or power_token is None
                         or (self.path == "/power-owner") is not (homekit is None)):
                     return self.respond(404, {"error": "not found"})
-                if not self.owner_authorized():
+                # /homekit is signed; its signature covers the body read below.
+                if self.path == "/power-owner" and not self.owner_authorized():
                     return self.respond(403, {"error": "unauthorized"})
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
@@ -540,7 +542,11 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 8192:
                     raise ValueError("Invalid request size")
-                payload = json.loads(self.rfile.read(size))
+                raw = self.rfile.read(size)
+                if self.path == "/homekit" and not signatures.verify(
+                        "POST", self.path, self.headers, raw):
+                    return self.respond(403, {"error": "unauthorized"})
+                payload = json.loads(raw)
                 if self.path == "/power-owner":
                     if not isinstance(payload, dict):
                         raise ValueError("Invalid power owner envelope")

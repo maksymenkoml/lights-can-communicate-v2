@@ -8,6 +8,8 @@ gate interface as ``PowerOwner`` (``allowed``, ``revision``, ``wrap``,
 """
 
 import colorsys
+import hashlib
+import hmac
 import json
 import math
 import os
@@ -312,6 +314,46 @@ class HomeKitPower:
 
 
 _ID = re.compile(r"[0-9a-f]{32}")
+SIGNATURE_WINDOW = 2.0
+NONCE_SECONDS = 10.0
+
+
+def signature(token, method, path, timestamp, nonce, body):
+    """HMAC-SHA256 request signature; the credential itself never travels."""
+    message = "\n".join((method, path, timestamp, nonce, hashlib.sha256(body).hexdigest()))
+    return hmac.new(token.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+
+class SignatureVerifier:
+    """Accept each signed request once, within a short clock window."""
+
+    def __init__(self, token, wall_clock=time.time):
+        self.token, self.wall_clock = token, wall_clock
+        self.lock = threading.Lock()
+        self.seen = {}
+
+    def verify(self, method, path, headers, body):
+        timestamp = headers.get("X-LCC-Timestamp", "")
+        nonce = headers.get("X-LCC-Nonce", "")
+        provided = headers.get("X-LCC-Signature", "")
+        try:
+            issued = float(timestamp)
+        except ValueError:
+            return False
+        if (not re.fullmatch(r"\d{1,12}(\.\d{1,6})?", timestamp) or not _ID.fullmatch(nonce)
+                or not re.fullmatch(r"[0-9a-f]{64}", provided)):
+            return False
+        now = self.wall_clock()
+        expected = signature(self.token, method, path, timestamp, nonce, body)
+        if not hmac.compare_digest(provided, expected) or abs(now - issued) > SIGNATURE_WINDOW:
+            return False
+        with self.lock:
+            self.seen = {key: seen for key, seen in self.seen.items()
+                         if now - seen <= NONCE_SECONDS}
+            if nonce in self.seen or len(self.seen) >= 4096:
+                return False
+            self.seen[nonce] = now
+        return True
 
 
 class HomeKitRequests:

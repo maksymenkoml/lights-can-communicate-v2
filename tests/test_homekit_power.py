@@ -1,15 +1,17 @@
 import json
 import sys
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
+import uuid
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
-from homekit_power import HomeKitPower, HomeKitRequests  # noqa: E402
+from homekit_power import HomeKitPower, HomeKitRequests, signature  # noqa: E402
 from live_adapter import PilotController, handler_for  # noqa: E402
 from power_requests import PowerRequestUnavailable  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
@@ -255,9 +257,20 @@ class HomeKitRouteTests(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
-    def call(self, path, body=None, token=OWNER, header="X-Power-Owner-Token"):
-        data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(self.url + path, data=data, headers={header: token})
+    def signed(self, method, path, data, nonce=None, issued=None, key=OWNER):
+        timestamp = f"{time.time() if issued is None else issued:.3f}"
+        nonce = nonce or uuid.uuid4().hex
+        return {"X-LCC-Timestamp": timestamp, "X-LCC-Nonce": nonce,
+                "X-LCC-Signature": signature(key, method, path, timestamp, nonce, data or b"")}
+
+    def call(self, path, body=None, token=OWNER, header="X-Power-Owner-Token", headers=None,
+             data=None):
+        if data is None and body is not None:
+            data = json.dumps(body).encode()
+        if headers is None:
+            headers = (self.signed("POST" if data is not None else "GET", path, data)
+                       if path == "/homekit" and token == OWNER else {header: token})
+        request = urllib.request.Request(self.url + path, data=data, headers=headers)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
             with opener.open(request, timeout=5) as response:
@@ -281,6 +294,31 @@ class HomeKitRouteTests(unittest.TestCase):
         self.assertEqual(body["power_owner"]["authority"], "homekit")
         self.assertFalse(body["power_owner"]["roles"]["right"]["requested_on"])
         self.assertNotIn(OWNER, json.dumps(body))
+
+    def test_signed_requests_cannot_be_replayed_altered_or_replaced_by_the_token(self):
+        body = json.dumps({"role": "left", "on": False}).encode()
+        headers = self.signed("POST", "/homekit", body)
+        self.assertEqual(self.call("/homekit", data=body, headers=headers)[0], 200)
+        # The same capture cannot be sent again.
+        self.assertEqual(self.call("/homekit", data=body, headers=headers)[0], 403)
+        altered = json.dumps({"role": "left", "on": True}).encode()
+        self.assertEqual(self.call("/homekit", data=altered,
+                                   headers=self.signed("POST", "/homekit", body))[0], 403)
+        stale = self.signed("POST", "/homekit", altered, issued=time.time() - 3)
+        self.assertEqual(self.call("/homekit", data=altered, headers=stale)[0], 403)
+        wrong = self.signed("GET", "/homekit", b"", key="c" * 64)
+        self.assertEqual(self.call("/homekit", headers=wrong)[0], 403)
+        self.assertEqual(self.call("/homekit", headers={"X-Power-Owner-Token": OWNER})[0], 403)
+        self.assertEqual(self.call("/homekit", data=altered,
+                                   headers={"X-Power-Owner-Token": OWNER})[0], 403)
+        self.assertFalse(self.power.intent["left"]["on"])
+
+    def test_signature_matches_the_plugin_vector(self):
+        # Same vector as tests/homebridge_plugin.test.mjs.
+        self.assertEqual(
+            signature("b" * 64, "POST", "/homekit", "1000.000", "c" * 32,
+                      b'{"role":"left","on":true}'),
+            "7f700addbd1e66dda66bc369cb670882c6e92ce71c92c587658fbf9e2b21fa64")
 
     def test_unconfirmed_power_returns_service_unavailable(self):
         self.lamps.ignore.add("left")

@@ -1,3 +1,4 @@
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { isIPv4 } from 'node:net';
 
@@ -29,9 +30,9 @@ export function readCredentials(path) {
 }
 
 /**
- * The core speaks plain HTTP like the rest of the local control plane. The
- * credential may therefore only go to loopback or a private LAN address,
- * never to a name that could resolve elsewhere.
+ * The core speaks plain HTTP on the local network. Requests are signed, so
+ * the credential itself never travels, and they may only go to loopback or a
+ * private LAN address, never to a name that could resolve elsewhere.
  */
 export function localAddress(host) {
   if (!isIPv4(host)) return false;
@@ -39,19 +40,37 @@ export function localAddress(host) {
   return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
 }
 
+/** HMAC-SHA256 over method, path, time, nonce and body hash (see homekit_power.py). */
+export function sign(token, method, path, timestamp, nonce, body) {
+  const digest = createHash('sha256').update(body).digest('hex');
+  return createHmac('sha256', token)
+    .update([method, path, timestamp, nonce, digest].join('\n')).digest('hex');
+}
+
 export class CoreClient {
-  constructor({ endpoint, token }, { fetch = globalThis.fetch, timeout = 8000 } = {}) {
+  constructor({ endpoint, token }, {
+    fetch = globalThis.fetch, timeout = 8000, now = Date.now,
+  } = {}) {
     this.endpoint = endpoint;
     this.token = token;
     this.fetch = fetch;
     this.timeout = timeout;
+    this.now = now;
   }
 
   async request(method, body) {
+    const payload = body === undefined ? '' : JSON.stringify(body);
+    const timestamp = (this.now() / 1000).toFixed(3);
+    const nonce = randomBytes(16).toString('hex');
     const response = await this.fetch(`${this.endpoint}/homekit`, {
       method,
-      headers: { 'X-Power-Owner-Token': this.token, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-LCC-Timestamp': timestamp,
+        'X-LCC-Nonce': nonce,
+        'X-LCC-Signature': sign(this.token, method, '/homekit', timestamp, nonce, payload),
+      },
+      body: body === undefined ? undefined : payload,
       signal: AbortSignal.timeout(this.timeout),
     });
     const text = await response.text();
