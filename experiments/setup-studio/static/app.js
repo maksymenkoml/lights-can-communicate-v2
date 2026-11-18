@@ -72,6 +72,7 @@ function fromLayout(data){
   const height=finite(row.positionCm.height,-400,600,0);
   lamp.h=lamp.form==='floor'?height-FLOOR_ANCHOR:height;
   lamp.scale=Math.round(finite(row.scale,0,100,lamp.scale));
+  if(isRole(row.id)&&typeof row.name==='string'&&row.name.trim()){lamp.name=row.name.trim().slice(0,32);lamp.named=true}
   lamp.sceneScale=typeof row.sceneScale==='number'?Math.round(finite(row.sceneScale,0,100,lamp.scale)):null;
   lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=SYNC_ROLES.includes(row.syncRole)&&(row.syncRole!=='off'||isRole(row.id))?row.syncRole:'sync';
   clampFixture(lamp,environment);return lamp;
@@ -93,7 +94,7 @@ function pack(m={room,environment,lamps}){
  return {version:5,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   devices:m.lamps.map(l=>({id:l.id,scale:l.scale,...(l.sceneScale!=null?{sceneScale:l.sceneScale}:{}),positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
-   ...(l.enabled===false?{enabled:false}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),
+   ...(l.enabled===false?{enabled:false}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
 
@@ -802,7 +803,7 @@ function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
 function closeObjectMenu(){if(!menuOpen)return;menuOpen=false;$('#object-menu').hidden=true;$('#stage').querySelector('[data-chip-action="more"]')?.classList.remove('open')}
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
 function cardMenu(l){
- const c=corr(l),b=lampBlocker(l),editable=virtualDevice(l.id);
+ const c=corr(l),b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
  return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="32"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')
@@ -840,10 +841,11 @@ function openObjectMenu(anchor){
  if(name&&!name.readOnly){name.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();renameLamp(l.id,name.value);name.blur()}else if(e.key==='Escape'){name.value=l.name;closeObjectMenu()}});name.addEventListener('change',()=>renameLamp(l.id,name.value))}
 }
 function refreshCard(){requestAnimationFrame(()=>{closeObjectMenu();const b=$('#stage').querySelector('[data-chip-action="more"]');if(b)openObjectMenu(b)})}
-// Only layout-only drawings carry a stored name; role and discovered names are canonical.
+// Layout-only drawings and the six desk lamps carry a stored name (a desk lamp's name also
+// renames it in the Hue app and HomeKit); discovered lamps keep their canonical name.
 function renameLamp(id,value){
- const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,32);if(!l||!virtualDevice(l.id)||!v||v===l.name)return;
- const before=snapshot();l.name=v;recordChange(before);renderScene();renderList();renderHistory();
+ const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,32);if(!l||!(virtualDevice(l.id)||isRole(l.id))||!v||v===l.name)return;
+ const before=snapshot();l.name=v;if(isRole(l.id))l.named=true;recordChange(before);renderScene();renderList();renderHistory();
  if(menuOpen){const chip=$('#stage').querySelector('.obj-chip');if(chip)placeMenu($('#object-menu'),chip.getBoundingClientRect())}
 }
 function resetCorrection(){
@@ -1036,7 +1038,10 @@ function mergeLayouts(base,local,remote){
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
  for(const key of ['room','monitorInches'])field(result,key,base[key],local[key]);
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
- field(result,'syncZone',base.syncZone??null,local.syncZone??null);
+ for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
+ // Canonical responses also omit fade switches at their defaults.
+ field(result,'syncFalloff',base.syncFalloff??true,local.syncFalloff??true);
+ field(result,'sceneFalloff',base.sceneFalloff??false,local.sceneFalloff??false);
  for(const key of ['width','height'])field(result.desk,key,base.desk[key],local.desk[key]);
  const old=new Map(base.devices.map(d=>[d.id,d])),mine=new Map(local.devices.map(d=>[d.id,d]));
  for(const [id]of old)if(!mine.has(id))result.devices=result.devices.filter(d=>d.id!==id);
@@ -1044,7 +1049,7 @@ function mergeLayouts(base,local,remote){
   const previous=old.get(id),target=result.devices.find(d=>d.id===id);
   if(!previous){if(!target)result.devices.push(clone(current));continue;}
   if(!target){if(!equal(previous,current))result.devices.push(clone(current));continue;}
-  for(const key of ['scale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
+  for(const key of ['scale','sceneScale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
   field(target,'enabled',previous.enabled===false?false:undefined,current.enabled===false?false:undefined);
   field(target,'syncRole',previous.syncRole!=='sync'?previous.syncRole:undefined,current.syncRole!=='sync'?current.syncRole:undefined);
   for(const key of ['x','height'])field(target.positionCm,key,previous.positionCm[key],current.positionCm[key]);

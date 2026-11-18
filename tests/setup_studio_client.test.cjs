@@ -404,7 +404,7 @@ test('the lamp card removes with a confirmation and sets Own light during Sync',
  const more=app.stage.querySelector('[data-chip-action="more"]');assert.ok(more);
  app.dispatch(more,'pointerdown');await app.settle();
  const menu=app.$('#object-menu');assert.equal(menu.hidden,false);
- assert.equal(menu.querySelector('.card-name').readOnly,true,'role names are canonical');
+ assert.equal(menu.querySelector('.card-name').readOnly,false,'desk lamps can be renamed');
  assert.equal(menu.querySelector('[data-menu="blink"]').disabled,false,'a connected lamp can blink');
  assert.ok(menu.querySelector('[data-menu="role-off"]'),'role lamps can be switched off during Sync');
  assert.equal(menu.querySelectorAll('.seg button').length,3,'Sync, Own light and Off');
@@ -670,6 +670,28 @@ test('Blink asks the server once and explains a refusal; Off is saved for role l
  app.run('menuAction("role-off")');await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='play-left').syncRole,'off');
  assert.equal(json(app,'syncProjection(lamps.find(l=>l.id==="play-left"))').length,0,'an Off lamp takes no screen colour');
+});
+
+test('a desk lamp name is saved only once the owner renames it, and survives a reload',async()=>{
+ const app=await harness();
+ await app.advance(300);
+ assert.equal(app.run('pack().devices.find(r=>r.id==="govee-left").name'),undefined,'built-in names are not stored');
+ app.run('renameLamp("govee-left","  Left tower ")');await app.advance(300);
+ assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='govee-left').name,'Left tower');
+ app.run('renameLamp("'+discovered().id+'","x")');
+ const reloaded=await harness({layout:app.posts.at(-1).body});
+ assert.equal(reloaded.run('lamps.find(l=>l.id==="govee-left").name'),'Left tower');
+ assert.equal(reloaded.run('pack().devices.find(r=>r.id==="govee-left").name'),'Left tower');
+});
+
+test('a stale save merges the second configuration field by field',async()=>{
+ const app=await harness();
+ const base=canonical(saved()),local=json(app,'pack()'),remote=canonical(saved());
+ delete base.syncFalloff;delete base.sceneFalloff;delete remote.syncFalloff;delete remote.sceneFalloff;
+ local.sceneFalloff=true;local.devices[0].sceneScale=30;remote.devices[1].scale=10;
+ const merged=JSON.parse(app.run('JSON.stringify(mergeLayouts('+JSON.stringify(base)+','+JSON.stringify(local)+','+JSON.stringify(remote)+'))'));
+ assert.equal(merged.sceneFalloff,true);assert.equal(merged.syncFalloff,undefined,'a default switch is not a change');
+ assert.equal(merged.devices[0].sceneScale,30);assert.equal(merged.devices[1].scale,10);
 });
 
 test('an unlit lens or zone shows black under the light',async()=>{
