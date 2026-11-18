@@ -44,6 +44,45 @@ class FeedbackTests(unittest.TestCase):
             clock=lambda: self.now,
         )
 
+    def native(self, strip=True, left=True, age=0.5):
+        self.current = {**status(), "hue_strip": {"native_on": strip, "native_age": age},
+                        "hue_play": {"hue_left": {"native_on": left, "native_age": age},
+                                     "hue_center": {"native_on": None, "native_age": age}}}
+
+    def test_native_hue_power_mirrors_the_genuine_bridge(self):
+        self.native(strip=False, left=True)
+        self.feedback.refresh_once()
+        self.assertFalse(self.lights["3"].state["on"])
+        self.assertEqual(self.lights["3"].events, [{"on": {"on": False}}])
+        self.assertTrue(self.lights["4"].state["on"])
+        self.assertEqual(self.lights["4"].events, [])
+        self.assertTrue(self.lights["5"].state["on"])
+        self.assertIn({"3"}, self.groups)
+
+    def test_a_newly_enrolled_native_role_is_mirrored_too(self):
+        feedback = PowerFeedback(
+            "http://adapter", "private-token", self.lights, threading.RLock(),
+            resume=lambda lamp: None, publish_groups=lambda slots: None,
+            fetcher=lambda: {"hue_play": {"hue_desk": {"native_on": False, "native_age": 0}}},
+            clock=lambda: self.now, native_slots={"7": "hue_desk"})
+        feedback.refresh_once()
+        self.assertFalse(self.lights["7"].state["on"])
+
+    def test_stale_or_held_native_readings_never_change_virtual_lights(self):
+        self.native(strip=False, age=9)
+        self.feedback.refresh_once()
+        self.assertTrue(self.lights["3"].state["on"])
+        self.native(strip=False)
+        self.feedback.hold_native({"3"})
+        self.feedback.refresh_once()
+        self.assertTrue(self.lights["3"].state["on"])
+        self.feedback.release_native({"3"})
+        self.feedback.refresh_once()
+        self.assertFalse(self.lights["3"].state["on"])
+        self.feedback.restore_native({"3": True, "1": False})
+        self.assertTrue(self.lights["3"].state["on"])
+        self.assertTrue(self.lights["1"].state["on"])
+
     def test_home_off_updates_only_selected_virtual_light_without_physical_setter(self):
         self.assertTrue(self.feedback.refresh_once())
         self.assertFalse(self.lights["2"].state["on"])

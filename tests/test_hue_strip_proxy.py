@@ -123,6 +123,41 @@ class HueStripTests(unittest.TestCase):
             PinnedHueClient(config, resource_id="unselected-light",
                             profile=NativeHueProfile.from_dict(profile_data()))
 
+    def test_native_power_is_a_separate_confirmed_write_for_the_pinned_light(self):
+        requests, state = [], {"on": False}
+        selected = PLAY_IDS["hue_left"]
+
+        def request(method, path, body):
+            requests.append((method, path, body))
+            if method == "PUT" and "on" in body:
+                state["on"] = body["on"]["on"]
+            return {"data": [{"id": selected, "rid": selected, "on": dict(state)}],
+                    "errors": []}
+
+        client = PinnedHueClient({"bridge": "192.168.10.21", "hue_key": "test"},
+                                 requester=request, resource_id=selected,
+                                 profile=NativeHueProfile.from_dict(profile_data()))
+        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000,
+                              role="hue_left")
+        self.assertTrue(proxy.set_power(True, sleep=lambda _: None))
+        self.assertEqual(requests[0], ("PUT", "/clip/v2/resource/light/" + selected,
+                                       {"on": {"on": True}}))
+        self.assertTrue(proxy.snapshot()["native_on"])
+        self.assertTrue(proxy.restore)
+        # The color path still refuses power, and only booleans switch power.
+        with self.assertRaises(ValueError):
+            client.write({"on": {"on": False}})
+        with self.assertRaises(ValueError):
+            client.power("off")
+
+    def test_native_power_that_does_not_read_back_is_not_confirmed(self):
+        client = FakeHue()
+        client.power = lambda on: None
+        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000)
+        self.assertFalse(proxy.set_power(False, attempts=3, sleep=lambda _: None))
+        # Status still reports the light's actual power from the read-back.
+        self.assertTrue(proxy.snapshot()["native_on"])
+
     def test_play_proxy_accepts_only_its_configured_role(self):
         client = FakeHue()
         client.resource_id = PLAY_IDS["hue_left"]

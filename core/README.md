@@ -220,6 +220,30 @@ calibration, HomeKit identities, pairing and geometry were retained. The NAS was
 not changed. The previous archive/configuration remain available for rollback.
 See `evidence/native-hue-profile.json` for tests, live frame samples and limits.
 
+### Native Hue power from the Hue app
+
+The virtual bridge's Hue Monitor and Hue Play lights (slots 3–6) used to
+forward only color and brightness. On/Off from the Hue app was accepted but
+never reached the lights.
+
+An explicit On/Off for these lights now goes to the adapter's authenticated
+`POST /native-power` with `{"roles": {"strip" | "hue_left" | "hue_center" |
+"hue_right": bool}}`. This applies to a single light and to a room.
+- The adapter switches only the pinned profile resource with a separate
+  `{"on": {"on": …}}` write. The color path still refuses power changes.
+- The write counts as confirmed only after a read-back shows the new state.
+  Turning a light on reapplies its composition color.
+- An unconfirmed write, or a write during the owner's live-output hold,
+  returns 503. The virtual light then shows the real state again: the
+  pre-request value is restored first, and fresh native readings correct any
+  light whose write took effect anyway, such as part of a room request.
+
+The virtual lights also mirror each proxy's native power when the reading is
+fresh (no older than 5 seconds), so an Off from Apple Home appears in the Hue
+app. Mirroring pauses for a light while its own write is in flight. Govee
+power keeps its owner or HomeKit authority path. Scene recall still never
+changes power.
+
 ## Migrate a configuration without a native profile
 
 Reuse the existing validated version-one profile when one is already installed.
