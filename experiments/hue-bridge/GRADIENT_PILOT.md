@@ -56,6 +56,34 @@ current PS5 content at the measured budget, and Stop returning all six lights
 to smooth gradient Vapor wave. Optical latency, named game/HDR/Xbox/refresh-rate
 combinations and prolonged soak remain unmeasured or not separately accepted.
 
+## DreamView streaming during Sync
+
+While Sync streams, zoned Govee output uses DreamView (`razer`) frames instead
+of `ptReal`. One short packet carries the seven segment colors, bottom to top,
+and the lamp blends them. Frame layout follows the OpenRGB Govee LAN controller:
+`BB 00 <size> <command> <data> <xor>`, base64 in `pt`. `B1 01` turns streaming
+on and `B1 00` off, and `B0 01 <count> <rgb...>` is a gradient frame.
+
+- Rate: 25 frames/s per lamp (`max_stream_frames_per_second`). It replaces the
+  ptReal budget only while streaming. Both selected H6076 answered every status
+  poll at ~27 frames/s; at ~38 they started to miss them, the right one more.
+- The mode is renewed every 10 s, because the lamp leaves it after a minute
+  without frames. It is switched off before any scene color, because the lamp
+  ignores other color commands while it is on.
+- Brightness is sent only when it changes. The frame cadence holds when a
+  render tick comes slightly late.
+- A new frame wakes the gateway outbox and the adapter video worker at once.
+  The adapter sends the Govee frame right after it arrives.
+
+Live on the Mac with the PS5 through the Sync Box: ~50 frames/s reached the
+adapter and ~20 frames per lamp per second reached each Govee light, with no
+rejected sends or missed status. The owner confirmed that the Govee lights now
+keep up with the native Hue lights without flicker.
+
+The left lamp has a slower Wi-Fi path than the right one: median status round
+trip 107 ms against 16 ms; ping minimum 40 ms against 4 ms. A small left/right
+offset therefore remains. This is local measurement, not a vendor rate.
+
 ## Public API compatibility and phone startup
 
 The pinned reference emulator exposes several incomplete public resources.
