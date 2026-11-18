@@ -43,7 +43,7 @@ Version 4 files load as version 5; writes must use version 5.
   `syncFalloff` and `sceneFalloff` (booleans, optional, defaults above).
 - Rows: `sceneScale` 0-100 (optional, default `scale`).
 - Role rows (lamp controls, below): `syncRole` gains `"off"`; `name` 1-35
-  characters.
+  characters, 1-32 for the four Hue roles (the Hue bridge limit).
 
 `STATE_SCHEMAS["desk_layout"]` becomes 5.
 
@@ -58,7 +58,8 @@ Version 4 files load as version 5; writes must use version 5.
 - Govee: a separate Sync hold in the power authority (`HomeKitPower` /
   `PowerOwner`). The hold is not HomeKit intent, is never adopted as intent,
   and closes the colour writer while it is active. HomeKit keeps showing the
-  owner's intent.
+  owner's intent. Without a power authority a Govee "off" lamp keeps its own
+  light, like "own".
 - Native Hue: `HueStripProxy.set_power` from #32. The role is outside the
   composition, so the `safe()` fence does not require it to be on.
 - A restart during a session clears holds and restores recorded power from a
@@ -87,8 +88,14 @@ Version 4 files load as version 5; writes must use version 5.
   owner edited in Home.
 - Physical Hue lights: the adapter writes `metadata.name` to the pinned light
   on the owner's Hue bridge, only when the name changes in Light Studio.
+- Without an owner name nothing is renamed; clearing a name renames nothing
+  back.
 
 ## Light Studio views
+
+- The Sync view without running Sync draws a colour-wheel demo picture, so
+  every zone samples its own hue; unlit lenses and zones are black, and lamps
+  that are drawn but not connected carry a broken-link badge.
 
 - Each view edits its own configuration: correction rail, fade zone and the
   fade switch on the zone chip. A zone that is off stays selectable as a faint
