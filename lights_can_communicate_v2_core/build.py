@@ -17,6 +17,7 @@ PILOT_MODULES = (
     "hue_strip_proxy",
     "pilot_transport",
     "homekit_power",
+    "power_history",
     "power_owner",
     "power_requests",
     "video_output",

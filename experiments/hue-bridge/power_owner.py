@@ -5,6 +5,8 @@ import threading
 import time
 from collections import deque
 
+from power_history import PowerHistory
+
 import lights_can_communicate_v2 as lan
 
 GRANT_SECONDS = 2.0
@@ -55,6 +57,22 @@ class PowerOwner:
         self.holds = {}
         self.power_sender = self.observe = None
         self.sleep = time.sleep
+        self.history = PowerHistory(clock, wall_clock)
+
+    def _expired(self):
+        """Record grants that lapsed since the last heartbeat, at their expiry time."""
+        now = self.clock()
+        for side in self.states:
+            last = self.history.gate(side)
+            if last is not None and last[1] and now >= self.expires[side]:
+                self.history.record(side, "grant_expired", self.states[side], False,
+                                    side in self.holds, at=self.expires[side])
+
+    def _record(self, side, cause):
+        """Record the published gate after a change; the caller holds the lock."""
+        self._expired()
+        self.history.record(side, cause, self.states[side], self.allowed(side),
+                            side in self.holds)
 
     def attach_power(self, sender, observe, sleep=time.sleep):
         """Give Sync holds an unwrapped ``turn`` path and native observations."""
@@ -99,6 +117,7 @@ class PowerOwner:
         with self.lock:
             if abs(self.wall_clock() - issued) > MAX_MESSAGE_AGE:
                 raise ValueError("Expired power owner state")
+            self._expired()
             active = any(self.clock() < until for until in self.expires.values())
             if (
                 session in self.closed or (active and session != self.session)
@@ -124,6 +143,8 @@ class PowerOwner:
                         # The owner changed this lamp during Sync: the owner's choice wins.
                         del self.holds[side]
                         self.revisions[side] += 1
+            for side in self.states:
+                self._record(side, "owner")
             return True
 
     # Sync hold ------------------------------------------------------------
@@ -155,6 +176,7 @@ class PowerOwner:
             self.holds[side] = (self.states[side]
                                 if self.clock() < self.expires[side] else None)
             self.revisions[side] += 1
+            self._record(side, "sync_hold")
         if send:
             switch_power(lambda on: self._send_turn(side, on), self.observe, side, False,
                          self.clock, self.sleep)
@@ -175,6 +197,7 @@ class PowerOwner:
                 return "superseded"
             held = self.holds.pop(side)
             self.revisions[side] += 1
+            self._record(side, "sync_release")
             # A connected owner that now wants the lamp off keeps it off.
             owner_off = self.clock() < self.expires[side] and self.states[side] is False
         if owner_off or self.power_sender is None or self.observe is None:
@@ -188,6 +211,7 @@ class PowerOwner:
                 with self.lock:
                     self.holds[side] = held
                     self.revisions[side] += 1
+                    self._record(side, "sync_restore_failed")
         return "restored" if restored else "failed"
 
     def owner_power(self, side):
@@ -196,11 +220,14 @@ class PowerOwner:
             if side in self.holds:
                 del self.holds[side]
                 self.revisions[side] += 1
+                self._record(side, "owner_power")
 
     def snapshot(self):
         with self.lock:
+            self._expired()
             return {
                 "enforced": True,
+                "events": self.history.snapshot(),
                 "roles": {
                     side: {"requested_on": value, "color_allowed": self.allowed(side),
                            "revision": self.revisions[side],

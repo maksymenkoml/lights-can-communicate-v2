@@ -7,6 +7,7 @@ reading; anything else stays ``unknown`` rather than being guessed.
 
 import math
 
+from power_history import CAUSES as _POWER_CAUSES
 from stream_diagnostics import _REASONS, _STATES
 
 GOVEE_ROLES = ("left", "right")
@@ -148,6 +149,24 @@ def _native_row(row):
                              "native_brightness", "last_result"))
 
 
+def _power_events(authority):
+    events = _mapping(authority).get("events")
+    clean = []
+    for item in events[-MAX_EVENTS:] if isinstance(events, list) else []:
+        item = _mapping(item)
+        if (item.get("role") in GOVEE_ROLES and type(item.get("cause")) is str
+                and item["cause"] in _POWER_CAUSES
+                and type(item.get("timestamp")) is str and len(item["timestamp"]) <= 40):
+            clean.append({
+                "timestamp": item["timestamp"], "role": item["role"], "cause": item["cause"],
+                "requested_on": item.get("requested_on")
+                if type(item.get("requested_on")) is bool else None,
+                "color_allowed": item.get("color_allowed") is True,
+                "sync_hold": item.get("sync_hold") is True,
+            })
+    return clean
+
+
 def export(status):
     """Return a bounded diagnostic copy without credentials or device identifiers."""
     status = _mapping(status)
@@ -175,7 +194,8 @@ def export(status):
             "segment_count": target.get("segment_count")
             if type(target.get("segment_count")) is int else None,
         }
-    roles = _mapping(_mapping(status.get("power_owner")).get("roles"))
+    authority = _mapping(status.get("power_owner"))
+    roles = _mapping(authority.get("roles"))
     return {
         "version": 1,
         "service": _scalar_map(status.get("service"), ("name", "version")),
@@ -197,6 +217,7 @@ def export(status):
         "power_owner": {role: _scalar_map(roles[role], ("requested_on", "color_allowed",
                                                         "revision", "grant_remaining"))
                         for role in GOVEE_ROLES if role in roles},
+        "power_events": _power_events(authority),
         "govee": govee,
         "native": {role: _native_row(row) for role, row in _hue_rows(status).items()},
         "forwarding": {

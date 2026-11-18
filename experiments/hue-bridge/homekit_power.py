@@ -17,6 +17,7 @@ import re
 import threading
 import time
 
+from power_history import PowerHistory
 from power_owner import GRANT_SECONDS, MAX_MESSAGE_AGE, switch_power
 from power_requests import PowerRequestUnavailable
 
@@ -40,7 +41,7 @@ def _empty():
 
 class HomeKitPower:
     def __init__(self, targets, state_file, sender, observe, idle=lambda side: True,
-                 clock=time.monotonic, sleep=time.sleep, names=dict):
+                 clock=time.monotonic, sleep=time.sleep, names=dict, wall_clock=time.time):
         self.roles = {lan.device_key(device): device["side"] for device in targets}
         if len(self.roles) != 2 or set(self.roles.values()) != set(ROLES):
             raise ValueError("HomeKit power requires the two selected roles")
@@ -62,6 +63,13 @@ class HomeKitPower:
         # Sync holds (sync_off.py): lamps switched off for a Sync session. A hold
         # is not HomeKit intent, is never adopted by tick() and closes the gate.
         self.holds = set()
+        self.history = PowerHistory(clock, wall_clock)
+
+    def _changed(self, side, cause):
+        """Advance the gate revision and record it; the caller holds the lock."""
+        self.revisions[side] += 1
+        self.history.record(side, cause, self.intent[side]["on"], self.allowed(side),
+                            side in self.holds)
 
     # Persistence ----------------------------------------------------------
 
@@ -132,6 +140,7 @@ class HomeKitPower:
             return {
                 "enforced": True,
                 "authority": "homekit",
+                "events": self.history.snapshot(),
                 "roles": {
                     side: {"requested_on": self.intent[side]["on"] is True,
                            "color_allowed": self.allowed(side),
@@ -262,7 +271,7 @@ class HomeKitPower:
             self.intent[side]["on"] = on
             self.confirmed[side] = False
             self.unconfirmed[side] = True
-            self.revisions[side] += 1
+            self._changed(side, "intent")
             self.disagree_since[side] = None
             self._save()
             started = self.last_command[side] = self.clock()
@@ -276,7 +285,7 @@ class HomeKitPower:
                     self.unconfirmed[side] = False
                     if on and self.intent[side]["on"] is True:
                         self.confirmed[side] = True
-                        self.revisions[side] += 1
+                        self._changed(side, "confirmed")
                 return True
             if not resent and self.clock() - started >= RESEND_SECONDS:
                 resent = True
@@ -311,7 +320,7 @@ class HomeKitPower:
                              else self.intent[side]["on"]) is not True:
                     return False
                 self.holds.add(side)
-                self.revisions[side] += 1
+                self._changed(side, "sync_hold")
                 self.disagree_since[side] = None
             if send:
                 switch_power(lambda on: self._send_turn(side, on), self.observe, side, False,
@@ -333,7 +342,7 @@ class HomeKitPower:
                 if side not in self.holds:
                     return "superseded"
                 self.holds.discard(side)
-                self.revisions[side] += 1
+                self._changed(side, "sync_release")
                 if self.intent[side]["on"] is False:
                     return "superseded"
             restored = False
@@ -343,7 +352,7 @@ class HomeKitPower:
                 if not restored:
                     with self.lock:
                         self.holds.add(side)
-                        self.revisions[side] += 1
+                        self._changed(side, "sync_restore_failed")
             return "restored" if restored else "failed"
 
     def owner_power(self, side):
@@ -351,7 +360,7 @@ class HomeKitPower:
         with self.lock:
             if side in self.holds:
                 self.holds.discard(side)
-                self.revisions[side] += 1
+                self._changed(side, "owner_power")
 
     # Native observation ---------------------------------------------------
 
@@ -378,10 +387,10 @@ class HomeKitPower:
                         self.unconfirmed[side] = False
                         if intent and not self.confirmed[side]:
                             self.confirmed[side] = True
-                            self.revisions[side] += 1
+                            self._changed(side, "confirmed")
                     elif intent and native and not self.confirmed[side]:
                         self.confirmed[side] = True
-                        self.revisions[side] += 1
+                        self._changed(side, "confirmed")
                     elif native is not intent and now - self.last_command[side] >= SETTLE_SECONDS:
                         if self.disagree_since[side] is None:
                             self.disagree_since[side] = now
@@ -396,7 +405,7 @@ class HomeKitPower:
         self.intent[side]["on"] = native
         self.confirmed[side] = native
         self.unconfirmed[side] = False
-        self.revisions[side] += 1
+        self._changed(side, "adopted")
         self.disagree_since[side] = None
         try:
             self._save()
