@@ -329,14 +329,14 @@ class PilotTests(unittest.TestCase):
             sent += len(self.sent) > before
         self.assertGreaterEqual(sent, 36)
         self.assertLessEqual(sent, 38)
-        # The mode is renewed well within the lamp's one-minute timeout.
+        # While frames flow the mode is not sent again: re-sending it blinks the lamp.
         self.sent.clear()
         self.now = 11
         controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
         controller.submit(command(sequence=9, transitiontime=0, state=state))
         controller.render()
-        self.assertEqual([razer_colors(data) for _, name, data in self.sent
-                          if name == "razer"][0], None)
+        self.assertNotIn(None, [razer_colors(data) for _, name, data in self.sent
+                                if name == "razer"])
         # Back to scene output: DreamView off first, then ptReal at the scene budget.
         self.sent.clear()
         self.now = 12
@@ -345,6 +345,65 @@ class PilotTests(unittest.TestCase):
         controller.render()
         self.assertEqual([name for _, name, _ in self.sent][:2], ["razer", "ptReal"])
         self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
+    def test_dreamview_is_switched_on_only_when_the_lamp_may_have_left_it(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7)
+        controller = pilot.PilotController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        controller.set_streaming(True)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        sequence = iter(range(1, 10000))
+
+        def tick(at, status=None, red=None):
+            self.now = at
+            controller.update_statuses({LEFT: (status or {"onOff": 1}, self.now)})
+            if red is not None:
+                controller.submit(command(sequence=next(sequence), transitiontime=0,
+                                          state={**state, "segments": [[red, 0, 0]]}))
+            before = len(self.sent)
+            controller.render()
+            return [razer_colors(data) for device, name, data in self.sent[before:]
+                    if device == LEFT and name == "razer"]
+
+        def modes(frames):
+            return frames.count(None)
+
+        # Stream start: the mode, then the current frame in the same burst.
+        frames = tick(0, red=120)
+        self.assertEqual(frames[:2], [None, [[120, 0, 0]] * 7])
+        # A minute of changing frames, with a status miss every 10 s like the
+        # slower H6076, never switches the mode on again.
+        sent = 0
+        for step in range(1, 1500):
+            at = step * 0.04
+            missing = step % 250 in range(1, 9)
+            status = ({"onOff": 0, "identity_verified": False} if missing else None)
+            frames = tick(at, status=status, red=step % 200 + 20)
+            sent += modes(frames)
+        self.assertEqual(sent, 0)
+        # A still picture: the 30 s refresh frame keeps the lamp in DreamView.
+        quiet = [modes(tick(60 + step * 0.5)) for step in range(1, 120)]
+        self.assertEqual(sum(quiet), 0)
+        # A verified Off ends DreamView on the lamp: the mode returns with a frame.
+        tick(121, status={"onOff": 0, "identity_verified": True})
+        frames = tick(122, red=90)
+        self.assertEqual(frames[:2], [None, [[90, 0, 0]] * 7])
+        # A status loss long enough for a power cycle does the same.
+        for step in range(0, 7):
+            tick(123 + step, status={"onOff": 0, "identity_verified": False})
+        frames = tick(130.5, red=60)
+        self.assertEqual(frames[:2], [None, [[60, 0, 0]] * 7])
+        # A frame gap close to the lamp's one-minute timeout: the mode again.
+        controller.update_statuses({LEFT: ({"onOff": 1}, 131)})
+        with patch.object(controller, "effective_target", return_value=None):
+            for step in range(1, 47):
+                tick(130.5 + step)
+        frames = tick(177, red=30)
+        self.assertEqual(frames[:2], [None, [[30, 0, 0]] * 7])
 
     def test_stream_start_ignores_a_scene_slot_and_scene_waits_for_dreamview_off(self):
         from govee_segments import razer_colors

@@ -166,8 +166,13 @@ def native_target(status, fallback):
 # DreamView frames per second while Sync streams. Both selected H6076 answered
 # every status poll at ~27 frames/s and started to miss them above ~38.
 STREAM_FRAMES_PER_SECOND = 25
-# The lamp leaves DreamView after a minute without frames; renew the mode well before.
-RAZER_RENEW_SECONDS = 10
+# The lamp leaves DreamView after about a minute without frames. Switching the
+# mode on while it is already on blanks the lamp for a moment, which shows as a
+# blink, so the mode is sent only when the lamp may have left it: at stream
+# start, after a frame gap close to that timeout, after a verified Off and after
+# a status loss long enough for a power cycle. Short status misses keep it.
+RAZER_IDLE_SECONDS = 45
+RAZER_LOST_SECONDS = 5
 
 
 class PilotController:
@@ -219,6 +224,11 @@ class PilotController:
         self.streaming = False
         # Side -> time DreamView was last switched on; kept until it is switched off.
         self.razer = {}
+        # Side -> time of the last mode or frame the lamp accepted in DreamView;
+        # dropped when the lamp may have left the mode on its own.
+        self.razer_frame = {}
+        # Side -> time its status first went missing or off, while it still is.
+        self.status_lost = {}
         # Brightness last sent while streaming. Video output re-sends every frame
         # (last_sent is cleared each tick), but an unchanged brightness must not
         # take a frame slot.
@@ -428,10 +438,20 @@ class PilotController:
                         continue
                 status, seen = self.statuses.get(lan.device_key(device), (None, float("-inf")))
                 if not status or status.get("onOff") != 1 or not 0 <= now - seen <= 0.75:
+                    lost = self.status_lost.setdefault(side, now)
+                    verified_off = (
+                        status is not None and 0 <= now - seen <= 0.75
+                        and status.get("onOff") == 0
+                        and status.get("identity_verified", True) is not False
+                    )
+                    if verified_off or now - lost >= RAZER_LOST_SECONDS:
+                        # An Off or a power cycle ends DreamView on the lamp.
+                        self.razer_frame.pop(side, None)
                     self.last_sent.pop(side, None)
                     if side in self.jobs:
                         self.skipped_state[side] += 1
                     continue
+                self.status_lost.pop(side, None)
                 if not self.streaming and side in self.razer:
                     # The lamp ignores other color commands while DreamView is on,
                     # so leave it even when no scene target is waiting yet.
@@ -444,6 +464,7 @@ class PilotController:
                         self.rejected_sends[side] += 1
                         continue
                     self.razer.pop(side)
+                    self.razer_frame.pop(side, None)
                 target = self.effective_target(side)
                 if target is None:
                     continue
@@ -474,11 +495,15 @@ class PilotController:
                     if changed or refresh:
                         updates.append((name, data))
                 mode = None
-                if stream and (side not in self.razer
-                               or now - self.razer[side] >= RAZER_RENEW_SECONDS):
+                if stream and (side not in self.razer or side not in self.razer_frame
+                               or now - self.razer_frame[side] >= RAZER_IDLE_SECONDS):
                     mode = razer_mode(True)
                 if mode is not None:
-                    updates.insert(0, ("razer", mode))
+                    # The lamp stays dark after the mode switch until a frame arrives,
+                    # so the current frame always follows it in the same burst.
+                    frame = ("razer", commands[0][1])
+                    updates = [("razer", mode), frame] + [
+                        update for update in updates if update[0] != "razer"]
                 if stream:
                     rate = self.stream_rates[side]
                 else:
@@ -501,6 +526,8 @@ class PilotController:
                     complete = success and complete
                     if success and data is mode:
                         self.razer[side] = now
+                    if success and stream and name == "razer":
+                        self.razer_frame[side] = now
                     if success and stream and name == "brightness":
                         self.stream_brightness[side] = data["value"]
                     self.commands_sent += int(success)
