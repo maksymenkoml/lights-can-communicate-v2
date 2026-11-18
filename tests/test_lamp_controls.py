@@ -251,6 +251,78 @@ class SyncOffSessionTests(SessionFixture):
         self.assertEqual(self.turns("left"), [])
         self.assertEqual(self.hue.power_calls, [False])
 
+    def test_role_changes_during_the_session_apply_at_once(self):
+        power = self.homekit()
+        self.store.save(with_roles())
+        session = self.session(power)
+        self.lamps.sent.clear()
+        self.active = True
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], [])
+        # Set to Off while Sync runs: both lamps go off on the next step.
+        self.store.save(with_roles(**{"govee-left": "off", "hue-monitor": "off"}))
+        session.step()
+        self.assertEqual(self.turns("left"), [0])
+        self.assertEqual(self.hue.power_calls, [False])
+        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        # The owner switches the left lamp on again: it is not switched off again.
+        self.assertTrue(power.set({"role": "left", "on": True}))
+        for _ in range(5):
+            self.lamps.now += 0.5
+            power.tick()
+            session.step()
+        self.assertEqual(self.turns("left"), [0, 1])
+        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        # The strip leaves Off while Sync runs: its power comes back at once.
+        self.store.save(with_roles(**{"govee-left": "off"}))
+        session.step()
+        self.assertEqual(self.hue.power_calls, [False, True])
+        self.assertEqual(session.snapshot()["roles"], [])
+        self.assertFalse(self.state.exists())
+        # Set to Off again in the same session: it is switched off again.
+        self.store.save(with_roles(**{"govee-left": "off", "hue-monitor": "off"}))
+        session.step()
+        self.assertEqual(self.hue.power_calls, [False, True, False])
+        self.assertEqual(self.turns("left"), [0, 1])
+        # Session end restores what is still recorded, and only that.
+        self.active = False
+        session.step()
+        self.assertEqual(self.hue.power_calls, [False, True, False, True])
+        self.assertEqual(self.turns("left"), [0, 1])
+
+    def test_failed_restore_of_a_role_leaving_off_is_retried_during_the_session(self):
+        session = self.session(None)
+        self.active = True
+        session.step()
+        self.hue.fail_power = True
+        self.store.save(with_roles(**{"govee-left": "off"}))
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.hue.fail_power = False
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["strip"], "retry waits a second")
+        self.lamps.now += 1.5
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], [])
+        self.assertTrue(self.hue.native["on"]["on"])
+
+    def test_a_failed_restore_does_not_delay_another_lamp_leaving_off(self):
+        power = self.homekit()
+        session = self.session(power)
+        self.active = True
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        self.hue.fail_power = True
+        self.store.save(with_roles(**{"govee-left": "off"}))
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        # The left lamp leaves Off on the next step: restored at once.
+        self.store.save(with_roles())
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.assertFalse(power.sync_held("left"))
+        self.assertTrue(self.lamps.native["left"])
+
     def test_power_owner_hold_closes_the_gate_and_owner_off_wins(self):
         gate = self.owner()
         session = self.session(gate)
@@ -289,23 +361,22 @@ class SyncOffSessionTests(SessionFixture):
         session.step()
         self.assertEqual(self.hue.power_calls, [False, True])
 
-    def test_role_changes_apply_at_the_next_session(self):
+    def test_moving_off_to_another_lamp_during_the_session_moves_the_hold(self):
         power = self.homekit()
         session = self.session(power)
         self.active = True
         session.step()
         self.store.save(with_roles(**{"govee-right": "off"}))
         session.step()
-        self.assertTrue(power.sync_held("left"))
-        self.assertFalse(power.sync_held("right"))
+        self.assertFalse(power.sync_held("left"))
+        self.assertTrue(self.lamps.native["left"])
+        self.assertTrue(power.sync_held("right"))
+        self.assertFalse(self.lamps.native["right"])
+        self.assertEqual(self.hue.power_calls, [False, True])
         self.active = False
         session.step()
-        self.assertTrue(self.lamps.native["left"])
-        self.assertEqual(self.hue.power_calls, [False, True])
-        self.active = True
-        session.step()
-        self.assertTrue(power.sync_held("right"))
-        self.assertFalse(power.sync_held("left"))
+        self.assertFalse(power.sync_held("right"))
+        self.assertTrue(self.lamps.native["right"])
         self.assertEqual(self.hue.power_calls, [False, True])
 
     def test_a_lamp_is_left_alone_when_its_record_cannot_be_saved(self):

@@ -16,7 +16,9 @@ during the session wins: the lamp is then not restored.
 The roles switched off are persisted before any command (atomic, 0600). On
 adapter start a leftover file is restored and deleted while no Sync runs, so a
 crash never leaves a lamp off. Changing a lamp's ``syncRole`` while a session
-runs applies at the next session start.
+runs applies at once: a lamp set to "off" is switched off, and a lamp that
+leaves "off" gets its recorded power back. Each lamp is switched off at most
+once per session, so an owner who switches it on again keeps it on.
 """
 
 import json
@@ -64,6 +66,11 @@ class SyncOffSession:
         self.records = self._load()
         # Native roles whose Off was confirmed; a later fresh On is an owner change.
         self.confirmed_off = set()
+        # Roles this session has already handled (switched off, or found off or
+        # unknown); they are not switched off again before the next session.
+        self.applied = set()
+        # Role -> earliest retry of a failed restore for a lamp that left Off.
+        self.restore_retry = {}
         self.last_result = "idle"
         for role in self.records:
             if role in GOVEE_ROLES and self.govee is not None:
@@ -122,8 +129,9 @@ class SyncOffSession:
         loader = getattr(self.layout_store, "sync_off_roles", None)
         return loader() if loader is not None else []
 
-    def start(self):
-        for role in self.roles():
+    def start(self, roles=None):
+        for role in self.roles() if roles is None else roles:
+            self.applied.add(role)
             if role in self.records:
                 continue
             if role in GOVEE_ROLES:
@@ -158,9 +166,9 @@ class SyncOffSession:
                     pass
         self.last_result = "session"
 
-    def end(self):
+    def end(self, roles=None):
         """Restore recorded lamps; failures stay recorded and are retried."""
-        for role in list(self.records):
+        for role in [role for role in self.records if roles is None or role in roles]:
             if role in GOVEE_ROLES:
                 if self.govee is None:
                     del self.records[role]
@@ -185,7 +193,8 @@ class SyncOffSession:
                     pass
             self.confirmed_off.discard(role)
         self._persist()
-        self.last_result = "idle" if not self.records else "restore pending"
+        if roles is None:
+            self.last_result = "idle" if not self.records else "restore pending"
 
     def owner_power(self, role):
         """The owner switched this lamp during the session: do not restore it."""
@@ -213,6 +222,28 @@ class SyncOffSession:
         if changed:
             self._persist()
 
+    def _follow_layout(self):
+        """Apply syncRole changes made while the session runs."""
+        current = self.roles()
+        # A lamp that leaves "off" may be set to "off" again later in the session.
+        self.applied.intersection_update(current)
+        added = [role for role in current if role not in self.applied]
+        if added:
+            self.start(added)
+        now = self.clock()
+        # A failed restore waits for its own retry time; other lamps leaving Off
+        # are restored at once.
+        leaving = [role for role in self.records if role not in current
+                   and self.restore_retry.get(role, float("-inf")) <= now]
+        if leaving:
+            self.end(leaving)
+            for role in leaving:
+                if role in self.records:
+                    self.restore_retry[role] = now + RETRY_SECONDS
+        for role in list(self.restore_retry):
+            if role not in self.records or role in current:
+                del self.restore_retry[role]
+
     def step(self):
         with self.lock:
             if self.closed:
@@ -220,9 +251,11 @@ class SyncOffSession:
             active = bool(self.active())
             if active and not self.running:
                 self.running = True
+                self.applied = set()
                 self.start()
             elif not active and self.running:
                 self.running = False
+                self.applied = set()
                 self.end()
                 self.next_retry = self.clock() + RETRY_SECONDS
             elif not active and self.records and self.clock() >= self.next_retry:
@@ -230,6 +263,7 @@ class SyncOffSession:
                 self.next_retry = self.clock() + RETRY_SECONDS
             elif self.running:
                 self._watch_owner()
+                self._follow_layout()
 
     def close(self):
         """Adapter shutdown: restore now; anything not restored stays on disk."""

@@ -485,8 +485,10 @@ switches it off; at the end it switches the recorded lamps on again.
   them (a Govee lamp after its first fresh native reading, up to 15 s) and deletes
   the file. A clean shutdown restores immediately. A failed restore stays in the
   file and is retried every second.
-- Changing a lamp's `syncRole` while a session runs applies at the next session
-  start; the running session restores exactly the lamps it switched off.
+- Changing a lamp's `syncRole` while a session runs applies at once: a lamp set
+  to `"off"` is switched off, and a lamp that leaves `"off"` gets back the power
+  this session took from it. A lamp is switched off at most once while it stays
+  `"off"`, so an owner who switches it on again keeps it on.
 
 ### Blink
 

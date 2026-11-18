@@ -55,6 +55,9 @@ Version 4 files load as version 5; writes must use version 5.
   off; at the end it restores the recorded power. A lamp that was already off
   stays off; a lamp the owner switches on or off during the session keeps the
   owner's choice at the end.
+- A `syncRole` change during a session applies at once: a lamp set to `"off"`
+  is switched off, and a lamp that leaves `"off"` gets back the power the
+  session took. A lamp is switched off at most once while it stays `"off"`.
 - Govee: a separate Sync hold in the power authority (`HomeKitPower` /
   `PowerOwner`). The hold is not HomeKit intent, is never adopted as intent,
   and closes the colour writer while it is active. HomeKit keeps showing the
