@@ -189,41 +189,48 @@ class HomeKitPower:
             if "on" in payload:
                 confirmed = self._power(side, payload["on"])
             if confirmed and self.allowed(side) and self.idle(side):
-                confirmed = self._apply_static(side, payload)
-                if not confirmed:
-                    # HomeKit must keep showing what the lamp actually has.
+                failed = self._apply_static(side, payload)
+                if failed:
+                    # HomeKit must keep showing what the lamp actually has:
+                    # restore only the values whose command was not delivered.
+                    keys = {"brightness": ("brightness",),
+                            "color": ("hue", "saturation", "kelvin")}
                     with self.lock:
-                        for key in ("brightness", "hue", "saturation", "kelvin"):
-                            self.intent[side][key] = previous[key]
+                        for name in failed:
+                            for key in keys[name]:
+                                self.intent[side][key] = previous[key]
                         self._save()
+                    confirmed = False
             return confirmed
 
     def _apply_static(self, side, payload):
         """Home color applies only while no scene or Sync owns the lamp.
 
-        Returns False when a command was not delivered to a verified route.
+        Returns the names ("brightness", "color") of commands that were not
+        delivered to a verified route.
         """
         device, intent = self.devices[side], self.intent[side]
         commands = []
         if ("brightness" in payload or payload.get("on") is True) and intent["brightness"]:
-            commands.append(("brightness", {"value": intent["brightness"]}))
+            commands.append(("brightness", "brightness", {"value": intent["brightness"]}))
         if set(payload) & {"hue", "saturation", "color_temperature"} or payload.get("on") is True:
             if intent["kelvin"] is not None:
-                commands.append(("colorwc", {"color": {"r": 255, "g": 255, "b": 255},
-                                             "colorTemInKelvin": intent["kelvin"]}))
+                commands.append(("color", "colorwc", {"color": {"r": 255, "g": 255, "b": 255},
+                                                      "colorTemInKelvin": intent["kelvin"]}))
             elif intent["hue"] is not None:
                 red, green, blue = (round(channel * 255) for channel in colorsys.hsv_to_rgb(
                     intent["hue"] / 360, intent["saturation"] / 100, 1))
-                commands.append(("colorwc", {"color": {"r": red, "g": green, "b": blue},
-                                             "colorTemInKelvin": 0}))
-        delivered = True
+                commands.append(("color", "colorwc", {"color": {"r": red, "g": green, "b": blue},
+                                                      "colorTemInKelvin": 0}))
+        failed = set()
         with self.lock:
-            for command, data in commands:
+            for name, command, data in commands:
                 try:
-                    delivered = self.sender(device, command, data) is True and delivered
+                    if self.sender(device, command, data) is not True:
+                        failed.add(name)
                 except OSError:
-                    delivered = False
-        return delivered
+                    failed.add(name)
+        return failed
 
     def _power(self, side, on):
         device = self.devices[side]

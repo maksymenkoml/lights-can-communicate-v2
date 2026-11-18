@@ -198,6 +198,13 @@ class HomeKitPowerTests(unittest.TestCase):
         self.lamps.undelivered = {"colorwc"}
         self.assertFalse(self.power.set({"role": "left", "hue": 10, "saturation": 20}))
         self.assertIsNone(self.power.state()["roles"]["left"]["hue"])
+        # Turning On applies brightness and color; only the failed color reverts.
+        self.power.set({"role": "left", "on": False})
+        self.power.set({"role": "left", "brightness": 30})
+        self.assertFalse(self.power.set({"role": "left", "on": True, "hue": 200,
+                                         "saturation": 50}))
+        state = self.power.state()["roles"]["left"]
+        self.assertEqual((state["brightness"], state["hue"]), (30, None))
         self.lamps.undelivered.clear()
         self.assertTrue(self.power.set({"role": "left", "hue": 10, "saturation": 20}))
 
