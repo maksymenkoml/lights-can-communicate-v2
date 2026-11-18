@@ -210,6 +210,69 @@ class PowerRequestOwnerIntegrationTests(unittest.TestCase):
             worker.join(2)
 
 
+class SettledRequestTests(unittest.TestCase):
+    """The Hue app sends On with every scene; a settled lamp needs no owner trip."""
+
+    def setUp(self):
+        self.now, self.wall = 100, 1000
+        self.owner = PowerOwner(targets(), clock=lambda: self.now, wall_clock=lambda: self.wall)
+        self.observed = {side: {"on": True, "sample": 99.9} for side in ("left", "right")}
+        self.broker = PowerRequests(self.owner, observe=lambda: self.observed)
+        self.addCleanup(self.broker.close)
+        self.sequence = 0
+        self.exchange({"left": True, "right": True})
+
+    def exchange(self, states):
+        self.sequence += 1
+        body = {"session": "owner", "sequence": self.sequence, "issued_at": self.wall,
+                "states": states}
+        extension = {"version": 1, "revisions": {"left": 0, "right": 0}, "results": []}
+        accepted = self.owner.submit(body)
+        return self.broker.exchange(body, validate_capability(extension, states),
+                                    self.observed, accepted)
+
+    def request(self, states, request_id="b" * 32):
+        return self.broker.request({"id": request_id, "issued_at": self.wall, "states": states})
+
+    def test_a_request_for_the_current_confirmed_state_succeeds_without_a_command(self):
+        started = time.monotonic()
+        self.assertTrue(self.request({"left": True, "right": True}))
+        self.assertLess(time.monotonic() - started, 0.05)
+        self.assertEqual(self.exchange({"left": True, "right": True})["power_requests"], [])
+
+    def test_a_lamp_that_is_not_yet_in_the_state_still_gets_a_command(self):
+        self.observed["right"] = {"on": False, "sample": 99.9}
+        result = []
+        worker = threading.Thread(target=lambda: result.append(
+            self._quiet(lambda: self.request({"right": True}))))
+        worker.start()
+        deadline = time.monotonic() + 1
+        commands = []
+        while not commands and time.monotonic() < deadline:
+            commands = self.exchange({"left": True, "right": True})["power_requests"]
+            time.sleep(0.005)
+        self.broker.close()
+        worker.join(1)
+        self.assertEqual([command["role"] for command in commands], ["right"])
+
+    def test_home_intent_off_is_not_overridden_by_a_stale_on_reading(self):
+        self.exchange({"left": True, "right": False})
+        self.assertFalse(self.broker.settled({"right": True}))
+        self.assertTrue(self.broker.settled({"left": True}))
+
+    def test_unknown_or_stale_readings_never_count_as_settled(self):
+        self.observed["left"] = {"on": None, "sample": None}
+        self.assertFalse(self.broker.settled({"left": True}))
+        self.assertTrue(self.broker.settled({"right": True}))
+
+    @staticmethod
+    def _quiet(call):
+        try:
+            return call()
+        except PowerRequestUnavailable:
+            return False
+
+
 class BrokerFenceTests(unittest.TestCase):
     def setUp(self):
         self.now, self.wall = 100, 1000

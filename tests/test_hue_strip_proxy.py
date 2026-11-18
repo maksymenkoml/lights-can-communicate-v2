@@ -1,4 +1,6 @@
 import copy
+import http.client
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -329,6 +331,116 @@ class HueStripTests(unittest.TestCase):
         self.assertEqual({item[1] for item in requests}, {"/clip/v2/resource/light/" + STRIP_ID})
         with self.assertRaises(ValueError):
             client.write({"on": {"on": True}})
+
+
+class FakeResponse:
+    def __init__(self, status, body, will_close=False):
+        self.status, self.body, self.will_close = status, body, will_close
+
+    def read(self):
+        return json.dumps(self.body).encode()
+
+
+class FakeConnection:
+    """One bridge connection; ``failures`` raise on the next requests in turn."""
+
+    def __init__(self, log, failures=(), responses=()):
+        self.log, self.failures, self.responses = log, list(failures), list(responses)
+        self.closed = False
+        self.pending = None
+
+    def request(self, method, path, body=None, headers=None):
+        if self.failures:
+            raise self.failures.pop(0)
+        self.log.append((self, method, path, None if body is None else json.loads(body),
+                         headers["hue-application-key"]))
+        self.pending = self.responses.pop(0) if self.responses else FakeResponse(
+            200, {"data": [{"id": STRIP_ID, "rid": STRIP_ID}], "errors": []})
+
+    def getresponse(self):
+        return self.pending
+
+    def close(self):
+        self.closed = True
+
+
+class KeptAliveClientTests(unittest.TestCase):
+    def client(self, *connections):
+        made = []
+
+        def factory():
+            made.append(connections[len(made)])
+            return made[-1]
+
+        client = PinnedHueClient(
+            {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID},
+            profile=NativeHueProfile.from_dict(profile_data()), connection_factory=factory)
+        return client, made
+
+    def test_requests_reuse_one_connection(self):
+        log = []
+        client, made = self.client(FakeConnection(log))
+        client.read()
+        client.power(True)
+        client.read()
+        self.assertEqual(len(made), 1)
+        self.assertEqual([entry[1:4] for entry in log], [
+            ("GET", "/clip/v2/resource/light/" + STRIP_ID, None),
+            ("PUT", "/clip/v2/resource/light/" + STRIP_ID, {"on": {"on": True}}),
+            ("GET", "/clip/v2/resource/light/" + STRIP_ID, None),
+        ])
+        self.assertEqual({entry[4] for entry in log}, {"test"})
+
+    def test_a_connection_the_bridge_closed_while_idle_is_replaced_once(self):
+        log = []
+        stale = FakeConnection(log, failures=[http.client.RemoteDisconnected("idle")])
+        fresh = FakeConnection(log)
+        client, made = self.client(fresh)
+        client.connection = stale
+        client.power(False)
+        self.assertTrue(stale.closed)
+        self.assertEqual(made, [fresh])
+        self.assertEqual([entry[0] for entry in log], [fresh])
+
+    def test_a_new_connection_that_fails_is_not_retried(self):
+        failing = FakeConnection([], failures=[ConnectionResetError("reset")])
+        client, made = self.client(failing)
+        with self.assertRaises(ConnectionResetError):
+            client.read()
+        self.assertTrue(failing.closed)
+        self.assertIsNone(client.connection)
+        self.assertEqual(len(made), 1)
+
+    def test_a_timeout_drops_the_connection_without_sending_again(self):
+        log = []
+        slow = FakeConnection(log, failures=[TimeoutError("timed out")])
+        client, made = self.client(FakeConnection(log))
+        client.connection = slow
+        with self.assertRaises(TimeoutError):
+            client.power(True)
+        self.assertTrue(slow.closed)
+        self.assertIsNone(client.connection)
+        self.assertEqual((log, made), ([], []))
+
+    def test_http_errors_and_bridge_close_requests_are_honoured(self):
+        log = []
+        connection = FakeConnection(log, responses=[
+            FakeResponse(403, {"errors": [{"description": "unauthorized"}]}),
+            FakeResponse(200, {"data": [{"id": STRIP_ID}], "errors": []}, will_close=True),
+        ])
+        client, made = self.client(connection)
+        with self.assertRaises(OSError):
+            client.read()
+        self.assertIs(client.connection, connection)
+        client.read()
+        self.assertTrue(connection.closed)
+        self.assertIsNone(client.connection)
+
+    def test_the_pinned_path_is_still_enforced(self):
+        client, made = self.client(FakeConnection([]))
+        with self.assertRaises(ValueError):
+            client.request("GET", "/clip/v2/resource/light/other", None)
+        self.assertEqual(made, [])
 
 
 if __name__ == "__main__":
