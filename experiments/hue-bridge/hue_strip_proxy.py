@@ -1,12 +1,12 @@
 """Proxy only the selected monitor strip and confirmed Play lights through their bridge."""
 
 import copy
+import http.client
 import json
 import math
 import ssl
 import threading
 import time
-import urllib.request
 
 from bridge_output import strip_changes
 
@@ -75,8 +75,19 @@ def hue_payload(state, transitiontime):
     return body
 
 
+# Errors of a kept-alive connection that the bridge closed while it was idle.
+STALE_CONNECTION = (
+    http.client.RemoteDisconnected,
+    http.client.CannotSendRequest,
+    ConnectionResetError,
+    BrokenPipeError,
+    ConnectionAbortedError,
+)
+
+
 class PinnedHueClient:
-    def __init__(self, config, requester=None, resource_id=None, profile=None):
+    def __init__(self, config, requester=None, resource_id=None, profile=None,
+                 connection_factory=None):
         if not isinstance(profile, NativeHueProfile):
             raise ValueError("An explicit native Hue profile is required")
         self.profile = profile
@@ -88,24 +99,56 @@ class PinnedHueClient:
         self.key = config["hue_key"]
         self.path = "/clip/v2/resource/light/" + self.resource_id
         self.requester = requester or self.request
+        self.connection_factory = connection_factory or self.connect
+        self.connection = None
+        # Status polling and power writes run on different threads.
+        self.connection_lock = threading.Lock()
 
-    def request(self, method, path, body):
-        if path != self.path:
-            raise ValueError("Unexpected Hue resource")
+    def connect(self):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context)
-        )
-        request = urllib.request.Request(
-            "https://" + self.bridge + path,
-            data=None if body is None else json.dumps(body).encode(),
-            method=method,
-            headers={"Content-Type": "application/json", "hue-application-key": self.key},
-        )
-        with opener.open(request, timeout=1.5) as response:
-            result = json.load(response)
+        return http.client.HTTPSConnection(self.bridge, timeout=1.5, context=context)
+
+    def _drop(self):
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
+
+    def request(self, method, path, body):
+        """Send one request over a kept-alive connection to the bridge.
+
+        A new TLS handshake costs far more than the request itself, so the
+        connection is reused. A reused connection that the bridge already
+        closed fails before any response; only then is the request sent once
+        more on a new connection. Every Hue request here is idempotent.
+        """
+        if path != self.path:
+            raise ValueError("Unexpected Hue resource")
+        data = None if body is None else json.dumps(body).encode()
+        headers = {"Content-Type": "application/json", "hue-application-key": self.key}
+        with self.connection_lock:
+            while True:
+                reused = self.connection is not None
+                if not reused:
+                    self.connection = self.connection_factory()
+                try:
+                    self.connection.request(method, path, body=data, headers=headers)
+                    response = self.connection.getresponse()
+                    status, raw = response.status, response.read()
+                    if response.will_close:
+                        self._drop()
+                    break
+                except STALE_CONNECTION:
+                    self._drop()
+                    if not reused:
+                        raise
+                except BaseException:
+                    self._drop()
+                    raise
+        if not 200 <= status < 300:
+            raise OSError(f"Native Hue answered HTTP {status}")
+        result = json.loads(raw)
         if result.get("errors"):
             raise ValueError("Native Hue rejected the selected strip command")
         return result
@@ -369,7 +412,7 @@ class HueStripProxy:
                 self.last_result = "native unavailable or rejected"
             return False
 
-    def set_power(self, on, attempts=5, pause=0.2, sleep=time.sleep):
+    def set_power(self, on, attempts=16, pause=0.05, sleep=time.sleep):
         """Switch the native light and confirm it by reading it back."""
         with self.command_lock:
             self.client.power(on)

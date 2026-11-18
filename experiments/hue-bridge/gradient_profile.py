@@ -9,8 +9,11 @@ SIGNE_MODEL = "915005987201"
 def validate_gradient(value):
     if not isinstance(value, dict) or not isinstance(value.get("points"), list):
         raise ValueError("Expected gradient points")
-    if not 1 <= len(value["points"]) <= 3:
-        raise ValueError("Signe supports one to three palette points")
+    # Hue accepts up to five points for any gradient light, whatever its
+    # points_capable; the Hue app relies on that in scenes. The adapter spreads
+    # one to five points over the physical zones.
+    if not 1 <= len(value["points"]) <= 5:
+        raise ValueError("A gradient has one to five points")
     for point in value["points"]:
         if not isinstance(point, dict) or not isinstance(point.get("color"), dict):
             raise ValueError("Expected gradient color")
