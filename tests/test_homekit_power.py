@@ -261,6 +261,31 @@ class HomeKitPowerTests(unittest.TestCase):
         self.assertGreater(len(self.lamps.sent), sent)
         self.lamps.reachable["right"] = False
         self.assertFalse(self.power.settled("right", True))
+    def test_gate_changes_are_recorded_with_their_cause(self):
+        self.power.tick()
+        self.assertTrue(self.power.set({"role": "right", "on": False}))
+        self.lamps.ignore.add("right")
+        self.assertFalse(self.power.set({"role": "right", "on": True}))
+        self.lamps.ignore.clear()
+        self.lamps.native["right"] = True
+        self.power.tick()
+        self.assertTrue(self.power.sync_hold("left", send=False))
+        self.power.owner_power("left")
+        events = [(e["role"], e["cause"], e["requested_on"], e["color_allowed"], e["sync_hold"])
+                  for e in self.power.snapshot()["events"]]
+        self.assertEqual(events, [
+            ("left", "adopted", True, True, False),
+            ("right", "adopted", True, True, False),
+            ("right", "intent", False, False, False),
+            ("right", "intent", True, False, False),
+            # A late native reading confirms the On that was not seen in time.
+            ("right", "confirmed", True, True, False),
+            ("left", "sync_hold", True, False, True),
+            ("left", "owner_power", True, True, False),
+        ])
+        self.assertTrue(all(e["timestamp"].endswith("Z")
+                            for e in self.power.snapshot()["events"]))
+
 
 class HomeKitRouteTests(unittest.TestCase):
     def setUp(self):

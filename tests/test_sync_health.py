@@ -198,6 +198,23 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(result["sync"]["state"], "unknown")
         self.assertEqual(result["govee"], {})
 
+    def test_export_includes_sanitized_power_changes(self):
+        data = status()
+        change = {"timestamp": "2026-11-18T20:00:00Z", "role": "right", "cause": "sync_hold",
+                  "requested_on": True, "color_allowed": False, "sync_hold": True}
+        data["power_owner"]["events"] = [
+            change,
+            {**change, "role": "PRIVATE_DEVICE"},
+            {**change, "cause": "PRIVATE_CAUSE"},
+            {**change, "timestamp": None},
+            {**change, "requested_on": "PRIVATE", "token": "PRIVATE_TOKEN"},
+        ] + [change] * 200
+        events = sync_health.export(data)["power_events"]
+        self.assertEqual(events[0], change)
+        self.assertLessEqual(len(events), 64)
+        self.assertNotIn("PRIVATE", json.dumps(sync_health.export(data)))
+        self.assertEqual(sync_health.export(status())["power_events"], [])
+
 
 class AdapterEndpointTests(unittest.TestCase):
     def test_diagnostics_route_is_authorized_and_sanitized(self):
