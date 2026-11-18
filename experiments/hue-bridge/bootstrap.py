@@ -33,6 +33,15 @@ from entertainment_stream import (  # noqa: E402
 )
 from flask import abort, g, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
+from hue_names import (  # noqa: E402
+    AREA_NAME,
+    BRIDGE_NAME,
+    MONITOR_NAME,
+    ROOM_NAME,
+    govee_name,
+    hue_play_name,
+    rename_legacy,
+)
 from hue_resource_compat import canonical_collection, install_resource_compat  # noqa: E402
 from HueObjects import (  # noqa: E402
     ApiUser,
@@ -65,7 +74,7 @@ config = configManager.bridgeConfig.yaml_config
 settings = config["config"]
 settings.update(
     {
-        "name": "Lights Can Communicate v2 Probe",
+        "name": BRIDGE_NAME,
         "discovery": False,
         "Remote API enabled": False,
         "timezone": "America/Toronto",
@@ -110,7 +119,7 @@ for index, side in enumerate(("Left", "Right"), start=1):
             {
                 "id_v1": identifier,
                 "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/{side}")),
-                "name": f"Govee {side} TEST",
+                "name": govee_name(side),
                 "modelid": "LCT015",
                 "protocol": "dummy",
             }
@@ -121,7 +130,7 @@ for index, side in enumerate(("Left", "Right"), start=1):
     configure_signe(config["lights"][identifier], GRADIENT_MODE)
 if "1" not in config["groups"]:
     room = Group.Group(
-        {"id_v1": "1", "name": "Probe Office TEST", "type": "Room", "class": "Office"}
+        {"id_v1": "1", "name": ROOM_NAME, "type": "Room", "class": "Office"}
     )
     for lamp in config["lights"].values():
         room.add_light(lamp)
@@ -134,7 +143,7 @@ if include_strip:
                 "id_v2": str(
                     uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/HueMonitorStrip")
                 ),
-                "name": "Hue Monitor PROXY",
+                "name": MONITOR_NAME,
                 "modelid": "LCX006",
                 "protocol": "dummy",
                 "protocol_cfg": {"points_capable": 5, "proxy_color_kind": "gradient"},
@@ -164,7 +173,7 @@ if include_hue_play:
                     "id_v2": str(
                         uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/HuePlay" + side)
                     ),
-                    "name": "Hue Play " + side + " PROXY",
+                    "name": hue_play_name(side),
                     "modelid": "LCT015",
                     "protocol": "dummy",
                     "protocol_cfg": {"proxy_color_kind": "xy"},
@@ -185,7 +194,7 @@ if include_entertainment:
             {
                 "id_v1": identifier,
                 "id_v2": GROUP_ID,
-                "name": "Desk Sync PILOT",
+                "name": AREA_NAME,
                 "configuration_type": "monitor",
             }
         )
@@ -255,6 +264,7 @@ if include_entertainment:
 if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(
         api_key, "LightsCanCommunicateV2Probe#selftest", None)
+rename_legacy(config)
 configManager.bridgeConfig.save_config(backup=False)
 
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
