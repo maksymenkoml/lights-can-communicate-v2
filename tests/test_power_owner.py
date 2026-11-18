@@ -147,7 +147,8 @@ class PowerOwnerTests(unittest.TestCase):
             self.assertEqual(request("/power-owner", "X-Adapter-Token", "adapter-secret",
                                      self.message())[0], 403)
             self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
-                                     self.message()), (200, {"accepted": True,
+                                      self.message()), (200, {"accepted": True,
+                                                              "power_request_version": 1,
                                          "observer_epoch": controller.observer_epoch, "observed": {
                                          "left": {"on": None, "sample": None},
                                          "right": {"on": None, "sample": None},
@@ -233,3 +234,56 @@ class PowerOwnerTests(unittest.TestCase):
         self.gate.submit(self.message(3, {'right': True}))
         controller.render()
         self.assertEqual(colors.count('ptReal'), 2)
+
+
+class PowerHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 10.0
+        self.wall = 1000.0
+        self.gate = PowerOwner(targets(), clock=lambda: self.now, wall_clock=lambda: self.wall)
+
+    def advance(self, seconds):
+        self.now += seconds
+        self.wall += seconds
+
+    def submit(self, sequence, states):
+        return self.gate.submit({"session": "owner", "sequence": sequence,
+                                 "issued_at": self.wall, "states": states})
+
+    def events(self):
+        return [(e["timestamp"], e["role"], e["cause"], e["requested_on"], e["color_allowed"],
+                 e["sync_hold"]) for e in self.gate.snapshot()["events"]]
+
+    def test_heartbeats_record_only_gate_changes_and_expiry_at_its_time(self):
+        self.submit(1, {"left": True, "right": True})
+        self.advance(1)
+        self.submit(2, {"left": True, "right": True})
+        self.advance(.5)
+        self.submit(3, {"left": True, "right": False})
+        self.advance(2.5)
+        self.assertEqual(self.events(), [
+            ("1970-01-01T00:16:40Z", "left", "owner", True, True, False),
+            ("1970-01-01T00:16:40Z", "right", "owner", True, True, False),
+            ("1970-01-01T00:16:41.500000Z", "right", "owner", False, False, False),
+            # The last heartbeat granted two seconds; the lapse is dated then, not when seen.
+            ("1970-01-01T00:16:43.500000Z", "left", "grant_expired", True, False, False),
+        ])
+        self.advance(1)
+        self.submit(4, {"left": True, "right": False})
+        self.assertEqual(self.events()[-1][1:], ("left", "owner", True, True, False))
+
+    def test_sync_hold_and_owner_power_are_recorded(self):
+        self.submit(1, {"left": True, "right": True})
+        self.assertTrue(self.gate.sync_hold("right", send=False))
+        self.gate.owner_power("right")
+        self.assertEqual([event[1:] for event in self.events()[2:]], [
+            ("right", "sync_hold", True, False, True),
+            ("right", "owner_power", True, True, False),
+        ])
+
+    def test_history_is_bounded(self):
+        for sequence in range(1, 200):
+            self.submit(sequence, {"right": sequence % 2 == 0})
+        events = self.gate.snapshot()["events"]
+        self.assertEqual(len(events), 64)
+        self.assertEqual(events[-1]["requested_on"], False)

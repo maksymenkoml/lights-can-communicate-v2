@@ -2,19 +2,20 @@
 
 First production-transition component: a reproducible executable archive of the
 existing desk adapter. The Python standard library can execute this artifact
-without a checkout or an installation step. This is not the complete NAS core or
-a published generic device package. Native Hue light/area identities and channel
-roles remain the pilot's pinned profile until the next component is extracted.
+without a checkout or an installation step. A complete NAS service and arbitrary
+device enrollment remain separate components. Physical native Hue
+identities come only from an explicit profile. The four native roles and twelve
+native channels remain fixed until a separate enrollment component is implemented.
 
 ## Build and run
 
 From the repository root:
 
 ```sh
-python3 -B -m smart_lighting_core.build --output /new/path/smart-lighting-adapter.pyz
-python3 -I -B /new/path/smart-lighting-adapter.pyz --version
-python3 -I -B /new/path/smart-lighting-adapter.pyz --config /private/core.json --check
-python3 -I -B /new/path/smart-lighting-adapter.pyz --config /private/core.json
+python3 -B -m lights_can_communicate_v2_core.build --output /new/path/lights-can-communicate-v2-adapter.pyz
+python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --version
+python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json --check
+python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json
 ```
 
 Python 3.10+ is required. Native video also requires OpenSSL; preflight checks its
@@ -27,7 +28,9 @@ overwritten. Build a new version alongside the installed artifact for rollback.
 Use `config.example.json` as the service configuration structure. All paths,
 including `state_dir`, resolve relative to the configuration file. Optional Hue
 configuration fields can be omitted for Govee-only operation. Native video
-requires both Hue configuration and `hue_play`. `bind` defaults to loopback;
+requires Hue configuration, `hue_play` and an explicit native profile. Every Hue
+configuration requires `adapter.native_profile_file`. Omit all Hue fields,
+including the profile path, for Govee-only operation. `bind` defaults to loopback;
 select a reachable local address explicitly when the virtual bridge or existing
 Homebridge coordinator runs on another host/container.
 
@@ -45,9 +48,62 @@ reachability, native power confirmation or an authenticated Homebridge owner
 heartbeat. An active `state_dir/live-output-hold` is reported by check mode and
 blocks actual startup. `desk-layout.json` is read from that same state directory.
 
+## Managed service release
+
+A release directory holds everything the services run, without a checkout:
+
+```sh
+python3 -B -m lights_can_communicate_v2_core.dist --output /new/path/releases/0.1.0.devN
+R=/new/path/releases/0.1.0.devN
+python3 -I -B $R/lights-can-communicate-v2.pyz services --config /private/core.json \
+  --release $R --output /new/path/services-0.1.0.devN
+```
+
+The release contains `lights-can-communicate-v2.pyz` (adapter and Setup Studio),
+`gateway/` (the virtual bridge modules) and `manifest.json` (version and
+SHA256 per file). `services` refuses a release of another version and writes
+into a new directory only:
+
+- `com.lights-can-communicate-v2.adapter.plist` and `com.lights-can-communicate-v2.setup.plist`:
+  launchd agents that start at login and restart only after a non-zero exit.
+  Logs go to `state_dir/logs`, which `services` creates because launchd does
+  not create missing log directories.
+- `gateway-compose.json` (only with a `gateway` section): the pinned diyHue
+  image with `restart: unless-stopped`, read-only module mounts from the
+  release, `state_dir` as its configuration directory and a health check.
+
+Commands of the archive: `adapter` (default), `setup` (Setup Studio on
+`setup.bind:setup.port`, default `127.0.0.1:19881`), `ready` (exit 0 once the
+adapter `/status` and, if configured, the bridge `/api/config` answer locally;
+prints a credential-free summary) and `services`. An active
+`state_dir/live-output-hold` makes `adapter` exit 0 without output, so the
+supervisor does not restart it in a loop.
+
+Optional configuration sections:
+
+```json
+"setup": {"bind": "127.0.0.1", "port": 19881},
+"gateway": {"lan_ip": "192.168.1.20", "mac": "02:00:00:00:00:01",
+            "live_output": true, "hue_strip": true, "hue_play": true,
+            "entertainment": true, "gradient": true}
+```
+
+`adapter.power_authority` selects who owns Govee power: `owner` (default, the
+remote heartbeat of the Homebridge overlay) or `homekit` (this adapter executes
+power for the `homebridge-lights-can-communicate-v2` plugin through `/homekit`;
+`/power-owner` is then closed). See `homebridge/README.md`.
+
+`gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
+digest), `adapter_url` (default `http://host.docker.internal:<adapter port>`)
+and `timezone`. With a `gateway` section the adapter `bind` must not be a
+loopback address: the container reaches the host through its network. Rendering and readiness never load, start or stop services;
+loading the agents and starting the compose project is a separate, owner
+authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
+
 ## Compatibility and operation
 
-The old `experiments/hue-bridge/live_adapter.py` command and flags still work.
+The `experiments/hue-bridge/live_adapter.py` command retains its existing flags.
+Hue output now requires `--native-profile` together with `--hue-config`.
 Its state directory still defaults to the target file's parent, and its bind
 address still defaults to all interfaces. The packaged launcher adds explicit
 paths and reports `service.name`/`service.version` on the existing authenticated
@@ -62,7 +118,7 @@ the recorded old invocation. No second writer should be started as a probe.
 Do not move/recreate HomeKit or Hue pairing state for this component replacement.
 
 The isolated process fixture requires the pinned test image, `--network none`,
-no published ports/private mounts and `SMART_LIGHTING_ISOLATED_TESTS=1`. It starts
+no published ports/private mounts and `LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS=1`. It starts
 only synthetic Govee targets, reads real local HTTP status and delivers SIGTERM.
 Default developer tests skip this opt-in lifecycle fixture. The pre-push hook also runs `python3 -B tests/check_core_archive.py`, exercising
 existing protocol, power and video suites with archive imports in fourteen- and
@@ -143,26 +199,114 @@ See `evidence/live-preview-offline.json` for the historical overnight checks and
 
 ## Native Hue selection profile
 
-`0.1.0.dev4` supports optional `adapter.native_profile_file` in version-one service
-configuration. The path resolves relative to the service configuration, requires
+The initial `0.1.0.dev4` extraction introduced optional
+`adapter.native_profile_file`. The current version-one service configuration
+requires this field whenever `hue_config_file` is present. The path resolves relative to the service configuration, requires
 `hue_config_file`, and contains a strict version-one profile of the same four light
 roles, native Entertainment area and twelve service/index mappings. The loader
 rejects duplicate/unknown fields, invalid UUIDs, overlapping resources and changed
 topology. Credentials stay in their existing separate files.
 
 An explicit profile controls each client/proxy/relay instance; it overrides old
-credential light/area hints without changing global constants. Resource membership,
-channel order/index and resource types must match live metadata before stream
-start. Legacy configuration without a profile retains its existing behavior.
-This is still the fixed desk topology, not arbitrary device enrollment or a build
-free of legacy identity defaults. Newly placed discovery items remain configuration
-only until a separate enrollment component is implemented.
+credential light/area hints. The runtime contains no physical identity defaults.
+Resource membership, channel order/index and resource types must match live metadata before stream
+start. Configuration without a required profile now fails before initialization.
+The native topology still has four light roles. Newly placed discovery items remain
+configuration-only until a separate enrollment component is implemented.
 
 The owner's same-selection profile replaced dev3 locally after read-only metadata
 parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six roles,
 calibration, HomeKit identities, pairing and geometry were retained. The NAS was
 not changed. The previous archive/configuration remain available for rollback.
 See `evidence/native-hue-profile.json` for tests, live frame samples and limits.
+
+### Native Hue power from the Hue app
+
+The virtual bridge's Hue Monitor and Hue Play lights (slots 3–6) used to
+forward only color and brightness. On/Off from the Hue app was accepted but
+never reached the lights.
+
+An explicit On/Off for these lights now goes to the adapter's authenticated
+`POST /native-power` with `{"roles": {"strip" | "hue_left" | "hue_center" |
+"hue_right": bool}}`. This applies to a single light and to a room.
+- The adapter switches only the pinned profile resource with a separate
+  `{"on": {"on": …}}` write. The color path still refuses power changes.
+- The write counts as confirmed only after a read-back shows the new state.
+  Turning a light on reapplies its composition color.
+- An unconfirmed write, or a write during the owner's live-output hold,
+  returns 503. The virtual light then shows the real state again: the
+  pre-request value is restored first, and fresh native readings correct any
+  light whose write took effect anyway, such as part of a room request.
+
+The virtual lights also mirror each proxy's native power when the reading is
+fresh (no older than 5 seconds), so an Off from Apple Home appears in the Hue
+app. Mirroring pauses for a light while its own write is in flight. Govee
+power keeps its owner or HomeKit authority path. Scene recall still never
+changes power.
+
+## Migrate a configuration without a native profile
+
+Reuse the existing validated version-one profile when one is already installed.
+Set `adapter.native_profile_file` to its path, relative to the service configuration.
+For source invocations, pass that same file with `--native-profile`.
+
+Older installations need a complete explicit profile before this artifact can run
+Hue output. A credential file's `light` or `area_id` hint is not sufficient. Record
+all four existing light UUIDs, the existing native area UUID and its twelve ordered
+Entertainment service/index mappings. Use the version-one schema in
+[`native-hue-profile.example.json`](native-hue-profile.example.json) as the structure.
+Its synthetic UUIDs are placeholders. Never use them as a physical selection.
+Validate the real selection against the existing installation before activation.
+
+Keep the existing credentials, Govee targets, state directory and profile resource
+identities. Keep pairing, HomeKit accessories/scenes and layout/calibration files.
+Run the new archive with `--check` before an authorized cutover. Preflight reads
+files without rewriting them or contacting lights. It does not verify live area
+membership. A missing, partial or invalid profile blocks Hue startup.
+
+Keep the previous artifact and configuration for rollback. Do not start a second
+writer. This migration does not deploy the new artifact or change a running service.
+
+## Installation, upgrades and rollback
+
+Each release `manifest.json` declares a `compatibility` contract:
+- configuration versions it reads;
+- durable state schemas it writes;
+- minimum Python and the pinned gateway image;
+- the `/homekit` API version;
+- the bundled Homebridge plugin tarball (`plugin/*.tgz`). The tarball is built
+  deterministically in Python and needs no npm or network.
+
+The plugin refuses a core whose `/homekit` API version differs from its
+`CORE_API`. An installation directory holds `config/core.json`, `state/`,
+`releases/<version>/`, a `current` symlink, `backups/` and the `install.json`
+journal. Run every command from a release archive:
+
+```sh
+python3 -I -B RELEASE/lights-can-communicate-v2.pyz stage --release RELEASE --base BASE
+python3 -I -B BASE/current/lights-can-communicate-v2.pyz activate VERSION --base BASE
+python3 -I -B BASE/current/lights-can-communicate-v2.pyz rollback --base BASE
+python3 -I -B BASE/current/lights-can-communicate-v2.pyz status --base BASE
+```
+
+`stage` does the following and never changes the active release:
+1. Verifies every manifest hash.
+2. Checks the configuration version and the Python version.
+3. Runs the new archive's `adapter --check`.
+4. Renders supervisor files whose paths go through `BASE/current`.
+
+`activate` and `rollback` refuse while the adapter, Setup Studio or gateway
+still answers locally. They snapshot durable state (without logs, request
+logs or stream journals) and swap `current` atomically. They print the start
+commands but never start, stop or restart services.
+
+`rollback` restores the upgrade snapshot only when the two releases declare
+different state schemas. Even then, the state it replaces is kept in the
+rollback snapshot first. Each step is journaled and repeatable, so after an
+interruption the next command finishes the transaction. The five newest
+snapshots and the current upgrade point are kept. Activation and rollback of
+the live installation still need the owner's approval; these commands never
+publish packages.
 
 ## Stream recovery diagnostics
 
@@ -197,6 +341,32 @@ The control-datagram counter and actual DTLS frame counter are distinct checks.
 This operational recovery is not an automatic Docker Desktop repair mechanism.
 See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
 sequential live observation windows, tests and measurement limits.
+
+### Source reconnection without a new Start
+
+`openssl s_server -listen` serves one DTLS association and then only receives
+datagrams from that peer. A source that vanished without `close_notify` and
+handshakes again from a new port, without a new REST Start, previously reached
+only the UDP guard, which discarded its ClientHello; the retained session
+waited indefinitely until a phone Stop/Start. The guard now counts DTLS
+ClientHello records it discards and remembers when the last one arrived. When
+the current association has been idle for more than 0.5 seconds and a
+ClientHello arrived during that pause, the receiver starts a second listener
+beside it. The established association keeps receiving its own peer. The
+replacement takes over only after it completes the PSK handshake and delivers
+a valid frame; otherwise it is stopped after ten seconds, or as soon as the
+established source resumes. An unauthenticated or stale ClientHello therefore
+cannot disconnect a working source. Stop, a superseding Start and shutdown
+end both listeners.
+
+A source that vanishes and does not handshake again at all (a Sync Box reboot)
+previously left the stream active indefinitely after its first frame; the Box
+then saw its old session as active and never sent a new Start. As on a Hue
+bridge, an established session now ends after ten seconds without data, the
+stream becomes inactive and the source can start again. The bridge journal records `source_reconnected`,
+`source_timeout` and `dtls_closed`, and receiver status counts `reconnects`.
+`tests/test_receiver_reconnect.py`
+reproduces the vanished-client case with real OpenSSL DTLS (Linux only).
 
 ## Light Studio composition and projection
 
@@ -269,3 +439,108 @@ capture palette before attenuation and calibration. Scene playback remains
 independent. Source capture channels, identities, power and native membership
 are unchanged. The layout canonicalizer also keeps physical bodies above the
 floor; the table has dimensions only and cannot move off the floor.
+
+## Two configurations (layout version 5)
+
+Light Studio edits two independent configurations. With Sync uses `scale`,
+`syncZone` and `syncFalloff` (default on). Without Sync (scenes from the Hue app)
+uses row `sceneScale` (default `scale`), `sceneZone` (default automatic) and
+`sceneFalloff` (default off). A fade that is off gives every gain 1 and places
+Govee segment samples at their centres. The scene controller and the Hue scene
+proxies multiply the scene correction by the scene fade: per Govee segment (bottom
+to top), the strip's mean anchor gain and one gain per Play. Hue dimming never goes
+below 0.1 %. `LayoutStore.present()` is scene membership (every lamp that is not
+removed); `enabled()` stays the Sync composition (own-light and off lamps
+excluded). The virtual bridge forwards scenes to every present lamp. Version 3 and 4
+files load as version 5.
+
+## Lamp controls
+
+### Off during Sync
+
+A role lamp with `syncRole: "off"` (role rows only) is outside the Sync
+composition and is switched off for each Sync session. A session starts when the
+video output becomes active and ends when it is released (explicit stop or grace
+elapsed). At the start the adapter records each present "off" lamp's power and
+switches it off; at the end it switches the recorded lamps on again.
+
+- A lamp that is already off (or whose power is unknown) is not switched and stays
+  as it is.
+- An owner power change during the session wins: HomeKit (`/homekit`), Hue app
+  power for Govee (`/power-request`) or native Hue (`/native-power`), or a native
+  Hue light switched on directly at the owner's bridge. That lamp is not restored.
+  A HomeKit or Hue app On during the session switches the lamp on at once.
+- Govee: a Sync hold in the power authority. The hold is not owner intent, is
+  never adopted from native readings, and closes the color writer while it is
+  active; `GET /homekit` keeps showing the owner's intent (`sync_hold` appears in
+  the `/status` power snapshot). Power uses the Govee `turn` command. Without a
+  power authority (no owner credential) the adapter has no power path, so Govee
+  "off" lamps are left untouched and keep their own light, like "own".
+- Native Hue: the confirmed `{"on": {"on": …}}` write of `/native-power`. The
+  role is outside the composition, so the Sync safety fence does not require it
+  to be on.
+- Crash safety: the roles switched off are written to
+  `<state-dir>/sync-off-session.json` (`{"version": 1, "roles": [...]}`, atomic,
+  0600) before any command. On start, while no Sync runs, the adapter restores
+  them (a Govee lamp after its first fresh native reading, up to 15 s) and deletes
+  the file. A clean shutdown restores immediately. A failed restore stays in the
+  file and is retried every second.
+- Changing a lamp's `syncRole` while a session runs applies at once: a lamp set
+  to `"off"` is switched off, and a lamp that leaves `"off"` gets back the power
+  this session took from it. A lamp is switched off at most once while it stays
+  `"off"`, so an owner who switches it on again keeps it on.
+
+### Blink
+
+`POST /identify` with `{"role": "left" | "right" | "strip" | "hue_left" |
+"hue_center" | "hue_right"}` and the `X-Adapter-Token` header blinks one lamp.
+It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
+"reason"}` when refused, 503 when a command was not delivered and 400 on bad
+input. It refuses while Sync drives the role (`sync active`), while the lamp is
+off or not freshly observed (`lamp off`), while its color writer is closed
+(`writer closed`), while another blink of the same lamp runs (`busy`) and for an
+unconfigured native role (`unavailable`).
+
+- Govee: two short dips (to 10 %, or a third of a dim lamp's brightness, 300 ms
+  each) through the power-gated color sender, then the exact previous brightness.
+  While a blink runs, the scene and Sync writers' commands to that lamp are
+  rejected and resent after the blink; other lamps keep rendering.
+- Native Hue: the Hue v2 `{"identify": {"action": "identify"}}` write on the
+  pinned light, through its own client method (the color write still refuses
+  power and identify).
+
+Setup Studio forwards `POST /api/identify {"lamp"}` here.
+
+## Lamp names
+
+A role row of the layout may carry `name` (see `experiments/setup-studio/README.md`;
+1-35 characters, 1-32 for `hue-monitor` and `play-*`, stripped, no control
+characters). `LayoutStore.names()` returns `{role: name}` for the rows that have
+one. A missing name means "no owner name": nothing is renamed anywhere, and
+removing a name later does not undo earlier renames. A name is applied where
+the layout name changes, and once at start:
+
+- Virtual Hue bridge (`bootstrap.py`, `hue_names.OwnerNames`): the virtual light
+  of the role (slots 1-6, `hue_names.SLOT_ROLES`) takes the name, which diyHue
+  serves as both v1 `name` and v2 `metadata.name`; the bridge configuration is
+  saved and an `update` event with the light's `id`, `id_v1`, `type` and
+  `metadata` goes to the Hue app through the normal diyHue event queue (and the
+  event journal). Resource IDs never change. The layout is checked every
+  half second. A name that the owner later sets in the Hue app stays until the
+  Light Studio name changes. The Hue app may show its cached name until it
+  refreshes; the Sync box reads the name when it next lists the lights.
+- HomeKit: `GET /homekit` adds `name` to each lamp (`left`, `right`) that has an
+  owner name, and omits it otherwise. The signed body and `X-LCC-Response`
+  are computed as before; the API version stays 1 (the field is optional). The
+  Homebridge plugin renames the accessory display name, the AccessoryInformation
+  `Name` and, only where present, the Lightbulb `Name` and `ConfiguredName`.
+  UUID, AID and IID never change. See `homebridge/README.md`.
+- Physical Hue lights (`hue_strip_proxy.py`): `PinnedHueClient.rename(name)`
+  sends only `{"metadata": {"name": name}}` to the pinned light; the color
+  `write()` allowlist is unchanged. `HueStripProxy.sync_owner_name()` runs in the
+  proxy loop. It reads the light and writes only when the owner name differs
+  from the light's name and from the name the proxy last applied or read, so it
+  does not write on every loop, without an owner name, or at start when the
+  light already has the name. A failed write is retried every 30 seconds. A
+  name longer than 32 characters is refused by the client (the layout already
+  refuses it for Hue lamps), never cut.

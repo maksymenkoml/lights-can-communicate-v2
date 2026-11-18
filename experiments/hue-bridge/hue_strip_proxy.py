@@ -1,24 +1,22 @@
 """Proxy only the selected monitor strip and confirmed Play lights through their bridge."""
 
 import copy
+import http.client
 import json
 import math
 import ssl
 import threading
 import time
-import urllib.request
 
 from bridge_output import strip_changes
 
-import smart_lighting as lan
-from smart_lighting_core.native_profile import NativeHueProfile
+import lights_can_communicate_v2 as lan
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
-STRIP_ID = "98250ec6-d7fd-4b47-ace6-ff449ea3066f"
-PLAY_IDS = {
-    "hue_left": "de751837-c4a8-40fc-8b0d-0befc0d3c768",
-    "hue_center": "0d0b0a35-18ff-4c69-ae16-8dfef985c54b",
-    "hue_right": "f8606c12-5d21-4087-846e-4eeafef905f6",
-}
+# Hue bridges accept at most 32 characters in a light's name. The layout limits
+# the Hue role names to the same length, so a longer name is refused, not cut.
+HUE_NAME_MAX = 32
+NAME_RETRY_SECONDS = 30
 HUE_BRIGHTNESS_SCALES = {"strip": 1.0, "hue_left": 1.0, "hue_center": 0.5, "hue_right": 1.0}
 
 
@@ -81,45 +79,80 @@ def hue_payload(state, transitiontime):
     return body
 
 
+# Errors of a kept-alive connection that the bridge closed while it was idle.
+STALE_CONNECTION = (
+    http.client.RemoteDisconnected,
+    http.client.CannotSendRequest,
+    ConnectionResetError,
+    BrokenPipeError,
+    ConnectionAbortedError,
+)
+
+
 class PinnedHueClient:
-    def __init__(self, config, requester=None, resource_id=None, profile=None):
-        if profile is not None and not isinstance(profile, NativeHueProfile):
-            raise ValueError("Invalid native Hue profile")
+    def __init__(self, config, requester=None, resource_id=None, profile=None,
+                 connection_factory=None):
+        if not isinstance(profile, NativeHueProfile):
+            raise ValueError("An explicit native Hue profile is required")
         self.profile = profile
-        if profile is not None:
-            self.resource_id = profile.strip_id if resource_id is None else resource_id
-            if (not isinstance(self.resource_id, str)
-                    or self.resource_id not in profile.resource_ids):
-                raise ValueError("Only the selected profile Hue lights are allowed")
-        else:
-            self.resource_id = resource_id or STRIP_ID
-            if config.get("light") != STRIP_ID or self.resource_id not in {
-                STRIP_ID,
-                *PLAY_IDS.values(),
-            }:
-                raise ValueError("Only the selected desk Hue lights are allowed")
+        self.resource_id = profile.strip_id if resource_id is None else resource_id
+        if (not isinstance(self.resource_id, str)
+                or self.resource_id not in profile.resource_ids):
+            raise ValueError("Only the selected profile Hue lights are allowed")
         self.bridge = lan.local_ip(config["bridge"])
         self.key = config["hue_key"]
         self.path = "/clip/v2/resource/light/" + self.resource_id
         self.requester = requester or self.request
+        self.connection_factory = connection_factory or self.connect
+        self.connection = None
+        # Status polling and power writes run on different threads.
+        self.connection_lock = threading.Lock()
 
-    def request(self, method, path, body):
-        if path != self.path:
-            raise ValueError("Unexpected Hue resource")
+    def connect(self):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context)
-        )
-        request = urllib.request.Request(
-            "https://" + self.bridge + path,
-            data=None if body is None else json.dumps(body).encode(),
-            method=method,
-            headers={"Content-Type": "application/json", "hue-application-key": self.key},
-        )
-        with opener.open(request, timeout=1.5) as response:
-            result = json.load(response)
+        return http.client.HTTPSConnection(self.bridge, timeout=1.5, context=context)
+
+    def _drop(self):
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
+
+    def request(self, method, path, body):
+        """Send one request over a kept-alive connection to the bridge.
+
+        A new TLS handshake costs far more than the request itself, so the
+        connection is reused. A reused connection that the bridge already
+        closed fails before any response; only then is the request sent once
+        more on a new connection. Every Hue request here is idempotent.
+        """
+        if path != self.path:
+            raise ValueError("Unexpected Hue resource")
+        data = None if body is None else json.dumps(body).encode()
+        headers = {"Content-Type": "application/json", "hue-application-key": self.key}
+        with self.connection_lock:
+            while True:
+                reused = self.connection is not None
+                if not reused:
+                    self.connection = self.connection_factory()
+                try:
+                    self.connection.request(method, path, body=data, headers=headers)
+                    response = self.connection.getresponse()
+                    status, raw = response.status, response.read()
+                    if response.will_close:
+                        self._drop()
+                    break
+                except STALE_CONNECTION:
+                    self._drop()
+                    if not reused:
+                        raise
+                except BaseException:
+                    self._drop()
+                    raise
+        if not 200 <= status < 300:
+            raise OSError(f"Native Hue answered HTTP {status}")
+        result = json.loads(raw)
         if result.get("errors"):
             raise ValueError("Native Hue rejected the selected strip command")
         return result
@@ -145,6 +178,35 @@ class PinnedHueClient:
             raise ValueError("Native strip write not confirmed")
 
 
+    def power(self, on):
+        """Switch only this pinned light; the color path never changes power."""
+        if type(on) is not bool:
+            raise ValueError("Expected boolean power")
+        result = self.requester("PUT", self.path, {"on": {"on": on}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native power write not confirmed")
+
+    def rename(self, name):
+        """Set only this pinned light's name; never color, power or any other field."""
+        if not isinstance(name, str) or not 1 <= len(name) <= HUE_NAME_MAX:
+            raise ValueError("Invalid native Hue light name")
+        result = self.requester("PUT", self.path, {"metadata": {"name": name}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native rename not confirmed")
+
+    def identify(self):
+        """Blink only this pinned light (Hue v2 ``identify``); never color or power."""
+        result = self.requester("PUT", self.path, {"identify": {"action": "identify"}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native identify not confirmed")
+
+
 def merge_hue_body(previous, update):
     result = copy.deepcopy(previous or {})
     colors = {"gradient", "color", "color_temperature"}
@@ -167,21 +229,17 @@ class HueStripProxy:
         if profile is not None and client_profile is not None and profile != client_profile:
             raise ValueError("Conflicting native Hue profiles")
         self.profile = profile if profile is not None else client_profile
+        if not isinstance(self.profile, NativeHueProfile):
+            raise ValueError("An explicit native Hue profile is required")
         self.layout_store = layout_store
         self.preview = preview
         self.role = role
-        resources = (
-            self.profile.light_ids if self.profile is not None else {"strip": STRIP_ID, **PLAY_IDS}
-        )
+        resources = self.profile.light_ids
         self.resource_id = getattr(client, "resource_id", resources["strip"])
         if role not in resources or resources[role] != self.resource_id:
             raise ValueError("Hue role does not match the selected resource")
         self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
-        self.applied_scale = (
-            layout_store.scale(role, self.brightness_scale)
-            if layout_store is not None
-            else self.brightness_scale
-        )
+        self.applied_scale = self.layout_factor()
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
         self.state_lock = threading.RLock()
@@ -200,6 +258,19 @@ class HueStripProxy:
         self.writes = 0
         self.last_result = "waiting"
         self.last_payload = None
+        # The name this proxy last wrote to, or read from, the physical light.
+        self.named = None
+        self.name_failed = float("-inf")
+
+    def layout_factor(self):
+        """Return the scene correction times the role's scene fade gain."""
+        store = self.layout_store
+        if store is None:
+            return self.brightness_scale
+        scale = getattr(store, "scene_scale", store.scale)(self.role, self.brightness_scale)
+        loader = getattr(store, "scene_fade", None)
+        fade = loader() if loader is not None else None
+        return scale * (fade.get(self.role, 1) if fade else 1)
 
     def submit(self, payload):
         if (
@@ -260,8 +331,9 @@ class HueStripProxy:
         return True
 
     def included(self):
-        enabled = getattr(self.layout_store, "enabled", None)
-        return enabled(self.role) if enabled is not None else True
+        # Scenes keep every present lamp, including those with their own light in Sync.
+        present = getattr(self.layout_store, "present", None)
+        return present(self.role) if present is not None else True
 
     def govee_allowed(self):
         if not self.included():
@@ -306,11 +378,7 @@ class HueStripProxy:
                             "native streaming" if native["mode"] == "streaming" else "native off"
                         )
                     return False
-                scale = (
-                    self.layout_store.scale(self.role, self.brightness_scale)
-                    if self.layout_store is not None
-                    else self.brightness_scale
-                )
+                scale = self.layout_factor()
                 if scale != self.applied_scale:
                     self.restore = True
                     if self.desired is None:
@@ -372,10 +440,60 @@ class HueStripProxy:
                 self.last_result = "native unavailable or rejected"
             return False
 
+    def set_power(self, on, attempts=16, pause=0.05, sleep=time.sleep):
+        """Switch the native light and confirm it by reading it back."""
+        with self.command_lock:
+            self.client.power(on)
+            for attempt in range(attempts):
+                native = self.client.read()
+                if native.get("id") != self.resource_id:
+                    raise ValueError("Wrong native Hue resource")
+                # Status reports what the light actually does, confirmed or not.
+                with self.state_lock:
+                    self.native = copy.deepcopy(native)
+                    self.native_seen = self.clock()
+                if native.get("on", {}).get("on") is on:
+                    if on:
+                        # Reapply the composition color once the light is on.
+                        self.restore = True
+                        self.wake.set()
+                    return True
+                if attempt + 1 < attempts:
+                    sleep(pause)
+            return False
+
+    def sync_owner_name(self):
+        """Give the physical light the owner's name when Light Studio changed it.
+
+        Nothing is written without an owner name, when the light already has the
+        name, or while the name equals the one this proxy last applied or read.
+        A name the owner later sets in the Hue app stays until the owner changes
+        the name in Light Studio. A failed write is retried every
+        NAME_RETRY_SECONDS. Returns True after a write.
+        """
+        names = getattr(self.layout_store, "names", None)
+        name = names().get(self.role) if names is not None else None
+        if (name is None or name == self.named
+                or self.clock() - self.name_failed < NAME_RETRY_SECONDS):
+            return False
+        try:
+            with self.command_lock:
+                current = self.client.read().get("metadata", {}).get("name")
+                if current == name:
+                    self.named = name
+                    return False
+                self.client.rename(name)
+                self.named = name
+                return True
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            self.name_failed = self.clock()
+            return False
+
     def run(self, stop):
         while not stop.is_set():
             self.wake.clear()
             self.process_once()
+            self.sync_owner_name()
             self.wake.wait(0.5)
 
     def snapshot(self):

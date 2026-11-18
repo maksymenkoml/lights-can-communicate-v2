@@ -4,13 +4,28 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PowerOwnerClient } from './owner-client.mjs';
 
-const FILES = ['lib/device/light.js', 'lib/smart-lighting-power/hook.mjs',
-  'lib/smart-lighting-power/owner-client.mjs'];
+const FILES = ['lib/device/light.js', 'lib/lights-can-communicate-v2-power/hook.mjs',
+  'lib/lights-can-communicate-v2-power/owner-client.mjs'];
+// prepare_overlay.py pins each release's exact public light and factory hashes.
+const SUPPORTED_VERSIONS = new Set(['11.39.1', '11.40.0']);
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function readJson(io, file, label) {
   try { return JSON.parse(io.readFileSync(file, 'utf8')); }
   catch { throw Error(`Invalid ${label}`); }
+}
+
+// A plugin upgrade replaces the package but keeps owner files in storage. Reuse
+// only an identical private config; never rewrite or widen its permissions.
+function existingConfig(io, file, config) {
+  const stat = io.lstatSync(file, { bigint: true });
+  if (!stat.isFile() || stat.isSymbolicLink() || (Number(stat.mode) & 0o777) !== 0o600) {
+    throw Error('Installed owner config permissions require inspection');
+  }
+  if (JSON.stringify(readJson(io, file, 'installed owner config')) !== JSON.stringify(config)) {
+    throw Error('Existing owner config differs; manual inspection required');
+  }
+  return `${stat.dev}:${stat.ino}`;
 }
 
 function upgradeModules(options, io, manifest, bytes, plugin, storage) {
@@ -31,14 +46,14 @@ function upgradeModules(options, io, manifest, bytes, plugin, storage) {
       || digest(data) !== previous.files[name]) throw Error('Installed module changed');
     originals.set(name, data);
   }
-  const directory = path.join(plugin, 'lib/smart-lighting-power');
+  const directory = path.join(plugin, 'lib/lights-can-communicate-v2-power');
   if (io.lstatSync(directory).isSymbolicLink()) throw Error('Symbolic module directory unsupported');
   io.accessSync(directory, io.constants.W_OK);
   io.accessSync(storage, io.constants.W_OK);
   if (io.statSync(directory).dev !== io.statSync(storage).dev) throw Error('Module backup filesystem differs');
   if (!options.apply) return { ready: true, installed: true, upgradeReady: true, files: FILES.slice(1) };
 
-  const backup = io.mkdtempSync(path.join(storage, 'smart-lighting-power-backup-'));
+  const backup = io.mkdtempSync(path.join(storage, 'lights-can-communicate-v2-power-backup-'));
   io.chmodSync(backup, 0o700);
   if ((io.statSync(backup).mode & 0o777) !== 0o700) throw Error('Private backup mode unavailable');
   io.writeFileSync(path.join(backup, 'previous-manifest.json'), JSON.stringify(previous, null, 2),
@@ -106,7 +121,7 @@ export function applyOverlay(options, io = fs) {
   const storage = path.resolve(options.storage);
   const manifest = readJson(io, path.join(artifact, 'manifest.json'), 'overlay manifest');
   const pkg = readJson(io, path.join(plugin, 'package.json'), 'plugin metadata');
-  if (manifest.plugin !== '@homebridge-plugins/homebridge-govee' || manifest.version !== '11.39.1'
+  if (manifest.plugin !== '@homebridge-plugins/homebridge-govee' || !SUPPORTED_VERSIONS.has(manifest.version)
     || pkg.name !== manifest.plugin || pkg.version !== manifest.version) throw Error('Unsupported plugin version');
   if (!manifest.files || Object.keys(manifest.files).sort().join('|') !== [...FILES].sort().join('|')) {
     throw Error('Unexpected overlay file set');
@@ -126,7 +141,7 @@ export function applyOverlay(options, io = fs) {
   // Constructor validates endpoint/credential without opening a connection.
   new PowerOwnerClient({ endpoint: config.endpoint, token: config.token });
   const configBytes = Buffer.from(JSON.stringify(config, null, 2) + '\n');
-  const configFile = path.join(storage, 'smart-lighting-power.json');
+  const configFile = path.join(storage, 'lights-can-communicate-v2-power.json');
   const light = path.join(plugin, FILES[0]);
   const factory = path.join(plugin, 'lib/platform.js');
   if (io.lstatSync(light).isSymbolicLink()) throw Error('Symbolic light source is unsupported');
@@ -136,13 +151,8 @@ export function applyOverlay(options, io = fs) {
   if (digest(original) === manifest.files[FILES[0]]) {
     const modulesMatch = FILES.slice(1).every(name => io.existsSync(path.join(plugin, name))
       && digest(io.readFileSync(path.join(plugin, name))) === manifest.files[name]);
-    const configMatches = io.existsSync(configFile)
-      && JSON.stringify(readJson(io, configFile, 'installed owner config')) === JSON.stringify(config);
-    if (!configMatches) throw Error('Existing overlay differs; manual inspection required');
-    const configStat = io.lstatSync(configFile);
-    if (!configStat.isFile() || (configStat.mode & 0o777) !== 0o600) {
-      throw Error('Installed owner config permissions require inspection');
-    }
+    if (!io.existsSync(configFile)) throw Error('Existing overlay differs; manual inspection required');
+    existingConfig(io, configFile, config);
     if (!modulesMatch) {
       if (!options.previousManifest) throw Error('Existing overlay differs; manual inspection required');
       return upgradeModules(options, io, manifest, bytes, plugin, storage);
@@ -150,8 +160,10 @@ export function applyOverlay(options, io = fs) {
     return { ready: true, installed: true, alreadyInstalled: true, version: pkg.version };
   }
   if (digest(original) !== manifest.original_light_sha256) throw Error('Plugin light source changed');
-  const moduleDir = path.join(plugin, 'lib/smart-lighting-power');
-  if (io.existsSync(moduleDir) || io.existsSync(configFile)) throw Error('Existing owner files must be preserved');
+  const moduleDir = path.join(plugin, 'lib/lights-can-communicate-v2-power');
+  if (io.existsSync(moduleDir)) throw Error('Existing owner files must be preserved');
+  const reusedConfig = io.existsSync(configFile) ? existingConfig(io, configFile, config) : undefined;
+  const configReused = reusedConfig !== undefined;
   for (const folder of [path.dirname(light), path.join(plugin, 'lib'), storage]) {
     io.accessSync(folder, io.constants.W_OK);
   }
@@ -159,9 +171,9 @@ export function applyOverlay(options, io = fs) {
   if (io.statSync(path.dirname(light)).dev !== io.statSync(storage).dev) {
     throw Error('Plugin and backup storage must share a filesystem');
   }
-  if (!options.apply) return { ready: true, installed: false, version: pkg.version, files: FILES };
+  if (!options.apply) return { ready: true, installed: false, version: pkg.version, files: FILES, configReused };
 
-  const backup = io.mkdtempSync(path.join(storage, 'smart-lighting-power-backup-'));
+  const backup = io.mkdtempSync(path.join(storage, 'lights-can-communicate-v2-power-backup-'));
   io.chmodSync(backup, 0o700);
   io.writeFileSync(path.join(backup, 'light.js'), original, { mode: 0o600, flag: 'wx' });
   io.writeFileSync(path.join(backup, 'manifest.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 });
@@ -188,16 +200,18 @@ export function applyOverlay(options, io = fs) {
     for (const name of FILES.slice(1)) {
       io.linkSync(path.join(moduleTmp, path.basename(name)), path.join(plugin, name));
     }
-    const configFd = io.openSync(configTmp, 'wx', 0o600);
-    try {
-      // NAS ACL inheritance can override the creation mode. Restrict and verify
-      // the actual inode before writing any credential bytes or publishing it.
-      io.fchmodSync(configFd, 0o600);
-      if ((io.fstatSync(configFd).mode & 0o777) !== 0o600) throw Error('Private config permissions unavailable');
-      io.writeFileSync(configFd, configBytes);
-    } finally { io.closeSync(configFd); }
-    io.linkSync(configTmp, configFile); // Never overwrite a concurrently created config.
-    configCreated = true;
+    if (!configReused) {
+      const configFd = io.openSync(configTmp, 'wx', 0o600);
+      try {
+        // NAS ACL inheritance can override the creation mode. Restrict and verify
+        // the actual inode before writing any credential bytes or publishing it.
+        io.fchmodSync(configFd, 0o600);
+        if ((io.fstatSync(configFd).mode & 0o777) !== 0o600) throw Error('Private config permissions unavailable');
+        io.writeFileSync(configFd, configBytes);
+      } finally { io.closeSync(configFd); }
+      io.linkSync(configTmp, configFile); // Never overwrite a concurrently created config.
+      configCreated = true;
+    }
     io.writeFileSync(lightTmp, bytes.get(FILES[0]), { mode, flag: 'wx' });
     // Claim the actual inode first; never overwrite a peer file with rename.
     io.renameSync(light, lightClaim);
@@ -207,8 +221,11 @@ export function applyOverlay(options, io = fs) {
     lightReplaced = true;
     if (digest(io.readFileSync(factory)) !== factoryHash) throw Error('Factory changed during install');
     if (digest(io.readFileSync(light)) !== manifest.files[FILES[0]]) throw Error('Entry changed during install');
+    if (configReused && existingConfig(io, configFile, config) !== reusedConfig) {
+      throw Error('Owner config changed during install');
+    }
     return { ready: true, installed: true, alreadyInstalled: false, backup,
-      version: pkg.version, factoryUnchanged: true, files: FILES };
+      version: pkg.version, factoryUnchanged: true, files: FILES, configReused };
   } catch {
     let restored = true;
     try {

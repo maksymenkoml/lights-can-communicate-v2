@@ -14,15 +14,17 @@ import live_adapter as pilot  # noqa: E402
 import test_hue_entertainment_relay as relay_tests  # noqa: E402
 import test_video_output as video_tests  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
-from govee_segments import segment_data  # noqa: E402
+from govee_segments import razer_data, razer_mode, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, HueStripProxy  # noqa: E402
+from hue_strip_proxy import HueStripProxy  # noqa: E402
 from live_adapter import PilotController, handler_for  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_hue_strip_proxy import FakeHue, command  # noqa: E402
 from test_live_adapter import LEFT, targets  # noqa: E402
+from test_native_profile import PLAY_IDS, profile_data  # noqa: E402
 
-from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
 
 def metadata():
@@ -81,6 +83,17 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(self.lamp()["brightness"], 20)
         self.now += 500
         self.assertEqual(self.lamp()["colors"][0], [51, 0, 0])
+
+    def test_dreamview_frames_show_like_segments_and_mode_switches_are_ignored(self):
+        self.send(self.device, "brightness", {"value": 100})
+        self.send(self.device, "razer", razer_mode(True))
+        self.send(self.device, "razer", razer_data([(255, 0, 0)] * 6 + [(0, 0, 255)]))
+        self.assertEqual(self.lamp()["colors"], [[255, 0, 0]] * 6 + [[0, 0, 255]])
+        self.send(self.device, "razer", razer_mode(False))
+        self.assertEqual(self.lamp()["colors"], [[255, 0, 0]] * 6 + [[0, 0, 255]])
+        before = self.lamp()["colors"]
+        self.send(self.device, "razer", {"pt": "invalid"})
+        self.assertEqual(self.lamp()["colors"], before)
 
     def test_failed_sends_and_partial_dispatch_do_not_advance_unsent_fields(self):
         results = iter([True, True, True, False])
@@ -375,6 +388,7 @@ class ProducerTests(unittest.TestCase):
             requester=fixture.request,
             connection_factory=lambda _: fixture.connection,
             preview=store,
+            profile=NativeHueProfile.from_dict(profile_data()),
         )
         fixture.relay.start()
         frame = {i: (65535, i * 1000, 0) for i in range(14)}
@@ -455,8 +469,9 @@ class ProducerTests(unittest.TestCase):
             return object()
 
         def client(_config, resource_id=None, profile=None):
-            self.assertIsNone(profile)
+            self.assertEqual(profile.to_dict(), profile_data())
             result = FakeHue()
+            result.profile = profile
             if resource_id is not None:
                 result.resource_id = resource_id
                 result.native["id"] = resource_id
@@ -470,6 +485,7 @@ class ProducerTests(unittest.TestCase):
             (root / "targets.json").write_text(json.dumps({"targets": targets()}))
             (root / "token").write_text("a" * 48)
             (root / "hue.json").write_text('{"bridge":"192.168.99.2"}')
+            (root / "native.json").write_text(json.dumps(profile_data()))
             fixture = relay_tests.RelayTests()
             fixture.setUp()
             fixture.config["bridge"] = "192.168.99.2"
@@ -481,6 +497,8 @@ class ProducerTests(unittest.TestCase):
                 str(root / "token"),
                 "--hue-config",
                 str(root / "hue.json"),
+                "--native-profile",
+                str(root / "native.json"),
                 "--hue-play",
                 "--hue-stream-config",
                 str(root / "stream.json"),

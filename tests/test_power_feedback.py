@@ -44,12 +44,92 @@ class FeedbackTests(unittest.TestCase):
             clock=lambda: self.now,
         )
 
+    def native(self, strip=True, left=True, age=0.5):
+        self.current = {**status(), "hue_strip": {"native_on": strip, "native_age": age},
+                        "hue_play": {"hue_left": {"native_on": left, "native_age": age},
+                                     "hue_center": {"native_on": None, "native_age": age}}}
+
+    def test_native_hue_power_mirrors_the_genuine_bridge(self):
+        self.native(strip=False, left=True)
+        self.feedback.refresh_once()
+        self.assertFalse(self.lights["3"].state["on"])
+        self.assertEqual(self.lights["3"].events, [{"on": {"on": False}}])
+        self.assertTrue(self.lights["4"].state["on"])
+        self.assertEqual(self.lights["4"].events, [])
+        self.assertTrue(self.lights["5"].state["on"])
+        self.assertIn({"3"}, self.groups)
+
+    def test_a_newly_enrolled_native_role_is_mirrored_too(self):
+        feedback = PowerFeedback(
+            "http://adapter", "private-token", self.lights, threading.RLock(),
+            resume=lambda lamp: None, publish_groups=lambda slots: None,
+            fetcher=lambda: {"hue_play": {"hue_desk": {"native_on": False, "native_age": 0}}},
+            clock=lambda: self.now, native_slots={"7": "hue_desk"})
+        feedback.refresh_once()
+        self.assertFalse(self.lights["7"].state["on"])
+
+    def test_stale_or_held_native_readings_never_change_virtual_lights(self):
+        self.native(strip=False, age=9)
+        self.feedback.refresh_once()
+        self.assertTrue(self.lights["3"].state["on"])
+        self.native(strip=False)
+        self.feedback.hold_native({"3"})
+        self.feedback.refresh_once()
+        self.assertTrue(self.lights["3"].state["on"])
+        self.feedback.release_native({"3"})
+        self.feedback.refresh_once()
+        self.assertFalse(self.lights["3"].state["on"])
+        self.feedback.restore_native({"3": True, "1": False})
+        self.assertTrue(self.lights["3"].state["on"])
+        self.assertTrue(self.lights["1"].state["on"])
+
     def test_home_off_updates_only_selected_virtual_light_without_physical_setter(self):
         self.assertTrue(self.feedback.refresh_once())
         self.assertFalse(self.lights["2"].state["on"])
         self.assertEqual(self.lights["2"].events, [{"on": {"on": False}}])
         self.assertEqual(self.groups, [{"2"}])
         self.assertTrue(all(self.lights[str(n)].state["on"] for n in range(3, 8)))
+
+    def test_explicit_command_failure_can_restore_fresh_owner_truth_without_new_revision(self):
+        self.feedback.refresh_once()
+        # The vendor applied a Hue Off locally, but the physical setter failed.
+        self.lights["1"].state["on"] = False
+        self.resumed.clear()
+        self.feedback.refresh_once(force={"1"})
+        self.assertTrue(self.lights["1"].state["on"])
+        self.assertEqual(self.resumed, ["1"])
+        self.assertFalse(self.lights["2"].state["on"])
+
+    def test_rejected_off_restores_last_known_state_when_authority_has_expired(self):
+        self.feedback.refresh_once()
+        self.current = status(remaining=0)
+        self.lights["1"].state["on"] = False
+        self.assertFalse(self.feedback.refresh_once(force={"1"}, fallback={"1": True}))
+        self.assertTrue(self.lights["1"].state["on"])
+        self.assertIsNotNone(self.feedback.last_error)
+
+    def test_failed_refresh_preserves_newer_home_off_instead_of_old_request_snapshot(self):
+        self.feedback.refresh_once()
+        previous = {"1": True}
+        self.current = status(left=False, revision=2)
+        self.feedback.refresh_once()
+        self.lights["1"].state["on"] = True
+
+        def unavailable():
+            raise OSError("Synthetic disconnected owner")
+
+        self.feedback.fetcher = unavailable
+        self.assertFalse(self.feedback.refresh_once(force={"1"}, fallback=previous))
+        self.assertFalse(self.lights["1"].state["on"])
+
+    def test_failed_command_without_cached_authority_retains_pre_request_model(self):
+        def unavailable():
+            raise OSError("Synthetic unavailable owner")
+
+        self.feedback.fetcher = unavailable
+        self.lights["1"].state["on"] = False
+        self.feedback.refresh_once(force={"1"}, fallback={"1": True})
+        self.assertTrue(self.lights["1"].state["on"])
 
     def test_feedback_keeps_animation_and_palette_and_does_not_repeat_events(self):
         before = copy.deepcopy(self.lights["2"].state)
@@ -76,7 +156,7 @@ class FeedbackTests(unittest.TestCase):
         self.current = status(right=True)
         self.feedback.refresh_once()
         self.current = status(left=False, right=False, remaining=0)
-        self.feedback.refresh_once()
+        self.assertFalse(self.feedback.refresh_once())
         self.assertTrue(self.lights["1"].state["on"])
         self.assertTrue(self.lights["2"].state["on"])
 

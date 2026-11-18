@@ -19,19 +19,30 @@ if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
-from govee_segments import interpolate, segment_data  # noqa: E402
+from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
+from homekit_power import (  # noqa: E402
+    HomeKitPower,
+    HomeKitRequests,
+    SignatureVerifier,
+    response_signature,
+)
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
+from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
+from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
+from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
+from sync_health import export as export_diagnostics  # noqa: E402
+from sync_off import STATE_FILE as SYNC_OFF_FILE  # noqa: E402
+from sync_off import SyncOffSession  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
-import smart_lighting as lan  # noqa: E402
-from smart_lighting_core.discovery import DeviceCatalog  # noqa: E402
-from smart_lighting_core.hue_discovery import HueDiscoveryReader  # noqa: E402
-from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
-from smart_lighting_core.native_profile import NativeHueProfile  # noqa: E402
+import lights_can_communicate_v2 as lan  # noqa: E402
+from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
+from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # noqa: E402
+from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
 
 def number(value, low, high):
@@ -152,6 +163,18 @@ def native_target(status, fallback):
     return result
 
 
+# DreamView frames per second while Sync streams. Both selected H6076 answered
+# every status poll at ~27 frames/s and started to miss them above ~38.
+STREAM_FRAMES_PER_SECOND = 25
+# The lamp leaves DreamView after about a minute without frames. Switching the
+# mode on while it is already on blanks the lamp for a moment, which shows as a
+# blink, so the mode is sent only when the lamp may have left it: at stream
+# start, after a frame gap close to that timeout, after a verified Off and after
+# a status loss long enough for a power cycle. Short status misses keep it.
+RAZER_IDLE_SECONDS = 45
+RAZER_LOST_SECONDS = 5
+
+
 class PilotController:
     def __init__(
         self,
@@ -161,7 +184,13 @@ class PilotController:
         wall_clock=time.time,
         layout_store=None,
         power_owner=None,
+        configuration="sync",
     ):
+        if configuration not in ("sync", "scene"):
+            raise ValueError("Unknown output configuration")
+        # "sync" is the Sync composition; "scene" is the output without Sync, which
+        # uses scene membership, the scene correction and the scene fade.
+        self.configuration = configuration
         self.layout_store = layout_store
         self.power_owner = power_owner
         self.observer_epoch = secrets.token_hex(8)
@@ -185,6 +214,25 @@ class PilotController:
             else None
             for item in self.targets
         }
+        self.stream_rates = {
+            item["side"]: number(item["max_stream_frames_per_second"], 1, 60)
+            if "max_stream_frames_per_second" in item
+            else STREAM_FRAMES_PER_SECOND
+            for item in self.targets
+        }
+        # Sync video streams zoned output through DreamView instead of ptReal.
+        self.streaming = False
+        # Side -> time DreamView was last switched on; kept until it is switched off.
+        self.razer = {}
+        # Side -> time of the last mode or frame the lamp accepted in DreamView;
+        # dropped when the lamp may have left the mode on its own.
+        self.razer_frame = {}
+        # Side -> time its status first went missing or off, while it still is.
+        self.status_lost = {}
+        # Brightness last sent while streaming. Video output re-sends every frame
+        # (last_sent is cleared each tick), but an unchanged brightness must not
+        # take a frame slot.
+        self.stream_brightness = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
         if len(self.ids) != 2:
@@ -203,6 +251,16 @@ class PilotController:
         self.skipped_state = {side: 0 for side in self.by_side}
         self.rejected_sends = {side: 0 for side in self.by_side}
         self.color_samples = {side: deque(maxlen=500) for side in self.by_side}
+
+    def set_streaming(self, active):
+        """Use DreamView for zoned video output; scene output switches it off first."""
+        with self.lock:
+            if self.streaming != bool(active):
+                self.streaming = bool(active)
+                self.last_sent.clear()
+                self.stream_brightness.clear()
+                # A ptReal slot can lie seconds ahead; it must not hold the stream.
+                self.next_send.clear()
 
     def update_statuses(self, statuses):
         with self.lock:
@@ -228,8 +286,42 @@ class PilotController:
             return result
 
     def included(self, side):
-        enabled = getattr(self.layout_store, "enabled", None)
-        return enabled(side) if enabled is not None else True
+        name = "present" if self.configuration == "scene" else "enabled"
+        member = getattr(self.layout_store, name, None)
+        return member(side) if member is not None else True
+
+    def brightness_scale_for(self, side, base):
+        """Return this configuration's brightness correction for a side."""
+        name = "scene_scale" if self.configuration == "scene" else "scale"
+        return getattr(self.layout_store, name, self.layout_store.scale)(side, base)
+
+    def scene_gains(self, side):
+        """Return seven bottom-to-top scene fade gains, or None when nothing is faded."""
+        loader = getattr(self.layout_store, "scene_fade", None)
+        if self.configuration != "scene" or loader is None:
+            return None
+        fade = loader()
+        gains = fade.get(side) if fade else None
+        return gains if gains is not None and min(gains) < 1 else None
+
+    def fade_target(self, side, target):
+        """Attenuate a scene target by the scene fade without mutating the job."""
+        gains = self.scene_gains(side)
+        if gains is None:
+            return target
+        if "segments" in target or self.by_side[side].get("segment_count", 0) == 7:
+            segments = target.get("segments") or [as_rgb(target)] * 7
+            target = {key: value for key, value in target.items()
+                      if key not in ("rgb", "kelvin")}
+            target["segments"] = [
+                tuple(round(value * gain) for value in rgb)
+                for rgb, gain in zip(segments, gains)
+            ]
+        else:
+            # Without segments the strip's mean gain dims the whole lamp.
+            mean = sum(gains) / len(gains)
+            target["brightness"] = max(1, min(100, round(target["brightness"] * mean)))
+        return target
 
     def clear_side(self, side):
         """Forget output work while retaining the accepted source ordering fence."""
@@ -252,13 +344,14 @@ class PilotController:
         target = self.target(side)
         if target is not None and self.layout_store is not None:
             base = lan.parse_brightness_scale(self.by_side[side].get("brightness_scale", 1))
-            scale = self.layout_store.scale(side, base)
+            scale = self.brightness_scale_for(side, base)
             brightness = (
                 target["brightness"] * scale / base
                 if base
                 else self.jobs[side].get("source_bri", 254) / 254 * 100 * scale
             )
             target["brightness"] = max(1, min(100, round(brightness)))
+            target = self.fade_target(side, target)
         return target
 
     def submit(self, payload):
@@ -303,7 +396,11 @@ class PilotController:
                 initial = native_target(status, desired)
                 if self.layout_store is not None and status and "brightness" in status:
                     base = lan.parse_brightness_scale(device.get("brightness_scale", 1))
-                    scale = self.layout_store.scale(side, base)
+                    scale = self.brightness_scale_for(side, base)
+                    gains = self.scene_gains(side)
+                    if gains is not None and self.by_side[side].get("segment_count", 0) != 7:
+                        # The native brightness already carries the mean fade gain.
+                        scale *= sum(gains) / len(gains)
                     if base and scale:
                         initial["brightness"] *= base / scale
             self.jobs[side] = {
@@ -332,6 +429,7 @@ class PilotController:
                     revision = self.power_owner.revision(side)
                     if self.power_revisions.get(side) != revision:
                         self.last_sent.pop(side, None)
+                        self.stream_brightness.pop(side, None)
                         self.power_revisions[side] = revision
                     if not self.power_owner.allowed(side):
                         self.last_sent.pop(side, None)
@@ -340,37 +438,79 @@ class PilotController:
                         continue
                 status, seen = self.statuses.get(lan.device_key(device), (None, float("-inf")))
                 if not status or status.get("onOff") != 1 or not 0 <= now - seen <= 0.75:
+                    lost = self.status_lost.setdefault(side, now)
+                    verified_off = (
+                        status is not None and 0 <= now - seen <= 0.75
+                        and status.get("onOff") == 0
+                        and status.get("identity_verified", True) is not False
+                    )
+                    if verified_off or now - lost >= RAZER_LOST_SECONDS:
+                        # An Off or a power cycle ends DreamView on the lamp.
+                        self.razer_frame.pop(side, None)
                     self.last_sent.pop(side, None)
                     if side in self.jobs:
                         self.skipped_state[side] += 1
                     continue
+                self.status_lost.pop(side, None)
+                if not self.streaming and side in self.razer:
+                    # The lamp ignores other color commands while DreamView is on,
+                    # so leave it even when no scene target is waiting yet.
+                    try:
+                        left = self.sender(device, "razer", razer_mode(False))
+                    except OSError:
+                        left = False
+                    if not left:
+                        # Keep the scene target pending until the lamp leaves DreamView.
+                        self.rejected_sends[side] += 1
+                        continue
+                    self.razer.pop(side)
+                    self.razer_frame.pop(side, None)
                 target = self.effective_target(side)
                 if target is None:
                     continue
                 old = self.last_sent.get(side, {})
                 refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
                 updates = []
-                commands = (
-                    [
+                stream = self.streaming and "segments" in target
+                if stream:
+                    commands = [
+                        ("razer", razer_data(target["segments"])),
+                        ("brightness", {"value": target["brightness"]}),
+                    ]
+                elif "segments" in target:
+                    commands = [
                         ("ptReal", segment_data(target["segments"])),
                         ("brightness", {"value": target["brightness"]}),
                     ]
-                    if "segments" in target
-                    else lan.govee_commands(target)
-                )
+                else:
+                    commands = lan.govee_commands(target)
                 for name, data in commands:
                     changed = (
-                        old.get("brightness") != target["brightness"]
+                        (self.stream_brightness.get(side) if stream else old.get("brightness"))
+                        != target["brightness"]
                         if name == "brightness"
                         else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
                         != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
                     )
                     if changed or refresh:
                         updates.append((name, data))
-                rate = self.packet_rates[side]
-                gradient_rate = self.gradient_packet_rates[side]
-                if "segments" in target and gradient_rate is not None:
-                    rate = min(rate, gradient_rate) if rate is not None else gradient_rate
+                mode = None
+                if stream and (side not in self.razer or side not in self.razer_frame
+                               or now - self.razer_frame[side] >= RAZER_IDLE_SECONDS):
+                    mode = razer_mode(True)
+                if mode is not None:
+                    # The lamp stays dark after the mode switch until a frame arrives,
+                    # so the current frame always follows it in the same burst.
+                    frame = ("razer", commands[0][1])
+                    updates = [("razer", mode), frame] + [
+                        update for update in updates if update[0] != "razer"]
+                if stream:
+                    rate = self.stream_rates[side]
+                else:
+                    rate = self.packet_rates[side]
+                    gradient_rate = self.gradient_packet_rates[side]
+                    if "segments" in target and gradient_rate is not None:
+                        rate = min(rate, gradient_rate) if rate is not None else gradient_rate
                 if (
                     updates
                     and rate is not None
@@ -384,6 +524,12 @@ class PilotController:
                     except OSError:
                         success = False
                     complete = success and complete
+                    if success and data is mode:
+                        self.razer[side] = now
+                    if success and stream and name == "razer":
+                        self.razer_frame[side] = now
+                    if success and stream and name == "brightness":
+                        self.stream_brightness[side] = data["value"]
                     self.commands_sent += int(success)
                     if not success:
                         self.rejected_sends[side] += 1
@@ -396,7 +542,14 @@ class PilotController:
                             }
                         )
                 if updates and rate is not None:
-                    self.next_send[side] = now + len(updates) / rate
+                    interval = len(updates) / rate
+                    previous = self.next_send.get(side)
+                    if stream and previous is not None and 0 <= now - previous < interval:
+                        # Keep the frame cadence: a render tick that came a little
+                        # late must not stretch every later slot.
+                        self.next_send[side] = previous + interval
+                    else:
+                        self.next_send[side] = now + interval
                 if complete:
                     self.last_sent[side] = target
                     if refresh:
@@ -406,6 +559,8 @@ class PilotController:
         with self.lock:
             return {
                 "active_sides": sorted(self.jobs),
+                "streaming": self.streaming,
+                "dreamview_sides": sorted(self.razer),
                 "commands_sent": self.commands_sent,
                 "skipped_state": dict(self.skipped_state),
                 "rejected_sends": dict(self.rejected_sends),
@@ -434,17 +589,21 @@ class PilotController:
 
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
-                power_owner=None, power_token=None, service_info=None, catalog=None, preview=None):
+                power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
+                power_requests=None, homekit=None, identify=None, sync_off=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
     ):
         raise ValueError("A distinct power owner credential is required")
+    broker = power_requests or (PowerRequests(power_owner) if power_owner is not None else None)
+    signatures = SignatureVerifier(power_token) if homekit is not None else None
     hue_proxies = dict(hue_play_proxies or {})
     if hue_proxy is not None:
         hue_proxies["strip"] = hue_proxy
 
     class Handler(BaseHTTPRequestHandler):
+        power_requests = broker
         def log_message(self, *args):
             pass
 
@@ -453,6 +612,10 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            nonce = getattr(self, "signed_nonce", None)
+            if nonce is not None:
+                self.send_header("X-LCC-Response",
+                                 response_signature(power_token, nonce, status, data))
             keep_alive = getattr(self, "stream_keep_alive", False)
             self.send_header("Connection", "keep-alive" if keep_alive else "close")
             self.close_connection = not keep_alive
@@ -465,13 +628,26 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             return hmac.compare_digest(self.headers.get("X-Adapter-Token", "").encode(),
                                        token.encode())
 
+        def owner_authorized(self):
+            return power_token is not None and hmac.compare_digest(
+                self.headers.get("X-Power-Owner-Token", "").encode(), power_token.encode())
+
         def do_GET(self):
             self.stream_keep_alive = False
-            if not self.authorized():
+            self.signed_nonce = None
+            if self.path == "/homekit" and homekit is not None:
+                if not signatures.verify("GET", self.path, self.headers, b""):
+                    return self.respond(403, {"error": "unauthorized"})
+                self.signed_nonce = self.headers["X-LCC-Nonce"]
+            elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
+            if self.path == "/homekit":
+                if homekit is None:
+                    return self.respond(404, {"error": "not found"})
+                return self.respond(200, homekit.state())
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
-            if self.path != "/status":
+            if self.path not in ("/status", "/diagnostics"):
                 return self.respond(404, {"error": "not found"})
             result = controller.snapshot()
             loader = getattr(getattr(controller, "layout_store", None), "sync_profile", None)
@@ -492,39 +668,102 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 result["power_owner"] = power_owner.snapshot()
             if service_info is not None:
                 result["service"] = dict(service_info)
+            if sync_off is not None:
+                result["sync_off"] = sync_off.snapshot()
             if preview is not None:
                 try:
                     output_snapshot = preview.snapshot()
                 except Exception:
                     output_snapshot = {}
                 result["preview"] = build_preview(result, output_snapshot)
+            if self.path == "/diagnostics":
+                # Allowlisted export: no credentials, addresses or device identifiers.
+                return self.respond(200, export_diagnostics(result))
             self.respond(200, result)
 
         def do_POST(self):
             self.stream_keep_alive = False
-            if self.path == "/power-owner":
-                if power_owner is None or power_token is None:
+            self.signed_nonce = None
+            if self.path in ("/power-owner", "/homekit"):
+                # The local HomeKit authority fences the legacy remote owner.
+                if (power_owner is None or power_token is None
+                        or (self.path == "/power-owner") is not (homekit is None)):
                     return self.respond(404, {"error": "not found"})
-                if not hmac.compare_digest(
-                    self.headers.get("X-Power-Owner-Token", "").encode(), power_token.encode()
-                ):
+                # /homekit is signed; its signature covers the body read below.
+                if self.path == "/power-owner" and not self.owner_authorized():
                     return self.respond(403, {"error": "unauthorized"})
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
-            if self.path not in ("/command", "/stream", "/power-owner") or (
+            if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
+                                 "/native-power", "/identify",
+                                 "/homekit") or (
                 self.path == "/stream" and video_output is None
-            ):
+            ) or (self.path == "/identify" and identify is None):
                 return self.respond(404, {"error": "not found"})
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 8192:
                     raise ValueError("Invalid request size")
-                payload = json.loads(self.rfile.read(size))
+                raw = self.rfile.read(size)
+                if self.path == "/homekit":
+                    if not signatures.verify("POST", self.path, self.headers, raw):
+                        return self.respond(403, {"error": "unauthorized"})
+                    self.signed_nonce = self.headers["X-LCC-Nonce"]
+                payload = json.loads(raw)
                 if self.path == "/power-owner":
-                    accepted = power_owner.submit(payload)
+                    if not isinstance(payload, dict):
+                        raise ValueError("Invalid power owner envelope")
+                    capability = validate_capability(payload.get("power_requests"),
+                                                     payload.get("states"))
+                    envelope = {key: value for key, value in payload.items()
+                                if key != "power_requests"}
+                    accepted = power_owner.submit(envelope)
+                    observed = controller.power_observations()
                     return self.respond(200, {"accepted": accepted,
+                                              "power_request_version": 1,
                                               "observer_epoch": controller.observer_epoch,
-                                              "observed": controller.power_observations()})
+                                              "observed": observed,
+                                              **broker.exchange(envelope, capability,
+                                                                observed, accepted)})
+                elif self.path == "/homekit":
+                    confirmed = homekit.set(payload)
+                    return self.respond(200 if confirmed else 503,
+                                        {"accepted": confirmed, **homekit.state()})
+                elif self.path == "/power-request":
+                    if broker is None:
+                        return self.respond(503, {"accepted": False})
+                    accepted = broker.request(payload)
+                    if sync_off is not None:
+                        # An owner power change during Sync wins over the Sync hold.
+                        for role in payload["states"]:
+                            sync_off.owner_power(role)
+                    return self.respond(200, {"accepted": accepted})
+                elif self.path == "/identify":
+                    if (not isinstance(payload, dict) or set(payload) != {"role"}
+                            or not isinstance(payload["role"], str)):
+                        raise ValueError("Invalid identify request")
+                    try:
+                        identify(payload["role"])
+                    except IdentifyRefused as refused:
+                        return self.respond(409, {"accepted": False, "reason": refused.reason})
+                    except IdentifyFailed:
+                        return self.respond(503, {"accepted": False})
+                    return self.respond(200, {"accepted": True})
+                elif self.path == "/native-power":
+                    roles = payload.get("roles") if isinstance(payload, dict) else None
+                    if (not isinstance(roles, dict) or not roles
+                            or set(roles) - set(hue_proxies)
+                            or any(type(value) is not bool for value in roles.values())):
+                        raise ValueError("Invalid native power request")
+                    if sync_off is not None:
+                        for role in roles:
+                            sync_off.owner_power(role)
+                    try:
+                        confirmed = all([hue_proxies[role].set_power(value)
+                                         for role, value in roles.items()])
+                    except (OSError, ValueError, KeyError):
+                        confirmed = False
+                    return self.respond(200 if confirmed else 503, {"accepted": confirmed})
                 elif self.path == "/stream":
                     accepted = video_output.submit(payload)
                     # Only an authenticated, fully consumed stream envelope may
@@ -536,6 +775,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 else:
                     accepted = controller.submit(payload)
                 self.respond(200, {"accepted": accepted})
+            except PowerRequestUnavailable:
+                self.respond(503, {"accepted": False})
             except (ValueError, TypeError, KeyError):
                 self.respond(400, {"error": "invalid command"})
 
@@ -554,6 +795,8 @@ def main(argv=None, service_info=None):
     parser.add_argument("--hue-stream-config", type=Path)
     parser.add_argument("--native-profile", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
+    parser.add_argument("--power-authority", choices=("owner", "homekit"), default="owner",
+                        help="owner: remote heartbeat; homekit: this adapter executes power")
     args = parser.parse_args(argv)
     if args.hue_play and not args.hue_config:
         parser.error("--hue-play requires --hue-config")
@@ -561,6 +804,8 @@ def main(argv=None, service_info=None):
         parser.error("--hue-stream-config requires --hue-play and --hue-config")
     if args.native_profile and not args.hue_config:
         parser.error("--native-profile requires --hue-config")
+    if args.hue_config and not args.native_profile:
+        parser.error("--hue-config requires --native-profile")
     native_profile = NativeHueProfile.load(args.native_profile) if args.native_profile else None
     state_dir = args.state_dir or args.targets.parent
     if (state_dir / "live-output-hold").exists():
@@ -582,7 +827,8 @@ def main(argv=None, service_info=None):
         with os.fdopen(descriptor, "w") as stream:
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
-    power_owner = power_token = None
+    power_owner = power_token = homekit = None
+    power_requests = None
     preview = OutputPreviewStore()
     sender = lan.send_to_target
     if args.power_owner_token_file:
@@ -591,12 +837,27 @@ def main(argv=None, service_info=None):
                 or any(c not in "0123456789abcdef" for c in power_token)
                 or hmac.compare_digest(power_token.encode(), token.encode())):
             raise ValueError("Invalid power owner credential")
-        power_owner = PowerOwner(config["targets"])
+        if args.power_authority == "homekit":
+            idle = {}
+            power_owner = homekit = HomeKitPower(
+                config["targets"], state_dir / "homekit-power.json", lan.send_power_to_target,
+                observe=lambda: controller.power_observations(),
+                idle=lambda side: idle["check"](side), names=layout_store.names)
+            power_requests = HomeKitRequests(homekit)
+        else:
+            power_owner = PowerOwner(config["targets"])
+            power_owner.attach_power(lan.send_power_to_target,
+                                     observe=lambda: controller.power_observations())
+            power_requests = PowerRequests(
+                power_owner, observe=lambda: controller.power_observations())
         sender = power_owner.wrap(sender)
+    elif args.power_authority == "homekit":
+        raise ValueError("HomeKit power requires a power owner credential")
     controller = PilotController(config["targets"],
                                  sender=preview.wrap_govee(sender, "scene-output"),
                                  layout_store=layout_store,
-                                 power_owner=power_owner)
+                                 power_owner=power_owner,
+                                 configuration="scene")
     hue_proxies = {}
     hue_config = None
     if args.hue_config:
@@ -606,8 +867,7 @@ def main(argv=None, service_info=None):
             preview=preview, profile=native_profile,
         )
         if args.hue_play:
-            play_ids = native_profile.play_ids if native_profile is not None else PLAY_IDS
-            for role, resource in play_ids.items():
+            for role, resource in native_profile.play_ids.items():
                 hue_proxies[role] = HueStripProxy(
                     PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
                     role=role,
@@ -634,6 +894,19 @@ def main(argv=None, service_info=None):
         for proxy in hue_proxies.values():
             proxy.output_lock = video.lock
             proxy.write_gate = lambda: not video.active()
+    identify = Identify(controller, hue_proxies, video=video, power_owner=power_owner,
+                        layout_store=layout_store)
+    identify.sender = sender
+    controller.sender = identify.wrap(controller.sender)
+    if video is not None:
+        video.controller.sender = identify.wrap(video.controller.sender)
+    sync_off = SyncOffSession(
+        layout_store, (lambda: video.active()) if video is not None else (lambda: False),
+        state_dir / SYNC_OFF_FILE, govee=power_owner, native=hue_proxies,
+        observe=controller.power_observations)
+    if homekit is not None:
+        idle["check"] = lambda side: (
+            (video is None or not video.active()) and side not in controller.jobs)
     controller.pause_gate = lambda: (
         (video is None or not video.active())
         and all(proxy.govee_allowed() for proxy in hue_proxies.values() if proxy.included())
@@ -664,6 +937,10 @@ def main(argv=None, service_info=None):
             service_info=service_info,
             catalog=catalog,
             preview=preview,
+            power_requests=power_requests,
+            homekit=homekit,
+            identify=identify,
+            sync_off=sync_off,
         ),
     )
     video_thread = http_thread = None
@@ -673,6 +950,8 @@ def main(argv=None, service_info=None):
         controller.update_statuses(statuses)
         if video is not None:
             video.controller.update_statuses(statuses)
+        if homekit is not None:
+            homekit.tick()
 
     try:
         if hue_config is not None:
@@ -688,6 +967,8 @@ def main(argv=None, service_info=None):
                 target=video.run, args=(video_stop,), name="pilot-video"
             )
             video_thread.start()
+        threading.Thread(target=sync_off.run, args=(stop,), daemon=True,
+                         name="pilot-sync-off").start()
         transport = PilotTransport(
             controller.targets,
             publish_statuses,
@@ -700,7 +981,8 @@ def main(argv=None, service_info=None):
         http_thread = threading.Thread(target=server.serve_forever, daemon=True, name="pilot-http")
         http_thread.start()
         print(
-            f"Pilot adapter on port {args.port}; two pinned Govee; no power commands.",
+            f"Pilot adapter on port {args.port}; two pinned Govee; "
+            + ("HomeKit power authority." if homekit is not None else "no power commands."),
             flush=True,
         )
         deadline = time.monotonic()
@@ -719,7 +1001,11 @@ def main(argv=None, service_info=None):
     except KeyboardInterrupt:
         print("Pilot adapter stopped.", flush=True)
     finally:
+        # Restore lamps switched off for Sync while native readings are still live.
+        sync_off.close()
         stop.set()
+        if power_requests is not None:
+            power_requests.close()
         if http_thread is not None and http_thread.is_alive():
             server.shutdown()
         server.server_close()

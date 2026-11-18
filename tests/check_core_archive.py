@@ -11,8 +11,10 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = [
     "test_live_adapter",
+    "test_homekit_power",
     "test_power_owner",
     "test_power_owner_integration",
+    "test_power_requests",
     "test_video_output",
     "test_hue_strip_proxy",
     "test_hue_entertainment_relay",
@@ -23,8 +25,10 @@ CONTRACTS = [
     "test_live_preview",
     "test_native_profile",
     "test_native_profile_integration",
+    "test_explicit_device_profiles",
     "test_stream_http",
     "test_stream_diagnostics",
+    "test_sync_health",
     "test_sync_projection",
     "test_layout_composition_contract",
     "test_composition_output",
@@ -34,25 +38,32 @@ CONTRACTS = [
     "test_sync_visibility_fade",
     "test_sync_zone",
     "test_floor_zone_contract",
+    "test_lamp_controls",
 ]
 RUNTIME = [
     "live_adapter",
-    "smart_lighting",
+    "lights_can_communicate_v2",
     "desk_layout",
     "entertainment_stream",
     "govee_segments",
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "pilot_transport",
+    "homekit_power",
+    "power_history",
     "power_owner",
+    "power_requests",
     "video_output",
     "bridge_output",
-    "smart_lighting_core.native_profile",
+    "lights_can_communicate_v2_core.native_profile",
     "stream_http",
     "stream_diagnostics",
+    "sync_health",
     "sync_projection",
     "sync_zone",
     "native_location_cache",
+    "identify",
+    "sync_off",
 ]
 
 
@@ -68,7 +79,8 @@ def main():
     with TemporaryDirectory(prefix="tmp_core_archive_contract_") as folder:
         artifact = Path(folder) / "adapter.pyz"
         subprocess.run(
-            [sys.executable, "-B", "-m", "smart_lighting_core.build", "--output", str(artifact)],
+            [sys.executable, "-B", "-m", "lights_can_communicate_v2_core.build",
+             "--output", str(artifact)],
             check=True,
             cwd=ROOT,
         )

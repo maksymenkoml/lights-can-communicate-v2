@@ -80,6 +80,9 @@ class AdapterLifecycleTests(unittest.TestCase):
             (root / "token").write_text("a" * 48)
             (root / "hue.json").write_text('{"bridge":"192.168.99.2"}')
             (root / "stream.json").write_text('{"bridge":"192.168.99.2"}')
+            from test_native_profile import profile_data
+
+            (root / "native.json").write_text(json.dumps(profile_data()))
             args = [
                 "--targets",
                 str(root / "targets.json"),
@@ -87,6 +90,8 @@ class AdapterLifecycleTests(unittest.TestCase):
                 str(root / "token"),
                 "--hue-config",
                 str(root / "hue.json"),
+                "--native-profile",
+                str(root / "native.json"),
                 "--hue-play",
                 "--hue-stream-config",
                 str(root / "stream.json"),

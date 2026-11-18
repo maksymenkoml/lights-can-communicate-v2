@@ -28,10 +28,21 @@ from entertainment_stream import (  # noqa: E402
     CAPTURE_POSITIONS,
     GRADIENT_MODE,
     GROUP_ID,
+    IDENTITY_NAMESPACE,
     SLOT_CHANNELS,
 )
-from flask import abort, jsonify, request  # noqa: E402
+from flask import abort, g, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
+from hue_names import (  # noqa: E402
+    AREA_NAME,
+    MONITOR_NAME,
+    ROOM_NAME,
+    SLOT_ROLES,
+    OwnerNames,
+    govee_name,
+    hue_play_name,
+    rename_legacy,
+)
 from hue_resource_compat import canonical_collection, install_resource_compat  # noqa: E402
 from HueObjects import (  # noqa: E402
     ApiUser,
@@ -64,7 +75,6 @@ config = configManager.bridgeConfig.yaml_config
 settings = config["config"]
 settings.update(
     {
-        "name": "Smart Lighting Probe",
         "discovery": False,
         "Remote API enabled": False,
         "timezone": "America/Toronto",
@@ -108,8 +118,8 @@ for index, side in enumerate(("Left", "Right"), start=1):
         lamp = Light.Light(
             {
                 "id_v1": identifier,
-                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL, f"smart-lighting-probe/{side}")),
-                "name": f"Govee {side} TEST",
+                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/{side}")),
+                "name": govee_name(side),
                 "modelid": "LCT015",
                 "protocol": "dummy",
             }
@@ -120,7 +130,7 @@ for index, side in enumerate(("Left", "Right"), start=1):
     configure_signe(config["lights"][identifier], GRADIENT_MODE)
 if "1" not in config["groups"]:
     room = Group.Group(
-        {"id_v1": "1", "name": "Probe Office TEST", "type": "Room", "class": "Office"}
+        {"id_v1": "1", "name": ROOM_NAME, "type": "Room", "class": "Office"}
     )
     for lamp in config["lights"].values():
         room.add_light(lamp)
@@ -131,9 +141,9 @@ if include_strip:
             {
                 "id_v1": "3",
                 "id_v2": str(
-                    uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/HueMonitorStrip")
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/HueMonitorStrip")
                 ),
-                "name": "Hue Monitor PROXY",
+                "name": MONITOR_NAME,
                 "modelid": "LCX006",
                 "protocol": "dummy",
                 "protocol_cfg": {"points_capable": 5, "proxy_color_kind": "gradient"},
@@ -161,9 +171,9 @@ if include_hue_play:
                 {
                     "id_v1": identifier,
                     "id_v2": str(
-                        uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/HuePlay" + side)
+                        uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/HuePlay" + side)
                     ),
-                    "name": "Hue Play " + side + " PROXY",
+                    "name": hue_play_name(side),
                     "modelid": "LCT015",
                     "protocol": "dummy",
                     "protocol_cfg": {"proxy_color_kind": "xy"},
@@ -184,7 +194,7 @@ if include_entertainment:
             {
                 "id_v1": identifier,
                 "id_v2": GROUP_ID,
-                "name": "Desk Sync PILOT",
+                "name": AREA_NAME,
                 "configuration_type": "monitor",
             }
         )
@@ -252,12 +262,37 @@ if include_entertainment:
     Light.Light.getV2Entertainment = desk_light_entertainment
 
 if api_key not in config["apiUsers"]:
-    config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
+    config["apiUsers"][api_key] = ApiUser.ApiUser(
+        api_key, "LightsCanCommunicateV2Probe#selftest", None)
+rename_legacy(config)
+
+
+def publish_light_names(lamps):
+    """Tell Hue clients about renamed lights the way diyHue announces other updates."""
+    for lamp in lamps:
+        resource = lamp.getV2Api()
+        StreamEvent({
+            "creationtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "id": str(uuid.uuid4()), "type": "update",
+            "data": [{key: resource[key] for key in ("id", "id_v1", "type", "metadata")
+                      if key in resource}],
+        })
+
+
+# A name set in Light Studio for a role lamp names its virtual light. Resource
+# IDs stay; without an owner name the current name stays.
+owner_names = OwnerNames(
+    config["lights"], {slot: role for slot, role in SLOT_ROLES.items() if slot in selected_slots},
+    layout_store.names, save=lambda: configManager.bridgeConfig.save_config(backup=False),
+    publish=publish_light_names,
+)
+owner_names.apply(announce=False)  # Nothing listens before the bridge starts.
 configManager.bridgeConfig.save_config(backup=False)
 
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
 from entertainment_receiver import EntertainmentReceiver, UdpPortGuard  # noqa: E402
 from flaskUI import restful, v2restapi  # noqa: E402
+from hue_power_requests import HuePowerRequests, HuePowerUnavailable  # noqa: E402
 from HueEmulator3 import app, main  # noqa: E402
 from lights.protocols import protocols  # noqa: E402
 from power_feedback import PowerFeedback  # noqa: E402
@@ -314,6 +349,7 @@ original_set_state = Light.Light._setV1State
 original_dynamic_play = Light.Light.dynamicScenePlay
 play_guard = PlayGuard()
 power_feedback = None
+power_requests = None
 
 
 Scene.Thread = play_guard.thread_factory(
@@ -387,7 +423,7 @@ Light.Light._setV1State = forward_selected_state
 
 def resume_power_color(lamp, full=False):
     if (live_output is None
-            or not layout_store.enabled(live_output.slots.get(lamp.id_v1, ''))):
+            or not layout_store.present(live_output.slots.get(lamp.id_v1, ''))):
         return
     selected = {
         key: lamp.state[key]
@@ -404,7 +440,7 @@ def resume_power_color(lamp, full=False):
 
 
 def reconcile_membership(previous):
-    current = {role:layout_store.enabled(role) for role in live_output.slots.values()}
+    current = {role:layout_store.present(role) for role in live_output.slots.values()}
     if previous is not None:
         for slot, role in live_output.slots.items():
             if current[role] and not previous.get(role, True):
@@ -425,6 +461,18 @@ def watch_layout():
 
 if live_output is not None:
     threading.Thread(target=watch_layout, daemon=True, name='desk-composition').start()
+
+
+def watch_owner_names():
+    while True:
+        try:
+            owner_names.apply()
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        time.sleep(.5)
+
+
+threading.Thread(target=watch_owner_names, daemon=True, name='desk-names').start()
 
 
 def publish_power_groups(changed_slots):
@@ -462,11 +510,20 @@ def power_aware_light_api(lamp):
 Light.Light.genStreamEvent = advertise_selected_power
 Light.Light.getV2Api = power_aware_light_api
 if live_output is not None:
+    # Every native Hue light routed for color also gets power, from one map.
+    native_power_slots = {slot: role for slot, role in live_output.slots.items()
+                          if role in live_output.hue_roles}
     power_feedback = PowerFeedback(
         live_output.url, live_output.token, config["lights"], play_guard.lock,
         resume=resume_power_color, publish_groups=publish_power_groups,
+        native_slots=native_power_slots,
     )
     power_feedback.refresh_once()
+    power_requests = HuePowerRequests(
+        live_output.url, live_output.token, config["lights"], config["groups"], power_feedback,
+        enabled=lambda: not (state / "live-output-hold").exists(),
+        native_slots=native_power_slots,
+    )
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
 
@@ -501,6 +558,12 @@ install_event_route(app, event_journal, current_event_snapshot,
                     authorize=lambda headers: "user" in v2restapi.authorizeV2(headers))
 
 
+@app.before_request
+def remember_power_state():
+    if power_requests is not None:
+        g.power_request_before = power_requests.snapshot()
+
+
 @app.after_request
 def record_request(response):
     if request.method == "GET" and request.path.rstrip("/") == "/clip/v2/resource":
@@ -513,6 +576,17 @@ def record_request(response):
     if len(parts) > 2 and parts[1] == "api" and parts[2] not in ("", "config"):
         parts[2] = "<key>"
     payload = request.get_json(silent=True)
+    if power_requests is not None:
+        try:
+            power_requests.after_request(request.method, request.path, response.status_code,
+                                         payload, response.get_json(silent=True),
+                                         previous=getattr(g, "power_request_before", None))
+        except HuePowerUnavailable:
+            error = {"description": "Power request was not confirmed"}
+            response = (jsonify([{"error": {"type": 901, **error}}])
+                        if request.path.startswith("/api/")
+                        else jsonify({"errors": [error], "data": []}))
+            response.status_code = 503
     if power_feedback is not None:
         power_feedback.after_request(request.method, request.path, response.status_code, payload)
     event = {

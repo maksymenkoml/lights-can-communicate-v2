@@ -13,16 +13,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from smart_lighting_core import cli
-from smart_lighting_core.config import ConfigError, load_config
-from smart_lighting_core.native_profile import NativeHueProfile, NativeProfileError
+from lights_can_communicate_v2_core import cli
+from lights_can_communicate_v2_core.config import ConfigError, load_config
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
 import hue_entertainment_relay as relay_module  # noqa: E402
 import live_adapter as pilot  # noqa: E402
-from entertainment_stream import NATIVE_AREA_ID  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, STRIP_ID, HueStripProxy, PinnedHueClient  # noqa: E402
+from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
 from test_hue_entertainment_relay import FakeConnection  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 from test_native_profile import (  # noqa: E402
@@ -31,8 +30,11 @@ from test_native_profile import (  # noqa: E402
     CENTER_SERVICE,
     LEFT,
     OTHER,
+    PLAY_IDS,
     RIGHT,
     STRIP,
+    STRIP_ID,
+    ZERO,
     profile_data,
 )
 
@@ -71,7 +73,6 @@ class ProfileClientIntegrationTests(unittest.TestCase):
         self.profile = NativeHueProfile.from_dict(profile_data())
 
     def test_explicit_profile_routes_each_light_without_credential_light_hint(self):
-        original_constants = (STRIP_ID, dict(PLAY_IDS))
         for role, resource in self.profile.light_ids.items():
             calls = []
 
@@ -97,12 +98,11 @@ class ProfileClientIntegrationTests(unittest.TestCase):
             self.assertIs(proxy.profile, self.profile)
             self.assertEqual(proxy.resource_id, resource)
             self.assertEqual(proxy.brightness_scale, 0.5 if role == "hue_center" else 1)
-        self.assertEqual((STRIP_ID, PLAY_IDS), original_constants)
         default = PinnedHueClient(hue_config(), profile=self.profile)
         self.assertEqual(default.resource_id, STRIP)
 
-    def test_explicit_profile_rejects_unknown_area_service_and_legacy_resources(self):
-        for resource in (OTHER, AREA, CENTER_SERVICE, STRIP_ID, *PLAY_IDS.values(), "", []):
+    def test_explicit_profile_rejects_unknown_area_service_and_unselected_resources(self):
+        for resource in (OTHER, AREA, CENTER_SERVICE, ZERO, "", []):
             with self.subTest(resource=resource), self.assertRaises(ValueError):
                 PinnedHueClient(hue_config(), resource_id=resource, profile=self.profile)
         client = PinnedHueClient(hue_config(), requester=lambda *_: {"data": [{"id": OTHER}]},
@@ -137,19 +137,15 @@ class ProfileClientIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             HueStripProxy(types.SimpleNamespace(resource_id=STRIP, profile={}))
         with self.assertRaises(ValueError):
-            HueStripProxy(types.SimpleNamespace(resource_id=STRIP_ID), profile=self.profile)
+            HueStripProxy(types.SimpleNamespace(resource_id=OTHER), profile=self.profile)
 
-    def test_legacy_client_and_proxy_fences_stay_compatible(self):
+    def test_credential_light_hints_cannot_authorize_output_without_profile(self):
         config = {**hue_config(), "light": STRIP_ID}
-        for role, resource in {"strip": STRIP_ID, **PLAY_IDS}.items():
-            client = PinnedHueClient(config, resource_id=resource)
-            self.assertIsNone(client.profile)
-            self.assertEqual(HueStripProxy(client, role=role).resource_id, resource)
-        self.assertEqual(PinnedHueClient(config).resource_id, STRIP_ID)
+        for resource in (None, STRIP_ID, *PLAY_IDS.values()):
+            with self.subTest(resource=resource), self.assertRaises(ValueError):
+                PinnedHueClient(config, resource_id=resource)
         with self.assertRaises(ValueError):
-            PinnedHueClient(hue_config())
-        with self.assertRaises(ValueError):
-            PinnedHueClient(config, resource_id=STRIP)
+            HueStripProxy(types.SimpleNamespace(resource_id=STRIP_ID))
 
 
 class ProfileRelayIntegrationTests(unittest.TestCase):
@@ -210,7 +206,7 @@ class ProfileRelayIntegrationTests(unittest.TestCase):
                                     (expected_url, "PUT", b'{"action": "start"}')])
 
     def test_changed_or_malformed_area_fails_before_start_or_dtls(self):
-        invalid = [None, [], {**self.area, "id": NATIVE_AREA_ID},
+        invalid = [None, [], {**self.area, "id": OTHER},
                    {**self.area, "status": "unknown"},
                    {**self.area, "light_services": [None] * 4},
                    {**self.area, "channels": [None] * 12}]
@@ -365,17 +361,22 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         self.assertFalse(config.state_dir.exists())
 
     def test_check_reports_success_without_network_or_state_changes(self):
-        self.config()
-        before = {path.name: path.read_bytes() for path in self.root.iterdir() if path.is_file()}
+        config = self.config()
+        config.state_dir.mkdir()
+        # Preserve existing pairing and calibration byte-for-byte during preflight.
+        (config.state_dir / "pairing.json").write_text('{"paired":true}\n')
+        (config.state_dir / "desk-layout.json").write_text('{"calibration":0.65}\n')
+        before = {path.relative_to(self.root): path.read_bytes()
+                  for path in self.root.rglob("*") if path.is_file()}
         output, errors = io.StringIO(), io.StringIO()
         with ExitStack() as stack, redirect_stdout(output), redirect_stderr(errors):
             self.no_device_io(stack)
             result = cli.main(["--config", str(self.config_path), "--check"])
         self.assertEqual(result, 0, errors.getvalue())
         self.assertTrue(json.loads(output.getvalue())["native_video"])
-        self.assertEqual(before, {path.name: path.read_bytes()
-                                 for path in self.root.iterdir() if path.is_file()})
-        self.assertFalse((self.root / "state").exists())
+        self.assertEqual(json.loads(output.getvalue())["profile"], "explicit-native")
+        self.assertEqual(before, {path.relative_to(self.root): path.read_bytes()
+                                 for path in self.root.rglob("*") if path.is_file()})
 
     def test_main_wires_single_profile_before_any_server_or_worker_starts(self):
         class BeforeServer(Exception):

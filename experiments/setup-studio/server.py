@@ -14,15 +14,21 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hue-bridge"))
-from desk_layout import ROLES, LayoutStore  # noqa: E402
+from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
+from sync_health import derive as derive_sync_health  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    # Self-hosted Commissioner (SIL OFL 1.1, fonts/OFL.txt): no runtime font requests.
+    "/fonts/commissioner-latin.woff2": ("fonts/commissioner-latin.woff2", "font/woff2"),
 }
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
+# Adapter refusal reasons passed through to the UI; anything else is "refused".
+IDENTIFY_REASONS = ("lamp off", "writer closed", "sync active", "busy", "unavailable",
+                    "brightness unknown", "paused")
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
 DISCOVERY_FIELDS = (
     "id", "provider", "name", "model", "shape", "zones", "supported", "online",
@@ -226,11 +232,14 @@ def project_status(data, source_active=None):
         count = 9 if identifier == "hue-monitor" else 7 if identifier.startswith("govee-") else 1
         lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
                     included=identifier in included)
+    # Verified cause only; the existing state label keeps its meaning.
+    health = derive_sync_health(data)
     return {
         "version": 1,
         "connected": True,
         "mode": mode,
-        "sync": {"state": sync_state},
+        "sync": {"state": sync_state, "reason": health["reason"],
+                 "blockers": health["blockers"]},
         "lamps": lamps,
     }
 
@@ -278,12 +287,39 @@ def _read_local_json(url, timeout, headers=None):
         raise
 
 
+def _asset(name):
+    """Read a static asset from a source tree or from the executable archive."""
+    path = STATIC / name
+    loader = globals().get("__loader__")
+    if not path.is_file() and hasattr(loader, "get_data"):
+        # An archive member key, independent of symlinks in the archive path.
+        return loader.get_data("static/" + name)
+    return path.read_bytes()
+
+
+def _post_local_json(url, body, timeout, headers):
+    """POST to the loopback adapter; return (status, JSON body) including refusals."""
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", **headers})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoLocalRedirect())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read(4096))
+    except urllib.error.HTTPError as error:
+        with error:
+            try:
+                return error.code, json.loads(error.read(4096))
+            except ValueError:
+                return error.code, {}
+
+
 def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=None,
-                source_fetch=None):
+                source_fetch=None, adapter_url="http://127.0.0.1:19880",
+                bridge_url="http://127.0.0.1", identify_post=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
 
     def default_source_fetch():
-        data = _read_local_json("http://127.0.0.1/probe/status", 0.25)
+        data = _read_local_json(bridge_url + "/probe/status", 0.25)
         receiver = data.get("entertainment") if isinstance(data, dict) else None
         return receiver.get("active") if isinstance(receiver, dict) else None
 
@@ -298,7 +334,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
             else:
                 token = token_file.read_text().strip()
                 data = _read_local_json(
-                    "http://127.0.0.1:19880/status", 0.5, {"X-Adapter-Token": token}
+                    adapter_url + "/status", 0.5, {"X-Adapter-Token": token}
                 )
             result = project_status(data)
             if not result["connected"] or result["sync"]["state"] != "unknown":
@@ -316,7 +352,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 return public_catalog(catalog_fetch())
             token = token_file.read_text().strip()
             request = urllib.request.Request(
-                "http://127.0.0.1:19880/discovery", headers={"X-Adapter-Token": token}
+                adapter_url + "/discovery", headers={"X-Adapter-Token": token}
             )
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open(request, timeout=1) as response:
@@ -326,6 +362,30 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 error.close()
             return {"connected": False, "devices": [],
                     "providers": {"govee": "unavailable", "hue": "unavailable"}}
+
+    def identify(role):
+        """Forward an owner Blink to the adapter; return (status, public body)."""
+        if (store.path.parent / "live-output-hold").exists():
+            return 409, {"accepted": False, "reason": "paused"}
+        try:
+            if identify_post is not None:
+                status, body = identify_post(role)
+            else:
+                token = token_file.read_text().strip()
+                # A Govee blink takes about 1.2 s before the adapter answers.
+                status, body = _post_local_json(adapter_url + "/identify", {"role": role}, 3,
+                                                 {"X-Adapter-Token": token})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return 503, {"accepted": False, "reason": "adapter unavailable"}
+        reason = body.get("reason") if isinstance(body, dict) else None
+        if status == 200:
+            return 200, {"accepted": True}
+        if status == 409:
+            return 409, {"accepted": False,
+                         "reason": reason if reason in IDENTIFY_REASONS else "refused"}
+        return 503, {"accepted": False, "reason": "adapter unavailable"}
 
     def validate_bindings(data):
         if not isinstance(data, dict) or not isinstance(data.get("devices"), list):
@@ -380,7 +440,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
             path = urlsplit(self.path).path
             if path in ASSETS:
                 name, kind = ASSETS[path]
-                return self.respond(200, (STATIC / name).read_bytes(), kind)
+                return self.respond(200, _asset(name), kind)
             if path == "/api/layout":
                 return self.respond(200, store.response())
             if path == "/api/discovery":
@@ -390,27 +450,39 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):
-            if urlsplit(self.path).path != "/api/layout":
+            path = urlsplit(self.path).path
+            if path not in ("/api/layout", "/api/identify"):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
             if self.headers.get_content_type() != "application/json":
                 return self.respond(415, {"error": "JSON required"})
+            if path == "/api/identify":
+                return self.identify()
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 16384:
                     return self.respond(413, {"error": "layout payload too large"})
                 data = json.loads(self.rfile.read(size))
                 with store.lock:
+                    # Every write names the revision it edits ("" when none is saved), so
+                    # a page loaded before an upgrade or another edit cannot overwrite it.
                     expected = self.headers.get("If-Match")
-                    if expected is not None and expected.strip('"') != (store.revision() or ""):
+                    if expected is None:
+                        return self.respond(428, {"error": "If-Match required"})
+                    if expected.strip('"') != (store.revision() or ""):
                         return self.respond(409, {"error": "layout changed"})
+                    # Older formats are migrated when the stored file is read, never
+                    # accepted from a write.
+                    if not isinstance(data, dict) or data.get("version") != LAYOUT_VERSION:
+                        raise ValueError("Writes must use the current layout version")
                     previous = store.snapshot()
-                    if (isinstance(data, dict) and 'syncZone' not in data
-                            and previous and 'syncZone' in previous):
-                        # A stale client cannot silently erase a newer custom zone.
-                        # New clients send explicit null to return to automatic.
-                        data = {**data, 'syncZone': previous['syncZone']}
+                    for zone in ('syncZone', 'sceneZone'):
+                        if (isinstance(data, dict) and zone not in data
+                                and previous and zone in previous):
+                            # A stale client cannot silently erase a newer custom zone.
+                            # New clients send explicit null to return to automatic.
+                            data = {**data, zone: previous[zone]}
                     validate_bindings(data)
                     result = store.save(data)
                 return self.respond(200, result)
@@ -418,6 +490,23 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 return self.respond(400, {"error": "invalid desk layout"})
             except OSError:
                 return self.respond(503, {"error": "layout storage unavailable"})
+
+        def identify(self):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 1024:
+                    return self.respond(413, {"error": "identify payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if (not isinstance(data, dict) or set(data) != {"lamp"}
+                        or not isinstance(data["lamp"], str)):
+                    raise ValueError("Expected a lamp")
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid identify request"})
+            role = ROLES.get(data["lamp"])
+            if role is None:
+                # Only the six role lamps can blink; discovered lamps come later.
+                return self.respond(404, {"error": "unknown lamp"})
+            return self.respond(*identify(role))
 
         def local_request(self):
             hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
@@ -431,19 +520,27 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
     return Handler
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=19881)
-    args = parser.parse_args()
-    token = Path(__file__).resolve().parents[1] / "hue-bridge/state/adapter-token"
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(token))
-    print(f"Setup studio: http://127.0.0.1:{args.port} (autosaved desk setup)", flush=True)
+def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
+          adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1"):
+    """Serve until interrupted; SIGTERM handling belongs to the caller."""
+    server = ThreadingHTTPServer((bind, port), handler_for(
+        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url))
+    print(f"Setup studio: http://{bind}:{port} (autosaved desk setup)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--port", type=int, default=19881)
+    args = parser.parse_args()
+    # Development entry point; the packaged service passes explicit paths.
+    token = Path(__file__).resolve().parents[1] / "hue-bridge/state/adapter-token"
+    serve(token, token.parent / "desk-layout.json", port=args.port)
 
 
 if __name__ == "__main__":

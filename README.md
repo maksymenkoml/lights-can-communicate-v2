@@ -1,4 +1,4 @@
-# Smart lighting prototype
+# Lights Can Communicate v2 prototype
 
 The current six-light virtual Hue pilot is documented in
 [experiments/hue-bridge](experiments/hue-bridge/README.md). Its first distributable
@@ -57,14 +57,14 @@ animation phase.
 
 1. Enable **LAN Control** for each Govee device in Govee Home. The computer,
    lamps, and Hue Bridge must be on a network that allows local communication.
-2. Run `python3 smart_lighting.py discover`.
-3. Run `python3 smart_lighting.py pair` and press the physical Hue Bridge button.
+2. Run `python3 lights_can_communicate_v2.py discover`.
+3. Run `python3 lights_can_communicate_v2.py pair` and press the physical Hue Bridge button.
    If discovery cannot find the bridge, use `pair --bridge 192.168.x.x`.
-4. Run `python3 smart_lighting.py lights` and choose the monitor strip's ID.
+4. Run `python3 lights_can_communicate_v2.py lights` and choose the monitor strip's ID.
 5. Select the source and targets:
 
    ```sh
-   python3 smart_lighting.py configure --light HUE-LIGHT-UUID --left LEFT-IP --right RIGHT-IP
+   python3 lights_can_communicate_v2.py configure --light HUE-LIGHT-UUID --left LEFT-IP --right RIGHT-IP
    ```
 
    For two bars sharing a single controller/IP, use `--govee IP` instead;
@@ -92,9 +92,9 @@ If no matching target is found, its updates are skipped.
 ## Try it
 
 ```sh
-python3 smart_lighting.py sync --once --dry-run
-python3 smart_lighting.py sync --once
-python3 smart_lighting.py sync
+python3 lights_can_communicate_v2.py sync --once --dry-run
+python3 lights_can_communicate_v2.py sync --once
+python3 lights_can_communicate_v2.py sync
 ```
 
 Pick a scene in Hue and leave the last command running to follow changes.
@@ -105,8 +105,8 @@ If Govee look brighter on the wall, save a separate brightness multiplier for
 each side. Stop the running sync, calibrate, and start sync again:
 
 ```sh
-python3 smart_lighting.py calibrate --left 0.5 --right 0.5
-python3 smart_lighting.py sync
+python3 lights_can_communicate_v2.py calibrate --left 0.5 --right 0.5
+python3 lights_can_communicate_v2.py sync
 ```
 
 With a 0.5 multiplier, Hue at 80% gives Govee 40%. Each side can use a different

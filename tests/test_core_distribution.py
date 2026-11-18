@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -14,13 +15,15 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from smart_lighting_core import __version__
+from test_native_profile import profile_data
+
+from lights_can_communicate_v2_core import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 PINNED_LINUX = (
     sys.platform == "linux"
     and Path("/opt/hue-emulator").is_dir()
-    and os.environ.get("SMART_LIGHTING_ISOLATED_TESTS") == "1"
+    and os.environ.get("LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS") == "1"
 )
 
 
@@ -35,7 +38,7 @@ class CoreDistributionTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 "-m",
-                "smart_lighting_core.build",
+                "lights_can_communicate_v2_core.build",
                 "--output",
                 str(self.artifact),
             ],
@@ -107,7 +110,8 @@ class CoreDistributionTests(unittest.TestCase):
     def test_archive_is_reproducible_allowlisted_and_self_contained(self):
         second = self.root / "second.pyz"
         result = subprocess.run(
-            [sys.executable, "-B", "-m", "smart_lighting_core.build", "--output", str(second)],
+            [sys.executable, "-B", "-m", "lights_can_communicate_v2_core.build",
+             "--output", str(second)],
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -117,9 +121,9 @@ class CoreDistributionTests(unittest.TestCase):
         with zipfile.ZipFile(self.artifact) as bundle:
             names = bundle.namelist()
             self.assertIn("live_adapter.py", names)
-            self.assertIn("smart_lighting.py", names)
-            self.assertIn("smart_lighting_core/cli.py", names)
-            self.assertIn("smart_lighting_core/native_profile.py", names)
+            self.assertIn("lights_can_communicate_v2.py", names)
+            self.assertIn("lights_can_communicate_v2_core/cli.py", names)
+            self.assertIn("lights_can_communicate_v2_core/native_profile.py", names)
             self.assertFalse(any("state/" in name or "tests/" in name for name in names))
             self.assertFalse(any(".lighting" in name or name.endswith(".jsonl") for name in names))
             manifest = json.loads(bundle.read("core-manifest.json"))
@@ -146,7 +150,7 @@ class CoreDistributionTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 "-m",
-                "smart_lighting_core.build",
+                "lights_can_communicate_v2_core.build",
                 "--output",
                 str(self.artifact),
             ],
@@ -157,6 +161,45 @@ class CoreDistributionTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.artifact.read_bytes(), before)
 
+    def test_archive_contains_no_literal_physical_resource_uuids(self):
+        # The virtual capture IDs are derived; physical resources belong only in profiles.
+        uuid = rb"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+        with zipfile.ZipFile(self.artifact) as bundle:
+            for name in bundle.namelist():
+                if name.endswith(".py"):
+                    with self.subTest(module=name):
+                        self.assertIsNone(re.search(uuid, bundle.read(name)))
+
+    def test_archive_rejects_missing_native_profile_without_network_or_state_changes(self):
+        (self.folder / "hue.json").write_text(json.dumps({
+            "bridge": "192.168.99.2", "hue_key": "c" * 64,
+            "light": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
+        }))
+        self.value["adapter"]["hue_config_file"] = "hue.json"
+        self.save()
+        before = {p: p.read_bytes() for p in self.folder.rglob("*") if p.is_file()}
+        code = """
+import socket,ssl,sys
+sys.path.insert(0, sys.argv[1])
+def forbidden(*args, **kwargs):
+    raise AssertionError("Missing profile attempted network setup")
+socket.socket = forbidden
+from lights_can_communicate_v2_core.cli import main
+raise SystemExit(main(sys.argv[2:]))
+"""
+        for mode in ([], ["--check"]):
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-B", "-c", code, str(self.artifact),
+                     "--config", str(self.config), *mode],
+                    cwd=self.cwd, text=True, capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("profile", result.stderr.lower())
+                self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(before, {p: p.read_bytes()
+                                  for p in self.folder.rglob("*") if p.is_file()})
+
     def test_check_is_read_only_and_never_initializes_network(self):
         before = {p: p.read_bytes() for p in self.folder.rglob("*") if p.is_file()}
         code = """
@@ -165,7 +208,7 @@ sys.path.insert(0, sys.argv[1])
 def forbidden(*args, **kwargs):
     raise AssertionError("Check attempted network setup")
 socket.socket = forbidden
-from smart_lighting_core.cli import main
+from lights_can_communicate_v2_core.cli import main
 raise SystemExit(main(["--config", sys.argv[2], "--check"]))
 """
         result = subprocess.run(
@@ -207,7 +250,8 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
     def test_explicit_state_hold_blocks_start_even_when_targets_are_elsewhere(self):
         (self.state / "live-output-hold").write_text("Owner hold")
         result = self.run_archive("--config", str(self.config))
-        self.assertNotEqual(result.returncode, 0)
+        # A hold is intentional: exit 0 so a supervisor does not restart in a loop.
+        self.assertEqual(result.returncode, 0)
         self.assertIn("hold", result.stderr.lower())
         check = self.run_archive("--config", str(self.config), "--check")
         self.assertEqual(check.returncode, 0, check.stderr)
@@ -242,9 +286,11 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
         }
         (self.folder / "hue.json").write_text(json.dumps(hue))
         (self.folder / "stream.json").write_text(json.dumps(stream))
+        (self.folder / "native.json").write_text(json.dumps(profile_data()))
         self.value["adapter"].update(
             {
                 "hue_config_file": "hue.json",
+                "native_profile_file": "native.json",
                 "hue_play": True,
                 "hue_stream_config_file": "stream.json",
             }

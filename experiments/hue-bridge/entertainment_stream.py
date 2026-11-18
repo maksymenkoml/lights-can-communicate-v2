@@ -10,9 +10,12 @@ import uuid
 from collections import deque
 
 MAGIC = b"HueStream"
-GROUP_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/DeskEntertainment"))
+# Frozen: seeds the persistent identities of the virtual Hue lights and the
+# entertainment area that the Hue app and Sync Box are paired with. The
+# project rename must not change them.
+IDENTITY_NAMESPACE = "smart-lighting-probe"
+GROUP_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/DeskEntertainment"))
 AREA_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, GROUP_ID + "entertainment_configuration"))
-NATIVE_AREA_ID = "10c81079-56a6-45c4-8149-55185f703083"
 GRADIENT_MODE = os.environ.get("PROBE_GOVEE_GRADIENT", "false").lower() == "true"
 CHANNELS = set(range(18 if GRADIENT_MODE else 14))
 SLOT_CHANNELS = {"1": [0], "2": [1], "3": list(range(2, 11)), "4": [11], "5": [12], "6": [13]}
@@ -203,6 +206,8 @@ class VideoLease:
         self.received = 0
         self.stopping = False
         self.max_frame_gap = 0
+        # Set for every accepted frame or stop, so the output worker need not poll.
+        self.wake = threading.Event()
 
     def close(self):
         with self.lock:
@@ -260,6 +265,7 @@ class VideoLease:
                     return False
                 self.closed.append(session)
                 self.session, self.frame = None, None
+                self.wake.set()
                 return True
             if self.session and self.session != session:
                 self.closed.append(self.session)
@@ -273,6 +279,7 @@ class VideoLease:
             )
             self.frame = frame
             self.received += 1
+            self.wake.set()
             return True
 
     def latest(self):

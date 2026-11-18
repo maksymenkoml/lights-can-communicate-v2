@@ -11,7 +11,7 @@ import stat
 import subprocess
 import sys
 
-from . import __version__
+from . import __version__, install, services
 from .config import ConfigError, load_config, read_json
 from .native_profile import NativeHueProfile, NativeProfileError
 
@@ -40,6 +40,8 @@ def _credential(path):
 
 def prepare(config):
     """Import and validate the existing runtime without starting any workers."""
+    if config.hue_config_file and not config.native_profile_file:
+        raise ConfigError("Hue output requires an explicit native Hue profile")
     try:
         profile = (
             NativeHueProfile.load(config.native_profile_file)
@@ -57,7 +59,7 @@ def prepare(config):
         sys.path.insert(0, str(pilot))
     import live_adapter
 
-    import smart_lighting as lan
+    import lights_can_communicate_v2 as lan
 
     token, owner = _credential(config.token_file), _credential(config.power_owner_token_file)
     if hmac.compare_digest(token, owner):
@@ -77,8 +79,7 @@ def prepare(config):
             live_adapter.HueStripProxy(live_adapter.PinnedHueClient(hue, profile=profile),
                                        profile=profile)
             if config.hue_play:
-                play_ids = profile.play_ids if profile is not None else live_adapter.PLAY_IDS
-                for role, resource in play_ids.items():
+                for role, resource in profile.play_ids.items():
                     live_adapter.HueStripProxy(
                         live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
                         role=role, profile=profile,
@@ -124,51 +125,108 @@ def prepare(config):
     return live_adapter
 
 
+def _setup_module():
+    """Setup Studio lives at the archive root or in the source tree."""
+    try:
+        import setup_studio
+    except ImportError:
+        import importlib.util
+        from pathlib import Path
+
+        source = Path(__file__).resolve().parents[1] / "experiments/setup-studio/server.py"
+        spec = importlib.util.spec_from_file_location("setup_studio", source)
+        setup_studio = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup_studio)
+    return setup_studio
+
+
+def _interruptible(run):
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def terminate(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, terminate)
+    try:
+        return run()
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _adapter(config, check):
+    runtime = prepare(config)
+    if check:
+        print(
+            json.dumps(
+                {
+                    "version": __version__,
+                    "profile": "explicit-native" if config.native_profile_file else "govee-only",
+                    "targets": 2,
+                    "gradient": config.gradient,
+                    "native_hue": bool(config.hue_config_file),
+                    "native_video": bool(config.hue_stream_config_file),
+                    "hold": (config.state_dir / "live-output-hold").exists(),
+                }
+            )
+        )
+        return 0
+    if (config.state_dir / "live-output-hold").exists():
+        # An intentional owner state, not a failure: supervisors must not loop.
+        print("Owner live-output hold is active; adapter not started", file=sys.stderr)
+        return 0
+    _interruptible(lambda: runtime.main(
+        config.arguments(),
+        service_info={"name": "lights-can-communicate-v2-adapter", "version": __version__},
+    ))
+    return 0
+
+
+def _setup(config):
+    _credential(config.token_file)
+    studio = _setup_module()
+    _interruptible(lambda: studio.serve(
+        config.token_file, config.state_dir / "desk-layout.json",
+        bind=config.setup.bind, port=config.setup.port,
+        adapter_url=services.local_adapter_url(config),
+    ))
+    return 0
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Smart Lighting packaged desk adapter")
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in install.COMMANDS:
+        return install.main(argv)
+    parser = argparse.ArgumentParser(description="Lights Can Communicate v2 managed core")
     parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("command", nargs="?", default="adapter",
+                        choices=("adapter", "setup", "ready", "services"))
     parser.add_argument("--config", required=True, help="Version-one service configuration")
     parser.add_argument(
-        "--check", action="store_true", help="Validate without network or state writes"
+        "--check", action="store_true", help="adapter: validate without network or state writes"
     )
+    parser.add_argument("--release", help="services: installed release directory")
+    parser.add_argument("--output", help="services: new directory for supervisor files")
+    parser.add_argument("--timeout", type=float, default=10.0, help="ready: seconds to wait")
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config)
-        runtime = prepare(config)
-        if args.check:
-            print(
-                json.dumps(
-                    {
-                        "version": __version__,
-                        "profile": "pinned-desk",
-                        "targets": 2,
-                        "gradient": config.gradient,
-                        "native_hue": bool(config.hue_config_file),
-                        "native_video": bool(config.hue_stream_config_file),
-                        "hold": (config.state_dir / "live-output-hold").exists(),
-                    }
-                )
-            )
-            return 0
-        if (config.state_dir / "live-output-hold").exists():
-            raise ConfigError("Owner live-output hold is active")
-        previous = signal.getsignal(signal.SIGTERM)
-
-        def terminate(signum, frame):
-            raise KeyboardInterrupt
-
-        signal.signal(signal.SIGTERM, terminate)
-        try:
-            runtime.main(
-                config.arguments(),
-                service_info={"name": "smart-lighting-adapter", "version": __version__},
-            )
-        finally:
-            signal.signal(signal.SIGTERM, previous)
+        if args.command == "adapter":
+            return _adapter(config, args.check)
+        if args.command == "setup":
+            return _setup(config)
+        if args.command == "ready":
+            token = _credential(config.token_file).decode()
+            result = services.ready(config, token, timeout=max(0.0, min(args.timeout, 300.0)))
+            print(json.dumps(result))
+            return 0 if result["ready"] else 1
+        if not args.release or not args.output:
+            raise ConfigError("services requires --release and --output")
+        names = services.render(config, args.config, args.release, args.output, sys.executable)
+        print(json.dumps({"rendered": names}))
         return 0
     except (ConfigError, OSError, ValueError) as error:
         message = (
-            str(error) if isinstance(error, ConfigError) else "Adapter failed to start or stop"
+            str(error) if isinstance(error, ConfigError) else "Command failed to start or stop"
         )
         print(message, file=sys.stderr)
         return 2

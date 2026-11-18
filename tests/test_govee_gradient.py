@@ -26,14 +26,17 @@ def gradient_stream():
 class GradientProfileTests(unittest.TestCase):
     def test_gradient_payload_validation_precedes_persistent_state_changes(self):
         point = {"color": {"xy": {"x": 0.3, "y": 0.3}}}
-        validate_gradient({"points": [point] * 3})
+        # The Hue app sends up to five points to every gradient light, also
+        # to one that advertises three; the adapter spreads them over the zones.
+        for count in (1, 3, 5):
+            validate_gradient({"points": [point] * count})
         for value in (
             None,
             {},
             {"points": None},
             {"points": []},
             {"points": [None]},
-            {"points": [point] * 4},
+            {"points": [point] * 6},
             {"points": [{"color": {"xy": {"x": True, "y": 0.3}}}]},
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -74,7 +77,7 @@ class GradientProfileTests(unittest.TestCase):
         lamp = SimpleNamespace(
             id_v1="1",
             id_v2="stable-id",
-            name="Govee Left TEST",
+            name="Govee Left",
             modelid="LCT015",
             state={"on": False, "bri": 100, "xy": [0.3, 0.3]},
             config={"archetype": "classicbulb"},
@@ -82,7 +85,7 @@ class GradientProfileTests(unittest.TestCase):
             function="mixed",
         )
         configure_signe(lamp, True)
-        self.assertEqual((lamp.id_v1, lamp.id_v2, lamp.name), ("1", "stable-id", "Govee Left TEST"))
+        self.assertEqual((lamp.id_v1, lamp.id_v2, lamp.name), ("1", "stable-id", "Govee Left"))
         self.assertFalse(lamp.state["on"])
         self.assertEqual(lamp.state["bri"], 100)
         self.assertEqual(lamp.modelid, "915005987201")

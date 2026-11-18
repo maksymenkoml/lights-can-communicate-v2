@@ -9,8 +9,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from live_adapter import PilotController  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
+from power_owner import PowerOwner  # noqa: E402
 
-import smart_lighting as lan  # noqa: E402
+import lights_can_communicate_v2 as lan  # noqa: E402
 
 LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
@@ -75,7 +76,8 @@ class PilotTransportTests(unittest.TestCase):
         self.assertEqual(self.targets[1]["ip"], "192.168.10.80")
 
     def setUp(self):
-        for name in ("GOVEE_ROUTES", "VERIFIED_GOVEE", "GOVEE_ROUTE_REVISIONS"):
+        for name in ("GOVEE_ROUTES", "VERIFIED_GOVEE", "IDENTIFIED_GOVEE",
+                     "GOVEE_ROUTE_REVISIONS"):
             context = patch.dict(getattr(lan, name), {}, clear=True)
             context.start()
             self.addCleanup(context.stop)
@@ -101,6 +103,56 @@ class PilotTransportTests(unittest.TestCase):
         self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 10))
         self.message("scan", {"device": THIRD}, "192.168.10.99", 10.03)
         self.assertNotIn(THIRD, lan.VERIFIED_GOVEE)
+
+    def test_an_off_lamp_can_be_switched_on_but_gets_no_color(self):
+        sent = []
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 10.02)
+        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+        self.assertEqual(lan.IDENTIFIED_GOVEE[LEFT], ("192.168.10.50", 10))
+        device = self.targets[0]
+        with patch.object(lan, "govee_send", lambda ip, name, data: sent.append((ip, name))), \
+                patch.object(lan.time, "monotonic", return_value=10.3):
+            self.assertFalse(lan.send_power_to_target(device, "colorwc", {}))
+            self.assertFalse(lan.send_to_target(device, "turn", {"value": 1}))
+            self.assertTrue(lan.send_power_to_target(device, "turn", {"value": 1}))
+        self.assertEqual(sent, [("192.168.10.50", "turn")])
+        # A stale proof sends nothing.
+        with patch.object(lan, "govee_send", lambda ip, name, data: sent.append((ip, name))), \
+                patch.object(lan.time, "monotonic", return_value=11):
+            self.assertFalse(lan.send_power_to_target(device, "turn", {"value": 1}))
+        self.assertEqual(len(sent), 1)
+
+    def test_a_sync_hold_restores_an_off_lamp_over_the_power_route(self):
+        import time
+
+        native = {"on": False, "sample": None}
+
+        def send(ip, name, data):
+            native.update(on=data["value"] == 1, sample=time.monotonic())
+
+        owner = PowerOwner(self.targets)
+        owner.attach_power(lan.send_power_to_target, observe=lambda: {"left": dict(native)},
+                           sleep=lambda seconds: None)
+        owner.sync_hold("left", send=False)
+        lan.IDENTIFIED_GOVEE[LEFT] = ("192.168.10.50", time.monotonic())
+        with patch.object(lan, "govee_send", send):
+            self.assertEqual(owner.sync_release("left"), "restored")
+        self.assertTrue(native["on"])
+
+    def test_a_lost_identity_withdraws_the_power_route(self):
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 10.02)
+        self.assertIn(LEFT, lan.IDENTIFIED_GOVEE)
+        # Another device answers at that address: the route is withdrawn.
+        self.message("scan", {"device": THIRD}, "192.168.10.50", 10.1)
+        self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 11)
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 11.02)
+        self.assertIn(LEFT, lan.IDENTIFIED_GOVEE)
+        # No fresh identity after 0.75 s: withdrawn as well.
+        self.transport.reconcile(12)
+        self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
 
     def test_scan_refresh_does_not_manufacture_a_new_native_power_sample(self):
         controller = PilotController(self.targets, clock=lambda: 10.18)

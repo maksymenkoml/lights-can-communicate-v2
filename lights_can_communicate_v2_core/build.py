@@ -16,39 +16,57 @@ PILOT_MODULES = (
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "pilot_transport",
+    "homekit_power",
+    "power_history",
     "power_owner",
+    "power_requests",
     "video_output",
     "bridge_output",
     "stream_http",
     "stream_diagnostics",
+    "sync_health",
     "sync_projection",
     "sync_zone",
     "native_location_cache",
+    "identify",
+    "sync_off",
 )
 CORE_MODULES = (
     "__init__", "__main__", "config", "cli", "discovery", "hue_discovery", "live_preview",
-    "native_profile",
+    "native_profile", "services", "install",
 )
+SETUP_FILES = {
+    "setup_studio.py": "server.py",
+    "static/index.html": "static/index.html",
+    "static/app.js": "static/app.js",
+    "static/style.css": "static/style.css",
+    "static/fonts/commissioner-latin.woff2": "static/fonts/commissioner-latin.woff2",
+    "static/fonts/OFL.txt": "static/fonts/OFL.txt",
+}
 
 
 def build(output):
     root = Path(__file__).resolve().parents[1]
-    paths = {"smart_lighting.py": root / "smart_lighting.py"}
+    paths = {"lights_can_communicate_v2.py": root / "lights_can_communicate_v2.py"}
     paths.update(
         {name + ".py": root / "experiments/hue-bridge" / (name + ".py") for name in PILOT_MODULES}
     )
     paths.update(
         {
-            "smart_lighting_core/" + name + ".py": root / "smart_lighting_core" / (name + ".py")
+            "lights_can_communicate_v2_core/" + name + ".py":
+                root / "lights_can_communicate_v2_core" / (name + ".py")
             for name in CORE_MODULES
         }
     )
+    paths.update({name: root / "experiments/setup-studio" / source
+                  for name, source in SETUP_FILES.items()})
     files = {}
     for name, path in paths.items():
         if path.is_symlink() or not path.is_file():
             raise ValueError("Missing or redirected runtime source")
         files[name] = path.read_bytes()
-    files["__main__.py"] = b"from smart_lighting_core.cli import main\nraise SystemExit(main())\n"
+    files["__main__.py"] = (
+        b"from lights_can_communicate_v2_core.cli import main\nraise SystemExit(main())\n")
     files["core-manifest.json"] = (
         json.dumps(
             {

@@ -1,5 +1,9 @@
 # Homebridge power coordination pilot
 
+Superseded by `homebridge/` (platform `LightsCanCommunicateV2`), where the core
+executes power itself and no Govee plugin file is patched. This overlay stays
+in use until that migration is authorized and performed.
+
 Installed as an approved compatibility overlay on the NAS on 2026-11-14.
 Existing HomeKit accessories, bridge identity, services and pairing are retained.
 Automatic Apple Home Off/On has live API coverage; the owner confirmed physical
@@ -15,7 +19,10 @@ an Apple Home Off even with fresh LAN status. The original plugin itself notes
 implicit power-on from color commands and delays its own Off by 400 ms.
 
 This overlay coordinates the main-light On setter and the existing instance color writers in the exact installed
-[`@homebridge-plugins/homebridge-govee` 11.39.1 source](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.39.1/lib/device/light.js).
+`@homebridge-plugins/homebridge-govee` source. Verified releases are
+[11.39.1](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.39.1/lib/device/light.js)
+and [11.40.0](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.40.0/lib/device/light.js);
+`prepare_overlay.py` pins the public `light.js` and `platform.js` SHA256 of each.
 Its unchanged original
 handler still performs the actual power command. The wrapper first pauses the
 pilot's color writer, and grants color after identity-verified native On confirmation. UUID generation and
@@ -53,19 +60,20 @@ the current NAS power writer.
 
 ```sh
 python3 -B experiments/homebridge-power/prepare_overlay.py \
-  --source /path/to/exact-public-11.39.1-source \
+  --source /path/to/exact-public-release-source \
   --output /new/local/overlay-directory
 ```
 
-The builder verifies package identity/version and the original `light.js` SHA256,
+The builder verifies package identity/version and the original `light.js` and
+`platform.js` SHA256 of that release,
 refuses existing output, retains the upstream license and produces a manifest.
 Only three runtime files are in the overlay: the patched light handler and two
-new modules under `lib/smart-lighting-power/`. Source, package metadata, platform
+new modules under `lib/lights-can-communicate-v2-power/`. Source, package metadata, platform
 factory and Homebridge state are not changed by preparation. The upstream MIT
 license is included in each prepared artifact.
 
 The hook is optional when its private config is absent. A configured hook reads
-`smart-lighting-power.json` from `api.user.storagePath()`:
+`lights-can-communicate-v2-power.json` from `api.user.storagePath()`:
 
 ```json
 {
@@ -75,7 +83,7 @@ The hook is optional when its private config is absent. A configured hook reads
 }
 ```
 
-Keep this file mode 0600. Its separate `smart-lighting-power-state.json` contains
+Keep this file mode 0600. Its separate `lights-can-communicate-v2-power-state.json` contains
 only owner intent; it does not replace Homebridge's accessory cache. Neither file
 belongs in Git or logs. The exact installed source must pass the manifest guard
 before any installation. A plugin upgrade invalidates this overlay until checked
@@ -90,6 +98,25 @@ backup. Concurrent changes are preserved and stop installation; ambiguous
 rollback state is retained for inspection. It never changes the package,
 platform factory, Homebridge configuration, accessory cache or pairing files,
 and never restarts a service itself.
+
+A plugin upgrade replaces the package, including the overlay modules, but keeps
+the private owner config and intent state in Homebridge storage. Reinstalling on
+the new verified release reuses that config only when it is a regular mode-0600
+file identical to the artifact config; it is never rewritten, and rollback
+never removes it. A different or broader-permission config stops installation
+for inspection.
+
+Before preparing a newly verified release, run the native writer contract
+against its public source:
+
+```sh
+node tests/check_native_writers_upstream.mjs /path/to/release/lib/device/light.js
+```
+
+11.40.0 changes Home 0% brightness into a native state Off and adds a
+raw-zone AWS status refresh. The hook already routes 0% through the
+coordinated Off, so exactly one Off is sent; the setter, sender and transport
+interfaces used by the hook are unchanged.
 
 The installer restricts and verifies the actual config inode as mode 0600 before
 writing credential bytes. This matters on Synology, where inherited permissions
@@ -143,9 +170,9 @@ heartbeats do not override a Hue-local Off; unavailable/expired authority does
 not invent a physical power change. While Home is Off, scene On values are
 masked in the model, Hue API and events.
 
-This is Home-to-Hue state feedback, not a Hue-to-Home power command path. Power
-commands originating in Hue are not translated into the NAS owner's On setter
-by this slice. Brightness/color feedback from unrelated controllers is also
+The installed feedback slice is Home-to-Hue only. The source implementation
+described under "Explicit Hue App power commands" adds the reverse path and
+requires separate activation on the existing installation. Brightness/color feedback from unrelated controllers is also
 outside its scope.
 
 Fourteen unit tests cover role validation, expired/malformed snapshots, repeated and
@@ -295,3 +322,50 @@ requires an uninterrupted mirroring session; this is not proof of a bridge or
 Hue app bug. Sync showed PS5 Disconnected, so no renewed video test was started.
 Final native/API states are both Off with the original Vapor wave DESK Play
 restored. See `../hue-bridge/evidence/iphone-confirmed-power-live.json`.
+
+## Explicit Hue App power commands
+
+Issue #11 adds a reverse command channel over the existing authenticated owner
+heartbeat. The gateway forwards successful explicit v1/v2 light and group On/Off
+requests for the selected two Govee roles. Scene recall, animation, color-only
+updates and unselected accessories do not send physical power requests.
+
+The core advertises `power_request_version: 1`. The owner retains its legacy
+heartbeat until it receives this capability. A capable owner then advertises
+registered role revisions and bounded results through optional `power_requests`.
+The reply delivers at most two role commands and acknowledges retained results.
+The existing coordinated setter performs each physical operation. Native power
+confirmation, color drain, SDK debounce guards and ordinary Home control remain
+in force. A newer Home request or an expired command prevents a stale Hue write.
+
+The gateway uses its existing adapter credential for `POST /power-request`.
+That endpoint accepts only a fresh request ID and boolean left/right states.
+It does not accept device addresses, accessory IDs or arbitrary commands. The
+owner credential remains separate. No new NAS listener or credential is required.
+Requests have a bounded 12-second lifetime. The core reports success only after
+owner completion and matching fresh native observations. Concurrent requests for
+a busy role, unavailable/legacy authority, stale intent and unconfirmed power
+return an error. A grouped request can partially complete physically. The gateway
+refreshes actual owner state and reports failure without rolling other lights back.
+
+The broker retains 64 bounded request records for replay protection, including
+completed requests after their active deadline. It evicts a completed record only
+when another request needs space and its accepted payloads are outside the
+freshness window. A full cache rejects new requests while all replay fences are
+still valid. Owner command results and replay records are
+also bounded. Closing or replacing the owner does not replay queued commands.
+The gateway rechecks the existing live-output hold before requesting power.
+
+Install the updated core and gateway before updating the optional NAS overlay.
+New owners retain ordinary Home control with an older core through capability
+negotiation. A rollback from a capable core to an older core also requires an
+owner restart to clear negotiated capabilities. Keep the existing private state,
+HomeKit pairing, accessories, scenes and calibration. This source change does
+not install an overlay, restart a service or authorize physical activation.
+
+Offline coverage includes real Node-to-Python HTTP round trips through the
+coordinated setter with synthetic telemetry, stale/replay/session fences, and
+actual pinned diyHue v1/v2 light/group routes. Scene recall retains external Off,
+and failed explicit requests reconcile the virtual state from fresh authority.
+Physical Hue App timing, real NAS operation and optical/device acceptance require
+separate authorized live checks. They are not established by these offline tests.

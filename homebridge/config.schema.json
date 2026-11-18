@@ -1,0 +1,26 @@
+{
+  "pluginAlias": "LightsCanCommunicateV2",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "The core endpoint and credential are read from lights-can-communicate-v2.json (mode 0600) in the Homebridge storage directory, never from this configuration.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": { "title": "Name", "type": "string", "default": "Lights Can Communicate v2" },
+      "lamps": {
+        "title": "Lamps",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "role": { "title": "Role", "type": "string", "enum": ["left", "right"], "required": true },
+            "deviceId": { "title": "Govee device ID", "type": "string", "required": true,
+                          "pattern": "^([0-9A-F]{2}:){7}[0-9A-F]{2}$" },
+            "name": { "title": "Name", "type": "string", "required": true },
+            "model": { "title": "Model", "type": "string", "default": "H6076" }
+          }
+        }
+      }
+    }
+  }
+}

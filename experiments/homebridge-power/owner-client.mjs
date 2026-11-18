@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { isIPv4 } from 'node:net';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate as nextTurn, setTimeout as delay } from 'node:timers/promises';
 
 export const DEVICE_ROLES = Object.freeze({
   '19:FE:DA:C3:40:86:6A:7B': 'left',
@@ -10,6 +10,30 @@ export const DEVICE_ROLES = Object.freeze({
 });
 const SAFE_GRANT_EXPIRY_MS = 2000 + 500 + 400;
 class IntentRejected extends Error {}
+const REQUEST_ID = /^[0-9a-f]{32}$/;
+
+function requestEnvelope(response) {
+  const commands = Object.hasOwn(response, 'power_requests') ? response.power_requests : [];
+  const acks = Object.hasOwn(response, 'power_request_acks') ? response.power_request_acks : [];
+  if (!Array.isArray(commands) || commands.length > 2
+    || !Array.isArray(acks) || acks.length > 64
+    || acks.some(id => typeof id !== 'string' || !REQUEST_ID.test(id))
+    || new Set(acks).size !== acks.length) throw new IntentRejected('Invalid power request envelope');
+  const ids = new Set();
+  for (const command of commands) {
+    if (!command || typeof command !== 'object' || Array.isArray(command)
+      || Object.keys(command).sort().join(',') !== 'expires_at,id,issued_at,on,revision,role'
+      || typeof command.id !== 'string' || !REQUEST_ID.test(command.id) || ids.has(command.id)
+      || !['left', 'right'].includes(command.role) || typeof command.on !== 'boolean'
+      || !Number.isSafeInteger(command.revision) || command.revision < 0
+      || !Number.isFinite(command.issued_at) || !Number.isFinite(command.expires_at)
+      || command.expires_at <= command.issued_at || command.expires_at - command.issued_at > 12) {
+      throw new IntentRejected('Invalid power request envelope');
+    }
+    ids.add(command.id);
+  }
+  return { commands, acks };
+}
 
 function powerObservation(response, role) {
   const observed = response?.observed?.[role];
@@ -119,6 +143,11 @@ export class PowerOwnerClient {
     this.closed = false;
     this.closing = false;
     this.heartbeatBusy = false;
+    this.powerHandlers = new Map();
+    this.powerRequestVersion = undefined;
+    this.revisions = new Map();
+    this.powerRecords = new Map();
+    this.remoteRoles = new Map();
   }
 
   register(id, currentOn) {
@@ -126,11 +155,79 @@ export class PowerOwnerClient {
     if (!role) return false;
     if (!this.states.has(role)) {
       const wanted = this.persisted[role] ?? currentOn === true;
+      this.revisions.set(role, 0);
       this.desired.set(role, wanted);
       this.states.set(role, this.confirmReadback ? false : wanted);
       if (this.confirmReadback && wanted) this.pendingOn.set(role, { samples: 0 });
     }
     return true;
+  }
+
+  registerPowerHandler(id, handler) {
+    const role = DEVICE_ROLES[String(id).toUpperCase()];
+    if (!role || !this.states.has(role) || typeof handler !== 'function'
+      || this.closed || this.closing) return false;
+    this.powerHandlers.set(role, handler);
+    return true;
+  }
+
+  prunePowerRecords() {
+    const now = this.wallClock() / 1000;
+    for (const [id, record] of this.powerRecords) {
+      if (record.expires_at <= now) this.powerRecords.delete(id);
+    }
+  }
+
+  receivePowerRequests(envelope, response) {
+    this.prunePowerRecords();
+    for (const id of envelope.acks) {
+      const record = this.powerRecords.get(id);
+      if (record?.result !== undefined) record.acknowledged = true;
+    }
+    for (const command of envelope.commands) {
+      if (this.powerRecords.has(command.id) || this.powerRecords.size >= 64) continue;
+      const record = { ...command };
+      this.powerRecords.set(command.id, record);
+      if (this.remoteRoles.has(command.role)) {
+        record.result = false;
+        continue;
+      }
+      this.remoteRoles.set(command.role, record);
+      let expectedRevision = command.revision;
+      const guard = () => {
+        const now = this.wallClock() / 1000;
+        if (this.closed || this.closing || this.powerRequestVersion !== 1
+          || this.powerRecords.get(command.id) !== record
+          || command.issued_at > now + 0.5 || command.expires_at <= now
+          || this.revisions.get(command.role) !== expectedRevision) {
+          throw new IntentRejected('Power request no longer current');
+        }
+      };
+      // Never put the setter in heartbeatQueue or role queues: it enters both
+      // itself while it fences native writers and confirms native telemetry.
+      const previous = this.queues.get(command.role) || Promise.resolve();
+      void nextTurn().then(async () => {
+        try {
+          await previous.catch(() => {});
+          guard();
+          const handler = this.powerHandlers.get(command.role);
+          if (!this.confirmReadback || !handler
+            || powerObservation(response, command.role).on === null) {
+            throw new IntentRejected('Power request unavailable');
+          }
+          const task = handler(command.on, guard);
+          expectedRevision = command.revision + 1;
+          await task;
+          guard();
+          record.result = this.confirmedRoles.get(command.role) === true
+            && this.desired.get(command.role) === command.on;
+        } catch {
+          record.result = false;
+        } finally {
+          if (this.remoteRoles.get(command.role) === record) this.remoteRoles.delete(command.role);
+        }
+      });
+    }
   }
 
   persist() {
@@ -149,6 +246,17 @@ export class PowerOwnerClient {
     if (this.closed || (this.closing && !closing) || !Object.keys(states).length) return false;
     const message = { session: this.session, sequence: ++this.sequence,
       issued_at: this.wallClock() / 1000, states };
+    const powerRequests = this.powerHandlers.size > 0 && this.powerRequestVersion === 1;
+    if (powerRequests) {
+      this.prunePowerRecords();
+      message.power_requests = { version: 1,
+        revisions: Object.fromEntries([...this.powerHandlers.keys()]
+          .map(role => [role, this.revisions.get(role)])),
+        results: [...this.powerRecords.values()]
+          .filter(record => record.result !== undefined && !record.acknowledged)
+          .map(record => ({ id: record.id, success: record.result })),
+      };
+    }
     const started = this.clock();
     for (const [role, on] of Object.entries(states)) {
       if (on) this.lastGrant.set(role, this.clock());
@@ -158,10 +266,14 @@ export class PowerOwnerClient {
       if (this.clock() - started > 350) throw new IntentRejected('Expired power owner response');
       if (!result || result.accepted !== true) throw new IntentRejected('Power owner rejected intent');
       const current = message.sequence > this.lastAcknowledgement;
+      const advertisedVersion = result.power_request_version === 1 ? 1 : undefined;
+      const envelope = powerRequests && advertisedVersion === 1 ? requestEnvelope(result) : undefined;
       this.lastAcknowledgement = Math.max(this.lastAcknowledgement, message.sequence);
       if (current) {
+        this.powerRequestVersion = advertisedVersion;
         this.recoverPending(result);
         this.notifyObserved(result);
+        if (envelope) this.receivePowerRequests(envelope, result);
       }
       else {
         for (const [role, pending] of this.pendingOn) {
@@ -181,6 +293,7 @@ export class PowerOwnerClient {
     } catch (error) {
       for (const pending of this.pendingOn.values()) resetSamples(pending);
       if (error instanceof IntentRejected) {
+        if (message.sequence >= this.lastAcknowledgement) this.powerRequestVersion = undefined;
         this.lastRejection = Math.max(this.lastRejection, message.sequence);
       }
       throw error;
@@ -258,7 +371,7 @@ export class PowerOwnerClient {
     }
   }
 
-  async verifyPower(role, value, retry, baseline) {
+  async verifyPower(role, value, retry, baseline, guard) {
     const overallStarted = this.clock();
     let minimumSample = baseline?.sample ?? undefined;
     let epoch = baseline?.epoch;
@@ -276,15 +389,17 @@ export class PowerOwnerClient {
       let retried = false;
       while (this.clock() - started <= window && this.clock() - overallStarted <= 8500) {
         if (this.closed || this.closing) throw Error('Power owner closed');
+        guard?.();
         let response;
         try { response = await this.heartbeat(true); }
         catch (error) {
           if (error instanceof IntentRejected) throw error;
           if (observedOpposite) throw Error('Device power could not be confirmed');
-          this.warn(`Smart Lighting ${role} power unconfirmed: coordinator unavailable; original Home control retained.`);
+          this.warn(`Lights Can Communicate v2 ${role} power unconfirmed: coordinator unavailable; original Home control retained.`);
           return false;
         }
         if (this.closed || this.closing) throw Error('Power owner closed');
+        guard?.();
         const observed = powerObservation(response, role);
         if (observed.epoch !== epoch) {
           epoch = observed.epoch;
@@ -315,6 +430,7 @@ export class PowerOwnerClient {
             }
             if (this.closed || this.closing) throw Error('Power owner closed');
             minimumSample = observed.sample;
+            guard?.();
             await retry();
             retried = true;
             break;
@@ -362,13 +478,17 @@ export class PowerOwnerClient {
     }
   }
 
-  power(id, value, operation, retry) {
+  power(id, value, operation, retry, guard) {
     const role = DEVICE_ROLES[String(id).toUpperCase()];
     if (!role) return operation();
     if (typeof value !== 'boolean') return Promise.reject(Error('Expected owner power boolean'));
     if (this.closed || this.closing) return Promise.reject(Error('Power owner closed'));
+    const revision = this.revisions.get(role) ?? 0;
+    if (!Number.isSafeInteger(revision + 1)) return Promise.reject(Error('Power intent limit reached'));
+    this.revisions.set(role, revision + 1);
     const previous = this.queues.get(role) || Promise.resolve();
     const task = previous.catch(() => {}).then(async () => {
+      guard?.();
       if (this.closed || this.closing) throw Error('Power owner closed');
       if (this.confirmReadback) {
         this.confirmedRoles.set(role, false);
@@ -380,8 +500,10 @@ export class PowerOwnerClient {
           const before = await this.pauseBeforeOff(role, true);
           const baseline = before ? powerObservation(before, role) : undefined;
           if (this.closed || this.closing) throw Error('Power owner closed');
+          guard?.();
           const result = await operation();
-          const confirmed = await this.verifyPower(role, value, retry, baseline ?? undefined);
+          const confirmed = await this.verifyPower(role, value, retry, baseline ?? undefined, guard);
+          guard?.();
           if (this.closed || this.closing) throw Error('Power owner closed');
           this.confirmedRoles.set(role, confirmed);
           if (value) {
@@ -419,6 +541,9 @@ export class PowerOwnerClient {
     if (this.closed || this.closing) return;
     this.closing = true;
     this.observers.clear();
+    this.powerHandlers.clear();
+    this.powerRecords.clear();
+    this.remoteRoles.clear();
     this.pendingOn.clear();
     clearInterval(this.timer);
     try { await this.send(Object.fromEntries([...this.states.keys()].map(role => [role, false])), true); }

@@ -4,10 +4,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
 from entertainment_stream import native_colors  # noqa: E402
-from hue_strip_proxy import PLAY_IDS, HueStripProxy  # noqa: E402
+from hue_strip_proxy import HueStripProxy  # noqa: E402
 from live_adapter import PilotController  # noqa: E402
 from test_hue_strip_proxy import FakeHue  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, command, targets  # noqa: E402
+from test_native_profile import PLAY_IDS  # noqa: E402
 
 
 class Scales:

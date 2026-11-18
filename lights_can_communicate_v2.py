@@ -20,6 +20,10 @@ CONFIG = Path(__file__).with_name(".lighting.json")
 MULTICAST = "239.255.255.250"
 GOVEE_ROUTES = {}
 VERIFIED_GOVEE = {}
+# Key -> (ip, proof time) for a pinned lamp whose identity and a fresh native
+# status were just proven, whether it is on or off. Only power commands use it:
+# a color command must never reach an off lamp, but an On must.
+IDENTIFIED_GOVEE = {}
 GOVEE_ROUTE_REVISIONS = {}
 GOVEE_ROUTE_LOCK = threading.Lock()
 NEXT_GOVEE_DISCOVERY = 0
@@ -156,10 +160,12 @@ def invalidate_govee_observations(discovered):
                 observed = None
             known = dict(GOVEE_ROUTES)
             known.update({key: binding[0] for key, binding in VERIFIED_GOVEE.items()})
+            known.update({key: binding[0] for key, binding in IDENTIFIED_GOVEE.items()})
             for key, address in known.items():
                 if (ip == address and observed != key) or (observed == key and ip != address):
                     GOVEE_ROUTE_REVISIONS[key] = GOVEE_ROUTE_REVISIONS.get(key, 0) + 1
                     VERIFIED_GOVEE.pop(key, None)
+                    IDENTIFIED_GOVEE.pop(key, None)
                     GOVEE_ROUTES.pop(key, None)
 
 
@@ -207,6 +213,7 @@ def verified_status(device, timeout=0.15, targets=None):
         with GOVEE_ROUTE_LOCK:
             if identity is not None:
                 VERIFIED_GOVEE.pop(key, None)
+                IDENTIFIED_GOVEE.pop(key, None)
                 GOVEE_ROUTES.pop(key, None)
             search = time.monotonic() >= NEXT_GOVEE_DISCOVERY
             if search:
@@ -220,6 +227,7 @@ def verified_status(device, timeout=0.15, targets=None):
             for found_key, found_ip in routes.items():
                 if GOVEE_ROUTES.get(found_key) != found_ip:
                     VERIFIED_GOVEE.pop(found_key, None)
+                    IDENTIFIED_GOVEE.pop(found_key, None)
                 GOVEE_ROUTES[found_key] = found_ip
         if key not in routes:
             return None
@@ -231,6 +239,7 @@ def verified_status(device, timeout=0.15, targets=None):
         if identity is None or resolve_govee_targets([device], [identity]).get(key) != ip:
             with GOVEE_ROUTE_LOCK:
                 VERIFIED_GOVEE.pop(key, None)
+                IDENTIFIED_GOVEE.pop(key, None)
             return None
     with GOVEE_ROUTE_LOCK:
         GOVEE_ROUTES[key] = ip
@@ -252,6 +261,24 @@ def send_to_target(device, command, data):
     key = device_key(device)
     with GOVEE_ROUTE_LOCK:
         binding = VERIFIED_GOVEE.get(key)
+        if binding is None or not 0 <= time.monotonic() - binding[1] <= 0.75:
+            return False
+        govee_send(binding[0], command, data)
+    return True
+
+
+def send_power_to_target(device, command, data):
+    """Send a power command to a pinned lamp proven on or off; others as colors.
+
+    A ``turn`` goes over the freshly identified route, so an Off lamp can be
+    switched on. Every other command keeps ``send_to_target``'s rule: only a lamp
+    proven on receives it.
+    """
+    if command != "turn":
+        return send_to_target(device, command, data)
+    key = device_key(device)
+    with GOVEE_ROUTE_LOCK:
+        binding = IDENTIFIED_GOVEE.get(key) or VERIFIED_GOVEE.get(key)
         if binding is None or not 0 <= time.monotonic() - binding[1] <= 0.75:
             return False
         govee_send(binding[0], command, data)
@@ -672,7 +699,8 @@ def main():
         print("Press the physical button on Hue Bridge now. Waiting for pairing...", flush=True)
         end = time.monotonic() + 90
         while time.monotonic() < end:
-            result = hue_request(config, "/api", {"devicetype": "smart-lighting#desktop"})
+            result = hue_request(
+                config, "/api", {"devicetype": "lights-can-communicate-v2#desktop"})
             if result and "success" in result[0]:
                 config["hue_key"] = result[0]["success"]["username"]
                 save_config(config)

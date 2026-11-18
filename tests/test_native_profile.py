@@ -7,7 +7,7 @@ import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
-from smart_lighting_core.native_profile import NativeHueProfile, NativeProfileError
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
 
 STRIP = "a1111111-1111-4111-8111-111111111111"
 LEFT = "b2222222-2222-4222-8222-222222222222"
@@ -18,6 +18,8 @@ CENTER_SERVICE = "f6666666-6666-4666-8666-666666666666"
 LEFT_SERVICE = "a7777777-7777-4777-8777-777777777777"
 RIGHT_SERVICE = "b8888888-8888-4888-8888-888888888888"
 STRIP_SERVICE = "c9999999-9999-4999-8999-999999999999"
+STRIP_ID = STRIP
+PLAY_IDS = {"hue_left": LEFT, "hue_center": CENTER, "hue_right": RIGHT}
 OTHER = "daaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 ZERO = "00000000-0000-0000-0000-000000000000"
 

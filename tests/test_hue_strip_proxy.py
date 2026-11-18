@@ -1,10 +1,15 @@
 import copy
+import http.client
+import json
 import sys
 import unittest
 from pathlib import Path
 
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-from hue_strip_proxy import PLAY_IDS, STRIP_ID, HueStripProxy, PinnedHueClient, hue_payload  # noqa: E402
+from hue_strip_proxy import HueStripProxy, PinnedHueClient, hue_payload  # noqa: E402
+from test_native_profile import PLAY_IDS, STRIP_ID, profile_data  # noqa: E402
 
 
 def state():
@@ -40,6 +45,8 @@ def command(sequence=1, **values):
 
 class FakeHue:
     def __init__(self):
+        self.profile = NativeHueProfile.from_dict(profile_data())
+        self.resource_id = STRIP_ID
         self.native = {
             "id": STRIP_ID,
             "mode": "normal",
@@ -109,12 +116,49 @@ class HueStripTests(unittest.TestCase):
             return {"data": [{"id": selected, "rid": selected}], "errors": []}
 
         config = {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}
-        client = PinnedHueClient(config, requester=request, resource_id=selected)
+        client = PinnedHueClient(config, requester=request, resource_id=selected,
+                                 profile=NativeHueProfile.from_dict(profile_data()))
         client.read()
         client.write({"color": {"xy": {"x": 0.2, "y": 0.3}}})
         self.assertEqual({item[1] for item in requests}, {"/clip/v2/resource/light/" + selected})
         with self.assertRaises(ValueError):
-            PinnedHueClient(config, resource_id="unselected-light")
+            PinnedHueClient(config, resource_id="unselected-light",
+                            profile=NativeHueProfile.from_dict(profile_data()))
+
+    def test_native_power_is_a_separate_confirmed_write_for_the_pinned_light(self):
+        requests, state = [], {"on": False}
+        selected = PLAY_IDS["hue_left"]
+
+        def request(method, path, body):
+            requests.append((method, path, body))
+            if method == "PUT" and "on" in body:
+                state["on"] = body["on"]["on"]
+            return {"data": [{"id": selected, "rid": selected, "on": dict(state)}],
+                    "errors": []}
+
+        client = PinnedHueClient({"bridge": "192.168.10.21", "hue_key": "test"},
+                                 requester=request, resource_id=selected,
+                                 profile=NativeHueProfile.from_dict(profile_data()))
+        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000,
+                              role="hue_left")
+        self.assertTrue(proxy.set_power(True, sleep=lambda _: None))
+        self.assertEqual(requests[0], ("PUT", "/clip/v2/resource/light/" + selected,
+                                       {"on": {"on": True}}))
+        self.assertTrue(proxy.snapshot()["native_on"])
+        self.assertTrue(proxy.restore)
+        # The color path still refuses power, and only booleans switch power.
+        with self.assertRaises(ValueError):
+            client.write({"on": {"on": False}})
+        with self.assertRaises(ValueError):
+            client.power("off")
+
+    def test_native_power_that_does_not_read_back_is_not_confirmed(self):
+        client = FakeHue()
+        client.power = lambda on: None
+        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000)
+        self.assertFalse(proxy.set_power(False, attempts=3, sleep=lambda _: None))
+        # Status still reports the light's actual power from the read-back.
+        self.assertTrue(proxy.snapshot()["native_on"])
 
     def test_play_proxy_accepts_only_its_configured_role(self):
         client = FakeHue()
@@ -279,13 +323,230 @@ class HueStripTests(unittest.TestCase):
             return {"data": [{"id": STRIP_ID, "rid": STRIP_ID}], "errors": []}
 
         client = PinnedHueClient(
-            {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}, requester=request
+            {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}, requester=request,
+            profile=NativeHueProfile.from_dict(profile_data()),
         )
         client.read()
         client.write(hue_payload(state(), 47))
         self.assertEqual({item[1] for item in requests}, {"/clip/v2/resource/light/" + STRIP_ID})
         with self.assertRaises(ValueError):
             client.write({"on": {"on": True}})
+
+
+class FakeNames:
+    def __init__(self, names):
+        self.value = names
+
+    def names(self):
+        return dict(self.value)
+
+    def scale(self, role, fallback):
+        return fallback
+
+
+class OwnerNameTests(unittest.TestCase):
+    def pinned(self, light_name="Hue Monitor"):
+        requests = []
+        light = {"id": STRIP_ID, "metadata": {"name": light_name}, "on": {"on": True}}
+
+        def request(method, path, body):
+            requests.append((method, path, body))
+            if method == "PUT" and "metadata" in body:
+                light["metadata"] = dict(body["metadata"])
+            return {"data": [dict(light, rid=STRIP_ID)], "errors": []}
+
+        client = PinnedHueClient(
+            {"bridge": "192.168.10.21", "hue_key": "test"}, requester=request,
+            profile=NativeHueProfile.from_dict(profile_data()))
+        return client, requests
+
+    def test_rename_sends_only_the_name_and_refuses_unusable_names(self):
+        client, requests = self.pinned()
+        client.rename("Desk strip")
+        self.assertEqual(requests, [("PUT", "/clip/v2/resource/light/" + STRIP_ID,
+                                     {"metadata": {"name": "Desk strip"}})])
+        for name in ("", "x" * 33, 5, None):
+            with self.assertRaises(ValueError):
+                client.rename(name)
+        client.rename("x" * 32)
+        # The color path still has no metadata or name access.
+        with self.assertRaises(ValueError):
+            client.write({"metadata": {"name": "Other"}})
+        self.assertEqual(len(requests), 2)
+
+    def test_the_name_is_written_once_per_layout_change(self):
+        client, requests = self.pinned()
+        store = FakeNames({})
+        proxy = HueStripProxy(client, layout_store=store, clock=lambda: 10)
+        writes = lambda: [r for r in requests if r[0] == "PUT"]  # noqa: E731
+        # No owner name: nothing is read or written, however often it runs.
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(requests, [])
+        store.value = {"strip": "Desk strip"}
+        self.assertTrue(proxy.sync_owner_name())
+        self.assertEqual([r[2] for r in writes()], [{"metadata": {"name": "Desk strip"}}])
+        count = len(requests)
+        for _ in range(3):
+            self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), count)
+        # Another role's name never reaches this light.
+        store.value = {"strip": "Desk strip", "hue_left": "Left"}
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), count)
+        store.value = {"strip": "Monitor bar"}
+        self.assertTrue(proxy.sync_owner_name())
+        self.assertEqual(writes()[-1][2], {"metadata": {"name": "Monitor bar"}})
+        # Removing the owner name leaves the light's name alone.
+        store.value = {}
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(writes()), 2)
+
+    def test_a_light_that_already_has_the_name_is_not_written(self):
+        client, requests = self.pinned(light_name="Desk strip")
+        proxy = HueStripProxy(client, layout_store=FakeNames({"strip": "Desk strip"}),
+                              clock=lambda: 10)
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual([r[0] for r in requests], ["GET"])
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), 1)
+
+    def test_a_name_set_in_the_hue_app_stays_until_the_layout_name_changes(self):
+        client, requests = self.pinned()
+        store = FakeNames({"strip": "Desk strip"})
+        proxy = HueStripProxy(client, layout_store=store, clock=lambda: 10)
+        proxy.sync_owner_name()
+        client.rename("Chosen in Hue app")
+        count = len(requests)
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), count)
+
+    def test_a_failed_name_write_is_retried_only_after_the_pause(self):
+        clock = [10.0]
+        calls = []
+
+        class Broken(FakeHue):
+            def read(self):
+                calls.append("read")
+                raise OSError("bridge unreachable")
+
+        proxy = HueStripProxy(Broken(), layout_store=FakeNames({"strip": "Desk strip"}),
+                              clock=lambda: clock[0])
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(calls, ["read"])
+        clock[0] += 31
+        proxy.sync_owner_name()
+        self.assertEqual(calls, ["read", "read"])
+
+
+class FakeResponse:
+    def __init__(self, status, body, will_close=False):
+        self.status, self.body, self.will_close = status, body, will_close
+
+    def read(self):
+        return json.dumps(self.body).encode()
+
+
+class FakeConnection:
+    """One bridge connection; ``failures`` raise on the next requests in turn."""
+
+    def __init__(self, log, failures=(), responses=()):
+        self.log, self.failures, self.responses = log, list(failures), list(responses)
+        self.closed = False
+        self.pending = None
+
+    def request(self, method, path, body=None, headers=None):
+        if self.failures:
+            raise self.failures.pop(0)
+        self.log.append((self, method, path, None if body is None else json.loads(body),
+                         headers["hue-application-key"]))
+        self.pending = self.responses.pop(0) if self.responses else FakeResponse(
+            200, {"data": [{"id": STRIP_ID, "rid": STRIP_ID}], "errors": []})
+
+    def getresponse(self):
+        return self.pending
+
+    def close(self):
+        self.closed = True
+
+
+class KeptAliveClientTests(unittest.TestCase):
+    def client(self, *connections):
+        made = []
+
+        def factory():
+            made.append(connections[len(made)])
+            return made[-1]
+
+        client = PinnedHueClient(
+            {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID},
+            profile=NativeHueProfile.from_dict(profile_data()), connection_factory=factory)
+        return client, made
+
+    def test_requests_reuse_one_connection(self):
+        log = []
+        client, made = self.client(FakeConnection(log))
+        client.read()
+        client.power(True)
+        client.read()
+        self.assertEqual(len(made), 1)
+        self.assertEqual([entry[1:4] for entry in log], [
+            ("GET", "/clip/v2/resource/light/" + STRIP_ID, None),
+            ("PUT", "/clip/v2/resource/light/" + STRIP_ID, {"on": {"on": True}}),
+            ("GET", "/clip/v2/resource/light/" + STRIP_ID, None),
+        ])
+        self.assertEqual({entry[4] for entry in log}, {"test"})
+
+    def test_a_connection_the_bridge_closed_while_idle_is_replaced_once(self):
+        log = []
+        stale = FakeConnection(log, failures=[http.client.RemoteDisconnected("idle")])
+        fresh = FakeConnection(log)
+        client, made = self.client(fresh)
+        client.connection = stale
+        client.power(False)
+        self.assertTrue(stale.closed)
+        self.assertEqual(made, [fresh])
+        self.assertEqual([entry[0] for entry in log], [fresh])
+
+    def test_a_new_connection_that_fails_is_not_retried(self):
+        failing = FakeConnection([], failures=[ConnectionResetError("reset")])
+        client, made = self.client(failing)
+        with self.assertRaises(ConnectionResetError):
+            client.read()
+        self.assertTrue(failing.closed)
+        self.assertIsNone(client.connection)
+        self.assertEqual(len(made), 1)
+
+    def test_a_timeout_drops_the_connection_without_sending_again(self):
+        log = []
+        slow = FakeConnection(log, failures=[TimeoutError("timed out")])
+        client, made = self.client(FakeConnection(log))
+        client.connection = slow
+        with self.assertRaises(TimeoutError):
+            client.power(True)
+        self.assertTrue(slow.closed)
+        self.assertIsNone(client.connection)
+        self.assertEqual((log, made), ([], []))
+
+    def test_http_errors_and_bridge_close_requests_are_honoured(self):
+        log = []
+        connection = FakeConnection(log, responses=[
+            FakeResponse(403, {"errors": [{"description": "unauthorized"}]}),
+            FakeResponse(200, {"data": [{"id": STRIP_ID}], "errors": []}, will_close=True),
+        ])
+        client, made = self.client(connection)
+        with self.assertRaises(OSError):
+            client.read()
+        self.assertIs(client.connection, connection)
+        client.read()
+        self.assertTrue(connection.closed)
+        self.assertIsNone(client.connection)
+
+    def test_the_pinned_path_is_still_enforced(self):
+        client, made = self.client(FakeConnection([]))
+        with self.assertRaises(ValueError):
+            client.request("GET", "/clip/v2/resource/light/other", None)
+        self.assertEqual(made, [])
 
 
 if __name__ == "__main__":
