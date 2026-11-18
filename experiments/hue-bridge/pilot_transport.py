@@ -75,6 +75,7 @@ class PilotTransport:
                 )
                 if not valid:
                     lan.VERIFIED_GOVEE.pop(key, None)
+                    lan.IDENTIFIED_GOVEE.pop(key, None)
                     hinted_native, hinted_seen = self.native.get(device["ip"], (None, None))
                     updates[key] = (
                         {
@@ -106,6 +107,7 @@ class PilotTransport:
                 identity_seen = self.observed[(key, ip)]
                 proof_seen = min(identity_seen, seen)
                 lan.GOVEE_ROUTES[key] = ip
+                lan.IDENTIFIED_GOVEE[key] = (ip, proof_seen)
                 if native["onOff"] == 1:
                     lan.VERIFIED_GOVEE[key] = (ip, proof_seen)
                 else:
@@ -180,6 +182,7 @@ class PilotTransport:
                 with lan.GOVEE_ROUTE_LOCK:
                     for key in self.ids:
                         lan.VERIFIED_GOVEE.pop(key, None)
+                        lan.IDENTIFIED_GOVEE.pop(key, None)
                 self.publisher(
                     {
                         key: ({"onOff": 0, "identity_verified": False}, time.monotonic())
