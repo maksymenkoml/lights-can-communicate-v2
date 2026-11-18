@@ -243,6 +243,47 @@ membership. A missing, partial or invalid profile blocks Hue startup.
 Keep the previous artifact and configuration for rollback. Do not start a second
 writer. This migration does not deploy the new artifact or change a running service.
 
+## Installation, upgrades and rollback
+
+Each release `manifest.json` declares a `compatibility` contract:
+- configuration versions it reads;
+- durable state schemas it writes;
+- minimum Python and the pinned gateway image;
+- the `/homekit` API version;
+- the bundled Homebridge plugin tarball (`plugin/*.tgz`). The tarball is built
+  deterministically in Python and needs no npm or network.
+
+The plugin refuses a core whose `/homekit` API version differs from its
+`CORE_API`. An installation directory holds `config/core.json`, `state/`,
+`releases/<version>/`, a `current` symlink, `backups/` and the `install.json`
+journal. Run every command from a release archive:
+
+```sh
+python3 -I -B RELEASE/smart-lighting.pyz stage --release RELEASE --base BASE
+python3 -I -B BASE/current/smart-lighting.pyz activate VERSION --base BASE
+python3 -I -B BASE/current/smart-lighting.pyz rollback --base BASE
+python3 -I -B BASE/current/smart-lighting.pyz status --base BASE
+```
+
+`stage` does the following and never changes the active release:
+1. Verifies every manifest hash.
+2. Checks the configuration version and the Python version.
+3. Runs the new archive's `adapter --check`.
+4. Renders supervisor files whose paths go through `BASE/current`.
+
+`activate` and `rollback` refuse while the adapter, Setup Studio or gateway
+still answers locally. They snapshot durable state (without logs, request
+logs or stream journals) and swap `current` atomically. They print the start
+commands but never start, stop or restart services.
+
+`rollback` restores the upgrade snapshot only when the two releases declare
+different state schemas. Even then, the state it replaces is kept in the
+rollback snapshot first. Each step is journaled and repeatable, so after an
+interruption the next command finishes the transaction. The five newest
+snapshots and the current upgrade point are kept. Activation and rollback of
+the live installation still need the owner's approval; these commands never
+publish packages.
+
 ## Stream recovery diagnostics
 
 `0.1.0.dev5` reuses the authenticated bridge-to-adapter HTTP connection for

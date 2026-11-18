@@ -105,9 +105,15 @@ def gateway_compose(config, release):
     }
 
 
-def render(config, config_path, release, output, python):
-    """Write supervisor files into a new directory; never overwrite."""
+def render(config, config_path, release, output, python, link=None):
+    """Write supervisor files into a new directory; never overwrite.
+
+    ``link`` is the stable path supervisors use instead of the verified release
+    directory, such as an installation's ``current`` symlink.
+    """
     release = _release(release)
+    if link is not None:
+        release = Path(link)
     files = {
         f"{ADAPTER_LABEL}.plist": plistlib.dumps(
             agent(ADAPTER_LABEL, "adapter", config, Path(config_path).resolve(), release, python)),
