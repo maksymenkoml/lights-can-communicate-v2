@@ -165,18 +165,30 @@ class PowerOwner:
             return side in self.holds
 
     def sync_release(self, side):
-        """Restore On after Sync unless the owner changed the lamp; True when restored."""
+        """Restore On after Sync unless the owner changed the lamp.
+
+        Returns "restored", "superseded" or "failed"; a failed restore keeps the
+        hold, so the session can retry it.
+        """
         with self.lock:
             if side not in self.holds:
-                return False
-            del self.holds[side]
+                return "superseded"
+            held = self.holds.pop(side)
             self.revisions[side] += 1
             # A connected owner that now wants the lamp off keeps it off.
             owner_off = self.clock() < self.expires[side] and self.states[side] is False
         if owner_off or self.power_sender is None or self.observe is None:
-            return False
-        return switch_power(lambda on: self._send_turn(side, on), self.observe, side, True,
-                            self.clock, self.sleep)
+            return "superseded"
+        restored = False
+        try:
+            restored = switch_power(lambda on: self._send_turn(side, on), self.observe, side,
+                                    True, self.clock, self.sleep)
+        finally:
+            if not restored:
+                with self.lock:
+                    self.holds[side] = held
+                    self.revisions[side] += 1
+        return "restored" if restored else "failed"
 
     def owner_power(self, side):
         """An explicit owner power request for this lamp ends its Sync hold."""

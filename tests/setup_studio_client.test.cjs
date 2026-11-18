@@ -682,6 +682,12 @@ test('a desk lamp name is saved only once the owner renames it, and survives a r
  const reloaded=await harness({layout:app.posts.at(-1).body});
  assert.equal(reloaded.run('lamps.find(l=>l.id==="govee-left").name'),'Left tower');
  assert.equal(reloaded.run('pack().devices.find(r=>r.id==="govee-left").name'),'Left tower');
+ // Govee names keep up to 35 characters; Hue names stop at the bridge's 32.
+ const long=saved();long.devices[0].name='G'.repeat(35);long.devices[3].name='H'.repeat(32);
+ const limits=await harness({layout:long});
+ assert.equal(limits.run('pack().devices.find(r=>r.id==="govee-left").name'),'G'.repeat(35));
+ limits.run('renameLamp("play-left","'+'P'.repeat(40)+'")');
+ assert.equal(limits.run('lamps.find(l=>l.id==="play-left").name'),'P'.repeat(32));
 });
 
 test('a stale save merges the second configuration field by field',async()=>{

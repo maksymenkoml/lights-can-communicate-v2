@@ -108,10 +108,13 @@ class SyncOffSession:
             raise
 
     def _persist(self):
+        """Save the records; False when the recovery file could not be written."""
         try:
             self._save()
         except OSError:
             self.last_result = "state file unavailable"
+            return False
+        return True
 
     # Session --------------------------------------------------------------
 
@@ -126,9 +129,12 @@ class SyncOffSession:
             if role in GOVEE_ROLES:
                 if self.govee is None:
                     continue
-                # Persist first: a crash during the switch must still restore.
+                # Persist first: a crash during the switch must still restore, so
+                # a lamp is left untouched when its record cannot be saved.
                 self.records[role] = True
-                self._persist()
+                if not self._persist():
+                    del self.records[role]
+                    continue
                 try:
                     held = self.govee.sync_hold(role)
                 except (OSError, ValueError):
@@ -142,7 +148,9 @@ class SyncOffSession:
                     # Already off, or unknown: an unknown lamp is never switched.
                     continue
                 self.records[role] = True
-                self._persist()
+                if not self._persist():
+                    del self.records[role]
+                    continue
                 try:
                     if proxy.set_power(False):
                         self.confirmed_off.add(role)
@@ -162,9 +170,11 @@ class SyncOffSession:
                         and self.observe().get(role, {}).get("on") is None):
                     continue  # After a restart: wait for the first native reading.
                 try:
-                    self.govee.sync_release(role)
+                    result = self.govee.sync_release(role)
                 except (OSError, ValueError):
                     continue
+                if result == "failed":
+                    continue  # Still off: keep the record and retry.
                 del self.records[role]
             else:
                 proxy = self.native.get(role)

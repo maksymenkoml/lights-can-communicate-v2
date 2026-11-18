@@ -323,16 +323,28 @@ class HomeKitPower:
             return side in self.holds
 
     def sync_release(self, side):
-        """Restore On after Sync unless the owner changed the lamp; True when restored."""
+        """Restore On after Sync unless the owner changed the lamp.
+
+        Returns "restored", "superseded" (no hold left, or the owner wants Off) or
+        "failed"; a failed restore keeps the hold, so the session can retry it.
+        """
         with self.transitions[side]:
             with self.lock:
                 if side not in self.holds:
-                    return False
+                    return "superseded"
                 self.holds.discard(side)
                 self.revisions[side] += 1
                 if self.intent[side]["on"] is False:
-                    return False
-            return self._power(side, True)
+                    return "superseded"
+            restored = False
+            try:
+                restored = self._power(side, True)
+            finally:
+                if not restored:
+                    with self.lock:
+                        self.holds.add(side)
+                        self.revisions[side] += 1
+            return "restored" if restored else "failed"
 
     def owner_power(self, side):
         """An explicit owner power request for this lamp ends its Sync hold."""

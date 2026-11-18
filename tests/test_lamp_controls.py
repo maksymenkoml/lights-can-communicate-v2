@@ -308,6 +308,39 @@ class SyncOffSessionTests(SessionFixture):
         self.assertFalse(power.sync_held("left"))
         self.assertEqual(self.hue.power_calls, [False, True])
 
+    def test_a_lamp_is_left_alone_when_its_record_cannot_be_saved(self):
+        power = self.homekit()
+        self.state = self.folder / "missing" / STATE_FILE
+        session = self.session(power)
+        self.lamps.sent.clear()
+        self.active = True
+        session.step()
+        self.assertEqual(self.turns("left"), [], "no Off without a recovery record")
+        self.assertEqual(self.hue.power_calls, [])
+        self.assertTrue(power.allowed("left"))
+        self.assertEqual(session.snapshot()["roles"], [])
+
+    def test_failed_govee_restore_stays_held_recorded_and_is_retried(self):
+        for gate in (self.homekit(), self.owner()):
+            with self.subTest(gate=type(gate).__name__):
+                self.lamps.native["left"] = True
+                session = self.session(gate)
+                self.active = True
+                session.step()
+                self.assertFalse(self.lamps.native["left"])
+                self.lamps.ignore.add("left")
+                self.active = False
+                session.step()
+                self.assertIn("left", json.loads(self.state.read_text())["roles"])
+                self.assertFalse(gate.allowed("left"), "the hold stays until the lamp is back")
+                self.lamps.ignore.discard("left")
+                self.lamps.now += 2
+                session.step()
+                self.assertTrue(self.lamps.native["left"])
+                self.assertNotIn("left", gate.holds, "a confirmed restore ends the hold")
+                self.assertNotIn("left", session.snapshot()["roles"])
+                session.close()
+
     def test_failed_native_restore_is_retried_and_kept_on_disk(self):
         session = self.session(None)
         self.active = True
@@ -456,6 +489,31 @@ class IdentifyTests(IdentifyFixture):
         self.sent.clear()
         self.controller.render()
         self.assertTrue([entry for entry in self.sent if entry[1] == "left"])
+
+    def test_a_blink_waits_for_an_in_flight_controller_write(self):
+        entered, release, order = threading.Event(), threading.Event(), []
+
+        def slow(device, name, data):
+            entered.set()
+            release.wait(2)
+            order.append("scene")
+            return True
+
+        send = self.identify.wrap(slow)
+        writer = threading.Thread(target=send, args=(targets()[0], "brightness", {"value": 50}))
+        writer.start()
+        self.assertTrue(entered.wait(2))
+        self.identify.sender = lambda device, name, data: order.append("blink") or True
+        blinker = threading.Thread(target=self.identify, args=("left",))
+        blinker.start()
+        blinker.join(0.2)
+        self.assertTrue(blinker.is_alive(), "the blink waits for the write in flight")
+        self.assertEqual(order, [])
+        release.set()
+        writer.join(2)
+        blinker.join(2)
+        self.assertEqual(order[0], "scene")
+        self.assertEqual(set(order[1:]), {"blink"})
 
     def test_dim_lamps_dip_below_their_brightness(self):
         self.controller.update_statuses({LEFT: ({"onOff": 1, "brightness": 6}, self.now)})

@@ -42,6 +42,8 @@ const SHAPES=['floor','strip','bar'];
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
 const virtualDevice=id=>/^virtual-[a-z0-9]{1,32}$/.test(id||'');
 const isRole=id=>Object.hasOwn(ROLES,id);
+// Hue lights take names of up to 32 characters; Govee and layout-only names up to 35.
+const nameLimit=id=>realDevice(id)?80:isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
@@ -72,7 +74,7 @@ function fromLayout(data){
   const height=finite(row.positionCm.height,-400,600,0);
   lamp.h=lamp.form==='floor'?height-FLOOR_ANCHOR:height;
   lamp.scale=Math.round(finite(row.scale,0,100,lamp.scale));
-  if(isRole(row.id)&&typeof row.name==='string'&&row.name.trim()){lamp.name=row.name.trim().slice(0,32);lamp.named=true}
+  if(isRole(row.id)&&typeof row.name==='string'&&row.name.trim()){lamp.name=row.name.trim().slice(0,nameLimit(row.id));lamp.named=true}
   lamp.sceneScale=typeof row.sceneScale==='number'?Math.round(finite(row.sceneScale,0,100,lamp.scale)):null;
   lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=SYNC_ROLES.includes(row.syncRole)&&(row.syncRole!=='off'||isRole(row.id))?row.syncRole:'sync';
   clampFixture(lamp,environment);return lamp;
@@ -445,9 +447,7 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
 // while Sync runs; otherwise a fixed radial demo picture that the lamps preview.
 function liveScreenStops(){
  const colors=pilotState()==='active'?emittedColors(strip()):null;
- if(!colors||colors.length<9)return null;
- const avg=(...cs)=>rgbHex([0,1,2].map(i=>cs.reduce((a,c)=>a+c[i],0)/cs.length));
- return [avg(colors[0],colors[1],colors[2]),rgbHex(colors[3]),rgbHex(colors[4]),rgbHex(colors[5]),avg(colors[6],colors[7],colors[8])];
+ return colors&&colors.length>=9?stripStops(colors).map(rgbHex):null;
 }
 const syncPreview=()=>mode==='sync'&&pilotState()!=='active';
 const screenDemo=()=>mode==='sync'&&!liveScreenStops();
@@ -804,7 +804,7 @@ function closeObjectMenu(){if(!menuOpen)return;menuOpen=false;$('#object-menu').
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
 function cardMenu(l){
  const c=corr(l),b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
- return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="32"'+(editable?'':' readonly')+'>'
+ return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')
   +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div></div>'
@@ -844,7 +844,7 @@ function refreshCard(){requestAnimationFrame(()=>{closeObjectMenu();const b=$('#
 // Layout-only drawings and the six desk lamps carry a stored name (a desk lamp's name also
 // renames it in the Hue app and HomeKit); discovered lamps keep their canonical name.
 function renameLamp(id,value){
- const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,32);if(!l||!(virtualDevice(l.id)||isRole(l.id))||!v||v===l.name)return;
+ const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,l?nameLimit(l.id):0);if(!l||!(virtualDevice(l.id)||isRole(l.id))||!v||v===l.name)return;
  const before=snapshot();l.name=v;if(isRole(l.id))l.named=true;recordChange(before);renderScene();renderList();renderHistory();
  if(menuOpen){const chip=$('#stage').querySelector('.obj-chip');if(chip)placeMenu($('#object-menu'),chip.getBoundingClientRect())}
 }

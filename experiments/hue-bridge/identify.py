@@ -14,6 +14,7 @@ Both refuse while Sync drives the role (Sync active and the role is in the
 composition).
 """
 
+import contextlib
 import math
 import threading
 import time
@@ -53,6 +54,7 @@ class Identify:
         self.sender = None
         self.lock = threading.Lock()
         self.busy = set()
+        self.fences = {side: threading.Lock() for side in controller.by_side}
 
     def wrap(self, sender):
         """Reject controller writes to a side while it blinks."""
@@ -63,10 +65,17 @@ class Identify:
             self.sender = sender
 
         def send(device, command, data):
-            with self.lock:
-                if roles.get(lan.device_key(device)) in self.busy:
-                    return False
-            return sender(device, command, data)
+            side = roles.get(lan.device_key(device))
+            fence = self.fences.get(side)
+            if fence is None:
+                return sender(device, command, data)
+            # The fence is held across the busy check and the send, and a blink
+            # takes it before it starts, so no controller write lands inside it.
+            with fence:
+                with self.lock:
+                    if side in self.busy:
+                        return False
+                return sender(device, command, data)
 
         return send
 
@@ -81,10 +90,12 @@ class Identify:
             raise ValueError("Unknown identify role")
         if self.sync_owns(role):
             raise IdentifyRefused("sync active")
-        with self.lock:
-            if role in self.busy:
-                raise IdentifyRefused("busy")
-            self.busy.add(role)
+        # Taking the side's fence waits for an in-flight controller write to finish.
+        with self.fences.get(role) or contextlib.nullcontext():
+            with self.lock:
+                if role in self.busy:
+                    raise IdentifyRefused("busy")
+                self.busy.add(role)
         try:
             if role in GOVEE_ROLES:
                 return self._govee(role)
