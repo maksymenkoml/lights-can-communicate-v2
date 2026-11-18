@@ -22,6 +22,7 @@ PILOT_MODULES = (
     "bridge_output",
     "stream_http",
     "stream_diagnostics",
+    "sync_health",
     "sync_projection",
     "sync_zone",
     "native_location_cache",
