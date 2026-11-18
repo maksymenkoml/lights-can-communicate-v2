@@ -71,7 +71,8 @@ Unsupported, Ambiguous).
 
 ## Live colours and Sync status
 
-The page polls `/api/pilot` 200 ms after each answer, with a 1000 ms request
+The page polls `/api/pilot` 50 ms after each answer (about 20 updates a second,
+close to the Sync frame rate), with a 1000 ms request
 deadline and an independent 1500 ms freshness guard; hidden pages stop polling.
 Each enrolled lamp is painted from its emitted zone colours (Govee seven zones
 bottom to top, the monitor strip nine, Play one). A lamp is drawn unlit when it

@@ -21,7 +21,8 @@ function readJson(key){try{return JSON.parse(store.get(key))}catch{return null}}
 // ---------------------------------------------------------------- model --
 const KEY='light-studio-grid-v3',VIEW_KEY='light-studio-view-v1',DARK_KEY='light-studio-dark-scene-v1';
 const SAVE_DELAY_MS=300,RETRY_MS=3000,DISCOVERY_POLL_MS=3000;
-const PILOT_POLL_MS=200,PILOT_DEADLINE_MS=1000,PILOT_FRESH_MS=1500;
+// About 20 updates a second: Sync frames arrive at 15-25 Hz and a loopback answer takes a few ms.
+const PILOT_POLL_MS=50,PILOT_DEADLINE_MS=1000,PILOT_FRESH_MS=1500;
 const STEP=5,MAX_ROWS=12,DESK_CENTER=100,FLOOR_ANCHOR=60;
 const MONITOR='hue-monitor';
 // Adapter roles of the six enrolled lamps (desk_layout.ROLES).

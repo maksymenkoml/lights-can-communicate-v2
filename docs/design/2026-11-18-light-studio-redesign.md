@@ -77,7 +77,7 @@ required (owner decision, 2026-11-17). Existing files are migrated on load.
   is the default and is not stored). Version 3 files load as version 4.
   `sync_projection` treats `syncRole: "own"` like an excluded row.
 - Keep the server contracts: loopback/origin gate, validated writes, If-Match
-  revisions, discovery bindings, pilot projection, sleep hold, 200/1000/1500 ms
+  revisions, discovery bindings, pilot projection, sleep hold, 50/1000/1500 ms
   status cadence, hidden-page suspension, local draft and field-wise merge.
 - Rewrite `tests/setup_studio_client.test.cjs` against the new UI; extend the
   layout and projection tests for `syncRole`; update the README.

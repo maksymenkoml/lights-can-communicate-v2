@@ -431,18 +431,18 @@ test('Own light is shown in Sync view and device rows cannot change their Sync r
  await app.advance(1000);assert.equal(app.posts.length,0);
 });
 
-test('pilot polling: 200 ms after each answer, 1000 ms deadline, 1500 ms freshness, paused while hidden',async()=>{
+test('pilot polling: 50 ms after each answer, 1000 ms deadline, 1500 ms freshness, paused while hidden',async()=>{
  let hang=false;
  const app=await harness({pilot:()=>hang?new Promise(()=>{}):pilotOk()});
  assert.deepEqual(app.requests.pilot,[0]);
- await app.advance(199);assert.equal(app.requests.pilot.length,1);
- await app.advance(1);assert.deepEqual(app.requests.pilot,[0,200]);
- await app.advance(400);assert.deepEqual(app.requests.pilot,[0,200,400,600]);
- hang=true;await app.advance(200);assert.equal(app.requests.pilot.at(-1),800);
+ await app.advance(49);assert.equal(app.requests.pilot.length,1);
+ await app.advance(1);assert.deepEqual(app.requests.pilot,[0,50]);
+ await app.advance(100);assert.deepEqual(app.requests.pilot,[0,50,100,150]);
+ hang=true;await app.advance(50);assert.equal(app.requests.pilot.at(-1),200);
  assert.equal(app.$('#sync-status span').textContent,'Syncing');
  await app.advance(999);assert.equal(app.requests.pilot.length,5);
  await app.advance(1);assert.equal(app.$('#sync-status span').textContent,'Sync status unknown');
- await app.advance(200);assert.equal(app.requests.pilot.at(-1),2000);
+ await app.advance(50);assert.equal(app.requests.pilot.at(-1),1250);
  await app.visible(false);const count=app.requests.pilot.length;
  await app.advance(5000);assert.equal(app.requests.pilot.length,count);
  hang=false;await app.visible(true);assert.equal(app.requests.pilot.length,count+1);
@@ -454,7 +454,7 @@ test('a fresh answer expires after 1500 ms even when the next poll is delayed',a
  const app=await harness();
  assert.equal(app.$('#sync-status span').textContent,'Syncing');
  // A throttled background timer: the next poll does not run, the freshness guard still does.
- for(const [id,timer] of app.timers)if(timer.delay===200)app.timers.delete(id);
+ for(const [id,timer] of app.timers)if(timer.delay===50)app.timers.delete(id);
  await app.advance(1499);assert.equal(app.$('#sync-status span').textContent,'Syncing');
  await app.advance(1);assert.equal(app.$('#sync-status span').textContent,'Sync status unknown');
  assert.equal(app.requests.pilot.length,1);
