@@ -129,9 +129,10 @@ const NEUTRAL_BEAM='#b5c7e6',NEUTRAL_RAY='#8e9cab';
 function light(c){const m=Math.max(c[0],c[1],c[2]);return m>0?{rgb:c.map(v=>v*255/m),level:Math.sqrt(m/255)}:{rgb:[0,0,0],level:0}}
 const opacityText=v=>String(+v.toFixed(3));
 function lampLevel(colors){return colors?Math.max(0,...colors.map(c=>light(c).level)):0}
+// Average the emitted colours first, so a nearly-off zone barely shifts the hue, then take the hue.
 function beamColor(colors){
- const lit=(colors||[]).filter(c=>c.some(v=>v>0)).map(c=>light(c).rgb);
- return lit.length?rgbHex([0,1,2].map(i=>lit.reduce((a,c)=>a+c[i],0)/lit.length)):NEUTRAL_BEAM;
+ const lit=(colors||[]).filter(c=>c.some(v=>v>0));
+ return lit.length?rgbHex(light([0,1,2].map(i=>lit.reduce((a,c)=>a+c[i],0)/lit.length)).rgb):NEUTRAL_BEAM;
 }
 // Each lens zone keeps its hue; its opacity is its brightness relative to the lamp's brightest zone.
 function zoneStop(c,level){const z=light(c);return {color:rgbHex(z.rgb),opacity:level>0?opacityText(clamp(z.level/level)):'0'}}

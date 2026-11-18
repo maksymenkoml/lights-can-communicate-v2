@@ -539,6 +539,11 @@ test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  assert.equal(app.stage.querySelectorAll('#sync-links .ray').length,rays.length,'the monitor shows every lit lamp');
 });
 
+test('a lamp wash takes its hue from the emitted colours weighted by brightness',async()=>{
+ const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[255,0,0],[0,0,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]])}})});
+ assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0001','a nearly-off blue zone does not turn the red lamp purple');
+});
+
 test('dim zones glow faintly in their hue and black zones emit no light',async()=>{
  const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[0,0,0],[0,0,0],[0,0,0],[64,32,0],[255,128,0],[0,0,0],[0,0,0]]),'play-left':lit([[0,0,64]])}})});
  const floor=app.lamp('govee-left'),stops=[...floor.querySelectorAll('stop')];
