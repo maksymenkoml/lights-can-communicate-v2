@@ -44,6 +44,8 @@ const virtualDevice=id=>/^virtual-[a-z0-9]{1,32}$/.test(id||'');
 const isRole=id=>Object.hasOwn(ROLES,id);
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
+// During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
+const SYNC_ROLES=['sync','own','off'];
 function seedLamp(s){return {...clone(s),form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
 function defaults(){
  const environment={width:160,height:85,inches:32,zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
@@ -71,7 +73,7 @@ function fromLayout(data){
   lamp.h=lamp.form==='floor'?height-FLOOR_ANCHOR:height;
   lamp.scale=Math.round(finite(row.scale,0,100,lamp.scale));
   lamp.sceneScale=typeof row.sceneScale==='number'?Math.round(finite(row.sceneScale,0,100,lamp.scale)):null;
-  lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=row.syncRole==='own'?'own':'sync';
+  lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=SYNC_ROLES.includes(row.syncRole)&&(row.syncRole!=='off'||isRole(row.id))?row.syncRole:'sync';
   clampFixture(lamp,environment);return lamp;
  };
  const lamps=SEED.map(s=>place(seedLamp(s),rows.get(s.id)));
@@ -91,7 +93,7 @@ function pack(m={room,environment,lamps}){
  return {version:5,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   devices:m.lamps.map(l=>({id:l.id,scale:l.scale,...(l.sceneScale!=null?{sceneScale:l.sceneScale}:{}),positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
-   ...(l.enabled===false?{enabled:false}:{}),...(l.syncRole==='own'?{syncRole:'own'}:{}),
+   ...(l.enabled===false?{enabled:false}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
 
@@ -100,7 +102,7 @@ let room,environment,lamps;
 let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],future=[],drag=null,toastTimer;
 const strip=()=>lamps.find(l=>l.id===MONITOR)||{x:0,h:110};
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
-const syncRole=l=>l.syncRole==='own'?'own':'sync';
+const syncRole=l=>SYNC_ROLES.includes(l.syncRole)?l.syncRole:'sync';
 function movableFixture(){return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false)}
 function selectionFocus(){return selected==='monitor'?'[data-select="monitor"]':'[data-lamp="'+selected+'"]'}
 function snapshot(){return JSON.stringify({lamps,environment})}
@@ -318,6 +320,7 @@ function chipStatus(l){
  const b=lampBlocker(l);if(b)return blockerText(b);
  if(mode!=='sync')return '';
  if(syncRole(l)==='own')return 'own light';
+ if(syncRole(l)==='off')return 'off in Sync';
  const g=globalHealth();if(g.level!=='ok')return g.short;
  return syncSummary(l).active?'':'outside Sync';
 }
@@ -803,8 +806,8 @@ function cardMenu(l){
  return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="32"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')
-  +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']],syncRole(l),l.unbound)+'</div></div>'
-  +'<div class="card-actions"><button data-menu="blink" disabled title="'+(l.unbound?'Not connected':'Blink is not available yet')+'">'+iconSvg('blink')+'Blink</button>'
+  +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div></div>'
+  +'<div class="card-actions"><button data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'Blink</button>'
   +'<button data-menu="reset" title="Reset correction to 100%"'+(c===100?' disabled':'')+'>'+iconSvg('reset')+(c===100?'Correction 100%':c+'% → 100%')+'</button></div>'
   +'<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';
 }
@@ -847,14 +850,27 @@ function resetCorrection(){
  const l=lamps.find(l=>l.id===selected);if(!l||corr(l)===100)return;
  const before=snapshot();setCorr(l,100);recordChange(before);renderScene();renderHistory();tell('Correction reset to 100%');
 }
+// Blink asks the adapter to flash the real lamp once; the drawing blinks too, so the owner sees which lamp was asked.
+const BLINK_REFUSED={'lamp off':'The lamp is off','writer closed':'The lamp is still turning on','sync active':'The lamp is syncing','busy':'The lamp is already blinking','paused':'Light output is paused','brightness unknown':'The lamp has not reported its brightness yet'};
+async function blinkLamp(l){
+ const node=$('#stage').querySelector('[data-lamp="'+l.id+'"]');
+ if(node){node.classList.remove('blinking');void node.getBoundingClientRect?.();node.classList.add('blinking');setTimeout(()=>node.classList.remove('blinking'),1000)}
+ try{
+  const response=await fetch('/api/identify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lamp:l.id})});
+  const body=await response.json().catch(()=>({}));
+  if(response.ok)tell('Blinking '+l.name);
+  else tell(response.status===409?BLINK_REFUSED[body.reason]||'The lamp cannot blink now':'Blink failed: the adapter is not responding');
+ }catch{tell('Blink failed: the adapter is not responding')}
+}
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
- if(id.startsWith('role-')){const v=id.slice(5);if(['sync','own'].includes(v)&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
+ if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
  if(id==='reset'){closeObjectMenu();resetCorrection();return true}
+ if(id==='blink'){if(!l.unbound)blinkLamp(l);return true}
  return false;
 }
 
@@ -892,6 +908,7 @@ function lampRowStatus(l){
  if(l.unbound)return '<span class="lp-status">Not connected</span>';
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
+ if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
  if(mode==='sync'&&!syncSummary(l).active)return '<span class="lp-status">Outside Sync</span>';
  return corr(l)!==100?'<span class="lp-status">'+corr(l)+'%</span>':'';
 }
@@ -1029,7 +1046,7 @@ function mergeLayouts(base,local,remote){
   if(!target){if(!equal(previous,current))result.devices.push(clone(current));continue;}
   for(const key of ['scale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
   field(target,'enabled',previous.enabled===false?false:undefined,current.enabled===false?false:undefined);
-  field(target,'syncRole',previous.syncRole==='own'?'own':undefined,current.syncRole==='own'?'own':undefined);
+  field(target,'syncRole',previous.syncRole!=='sync'?previous.syncRole:undefined,current.syncRole!=='sync'?current.syncRole:undefined);
   for(const key of ['x','height'])field(target.positionCm,key,previous.positionCm[key],current.positionCm[key]);
  }
  return result;

@@ -338,3 +338,7 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .app.dark-scene #stage .chip-btn.open circle.dot,.app.dark-scene #stage .chip-btn:hover circle.dot{fill:#5cc6cd}
 .app.placing #hover-tag{display:none}
 .desk-group .furniture-select{display:none}
+/* Blink: the drawing flashes twice with the real lamp. */
+@keyframes lamp-blink{0%,40%,80%{opacity:1}20%,60%{opacity:.15}}
+.lamp.blinking [data-beam]{animation:lamp-blink .9s ease-in-out}
+@media (prefers-reduced-motion:reduce){.lamp.blinking [data-beam]{animation:none}}

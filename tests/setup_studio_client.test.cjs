@@ -167,7 +167,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),pilot=pilotOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),pilot=pilotOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -185,6 +185,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),pilot=pil
   fetch:async(url,options={})=>{
    if(url==='/api/pilot'){requests.pilot.push(now);const value=typeof pilot==='function'?pilot(requests.pilot.length):pilot;if(value instanceof Error)throw value;return response(200,await value)}
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
+   if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
    if(options.method!=='POST'){requests.layout++;if(layoutGet)return layoutGet(server);return response(200,{layout:server.layout,revision:server.layout?server.revision:null})}
    const body=JSON.parse(options.body);posts.push({body,ifMatch:options.headers['If-Match']});
@@ -404,8 +405,9 @@ test('the lamp card removes with a confirmation and sets Own light during Sync',
  app.dispatch(more,'pointerdown');await app.settle();
  const menu=app.$('#object-menu');assert.equal(menu.hidden,false);
  assert.equal(menu.querySelector('.card-name').readOnly,true,'role names are canonical');
- assert.equal(menu.querySelector('[data-menu="blink"]').disabled,true);
- assert.equal(menu.querySelectorAll('.seg button').length,2,'only Sync and Own light in this version');
+ assert.equal(menu.querySelector('[data-menu="blink"]').disabled,false,'a connected lamp can blink');
+ assert.ok(menu.querySelector('[data-menu="role-off"]'),'role lamps can be switched off during Sync');
+ assert.equal(menu.querySelectorAll('.seg button').length,3,'Sync, Own light and Off');
  await app.click(menu.querySelector('[data-menu="role-own"]'));
  await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices[5].syncRole,'own');
@@ -653,6 +655,21 @@ test('a drawn lamp that is not connected shows a broken-link badge where problem
  assert.equal(app.lamp('govee-left').querySelector('[data-link-badge]'),null,'connected lamps have none');
  app.run('select("'+discovered().id+'")');await app.settle();
  assert.equal(app.lamp(discovered().id).querySelector('[data-link-badge]'),null,'hidden while the chip is shown');
+});
+
+test('Blink asks the server once and explains a refusal; Off is saved for role lamps only',async()=>{
+ const calls=[];
+ const app=await harness({identify:body=>{calls.push(body);return calls.length===1?{status:200,body:{accepted:true}}:{status:409,body:{accepted:false,reason:'lamp off'}}}});
+ app.run('select("play-left")');
+ await app.run('blinkLamp(lamps.find(l=>l.id==="play-left"))');await app.settle();
+ assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{lamp:'play-left'}]);
+ assert.ok(app.lamp('play-left').classList.contains('blinking'),'the drawing blinks too');
+ assert.equal(app.$('#toast').textContent,'Blinking Hue Play Left');
+ await app.run('blinkLamp(lamps.find(l=>l.id==="play-left"))');await app.settle();
+ assert.equal(app.$('#toast').textContent,'The lamp is off');
+ app.run('menuAction("role-off")');await app.advance(300);
+ assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='play-left').syncRole,'off');
+ assert.equal(json(app,'syncProjection(lamps.find(l=>l.id==="play-left"))').length,0,'an Off lamp takes no screen colour');
 });
 
 test('an unlit lens or zone shows black under the light',async()=>{
