@@ -26,6 +26,9 @@ _REASONS = frozenset(
         "relay_error",
         "shutdown",
         "starting",
+        "source_reconnected",
+        "source_timeout",
+        "dtls_closed",
     }
 )
 _METRICS = (
@@ -38,6 +41,7 @@ _METRICS = (
     "consecutive_failures",
     "errno",
     "http_status",
+    "client_hellos",
 )
 _MISSING = object()
 

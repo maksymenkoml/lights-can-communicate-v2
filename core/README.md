@@ -277,6 +277,32 @@ This operational recovery is not an automatic Docker Desktop repair mechanism.
 See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
 sequential live observation windows, tests and measurement limits.
 
+### Source reconnection without a new Start
+
+`openssl s_server -listen` serves one DTLS association and then only receives
+datagrams from that peer. A source that vanished without `close_notify` and
+handshakes again from a new port, without a new REST Start, previously reached
+only the UDP guard, which discarded its ClientHello; the retained session
+waited indefinitely until a phone Stop/Start. The guard now counts DTLS
+ClientHello records it discards and remembers when the last one arrived. When
+the current association has been idle for more than 0.5 seconds and a
+ClientHello arrived during that pause, the receiver starts a second listener
+beside it. The established association keeps receiving its own peer. The
+replacement takes over only after it completes the PSK handshake and delivers
+a valid frame; otherwise it is stopped after ten seconds, or as soon as the
+established source resumes. An unauthenticated or stale ClientHello therefore
+cannot disconnect a working source. Stop, a superseding Start and shutdown
+end both listeners.
+
+A source that vanishes and does not handshake again at all (a Sync Box reboot)
+previously left the stream active indefinitely after its first frame; the Box
+then saw its old session as active and never sent a new Start. As on a Hue
+bridge, an established session now ends after ten seconds without data, the
+stream becomes inactive and the source can start again. The bridge journal records `source_reconnected`,
+`source_timeout` and `dtls_closed`, and receiver status counts `reconnects`.
+`tests/test_receiver_reconnect.py`
+reproduces the vanished-client case with real OpenSSL DTLS (Linux only).
+
 ## Light Studio composition and projection
 
 `0.1.0.dev6` uses saved Light Studio placement and optional v3 `enabled:false`
