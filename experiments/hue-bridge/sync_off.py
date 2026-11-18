@@ -69,6 +69,8 @@ class SyncOffSession:
         # Roles this session has already handled (switched off, or found off or
         # unknown); they are not switched off again before the next session.
         self.applied = set()
+        # Role -> earliest retry of a failed restore for a lamp that left Off.
+        self.restore_retry = {}
         self.last_result = "idle"
         for role in self.records:
             if role in GOVEE_ROLES and self.govee is not None:
@@ -228,11 +230,19 @@ class SyncOffSession:
         added = [role for role in current if role not in self.applied]
         if added:
             self.start(added)
-        leaving = [role for role in self.records if role not in current]
-        if leaving and self.clock() >= self.next_retry:
+        now = self.clock()
+        # A failed restore waits for its own retry time; other lamps leaving Off
+        # are restored at once.
+        leaving = [role for role in self.records if role not in current
+                   and self.restore_retry.get(role, float("-inf")) <= now]
+        if leaving:
             self.end(leaving)
-            if any(role in self.records for role in leaving):
-                self.next_retry = self.clock() + RETRY_SECONDS
+            for role in leaving:
+                if role in self.records:
+                    self.restore_retry[role] = now + RETRY_SECONDS
+        for role in list(self.restore_retry):
+            if role not in self.records or role in current:
+                del self.restore_retry[role]
 
     def step(self):
         with self.lock:

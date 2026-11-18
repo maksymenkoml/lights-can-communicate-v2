@@ -306,6 +306,23 @@ class SyncOffSessionTests(SessionFixture):
         self.assertEqual(session.snapshot()["roles"], [])
         self.assertTrue(self.hue.native["on"]["on"])
 
+    def test_a_failed_restore_does_not_delay_another_lamp_leaving_off(self):
+        power = self.homekit()
+        session = self.session(power)
+        self.active = True
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        self.hue.fail_power = True
+        self.store.save(with_roles(**{"govee-left": "off"}))
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        # The left lamp leaves Off on the next step: restored at once.
+        self.store.save(with_roles())
+        session.step()
+        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.assertFalse(power.sync_held("left"))
+        self.assertTrue(self.lamps.native["left"])
+
     def test_power_owner_hold_closes_the_gate_and_owner_off_wins(self):
         gate = self.owner()
         session = self.session(gate)
