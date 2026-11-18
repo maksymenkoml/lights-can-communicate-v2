@@ -143,7 +143,8 @@ class ManagedServiceTests(unittest.TestCase):
         for name in services.GATEWAY_MODULES:
             self.assertEqual((self.release / "gateway" / (name + ".py")).read_bytes(),
                              (ROOT / "experiments/hue-bridge" / (name + ".py")).read_bytes())
-        self.assertEqual(set(files), {services.ARCHIVE, *(
+        plugin = self.manifest["compatibility"]["plugin"]["file"]
+        self.assertEqual(set(files), {services.ARCHIVE, plugin, *(
             f"gateway/{name}.py" for name in services.GATEWAY_MODULES)})
 
     def test_release_refuses_existing_output(self):

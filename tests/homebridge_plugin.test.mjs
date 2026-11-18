@@ -8,7 +8,7 @@ import test from 'node:test';
 import * as hap from '../homebridge/node_modules/@homebridge/hap-nodejs/dist/index.js';
 import { IdentifierCache } from '../homebridge/node_modules/@homebridge/hap-nodejs/dist/lib/model/IdentifierCache.js';
 import {
-  CoreClient, readCredentials, sign, signResponse,
+  CORE_API, CoreClient, readCredentials, sign, signResponse,
 } from '../homebridge/lib/client.js';
 import {
   LightsCanCommunicatePlatform, PLATFORM_NAME, PLUGIN_NAME, UNAVAILABLE_MS,
@@ -249,6 +249,20 @@ test('unsigned, altered or replayed core responses are not trusted', async () =>
   answer = () => new Response(forged, { headers: {
     'X-LCC-Response': signResponse(token, 'd'.repeat(32), 200, forged) } });
   await assert.rejects(client.state(), /not authentic/);
+});
+
+test('a core with another HomeKit API version is refused before any write', async () => {
+  const token = 'b'.repeat(64);
+  let version = CORE_API + 1;
+  const fetch = async (url, init) => {
+    const body = JSON.stringify({ version, roles: { right: { on: true } } });
+    return new Response(body, { headers: {
+      'X-LCC-Response': signResponse(token, init.headers['X-LCC-Nonce'], 200, body) } });
+  };
+  const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token }, { fetch });
+  await assert.rejects(client.state(), /HomeKit API 2 is not supported \(plugin expects 1\)/);
+  version = CORE_API;
+  assert.deepEqual(await client.state(), { right: { on: true } });
 });
 
 test('the core credential must be a private, well-formed file', () => {

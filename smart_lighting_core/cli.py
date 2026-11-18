@@ -11,7 +11,7 @@ import stat
 import subprocess
 import sys
 
-from . import __version__, services
+from . import __version__, install, services
 from .config import ConfigError, load_config, read_json
 from .native_profile import NativeHueProfile, NativeProfileError
 
@@ -193,6 +193,9 @@ def _setup(config):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in install.COMMANDS:
+        return install.main(argv)
     parser = argparse.ArgumentParser(description="Smart Lighting managed core")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("command", nargs="?", default="adapter",
