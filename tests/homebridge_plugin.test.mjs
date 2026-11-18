@@ -7,7 +7,9 @@ import test from 'node:test';
 
 import * as hap from '../homebridge/node_modules/@homebridge/hap-nodejs/dist/index.js';
 import { IdentifierCache } from '../homebridge/node_modules/@homebridge/hap-nodejs/dist/lib/model/IdentifierCache.js';
-import { CoreClient, readCredentials, sign } from '../homebridge/lib/client.js';
+import {
+  CoreClient, readCredentials, sign, signResponse,
+} from '../homebridge/lib/client.js';
 import {
   LightsCanCommunicatePlatform, PLATFORM_NAME, PLUGIN_NAME, UNAVAILABLE_MS,
 } from '../homebridge/lib/platform.js';
@@ -215,7 +217,9 @@ test('requests are signed and never carry the credential itself', async () => {
   const seen = [];
   const fetch = async (url, init) => {
     seen.push({ url, init });
-    return new Response(JSON.stringify({ accepted: true, version: 1, roles: {} }));
+    const body = JSON.stringify({ accepted: true, version: 1, roles: {} });
+    return new Response(body, { headers: {
+      'X-LCC-Response': signResponse(token, init.headers['X-LCC-Nonce'], 200, body) } });
   };
   const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token },
     { fetch, now: () => 1000000 });
@@ -229,6 +233,22 @@ test('requests are signed and never carry the credential itself', async () => {
   assert.equal(headers['X-LCC-Signature'], sign(token, 'POST', '/homekit', '1000.000',
     headers['X-LCC-Nonce'], first.init.body));
   assert.notEqual(headers['X-LCC-Nonce'], second.init.headers['X-LCC-Nonce']);
+});
+
+test('unsigned, altered or replayed core responses are not trusted', async () => {
+  const token = 'b'.repeat(64);
+  const forged = JSON.stringify({ accepted: true, version: 1, roles: { right: { on: true } } });
+  let answer;
+  const fetch = async (url, init) => answer(init.headers['X-LCC-Nonce']);
+  const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token }, { fetch });
+  answer = () => new Response(forged);
+  await assert.rejects(client.set({ role: 'right', on: true }), /not authentic/);
+  answer = nonce => new Response(forged, { headers: {
+    'X-LCC-Response': signResponse(token, nonce, 200, '{"accepted":true}') } });
+  await assert.rejects(client.set({ role: 'right', on: true }), /not authentic/);
+  answer = () => new Response(forged, { headers: {
+    'X-LCC-Response': signResponse(token, 'd'.repeat(32), 200, forged) } });
+  await assert.rejects(client.state(), /not authentic/);
 });
 
 test('the core credential must be a private, well-formed file', () => {

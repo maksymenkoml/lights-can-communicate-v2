@@ -460,6 +460,10 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            nonce = getattr(self, "signed_nonce", None)
+            if nonce is not None:
+                self.send_header("X-LCC-Response",
+                                 signatures.sign_response(nonce, status, data))
             keep_alive = getattr(self, "stream_keep_alive", False)
             self.send_header("Connection", "keep-alive" if keep_alive else "close")
             self.close_connection = not keep_alive
@@ -478,9 +482,11 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
 
         def do_GET(self):
             self.stream_keep_alive = False
+            self.signed_nonce = None
             if self.path == "/homekit" and homekit is not None:
                 if not signatures.verify("GET", self.path, self.headers, b""):
                     return self.respond(403, {"error": "unauthorized"})
+                self.signed_nonce = self.headers["X-LCC-Nonce"]
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
             if self.path == "/homekit":
@@ -523,6 +529,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
 
         def do_POST(self):
             self.stream_keep_alive = False
+            self.signed_nonce = None
             if self.path in ("/power-owner", "/homekit"):
                 # The local HomeKit authority fences the legacy remote owner.
                 if (power_owner is None or power_token is None
@@ -543,9 +550,10 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 if not 0 < size <= 8192:
                     raise ValueError("Invalid request size")
                 raw = self.rfile.read(size)
-                if self.path == "/homekit" and not signatures.verify(
-                        "POST", self.path, self.headers, raw):
-                    return self.respond(403, {"error": "unauthorized"})
+                if self.path == "/homekit":
+                    if not signatures.verify("POST", self.path, self.headers, raw):
+                        return self.respond(403, {"error": "unauthorized"})
+                    self.signed_nonce = self.headers["X-LCC-Nonce"]
                 payload = json.loads(raw)
                 if self.path == "/power-owner":
                     if not isinstance(payload, dict):

@@ -11,7 +11,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
-from homekit_power import HomeKitPower, HomeKitRequests, signature  # noqa: E402
+from homekit_power import (  # noqa: E402
+    HomeKitPower,
+    HomeKitRequests,
+    response_signature,
+    signature,
+)
 from live_adapter import PilotController, handler_for  # noqa: E402
 from power_requests import PowerRequestUnavailable  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
@@ -312,6 +317,27 @@ class HomeKitRouteTests(unittest.TestCase):
         self.assertEqual(self.call("/homekit", data=altered,
                                    headers={"X-Power-Owner-Token": OWNER})[0], 403)
         self.assertFalse(self.power.intent["left"]["on"])
+
+    def test_responses_are_signed_for_the_request_nonce(self):
+        body = json.dumps({"role": "left", "on": False}).encode()
+        headers = self.signed("POST", "/homekit", body)
+        request = urllib.request.Request(self.url + "/homekit", data=body, headers=headers)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=5) as response:
+            data = response.read()
+            self.assertEqual(response.headers["X-LCC-Response"], response_signature(
+                OWNER, headers["X-LCC-Nonce"], 200, data))
+        try:
+            opener.open(urllib.request.Request(self.url + "/homekit", headers=headers),
+                        timeout=5)
+        except urllib.error.HTTPError as error:
+            with error:
+                self.assertEqual(error.code, 403)
+                self.assertIsNone(error.headers["X-LCC-Response"])
+        status = opener.open(urllib.request.Request(
+            self.url + "/status", headers={"X-Adapter-Token": TOKEN}), timeout=5)
+        with status:
+            self.assertIsNone(status.headers["X-LCC-Response"])
 
     def test_signature_matches_the_plugin_vector(self):
         # Same vector as tests/homebridge_plugin.test.mjs.

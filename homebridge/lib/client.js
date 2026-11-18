@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { isIPv4 } from 'node:net';
 
@@ -47,6 +47,12 @@ export function sign(token, method, path, timestamp, nonce, body) {
     .update([method, path, timestamp, nonce, digest].join('\n')).digest('hex');
 }
 
+export function signResponse(token, nonce, status, body) {
+  const digest = createHash('sha256').update(body).digest('hex');
+  return createHmac('sha256', token)
+    .update(['response', nonce, String(status), digest].join('\n')).digest('hex');
+}
+
 export class CoreClient {
   constructor({ endpoint, token }, {
     fetch = globalThis.fetch, timeout = 8000, now = Date.now,
@@ -74,6 +80,13 @@ export class CoreClient {
       signal: AbortSignal.timeout(this.timeout),
     });
     const text = await response.text();
+    const expected = signResponse(this.token, nonce, response.status, text);
+    const provided = response.headers.get('X-LCC-Response') ?? '';
+    if (provided.length !== expected.length
+      || !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) {
+      // An unsigned or altered answer proves nothing about the lamp.
+      throw new Error(`Core response is not authentic (${response.status})`);
+    }
     let value;
     try {
       value = JSON.parse(text);

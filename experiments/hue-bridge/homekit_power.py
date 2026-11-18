@@ -324,6 +324,12 @@ def signature(token, method, path, timestamp, nonce, body):
     return hmac.new(token.encode(), message.encode(), hashlib.sha256).hexdigest()
 
 
+def response_signature(token, nonce, status, body):
+    """Binds a response to the signed request's nonce; distinct from requests."""
+    message = "\n".join(("response", nonce, str(status), hashlib.sha256(body).hexdigest()))
+    return hmac.new(token.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+
 class SignatureVerifier:
     """Accept each signed request once, within a short clock window."""
 
@@ -331,6 +337,9 @@ class SignatureVerifier:
         self.token, self.wall_clock = token, wall_clock
         self.lock = threading.Lock()
         self.seen = {}
+
+    def sign_response(self, nonce, status, body):
+        return response_signature(self.token, nonce, status, body)
 
     def verify(self, method, path, headers, body):
         timestamp = headers.get("X-LCC-Timestamp", "")
