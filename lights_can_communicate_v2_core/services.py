@@ -28,6 +28,7 @@ GATEWAY_MODULES = (
     "scene_play_intent",
     "gradient_profile",
     "hue_resource_compat",
+    "hue_names",
     "desk_layout",
     "sync_projection",
     "sync_zone",
