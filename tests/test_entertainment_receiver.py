@@ -96,6 +96,13 @@ class ReceiverTests(unittest.TestCase):
         event = out.diagnostics.snapshot()['events'][-1]
         self.assertEqual((event['state'], event['reason']), ('stopped', 'explicit_stop'))
 
+    def test_a_frame_wakes_the_outbox_instead_of_waiting_for_a_poll(self):
+        out = StreamOutbox("http://adapter", "test", sender=lambda message: None,
+                           clock=lambda: 1000)
+        self.assertFalse(out.wake.is_set())
+        out.frame(colors())
+        self.assertTrue(out.wake.is_set())
+
     def test_expired_frame_is_not_replayed_after_delivery_delay(self):
         now = [1000.0]
         sent = []

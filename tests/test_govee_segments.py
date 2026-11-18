@@ -67,3 +67,25 @@ class SegmentTests(unittest.TestCase):
         for value in ([], [(1, 2)], [(0, float("nan"), 0)]):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 interpolate(value)
+
+
+class DreamViewPacketTests(unittest.TestCase):
+    def test_mode_and_color_frames_match_the_govee_lan_layout(self):
+        from govee_segments import razer_colors, razer_data, razer_mode
+
+        # The enable packet published by the OpenRGB Govee controller.
+        self.assertEqual(razer_mode(True), {"pt": "uwABsQEK"})
+        self.assertEqual(razer_mode(False), {"pt": "uwABsQAL"})
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (1, 2, 3), (4, 5, 6), (7, 8, 9),
+                  (10, 11, 12)]
+        frame = razer_data(colors)
+        raw = base64.b64decode(frame["pt"])
+        self.assertEqual(raw[:6], bytes([0xBB, 0x00, 23, 0xB0, 0x01, 7]))
+        self.assertEqual(razer_colors(frame), [list(color) for color in colors])
+        self.assertIsNone(razer_colors(razer_mode(True)))
+        broken = bytearray(raw)
+        broken[-1] ^= 1
+        with self.assertRaises(ValueError):
+            razer_colors({"pt": base64.b64encode(bytes(broken)).decode()})
+        with self.assertRaises(ValueError):
+            razer_data([(256, 0, 0)])

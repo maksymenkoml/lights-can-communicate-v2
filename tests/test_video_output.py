@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from entertainment_stream import VideoLease  # noqa: E402
+from govee_segments import razer_colors  # noqa: E402
 from live_adapter import PilotController, normalize_state  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
@@ -103,8 +104,32 @@ class VideoTests(unittest.TestCase):
         self.assertEqual(right["segments"][0], (0, 0, 255))
         self.assertEqual(right["segments"][6], (0, 255, 0))
         self.assertEqual(left["brightness"], 65)
-        self.assertEqual([cmd for cmd, _ in self.sent].count("ptReal"), 2)
+        # Sync streams zoned output as DreamView frames: mode on, then the colors.
+        commands = [cmd for cmd, _ in self.sent]
+        self.assertNotIn("ptReal", commands)
+        razer = [razer_colors(data) for cmd, data in self.sent if cmd == "razer"]
+        self.assertEqual(razer.count(None), 2)
+        frames = [colors for colors in razer if colors is not None]
+        self.assertEqual(len(frames), 2)
+        self.assertIn([255, 0, 0], frames[0] + frames[1])
         self.assertTrue(all(cmd != "turn" for cmd, _ in self.sent))
+        self.assertTrue(self.controller.streaming)
+        # Ending the stream leaves DreamView before any scene color is sent.
+        self.sent.clear()
+        self.output.release()
+        self.assertFalse(self.controller.streaming)
+        self.controller.update_statuses({key: ({"onOff": 1, "brightness": 65}, self.now)
+                                         for key in (LEFT, RIGHT)})
+        self.controller.render()
+        self.assertEqual([razer_colors(data) for cmd, data in self.sent if cmd == "razer"],
+                         [None, None])
+        self.assertEqual(self.controller.snapshot()["dreamview_sides"], [])
+
+    def test_a_new_frame_wakes_the_output_worker(self):
+        lease = VideoLease(clock=lambda: self.now, wall_clock=lambda: 1000)
+        self.assertFalse(lease.wake.is_set())
+        self.assertTrue(lease.submit(envelope()))
+        self.assertTrue(lease.wake.is_set())
 
     def test_video_intensity_uses_rgb_with_fixed_calibrated_global_brightness(self):
         self.assertEqual(

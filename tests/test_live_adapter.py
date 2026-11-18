@@ -282,6 +282,119 @@ class PilotTests(unittest.TestCase):
         legacy.render()
         self.assertEqual([name for _, name, _ in self.sent], ["colorwc"])
 
+    def test_streaming_uses_dreamview_at_the_stream_rate(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7, max_gradient_packets_per_second=2)
+        controller = pilot.PilotController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        controller.update_statuses(self.controller.statuses)
+        controller.set_streaming(True)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        controller.submit(command(state=state, transitiontime=0))
+        controller.render()
+        frames = [razer_colors(data) for _, name, data in self.sent if name == "razer"]
+        self.assertEqual(frames[0], None)
+        self.assertEqual(frames[1], [[120, 0, 0]] * 7)
+        self.assertNotIn("ptReal", [name for _, name, _ in self.sent])
+        # 25 frames/s, not the 2/s ptReal budget: the next frame goes 0.12 s later.
+        for sequence, (now, red) in enumerate(((0.12, 60), (0.24, 30)), start=2):
+            self.sent.clear()
+            self.now = now
+            controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+            controller.submit(command(sequence=sequence, transitiontime=0,
+                                      state={**state, "segments": [[red, 0, 0]]}))
+            controller.render()
+            self.assertEqual([razer_colors(data) for _, name, data in self.sent
+                              if name == "razer"], [[[red, 0, 0]] * 7])
+        # Video output clears last_sent every tick; an unchanged brightness is not
+        # re-sent, so every slot carries a color frame.
+        self.sent.clear()
+        self.now = 0.36
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.last_sent.clear()
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent], ["razer"])
+        # Render ticks every 30 ms are late for most 40 ms slots; the cadence still
+        # holds 25 frames/s instead of falling to one frame per 60 ms.
+        sent = 0
+        for tick in range(1, 51):
+            self.now = 0.36 + tick * 0.03
+            controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+            controller.last_sent.clear()
+            before = len(self.sent)
+            controller.render()
+            sent += len(self.sent) > before
+        self.assertGreaterEqual(sent, 36)
+        self.assertLessEqual(sent, 38)
+        # The mode is renewed well within the lamp's one-minute timeout.
+        self.sent.clear()
+        self.now = 11
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.submit(command(sequence=9, transitiontime=0, state=state))
+        controller.render()
+        self.assertEqual([razer_colors(data) for _, name, data in self.sent
+                          if name == "razer"][0], None)
+        # Back to scene output: DreamView off first, then ptReal at the scene budget.
+        self.sent.clear()
+        self.now = 12
+        controller.set_streaming(False)
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent][:2], ["razer", "ptReal"])
+        self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
+    def test_stream_start_ignores_a_scene_slot_and_scene_waits_for_dreamview_off(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7, max_gradient_packets_per_second=2)
+        results = []
+
+        def send(device, name, data):
+            self.sent.append((device["side"], name, data))
+            return results.pop(0) if results else True
+
+        controller = pilot.PilotController(
+            selected, sender=send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        controller.update_statuses(self.controller.statuses)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        controller.submit(command(state=state, transitiontime=0))
+        controller.render()
+        self.assertEqual(self.sent[0][1], "ptReal")
+        # The scene slot lies 1 s ahead at 2 datagrams/s; the stream starts at once.
+        self.sent.clear()
+        self.now = 0.1
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.set_streaming(True)
+        controller.submit(command(sequence=2, transitiontime=0,
+                                  state={**state, "segments": [[0, 0, 90]]}))
+        controller.render()
+        self.assertIn([[0, 0, 90]] * 7, [razer_colors(data) for side, name, data in self.sent
+                                         if side == "left" and name == "razer"])
+        # Leaving DreamView fails: no scene color is sent or recorded as sent.
+        self.sent.clear()
+        self.now = 1.5
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.set_streaming(False)
+        controller.submit(command(sequence=3, transitiontime=0, state=state))
+        results.append(False)
+        controller.render()
+        self.assertEqual([name for side, name, _ in self.sent if side == "left"], ["razer"])
+        self.assertNotIn("left", controller.last_sent)
+        self.assertEqual(controller.snapshot()["dreamview_sides"], ["left"])
+        # The next render leaves DreamView and then sends the pending scene.
+        self.sent.clear()
+        self.now = 1.6
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.render()
+        self.assertEqual([name for side, name, _ in self.sent if side == "left"][:2],
+                         ["razer", "ptReal"])
+        self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
         self.now = 1.0
