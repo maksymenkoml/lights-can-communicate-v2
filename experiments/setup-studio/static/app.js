@@ -51,9 +51,11 @@ function defaults(){
 }
 function monitorWidthCm(inches){return inches*2.54*16/Math.hypot(16,9)}
 function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.id===MONITOR)return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
-// A floor lamp's layout anchor is its bottom + 60 cm and must stay within 300 cm.
-function maximumHeight(l){return l.form==='floor'?240:250}
-function clampFixture(l,env=environment){l.x=clamp(Math.round(l.x/5)*5,-115,115);l.h=clamp(Math.round(l.h/5)*5,minimumHeight(l,env),maximumHeight(l))}
+// Layout anchors must stay within x -200..400 cm and height 0..300 cm (desk_layout);
+// a floor lamp's anchor is its bottom + 60 cm.
+const X_LIMIT=300;
+function maximumHeight(l){return l.form==='floor'?300-FLOOR_ANCHOR:300}
+function clampFixture(l,env=environment){l.x=clamp(Math.round(l.x/5)*5,-X_LIMIT,X_LIMIT);l.h=clamp(Math.round(l.h/5)*5,minimumHeight(l,env),maximumHeight(l))}
 const finite=(v,lo,hi,fallback)=>typeof v==='number'&&Number.isFinite(v)?clamp(v,lo,hi):fallback;
 function fromLayout(data){
  if(!data||typeof data!=='object'||![3,4].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
@@ -115,6 +117,7 @@ function liveColors(l){
  if(l.unbound||l.enabled===false||!isRole(l.id)||!pilotFresh()||lampBlocker(l))return null;
  const row=pilot.lamps&&typeof pilot.lamps==='object'?pilot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
+ if(row.source!=='scene-output'&&row.source!=='sync-output')return null;
  if(!Array.isArray(row.colors)||!row.colors.length||!row.colors.every(validRgb))return null;
  const colors=Array.from({length:l.zones},(_,i)=>row.colors[row.colors.length===1?0:Math.min(i,row.colors.length-1)]);
  return colors.some(c=>c.some(v=>v>0))?colors:null;
@@ -172,7 +175,6 @@ function paintStatus(){
 }
 
 // ---------------------------------------------------- sync projection model --
-const syncPalette=[[0,2],[.5,3],[1,4],[1.25,5],[1.5,6],[1.75,7],[2,8],[2.5,9],[3,10],[3.25,13],[3.5,12],[3.75,11],[4,2]];
 const stripPoints=[[0,0],[0,.5],[0,1],[.25,1],[.5,1],[.75,1],[1,1],[1,.5],[1,0]];
 // Mirrors sync_projection.screen_point.
 function syncPoint(x,h){
@@ -489,7 +491,9 @@ function updateStageViewport(){
  if(drag)return;
  const m=strip(),half=environment.inches*2.54*9/Math.hypot(16,9)*3.3/2;
  const top=Math.min(90,740-m.h*3.3-half-28,...activeLamps().map(l=>740-l.h*3.3-(l.form==='floor'?470:l.vertical?65:35)));
- $('#stage').setAttribute('viewBox','0 '+top+' 1000 '+(830-top));
+ // Widen the room symmetrically so a lamp placed far from the desk stays visible.
+ const reach=Math.max(500,...activeLamps().map(l=>Math.abs(l.x)*3.3+90));
+ $('#stage').setAttribute('viewBox',(500-reach)+' '+top+' '+(2*reach)+' '+(830-top));
 }
 function syncScreenAxis(){const g=sceneGeometry(),stage=$('#stage'),ax=stage.querySelector('.axis'),need=!!selected&&Math.abs(g.cx-500)>1,d='M'+g.cx+' 170V744';if(!need){ax?.remove();return}if(ax){ax.setAttribute('d',d);return}const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('class','axis');p.setAttribute('d',d);stage.querySelector('.desk-axis')?.after(p)}
 function refreshHandles(washes=true){syncScreenAxis();const old=$('#stage').querySelector('.handles'),box=document.createElementNS('http://www.w3.org/2000/svg','g');box.innerHTML=handlesSvg(sceneGeometry());const fresh=box.firstElementChild;if(old&&fresh)old.replaceWith(fresh);else if(fresh)$('#stage').append(fresh);else old?.remove();if(washes)syncWashes()}
@@ -585,7 +589,7 @@ function paintLive(){
    if(mode==='sync'){const links=$('#sync-links'),markup=syncLinksSvg(sceneGeometry());if(links)links.outerHTML=markup||'<g id="sync-links" pointer-events="none"></g>';else if(markup)stage.insertAdjacentHTML('beforeend',markup)}
    applyFocus();
   }
-  repaintPanelRows();
+  paintPanel();
  }
 }
 
@@ -838,8 +842,6 @@ function paintPanel(){
  p.scrollTop=top;
  if(focusAttr)p.querySelector('['+focusAttr+(focusValue?'="'+focusValue+'"':'')+']')?.focus({preventScroll:true});
 }
-// Status rows depend on telemetry; repaint them only when the derived status changes.
-function repaintPanelRows(){paintPanel()}
 function placePanel(){
  const p=$('#lamp-panel'),a=$('#app').getBoundingClientRect(),r=$('#list-toggle').getBoundingClientRect();
  p.style.left=(r.left-a.left)+'px';p.style.bottom=(a.bottom-r.top+8)+'px';
@@ -860,7 +862,9 @@ function openAdd(){
  openPanel('list');const f=$('#lp-found');
  if(f){f.scrollIntoView({block:'nearest'});$('#lamp-panel').querySelectorAll('.lp-row.found').forEach(r=>{r.classList.remove('lp-flash');void r.offsetWidth;r.classList.add('lp-flash')})}
 }
-function removeLampById(id){const l=lamps.find(l=>l.id===id);if(!l)return;remember();l.enabled=false;if(selected===id)selected=null;render();tell(l.name+' removed · ⌘Z to restore')}
+// The six role rows must stay in the layout, so removing one only excludes it.
+// Optional rows are deleted to free their slot; a discovered lamp returns to Found.
+function removeLampById(id){const l=lamps.find(l=>l.id===id);if(!l)return;remember();if(isRole(id))l.enabled=false;else lamps=lamps.filter(x=>x.id!==id);if(selected===id)selected=null;render();tell(l.name+' removed · ⌘Z to restore')}
 function restoreLamp(id){const l=lamps.find(l=>l.id===id&&l.enabled===false);if(!l)return;remember();l.enabled=true;clampFixture(l);selected=l.id;render();tell(l.name+' is back in the layout')}
 function askRemove(id){if(!lamps.some(l=>l.id===id&&l.enabled!==false))return;if(panelKind!=='list')openPanel('list');confirmRemove=id;paintPanel();const p=$('#lamp-panel');p.querySelector('.lp-row.confirm')?.scrollIntoView({block:'nearest'});p.querySelector('[data-remove-cancel]')?.focus()}
 function startDiscovery(){discoverySession++;clearTimeout(discoveryTimer);refreshDiscovery(discoverySession)}

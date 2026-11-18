@@ -328,6 +328,21 @@ test('Found shows unavailable lamps with their reason and hides placed ones',asy
  assert.match(down.$('#lamp-panel').textContent,/Lamp search is unavailable/);
 });
 
+test('valid saved positions far from the desk load unchanged and widen the room',async()=>{
+ const remote=saved();remote.devices[0].positionCm={x:-200,height:300};remote.devices[3].positionCm={x:400,height:300};
+ const app=await harness({layout:remote});await app.advance(1000);
+ assert.deepEqual(json(app,"lamps.filter(l=>['govee-left','play-left'].includes(l.id)).map(l=>[l.x,l.h])"),[[-300,240],[300,300]]);
+ const [left,,width]=app.stage.getAttribute('viewBox').split(' ').map(Number);
+ assert.ok(left<=500-300*3.3&&left+width>=500+300*3.3,'both lamps are inside the room view');
+ await app.click(app.$('#sync-tool'));await app.click(app.$('#sync-tool'));await app.advance(300);
+ assert.equal(app.posts.length,0,'loading and viewing never rewrite positions');
+ app.lamp('play-center').focus();await app.press(app.lamp('play-center'),'ArrowRight');await app.advance(300);
+ const body=app.posts.at(-1).body;
+ assert.deepEqual(body.devices[4].positionCm,{x:105,height:40});
+ assert.deepEqual(body.devices[0].positionCm,{x:-200,height:300},'another edit keeps the far lamp');
+ assert.deepEqual(body.devices[3].positionCm,{x:400,height:300});
+});
+
 test('placing a found lamp adds a configuration-only device row with its canonical fields',async()=>{
  const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[255,0,0]])}})});
  await app.click(app.$('#list-toggle'));
@@ -363,6 +378,21 @@ test('removing asks inline, keeps the place, and Found returns the lamp',async()
  await app.click(app.$('#lamp-panel').querySelector('[data-restore="play-center"]'));
  await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices[4].enabled,undefined);assert.ok(app.lamp('play-center'));
+});
+
+test('removing a placed found lamp deletes its row so the slot is free again',async()=>{
+ const remote=saved();remote.devices.push({id:discovered().id,scale:80,positionCm:{x:200,height:60},orientation:'horizontal',shape:'floor',name:'Third <lamp>',model:'H6076',zones:7});
+ const app=await harness({layout:remote,discovery:{connected:true,devices:[discovered({layout_id:null})],providers:{govee:'ready',hue:'ready'}}});
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ await app.click(panel.querySelector('[data-remove="'+discovered().id+'"]'));
+ await app.click(panel.querySelector('[data-remove-ok="'+discovered().id+'"]'));
+ await app.advance(300);
+ assert.equal(app.posts.at(-1).body.devices.length,6,'the optional row is gone');
+ assert.equal(app.lamp(discovered().id),null);
+ await app.click(app.$('#list-toggle'));
+ assert.ok(app.$('#lamp-panel').querySelector('[data-place="'+discovered().id+'"]'),'the lamp is back in Found');
+ assert.equal(app.$('#lamp-panel').querySelector('[data-restore="'+discovered().id+'"]'),null);
 });
 
 test('the lamp card removes with a confirmation and sets Own light during Sync',async()=>{
@@ -469,6 +499,7 @@ test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>
 test('live colours repaint existing nodes without rebuilding the room or saving',async()=>{
  let answer=pilotOk({lamps:{'play-left':lit([[255,0,0]]),'govee-left':lit([[0,0,255],[0,0,255],[0,0,255],[0,255,0],[0,255,0],[0,255,0],[255,255,255]]),
   'hue-monitor':lit(Array.from({length:9},(_,i)=>[i*20,0,0])),'play-center':lit([[9,9,9]],{on:false}),'play-right':lit([[9,9,9]],{stale:true}),'govee-right':lit(Array(7).fill([1,2,3]),{included:false})}});
+ const unverified=pilotOk({lamps:{'play-left':lit([[255,0,0]],{source:'unknown'})}});
  const app=await harness({pilot:()=>answer});
  await app.click(app.$('#sync-tool'));
  const writes=app.stage.writes,node=app.lamp('play-left');
@@ -491,6 +522,8 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  assert.equal(app.$('#sync-status span').textContent,'Not syncing');
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'1','scene colours stay visible');
  assert.equal(app.stage.writes,writes);
+ answer=unverified;await app.advance(200);
+ assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0','colours without a verified output source are not light');
  await app.advance(2000);assert.equal(app.posts.length,0);
 });
 

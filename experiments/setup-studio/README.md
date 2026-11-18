@@ -49,7 +49,8 @@ Layout version 4 stores centimetres. World x has the desk centre at 100 cm. A
 floor lamp's `height` is its bottom + 60 cm; other lamps and the monitor strip
 store their centre. `scale` is the brightness correction (0-100) and
 `syncZone` the optional custom falloff zone (missing or null is Auto).
-`enabled: false` removes a lamp from the layout and from Sync. The optional
+`enabled: false` removes one of the six role lamps from the layout and from
+Sync; removing a found or drawn lamp deletes its row. The optional
 `syncRole: "own"` keeps a lamp in the room but outside the Sync composition, so
 it keeps its own light; `"sync"` is the default and is not stored. Version 3
 files load as version 4. Writes accept geometry and corrections only: no power,
