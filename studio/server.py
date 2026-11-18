@@ -313,7 +313,7 @@ def _post_local_json(url, body, timeout, headers):
                 return error.code, {}
 
 
-def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=None,
+def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
@@ -325,12 +325,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
 
     source_cache = SourceActivityCache(source_fetch or default_source_fetch)
 
-    def pilot():
+    def live():
         if (store.path.parent / "live-output-hold").exists():
             return _unavailable("paused")
         try:
-            if pilot_fetch is not None:
-                data = pilot_fetch()
+            if live_fetch is not None:
+                data = live_fetch()
             else:
                 token = token_file.read_text().strip()
                 data = _read_local_json(
@@ -445,8 +445,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 return self.respond(200, store.response())
             if path == "/api/discovery":
                 return self.respond(200, discovery())
-            if path == "/api/pilot":
-                return self.respond(200, pilot())
+            if path == "/api/live":
+                return self.respond(200, live())
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):

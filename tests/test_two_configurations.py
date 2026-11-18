@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LayoutStore, validate_layout  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
-from live_adapter import PilotController  # noqa: E402
+from live_adapter import GoveeController  # noqa: E402
 from sync_projection import (  # noqa: E402
     project_govee_frame,
     project_native_frame,
@@ -189,7 +189,7 @@ class ControllerTests(StoreCase):
         if segmented:
             items[0]["segment_count"] = 7
         self.clock, self.sent = FakeClock(), []
-        controller = PilotController(
+        controller = GoveeController(
             items, sender=lambda device, name, data: self.sent.append((name, data)) or True,
             clock=self.clock, wall_clock=lambda: 1000, layout_store=self.store,
             power_owner=None, configuration=configuration)
@@ -198,7 +198,7 @@ class ControllerTests(StoreCase):
 
     def test_unknown_configuration_is_refused(self):
         with self.assertRaises(ValueError):
-            PilotController(targets(), configuration="both")
+            GoveeController(targets(), configuration="both")
 
     def test_scene_uses_scene_scale_and_sync_keeps_scale(self):
         data = v5()

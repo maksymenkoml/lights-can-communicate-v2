@@ -332,7 +332,7 @@ class StudioTests(unittest.TestCase):
                         opener.open(base + path)
                     self.assertEqual(err.exception.code, 404)
                     err.exception.close()
-                with opener.open(base + "/api/pilot") as response:
+                with opener.open(base + "/api/live") as response:
                     self.assertFalse(json.load(response)["connected"])
                 request = urllib.request.Request(base + "/command", method="POST", data=b"{}")
                 with self.assertRaises(urllib.error.HTTPError) as err:

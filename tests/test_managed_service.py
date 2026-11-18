@@ -252,7 +252,7 @@ class ManagedServiceTests(unittest.TestCase):
                     opener.open(url + path, timeout=1)
                 caught.exception.close()
                 self.assertEqual(caught.exception.code, 404)
-            with opener.open(url + "/api/pilot", timeout=2) as response:
+            with opener.open(url + "/api/live", timeout=2) as response:
                 self.assertFalse(json.load(response)["connected"])
             process.send_signal(signal.SIGTERM)
             self.assertEqual(process.wait(timeout=5), 0)

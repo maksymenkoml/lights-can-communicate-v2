@@ -1,7 +1,7 @@
 """Display names of the virtual Hue bridge and its resources.
 
 Names are display-only: the Hue app and the Sync Box refer to resources by ID,
-so renaming never affects pairing. Early pilots created resources with test
+so renaming never affects pairing. Early builds created resources with test
 markers; those exact names are replaced on start, while any name the owner
 chose in the Hue app is left alone.
 """
@@ -20,7 +20,7 @@ def hue_play_name(side):
     return f"Hue Play {side}"
 
 
-# The diyHue default for a new bridge and the names earlier pilots forced.
+# The diyHue default for a new bridge and the names earlier builds forced.
 LEGACY_BRIDGE_NAMES = frozenset({
     "DiyHue Bridge", "Smart Lighting Probe", "Lights Can Communicate v2 Probe",
 })
@@ -39,7 +39,7 @@ LEGACY_NAMES = {
 
 
 def rename_legacy(config):
-    """Replace default and exact pilot test names in place."""
+    """Replace default and exact legacy test names in place."""
     settings = config.get("config", {})
     if settings.get("name") in LEGACY_BRIDGE_NAMES:
         settings["name"] = BRIDGE_NAME

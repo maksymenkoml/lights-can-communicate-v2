@@ -17,7 +17,7 @@ from homekit_power import (  # noqa: E402
     response_signature,
     signature,
 )
-from live_adapter import PilotController, handler_for  # noqa: E402
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from power_requests import PowerRequestUnavailable  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 
@@ -297,7 +297,7 @@ class HomeKitRouteTests(unittest.TestCase):
                                   self.lamps.observe, clock=self.lamps.clock,
                                   sleep=self.lamps.sleep, names=lambda: dict(self.owner_names))
         self.power.tick()
-        controller = PilotController(targets(), sender=self.power.wrap(self.lamps.send),
+        controller = GoveeController(targets(), sender=self.power.wrap(self.lamps.send),
                                      power_owner=self.power)
         handler = handler_for(controller, TOKEN, power_owner=self.power, power_token=OWNER,
                               power_requests=HomeKitRequests(self.power), homekit=self.power)

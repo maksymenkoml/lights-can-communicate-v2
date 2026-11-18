@@ -7,7 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_stream import VideoLease  # noqa: E402
 from govee_segments import razer_colors  # noqa: E402
-from live_adapter import PilotController, normalize_state  # noqa: E402
+from live_adapter import GoveeController, normalize_state  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
@@ -46,7 +46,7 @@ class VideoTests(unittest.TestCase):
     def test_power_owner_pauses_govee_only_and_preserves_native_stream(self):
         gate = PowerOwner(targets(), clock=lambda: self.now, wall_clock=lambda: 1000)
         sent = []
-        self.controller = PilotController(
+        self.controller = GoveeController(
             targets(), sender=gate.wrap(
                 lambda device, command, _data: sent.append((device['device'], command)) or True),
             clock=lambda: self.now, wall_clock=lambda: 1000, power_owner=gate)
@@ -145,7 +145,7 @@ class VideoTests(unittest.TestCase):
         self.now = 10.0
         self.relay = FakeRelay()
         self.sent = []
-        self.controller = PilotController(
+        self.controller = GoveeController(
             targets(),
             sender=lambda device, cmd, data: self.sent.append((cmd, data)) or True,
             clock=lambda: self.now,

@@ -60,20 +60,20 @@ jobs:
         run: |
           image=$(PROBE_IP=127.0.0.1 PROBE_MAC=00:11:22:33:44:55 docker compose -f bridge/compose.yaml config --images)
           printf '%s\n' "$image" | grep -Eq '^diyhue/core@sha256:[a-f0-9]{64}$'
-          echo "PILOT_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "BRIDGE_IMAGE=$image" >> "$GITHUB_ENV"
       - name: Pull pinned public test image
-        run: docker pull "$PILOT_IMAGE"
+        run: docker pull "$BRIDGE_IMAGE"
       - name: Python contracts without network or private state
         run: >-
           docker run --rm --network none
           -e LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
           --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
-          -w /tmp --entrypoint python3 "$PILOT_IMAGE"
+          -w /tmp --entrypoint python3 "$BRIDGE_IMAGE"
           -B -m unittest discover -s /workspace/tests -v
       - name: Executable archive contracts without network
         run: >-
           docker run --rm --network none
           -e LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
           --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
-          -w /workspace --entrypoint python3 "$PILOT_IMAGE"
+          -w /workspace --entrypoint python3 "$BRIDGE_IMAGE"
           -B tests/check_core_archive.py

@@ -10,14 +10,14 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-import live_adapter as pilot  # noqa: E402
+import live_adapter as adapter  # noqa: E402
 import test_hue_entertainment_relay as relay_tests  # noqa: E402
 import test_video_output as video_tests  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import razer_data, razer_mode, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
-from live_adapter import PilotController, handler_for  # noqa: E402
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_hue_strip_proxy import FakeHue, command  # noqa: E402
 from test_live_adapter import LEFT, targets  # noqa: E402
@@ -417,7 +417,7 @@ class ProducerTests(unittest.TestCase):
                 raise RuntimeError("observer failed")
 
         store = BrokenStore()
-        controller = PilotController(
+        controller = GoveeController(
             targets(),
             sender=store.wrap_govee(lambda *_: True, "scene-output"),
             clock=lambda: 10,
@@ -504,13 +504,13 @@ class ProducerTests(unittest.TestCase):
                 str(root / "stream.json"),
             ]
             with (
-                patch.object(pilot, "PinnedHueClient", client),
-                patch.object(pilot, "handler_for", capture_handler),
-                patch.object(pilot, "ThreadingHTTPServer", side_effect=StopBeforeIO),
-                patch.object(pilot.lan, "send_to_target", lambda *_: True),
+                patch.object(adapter, "PinnedHueClient", client),
+                patch.object(adapter, "handler_for", capture_handler),
+                patch.object(adapter, "ThreadingHTTPServer", side_effect=StopBeforeIO),
+                patch.object(adapter.lan, "send_to_target", lambda *_: True),
             ):
                 with self.assertRaises(StopBeforeIO):
-                    pilot.main(args)
+                    adapter.main(args)
         store = captured["preview"]
         self.assertIs(captured["strip"].preview, store)
         self.assertTrue(all(proxy.preview is store for proxy in captured["plays"].values()))

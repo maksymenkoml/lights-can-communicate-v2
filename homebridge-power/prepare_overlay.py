@@ -1,4 +1,4 @@
-"""Prepare an exact-version, identity-preserving pilot overlay; never install it."""
+"""Prepare an exact-version, identity-preserving power overlay; never install it."""
 
 import argparse
 import hashlib

@@ -9,10 +9,10 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
-import live_adapter as pilot  # noqa: E402
+import live_adapter as adapter  # noqa: E402
 from entertainment_stream import CHANNELS, VideoLease  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
-from live_adapter import PilotController  # noqa: E402
+from live_adapter import GoveeController  # noqa: E402
 from test_entertainment_stream import envelope as legacy_envelope  # noqa: E402
 from test_hue_strip_proxy import FakeHue  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, command, targets  # noqa: E402
@@ -65,7 +65,7 @@ class CompositionOutputTests(unittest.TestCase):
         devices = targets()
         for device in devices:
             device['segment_count'] = 7
-        self.controller = PilotController(
+        self.controller = GoveeController(
             devices, sender=lambda device, name, data: self.sent.append(
                 (device['side'], name, copy.deepcopy(data))) or True,
             clock=lambda: self.now, wall_clock=lambda: 1000, layout_store=self.layout)
@@ -230,26 +230,26 @@ class CompositionOutputTests(unittest.TestCase):
             pass
 
         captured = []
-        constructor = pilot.PilotController
+        constructor = adapter.GoveeController
 
         def capture(*args, **kwargs):
             result = constructor(*args, **kwargs)
             captured.extend(copy.deepcopy(result.targets))
             return result
 
-        previous_config = pilot.lan.CONFIG
+        previous_config = adapter.lan.CONFIG
         try:
             with TemporaryDirectory(prefix='tmp_composition_startup_') as folder:
                 root = Path(folder)
                 (root / 'targets.json').write_text(json.dumps({'targets': devices}))
                 (root / 'token').write_text('a' * 48)
-                with (patch.object(pilot, 'LayoutStore', return_value=layout),
-                      patch.object(pilot, 'GRADIENT_MODE', False),
-                      patch.object(pilot, 'PilotController', side_effect=capture),
-                      patch.object(pilot, 'ThreadingHTTPServer', side_effect=BeforeServer)):
+                with (patch.object(adapter, 'LayoutStore', return_value=layout),
+                      patch.object(adapter, 'GRADIENT_MODE', False),
+                      patch.object(adapter, 'GoveeController', side_effect=capture),
+                      patch.object(adapter, 'ThreadingHTTPServer', side_effect=BeforeServer)):
                     with self.assertRaises(BeforeServer):
-                        pilot.main(['--targets', str(root / 'targets.json'),
+                        adapter.main(['--targets', str(root / 'targets.json'),
                                     '--token-file', str(root / 'token'), '--state-dir', str(root)])
         finally:
-            pilot.lan.CONFIG = previous_config
+            adapter.lan.CONFIG = previous_config
         return captured

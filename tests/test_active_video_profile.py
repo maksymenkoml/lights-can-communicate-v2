@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_stream import GRADIENT_MODE, VideoLease  # noqa: E402
-from live_adapter import PilotController  # noqa: E402
+from live_adapter import GoveeController  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 from test_video_output import FakeProxy, FakeRelay  # noqa: E402
@@ -21,7 +21,7 @@ class ActiveVideoProfileTests(unittest.TestCase):
         self.sent = []
         self.now = 10
         self.gate = PowerOwner(selected, clock=lambda: 10, wall_clock=lambda: 1000)
-        self.controller = PilotController(
+        self.controller = GoveeController(
             selected,
             sender=self.gate.wrap(
                 lambda device, command, data: self.sent.append((device["device"], command)) or True

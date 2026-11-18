@@ -14,7 +14,7 @@ from lights_can_communicate_v2_core import cli
 from lights_can_communicate_v2_core.config import ConfigError, load_config
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-import live_adapter as pilot  # noqa: E402
+import live_adapter as adapter  # noqa: E402
 import test_native_profile_integration as integration  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
@@ -44,7 +44,7 @@ class ExplicitSelectionTests(unittest.TestCase):
                          "--token-file", str(root / "missing-token"),
                          "--hue-config", str(root / "missing-hue.json")]
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
-                pilot.main(arguments)
+                adapter.main(arguments)
             self.assertEqual(caught.exception.code, 2)
             self.assertEqual(list(root.iterdir()), [])
 

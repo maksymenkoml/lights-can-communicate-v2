@@ -1,4 +1,4 @@
-"""Coalescing authenticated bridge-to-host transition delivery for the pilot."""
+"""Coalescing authenticated bridge-to-host transition delivery for the live adapter."""
 
 import copy
 import json

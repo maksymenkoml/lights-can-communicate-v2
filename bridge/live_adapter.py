@@ -1,4 +1,4 @@
-"""Host-side pilot: authenticated Hue transition targets -> two pinned Govee."""
+"""Host-side live adapter: authenticated Hue transition targets -> two pinned Govee."""
 
 import argparse
 import colorsys
@@ -20,6 +20,7 @@ if Path(__file__).is_file():
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
+from govee_transport import GoveeTransport  # noqa: E402
 from homekit_power import (  # noqa: E402
     HomeKitPower,
     HomeKitRequests,
@@ -29,7 +30,6 @@ from homekit_power import (  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
-from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
@@ -175,7 +175,7 @@ RAZER_IDLE_SECONDS = 45
 RAZER_LOST_SECONDS = 5
 
 
-class PilotController:
+class GoveeController:
     def __init__(
         self,
         targets,
@@ -200,7 +200,7 @@ class PilotController:
             "left",
             "right",
         }:
-            raise ValueError("The pilot requires exactly the selected left and right targets")
+            raise ValueError("The adapter requires exactly the selected left and right targets")
         self.by_side = {item["side"]: item for item in self.targets}
         self.packet_rates = {
             item["side"]: number(item["max_commands_per_second"], 1, 100)
@@ -853,7 +853,7 @@ def main(argv=None, service_info=None):
         sender = power_owner.wrap(sender)
     elif args.power_authority == "homekit":
         raise ValueError("HomeKit power requires a power owner credential")
-    controller = PilotController(config["targets"],
+    controller = GoveeController(config["targets"],
                                  sender=preview.wrap_govee(sender, "scene-output"),
                                  layout_store=layout_store,
                                  power_owner=power_owner,
@@ -881,7 +881,7 @@ def main(argv=None, service_info=None):
         if stream_config.get("bridge") != hue_config["bridge"]:
             raise ValueError("Stream and scene bridge must match")
         video = VideoOutput(
-            PilotController(config["targets"],
+            GoveeController(config["targets"],
                             sender=preview.wrap_govee(sender, "sync-output"),
                             layout_store=layout_store,
                             power_owner=power_owner),
@@ -960,28 +960,30 @@ def main(argv=None, service_info=None):
                              name="hue-discovery").start()
         for role, proxy in hue_proxies.items():
             threading.Thread(
-                target=proxy.run, args=(stop,), daemon=True, name="pilot-" + role
+                target=proxy.run, args=(stop,), daemon=True, name="adapter-" + role
             ).start()
         if video is not None:
             video_thread = threading.Thread(
-                target=video.run, args=(video_stop,), name="pilot-video"
+                target=video.run, args=(video_stop,), name="adapter-video"
             )
             video_thread.start()
         threading.Thread(target=sync_off.run, args=(stop,), daemon=True,
-                         name="pilot-sync-off").start()
-        transport = PilotTransport(
+                         name="adapter-sync-off").start()
+        transport = GoveeTransport(
             controller.targets,
             publish_statuses,
             remember=lambda: lan.save_config({"targets": controller.targets}),
             discovery=catalog,
         )
         threading.Thread(
-            target=transport.run, args=(stop,), daemon=True, name="pilot-status"
+            target=transport.run, args=(stop,), daemon=True, name="adapter-status"
         ).start()
-        http_thread = threading.Thread(target=server.serve_forever, daemon=True, name="pilot-http")
+        http_thread = threading.Thread(
+            target=server.serve_forever, daemon=True, name="adapter-http"
+        )
         http_thread.start()
         print(
-            f"Pilot adapter on port {args.port}; two pinned Govee; "
+            f"Live adapter on port {args.port}; two pinned Govee; "
             + ("HomeKit power authority." if homekit is not None else "no power commands."),
             flush=True,
         )
@@ -999,7 +1001,7 @@ def main(argv=None, service_info=None):
                 deadline = time.monotonic()
             stop.wait(max(0, delay))
     except KeyboardInterrupt:
-        print("Pilot adapter stopped.", flush=True)
+        print("Live adapter stopped.", flush=True)
     finally:
         # Restore lamps switched off for Sync while native readings are still live.
         sync_off.close()

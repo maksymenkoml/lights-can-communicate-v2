@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_power_requests import HuePowerRequests  # noqa: E402
-from live_adapter import PilotController, handler_for  # noqa: E402
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from power_requests import (  # noqa: E402
     PowerRequests,
@@ -27,7 +27,7 @@ from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 class PowerRequestTests(unittest.TestCase):
     def setUp(self):
         self.gate = PowerOwner(targets())
-        self.controller = PilotController(targets(), power_owner=self.gate)
+        self.controller = GoveeController(targets(), power_owner=self.gate)
         handler = handler_for(self.controller, "adapter-key", power_owner=self.gate,
                               power_token="owner-key")
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -160,7 +160,7 @@ class PowerRequestTests(unittest.TestCase):
 class PowerRequestOwnerIntegrationTests(unittest.TestCase):
     def test_hue_commands_use_coordinated_setter_with_actual_heartbeat_and_native_proof(self):
         gate = PowerOwner(targets())
-        controller = PilotController(targets(), power_owner=gate)
+        controller = GoveeController(targets(), power_owner=gate)
         physical = {"left": False, "right": False, "third": True}
         writes = []
         parent = handler_for(controller, "adapter-key", power_owner=gate, power_token="a" * 48)

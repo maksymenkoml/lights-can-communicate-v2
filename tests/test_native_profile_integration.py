@@ -19,7 +19,7 @@ from lights_can_communicate_v2_core.native_profile import NativeHueProfile, Nati
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import hue_entertainment_relay as relay_module  # noqa: E402
-import live_adapter as pilot  # noqa: E402
+import live_adapter as adapter  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
 from test_hue_entertainment_relay import FakeConnection  # noqa: E402
@@ -296,14 +296,14 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
     def capture_constructors(self, stack):
         objects = {"PinnedHueClient": [], "HueStripProxy": [], "HueEntertainmentRelay": []}
         for name in objects:
-            constructor = getattr(pilot, name)
+            constructor = getattr(adapter, name)
 
             def capture(*args, _name=name, _constructor=constructor, **kwargs):
                 result = _constructor(*args, **kwargs)
                 objects[_name].append(result)
                 return result
 
-            stack.enter_context(patch.object(pilot, name, side_effect=capture))
+            stack.enter_context(patch.object(adapter, name, side_effect=capture))
         return objects
 
     def assert_shared_profile(self, objects):
@@ -341,7 +341,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
             objects = self.capture_constructors(stack)
             loader = stack.enter_context(patch.object(NativeHueProfile, "load",
                                                       wraps=NativeHueProfile.load))
-            self.assertIs(cli.prepare(config), pilot)
+            self.assertIs(cli.prepare(config), adapter)
             loader.assert_called_once_with(self.profile_path)
         self.assert_shared_profile(objects)
         self.assertFalse(config.state_dir.exists())
@@ -387,17 +387,17 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
                      "--hue-config", str(self.root / "hue.json"), "--hue-play",
                      "--hue-stream-config", str(self.root / "stream.json"),
                      "--native-profile", str(self.profile_path)]
-        previous_lan_config = pilot.lan.CONFIG
-        self.addCleanup(setattr, pilot.lan, "CONFIG", previous_lan_config)
+        previous_lan_config = adapter.lan.CONFIG
+        self.addCleanup(setattr, adapter.lan, "CONFIG", previous_lan_config)
         with ExitStack() as stack:
             self.no_device_io(stack)
             objects = self.capture_constructors(stack)
             loader = stack.enter_context(patch.object(NativeHueProfile, "load",
                                                       wraps=NativeHueProfile.load))
-            stack.enter_context(patch.object(pilot, "ThreadingHTTPServer",
+            stack.enter_context(patch.object(adapter, "ThreadingHTTPServer",
                                             side_effect=BeforeServer))
             with self.assertRaises(BeforeServer):
-                pilot.main(arguments)
+                adapter.main(arguments)
             loader.assert_called_once_with(self.profile_path)
         self.assert_shared_profile(objects)
 
@@ -408,7 +408,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
                      "--hue-config", str(self.root / "hue.json"),
                      "--native-profile", str(self.profile_path)]
         with self.assertRaises(NativeProfileError):
-            pilot.main(arguments)
+            adapter.main(arguments)
         self.assertFalse(token.exists())
 
 
