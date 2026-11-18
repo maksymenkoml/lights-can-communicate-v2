@@ -249,7 +249,8 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
     def test_explicit_state_hold_blocks_start_even_when_targets_are_elsewhere(self):
         (self.state / "live-output-hold").write_text("Owner hold")
         result = self.run_archive("--config", str(self.config))
-        self.assertNotEqual(result.returncode, 0)
+        # A hold is intentional: exit 0 so a supervisor does not restart in a loop.
+        self.assertEqual(result.returncode, 0)
         self.assertIn("hold", result.stderr.lower())
         check = self.run_archive("--config", str(self.config), "--check")
         self.assertEqual(check.returncode, 0, check.stderr)

@@ -29,8 +29,14 @@ PILOT_MODULES = (
 )
 CORE_MODULES = (
     "__init__", "__main__", "config", "cli", "discovery", "hue_discovery", "live_preview",
-    "native_profile",
+    "native_profile", "services",
 )
+SETUP_FILES = {
+    "setup_studio.py": "server.py",
+    "static/index.html": "static/index.html",
+    "static/app.js": "static/app.js",
+    "static/style.css": "static/style.css",
+}
 
 
 def build(output):
@@ -45,6 +51,8 @@ def build(output):
             for name in CORE_MODULES
         }
     )
+    paths.update({name: root / "experiments/setup-studio" / source
+                  for name, source in SETUP_FILES.items()})
     files = {}
     for name, path in paths.items():
         if path.is_symlink() or not path.is_file():

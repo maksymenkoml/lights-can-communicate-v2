@@ -2,10 +2,19 @@
 
 import ipaddress
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 MAX_BYTES = 65536
+GATEWAY_IMAGE = (
+    "diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba"
+)
+_IMAGE = re.compile(r"diyhue/core@sha256:[0-9a-f]{64}\Z")
+_MAC = re.compile(r"[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}\Z")
+_CONTAINER = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
+_TIMEZONE = re.compile(r"[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}\Z")
 
 
 class ConfigError(ValueError):
@@ -47,6 +56,99 @@ def _path(base, value, label):
     return (candidate if candidate.is_absolute() else base / candidate).resolve()
 
 
+def _address(value, label):
+    try:
+        if not isinstance(value, str):
+            raise ConfigError(f"Expected a textual {label}")
+        address = ipaddress.IPv4Address(value)
+    except (ValueError, TypeError) as error:
+        raise ConfigError(f"Invalid {label}") from error
+    if address.is_multicast or not (address.is_private or address.is_unspecified):
+        raise ConfigError(f"{label.capitalize()} must be local")
+    return str(address)
+
+
+def _port(value, label):
+    if type(value) is not int or not 1 <= value <= 65535:
+        raise ConfigError(f"Invalid {label}")
+    return value
+
+
+@dataclass(frozen=True)
+class SetupConfig:
+    bind: str = "127.0.0.1"
+    port: int = 19881
+
+
+@dataclass(frozen=True)
+class GatewayConfig:
+    lan_ip: str
+    mac: str
+    adapter_url: str
+    container_name: str = "smart-lighting-gateway"
+    image: str = GATEWAY_IMAGE
+    live_output: bool = False
+    hue_strip: bool = False
+    hue_play: bool = False
+    entertainment: bool = False
+    gradient: bool = False
+    timezone: str = "America/Toronto"
+
+    def environment(self):
+        flag = {True: "true", False: "false"}
+        return {
+            "IP": self.lan_ip,
+            "MAC": self.mac,
+            "CONFIG_PATH": "/opt/hue-emulator/config",
+            "DEBUG": "false",
+            "TZ": self.timezone,
+            "PROBE_LIVE_OUTPUT": flag[self.live_output],
+            "PROBE_ADAPTER_URL": self.adapter_url,
+            "PROBE_HUE_STRIP": flag[self.hue_strip],
+            "PROBE_HUE_PLAY": flag[self.hue_play],
+            "PROBE_ENTERTAINMENT": flag[self.entertainment],
+            "PROBE_GOVEE_GRADIENT": flag[self.gradient],
+        }
+
+
+def _setup(value):
+    _fields(value, set(), {"bind", "port"}, "setup")
+    return SetupConfig(bind=_address(value.get("bind", "127.0.0.1"), "setup bind address"),
+                       port=_port(value.get("port", 19881), "setup port"))
+
+
+def _gateway(value, adapter_port):
+    flags = ("live_output", "hue_strip", "hue_play", "entertainment", "gradient")
+    _fields(value, {"lan_ip", "mac"},
+            {"container_name", "image", "adapter_url", "timezone", *flags}, "gateway")
+    for field in flags:
+        if type(value.get(field, False)) is not bool:
+            raise ConfigError(f"Expected boolean {field}")
+    lan_ip = _address(value["lan_ip"], "gateway LAN address")
+    if ipaddress.IPv4Address(lan_ip).is_unspecified:
+        raise ConfigError("Gateway LAN address must be specific")
+    if not isinstance(value["mac"], str) or not _MAC.match(value["mac"]):
+        raise ConfigError("Invalid gateway MAC address")
+    name = value.get("container_name", "smart-lighting-gateway")
+    if not isinstance(name, str) or not _CONTAINER.match(name):
+        raise ConfigError("Invalid gateway container name")
+    image = value.get("image", GATEWAY_IMAGE)
+    if not isinstance(image, str) or not _IMAGE.match(image):
+        raise ConfigError("Gateway image must be a pinned diyHue digest")
+    timezone = value.get("timezone", "America/Toronto")
+    if not isinstance(timezone, str) or not _TIMEZONE.match(timezone):
+        raise ConfigError("Invalid gateway timezone")
+    url = value.get("adapter_url", f"http://host.docker.internal:{adapter_port}")
+    parsed = urlsplit(url) if isinstance(url, str) else None
+    if (parsed is None or parsed.scheme != "http" or not parsed.hostname
+            or parsed.username or parsed.password or parsed.path not in ("", "/")
+            or parsed.query or parsed.fragment):
+        raise ConfigError("Invalid gateway adapter URL")
+    return GatewayConfig(lan_ip=lan_ip, mac=value["mac"].lower(), adapter_url=url.rstrip("/"),
+                         container_name=name, image=image, timezone=timezone,
+                         **{field: value.get(field, False) for field in flags})
+
+
 @dataclass(frozen=True)
 class ServiceConfig:
     state_dir: Path
@@ -60,6 +162,8 @@ class ServiceConfig:
     hue_play: bool
     hue_stream_config_file: Path | None
     native_profile_file: Path | None = None
+    setup: SetupConfig = SetupConfig()
+    gateway: GatewayConfig | None = None
 
     def arguments(self):
         result = [
@@ -90,7 +194,8 @@ class ServiceConfig:
 def load_config(path):
     path = Path(path).resolve()
     data = read_json(path, "service configuration")
-    _fields(data, {"version", "state_dir", "adapter"}, set(), "service configuration")
+    _fields(data, {"version", "state_dir", "adapter"}, {"setup", "gateway"},
+            "service configuration")
     if type(data["version"]) is not int or data["version"] != 1:
         raise ConfigError("Unsupported service configuration version")
     options = data["adapter"]
@@ -100,19 +205,13 @@ def load_config(path):
     for field in ("gradient", "hue_play"):
         if type(options.get(field, False)) is not bool:
             raise ConfigError(f"Expected boolean {field}")
-    port = options.get("port", 19880)
-    if type(port) is not int or not 1 <= port <= 65535:
-        raise ConfigError("Invalid adapter port")
-    try:
-        raw_bind = options.get("bind", "127.0.0.1")
-        if not isinstance(raw_bind, str):
-            raise ConfigError("Expected a textual bind address")
-        bind = str(ipaddress.IPv4Address(raw_bind))
-    except (ValueError, TypeError) as error:
-        raise ConfigError("Invalid adapter bind address") from error
-    address = ipaddress.IPv4Address(bind)
-    if address.is_multicast or not (address.is_private or address.is_unspecified):
-        raise ConfigError("Adapter bind must be local")
+    port = _port(options.get("port", 19880), "adapter port")
+    bind = _address(options.get("bind", "127.0.0.1"), "adapter bind address")
+    setup = _setup(data.get("setup", {}))
+    gateway = _gateway(data["gateway"], port) if "gateway" in data else None
+    if gateway is not None and ipaddress.IPv4Address(bind).is_loopback:
+        # A container reaches the host through its network, never its loopback.
+        raise ConfigError("Gateway requires an adapter bind reachable from its container")
     resolved = {key: _path(path.parent, options[key], key) for key in paths}
     resolved.update(
         {
@@ -136,5 +235,7 @@ def load_config(path):
         port=port,
         gradient=options.get("gradient", False),
         hue_play=options.get("hue_play", False),
+        setup=setup,
+        gateway=gateway,
         **resolved,
     )

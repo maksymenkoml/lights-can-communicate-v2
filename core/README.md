@@ -48,6 +48,53 @@ reachability, native power confirmation or an authenticated Homebridge owner
 heartbeat. An active `state_dir/live-output-hold` is reported by check mode and
 blocks actual startup. `desk-layout.json` is read from that same state directory.
 
+## Managed service release
+
+A release directory holds everything the services run, without a checkout:
+
+```sh
+python3 -B -m smart_lighting_core.dist --output /new/path/releases/0.1.0.devN
+R=/new/path/releases/0.1.0.devN
+python3 -I -B $R/smart-lighting.pyz services --config /private/core.json \
+  --release $R --output /new/path/services-0.1.0.devN
+```
+
+The release contains `smart-lighting.pyz` (adapter and Setup Studio),
+`gateway/` (the virtual bridge modules) and `manifest.json` (version and
+SHA256 per file). `services` refuses a release of another version and writes
+into a new directory only:
+
+- `com.smart-lighting.adapter.plist` and `com.smart-lighting.setup.plist`:
+  launchd agents that start at login and restart only after a non-zero exit.
+  Logs go to `state_dir/logs`, which `services` creates because launchd does
+  not create missing log directories.
+- `gateway-compose.json` (only with a `gateway` section): the pinned diyHue
+  image with `restart: unless-stopped`, read-only module mounts from the
+  release, `state_dir` as its configuration directory and a health check.
+
+Commands of the archive: `adapter` (default), `setup` (Setup Studio on
+`setup.bind:setup.port`, default `127.0.0.1:19881`), `ready` (exit 0 once the
+adapter `/status` and, if configured, the bridge `/api/config` answer locally;
+prints a credential-free summary) and `services`. An active
+`state_dir/live-output-hold` makes `adapter` exit 0 without output, so the
+supervisor does not restart it in a loop.
+
+Optional configuration sections:
+
+```json
+"setup": {"bind": "127.0.0.1", "port": 19881},
+"gateway": {"lan_ip": "192.168.1.20", "mac": "02:00:00:00:00:01",
+            "live_output": true, "hue_strip": true, "hue_play": true,
+            "entertainment": true, "gradient": true}
+```
+
+`gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
+digest), `adapter_url` (default `http://host.docker.internal:<adapter port>`)
+and `timezone`. With a `gateway` section the adapter `bind` must not be a
+loopback address: the container reaches the host through its network. Rendering and readiness never load, start or stop services;
+loading the agents and starting the compose project is a separate, owner
+authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
+
 ## Compatibility and operation
 
 The `experiments/hue-bridge/live_adapter.py` command retains its existing flags.
