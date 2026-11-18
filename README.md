@@ -11,15 +11,19 @@ This is a local experiment, not a background service.
 
 ## Light Studio
 
-[Light Studio](experiments/setup-studio/README.md) is the local UI for arranging
-desk lights on a 5 cm grid and adjusting their brightness corrections.
-Its frontend is in `experiments/setup-studio/static/` and its local server is
-`experiments/setup-studio/server.py`.
+[Light Studio](experiments/setup-studio/README.md) is the local UI for the desk
+lights. It places lamps on a 5 cm grid and keeps two configurations: one for
+Sync and one for scenes without Sync. Each configuration has its own brightness
+corrections and fade zone. A lamp card can blink the lamp, rename a desk lamp,
+and choose whether the lamp follows Sync, keeps its own light or switches off
+during Sync. Its frontend is in `experiments/setup-studio/static/` and its
+local server is `experiments/setup-studio/server.py`.
 
-![Light Studio showing the desk, monitor strip, two Govee floor lamps and three Hue Play bars](docs/images/light-studio.png)
+![Light Studio in the Sync view: a colour-wheel demo picture on the monitor and the colours that Sync would send to the two Govee floor lamps and the monitor strip](docs/images/light-studio.png)
 
-*Current interface with the default six-light layout, captured locally without
-connected hardware. Sync status is unknown in this offline preview.*
+*Sync view with the default six-light layout, captured locally without connected
+hardware. Without running Sync, the monitor shows a demo picture and the lamps
+preview the colours that Sync would send.*
 
 ## Development
 
