@@ -13,9 +13,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from smart_lighting_core import cli
-from smart_lighting_core.config import ConfigError, load_config
-from smart_lighting_core.native_profile import NativeHueProfile, NativeProfileError
+from lights_can_communicate_v2_core import cli
+from lights_can_communicate_v2_core.config import ConfigError, load_config
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
 import hue_entertainment_relay as relay_module  # noqa: E402

@@ -1,12 +1,12 @@
 {
-  "pluginAlias": "LightsCanCommunicate",
+  "pluginAlias": "LightsCanCommunicateV2",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "The core endpoint and credential are read from lights-can-communicate.json (mode 0600) in the Homebridge storage directory, never from this configuration.",
+  "headerDisplay": "The core endpoint and credential are read from lights-can-communicate-v2.json (mode 0600) in the Homebridge storage directory, never from this configuration.",
   "schema": {
     "type": "object",
     "properties": {
-      "name": { "title": "Name", "type": "string", "default": "Lights Can Communicate" },
+      "name": { "title": "Name", "type": "string", "default": "Lights Can Communicate v2" },
       "lamps": {
         "title": "Lamps",
         "type": "array",

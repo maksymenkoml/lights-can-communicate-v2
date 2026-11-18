@@ -27,7 +27,7 @@ test('missing optional config and unselected accessory preserve original setter 
   try {
     const original = async () => 'original';
     assert.equal(coordinatedSetter(control(folder, RIGHT), original), original);
-    writeFileSync(path.join(folder, 'smart-lighting-power.json'), 'invalid config');
+    writeFileSync(path.join(folder, 'lights-can-communicate-v2-power.json'), 'invalid config');
     assert.equal(coordinatedSetter(control(folder, 'unselected-third'), original), original);
     const selected = control(folder, RIGHT);
     assert.equal(coordinatedSetter(selected, original), original);
@@ -55,7 +55,7 @@ test('existing setter receives original values with power pause before Off over 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let device;
   try {
-    writeFileSync(path.join(folder, 'smart-lighting-power.json'), JSON.stringify({
+    writeFileSync(path.join(folder, 'lights-can-communicate-v2-power.json'), JSON.stringify({
       version: 1, endpoint: `http://127.0.0.1:${server.address().port}/power-owner`,
       token: 'b'.repeat(48),
     }));
@@ -85,7 +85,7 @@ test('native adaptive/color writers cannot bypass a saved Off intent', async () 
   const folder = mkdtempSync(path.join(tmpdir(), 'tmp_power_hook_'));
   let device;
   try {
-    writeFileSync(path.join(folder, 'smart-lighting-power.json'), JSON.stringify({
+    writeFileSync(path.join(folder, 'lights-can-communicate-v2-power.json'), JSON.stringify({
       version: 1, endpoint: 'http://127.0.0.1:9/power-owner', token: 'b'.repeat(48),
     }));
     device = control(folder, RIGHT, false);
@@ -111,7 +111,7 @@ test('Off invalidates a debounced brightness intent instead of letting it wake t
   let release;
   const held = new Promise(resolve => { release = resolve; });
   try {
-    writeFileSync(path.join(folder, 'smart-lighting-power.json'), JSON.stringify({
+    writeFileSync(path.join(folder, 'lights-can-communicate-v2-power.json'), JSON.stringify({
       version: 1, endpoint: 'http://127.0.0.1:9/power-owner', token: 'b'.repeat(48),
     }));
     device = control(folder, RIGHT, true);

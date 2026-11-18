@@ -395,7 +395,7 @@ export class PowerOwnerClient {
         catch (error) {
           if (error instanceof IntentRejected) throw error;
           if (observedOpposite) throw Error('Device power could not be confirmed');
-          this.warn(`Smart Lighting ${role} power unconfirmed: coordinator unavailable; original Home control retained.`);
+          this.warn(`Lights Can Communicate v2 ${role} power unconfirmed: coordinator unavailable; original Home control retained.`);
           return false;
         }
         if (this.closed || this.closing) throw Error('Power owner closed');

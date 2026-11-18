@@ -35,11 +35,11 @@ from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from sync_health import export as export_diagnostics  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
-import smart_lighting as lan  # noqa: E402
-from smart_lighting_core.discovery import DeviceCatalog  # noqa: E402
-from smart_lighting_core.hue_discovery import HueDiscoveryReader  # noqa: E402
-from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
-from smart_lighting_core.native_profile import NativeHueProfile  # noqa: E402
+import lights_can_communicate_v2 as lan  # noqa: E402
+from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
+from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # noqa: E402
+from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
 
 def number(value, low, high):

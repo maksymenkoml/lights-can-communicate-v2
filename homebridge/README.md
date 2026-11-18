@@ -1,9 +1,9 @@
-# homebridge-lights-can-communicate
+# homebridge-lights-can-communicate-v2
 
-Homebridge platform `LightsCanCommunicate` for the two desk Govee H6076 lamps.
+Homebridge platform `LightsCanCommunicateV2` for the two desk Govee H6076 lamps.
 It replaces the version-specific overlay of `@homebridge-plugins/homebridge-govee`
 (see `../experiments/homebridge-power`). Design:
-`../docs/design/2026-11-17-homebridge-lights-can-communicate.md`.
+`../docs/design/2026-11-17-homebridge-lights-can-communicate-v2.md`.
 
 ## How it works
 
@@ -32,7 +32,7 @@ It replaces the version-specific overlay of `@homebridge-plugins/homebridge-gove
 
 ```json
 {
-  "platform": "LightsCanCommunicate",
+  "platform": "LightsCanCommunicateV2",
   "lamps": [
     {"role": "left", "deviceId": "<Govee device ID>", "name": "Mykola office L"},
     {"role": "right", "deviceId": "<Govee device ID>", "name": "Mykola office R"}
@@ -41,7 +41,7 @@ It replaces the version-specific overlay of `@homebridge-plugins/homebridge-gove
 }
 ```
 
-`lights-can-communicate.json` in the Homebridge storage directory, mode 0600:
+`lights-can-communicate-v2.json` in the Homebridge storage directory, mode 0600:
 
 ```json
 {"version": 1, "endpoint": "http://<core address>:19880", "token": "<power-owner credential>"}
@@ -60,14 +60,14 @@ closed, so the overlay can no longer obtain color permission.
 3. Stop Homebridge. In `config.json`, give the Govee platform a new
    `_bridge` username and port and add both lamps to `lightDevices` with
    `"ignoreDevice": true` (Govee plugin 11.40.0 option); add
-   the `LightsCanCommunicate` platform with the old Govee `_bridge` values.
+   the `LightsCanCommunicateV2` platform with the old Govee `_bridge` values.
    Never start the old bridge identity without the two lamps: HAP-NodeJS
    expires unused identifiers when it saves the cache.
 4. Switch the core to the HomeKit authority and restart it.
 5. Start Homebridge. Check Home Off/On, brightness, color and a Home scene for
    both lamps, and Hue App On/Off. Add Table Lamp from the new bridge once.
 6. Reinstall the original Govee release to remove the overlay, then delete
-   `smart-lighting-power.json` and `smart-lighting-power-state.json`.
+   `lights-can-communicate-v2-power.json` and `lights-can-communicate-v2-power-state.json`.
 
 Rollback: stop Homebridge, restore the backed-up `config.json`, switch the
 core back to `power_authority: "owner"`, start both. The Govee plugin regains

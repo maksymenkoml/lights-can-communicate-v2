@@ -16,9 +16,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from smart_lighting_core import __version__, services
-from smart_lighting_core.config import GATEWAY_IMAGE, ConfigError, load_config
-from smart_lighting_core.dist import build_release
+from lights_can_communicate_v2_core import __version__, services
+from lights_can_communicate_v2_core.config import GATEWAY_IMAGE, ConfigError, load_config
+from lights_can_communicate_v2_core.dist import build_release
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "a" * 48
@@ -82,7 +82,7 @@ class ManagedServiceTests(unittest.TestCase):
         self.assertEqual((config.setup.bind, config.setup.port),
                          ("127.0.0.1", self.value["setup"]["port"]))
         self.assertEqual(config.gateway.image, GATEWAY_IMAGE)
-        self.assertEqual(config.gateway.container_name, "smart-lighting-gateway")
+        self.assertEqual(config.gateway.container_name, "lights-can-communicate-v2-gateway")
         self.assertEqual(config.gateway.adapter_url,
                          f"http://host.docker.internal:{self.value['adapter']['port']}")
         self.assertEqual(config.gateway.environment()["PROBE_HUE_STRIP"], "false")
@@ -168,7 +168,8 @@ class ManagedServiceTests(unittest.TestCase):
                                   "--release", str(self.release), "--output", str(output))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["rendered"], [
-            "com.smart-lighting.adapter.plist", "com.smart-lighting.setup.plist",
+            "com.lights-can-communicate-v2.adapter.plist",
+            "com.lights-can-communicate-v2.setup.plist",
             "gateway-compose.json"])
         state = self.state.resolve()
         for label, command in ((services.ADAPTER_LABEL, "adapter"),
@@ -187,7 +188,7 @@ class ManagedServiceTests(unittest.TestCase):
         gateway = compose["services"]["gateway"]
         self.assertEqual(gateway["restart"], "unless-stopped")
         self.assertEqual(gateway["image"], GATEWAY_IMAGE)
-        self.assertEqual(gateway["container_name"], "smart-lighting-gateway")
+        self.assertEqual(gateway["container_name"], "lights-can-communicate-v2-gateway")
         self.assertEqual(gateway["volumes"][0], f"{state}:/opt/hue-emulator/config")
         self.assertEqual(len(gateway["volumes"]), 1 + len(services.GATEWAY_MODULES))
         for volume in gateway["volumes"][1:]:

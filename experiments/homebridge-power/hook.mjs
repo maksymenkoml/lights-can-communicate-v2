@@ -179,7 +179,7 @@ export function coordinatedNativeWrites(control, id, client, original) {
         }
         if (!intent) {
           if (!suppressed.has(name)) {
-            control.accessory.log?.(`Smart Lighting suppressed ${name} while power intent is Off.`);
+            control.accessory.log?.(`Lights Can Communicate v2 suppressed ${name} while power intent is Off.`);
             suppressed.add(name);
           }
           return;
@@ -222,7 +222,7 @@ export function coordinatedSetter(control, original) {
   let client;
   try {
     const storage = control.platform.api.user.storagePath();
-    const configPath = path.join(storage, 'smart-lighting-power.json');
+    const configPath = path.join(storage, 'lights-can-communicate-v2-power.json');
     if (!existsSync(configPath)) return original;
     client = clients.get(storage);
     if (!client) {
@@ -230,7 +230,7 @@ export function coordinatedSetter(control, original) {
       if (config.version !== 1 || Object.keys(config).some(key =>
         !['version', 'endpoint', 'token'].includes(key))) throw Error('Invalid owner config');
       client = new PowerOwnerClient({ ...config,
-        statePath: path.join(storage, 'smart-lighting-power-state.json'),
+        statePath: path.join(storage, 'lights-can-communicate-v2-power-state.json'),
         confirmReadback: true,
       }, { warn: message => control.accessory.logWarn(message) });
       clients.set(storage, client);
@@ -243,7 +243,7 @@ export function coordinatedSetter(control, original) {
     client.start();
   } catch {
     if (client) void client.close();
-    control.accessory.logWarn('Smart Lighting power coordination unavailable; original Home control retained.');
+    control.accessory.logWarn('Lights Can Communicate v2 power coordination unavailable; original Home control retained.');
     return original;
   }
   return coordinatedNativeWrites(control, id, client, original);

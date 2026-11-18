@@ -10,7 +10,11 @@ import uuid
 from collections import deque
 
 MAGIC = b"HueStream"
-GROUP_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/DeskEntertainment"))
+# Frozen: seeds the persistent identities of the virtual Hue lights and the
+# entertainment area that the Hue app and Sync Box are paired with. The
+# project rename must not change them.
+IDENTITY_NAMESPACE = "smart-lighting-probe"
+GROUP_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/DeskEntertainment"))
 AREA_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, GROUP_ID + "entertainment_configuration"))
 GRADIENT_MODE = os.environ.get("PROBE_GOVEE_GRADIENT", "false").lower() == "true"
 CHANNELS = set(range(18 if GRADIENT_MODE else 14))

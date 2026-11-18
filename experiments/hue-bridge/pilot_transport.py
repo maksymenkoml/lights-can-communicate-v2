@@ -5,7 +5,7 @@ import select
 import socket
 import time
 
-import smart_lighting as lan
+import lights_can_communicate_v2 as lan
 
 
 class PilotTransport:

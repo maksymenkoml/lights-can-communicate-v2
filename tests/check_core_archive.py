@@ -41,7 +41,7 @@ CONTRACTS = [
 ]
 RUNTIME = [
     "live_adapter",
-    "smart_lighting",
+    "lights_can_communicate_v2",
     "desk_layout",
     "entertainment_stream",
     "govee_segments",
@@ -53,7 +53,7 @@ RUNTIME = [
     "power_requests",
     "video_output",
     "bridge_output",
-    "smart_lighting_core.native_profile",
+    "lights_can_communicate_v2_core.native_profile",
     "stream_http",
     "stream_diagnostics",
     "sync_health",
@@ -75,7 +75,8 @@ def main():
     with TemporaryDirectory(prefix="tmp_core_archive_contract_") as folder:
         artifact = Path(folder) / "adapter.pyz"
         subprocess.run(
-            [sys.executable, "-B", "-m", "smart_lighting_core.build", "--output", str(artifact)],
+            [sys.executable, "-B", "-m", "lights_can_communicate_v2_core.build",
+             "--output", str(artifact)],
             check=True,
             cwd=ROOT,
         )

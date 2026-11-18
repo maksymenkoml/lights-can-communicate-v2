@@ -11,9 +11,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from smart_lighting_core import __version__, services
-from smart_lighting_core.dist import STATE_SCHEMAS, build_release
-from smart_lighting_core.install import Installation, InstallError, verify
+from lights_can_communicate_v2_core import __version__, services
+from lights_can_communicate_v2_core.dist import STATE_SCHEMAS, build_release
+from lights_can_communicate_v2_core.install import Installation, InstallError, verify
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
 from desk_layout import validate_layout  # noqa: E402

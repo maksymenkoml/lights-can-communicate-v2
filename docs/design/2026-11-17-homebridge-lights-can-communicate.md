@@ -46,9 +46,9 @@ account (cloud) and LAN. Accessory UUID = `hap.uuid.generate(deviceId)`.
 
 ## Design
 
-### Plugin `homebridge-lights-can-communicate` (`homebridge/` in this repository)
+### Plugin `homebridge-lights-can-communicate-v2` (`homebridge/` in this repository)
 
-- Dynamic platform `LightsCanCommunicate`, ESM, no runtime dependencies besides the
+- Dynamic platform `LightsCanCommunicateV2`, ESM, no runtime dependencies besides the
   Homebridge API. Configuration: core URL, credential file in Homebridge
   storage, and the two lamps (`role`, Govee `deviceId`, `name`).
 - For each lamp it registers `uuid.generate(deviceId)` with the cached name,
@@ -82,7 +82,7 @@ account (cloud) and LAN. Accessory UUID = `hap.uuid.generate(deviceId)`.
 
 1. Back up `config.json`, `accessories/` and `persist/`.
 2. Stop the Govee child bridge. Move the Govee platform to a new child bridge
-   identity and add L/R to its ignored devices. Give the `LightsCanCommunicate`
+   identity and add L/R to its ignored devices. Give the `LightsCanCommunicateV2`
    platform the old Govee child bridge `username`, `pin` and `port`.
 3. Start both bridges. Home sees L/R unchanged on the old bridge. Table Lamp
    appears on the new bridge and is added in Home once.

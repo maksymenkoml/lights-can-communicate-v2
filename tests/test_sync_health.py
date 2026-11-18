@@ -29,7 +29,7 @@ def status(**video):
         for role in ("hue_left", "hue_center", "hue_right")
     }
     data = {
-        "service": {"name": "smart-lighting-adapter", "version": "0.1.0.dev9"},
+        "service": {"name": "lights-can-communicate-v2-adapter", "version": "0.1.0.dev9"},
         "targets": [
             {"side": side, "device": "PRIVATE_DEVICE-" + side, "target": "192.168.10.5" + side[0],
              "segment_count": 7, "status_age": 0.2,
@@ -165,7 +165,7 @@ class ExportTests(unittest.TestCase):
     def test_export_correlates_source_forwarding_native_and_power(self):
         result = sync_health.export(status())
         self.assertEqual(result["version"], 1)
-        self.assertEqual(result["service"], {"name": "smart-lighting-adapter",
+        self.assertEqual(result["service"], {"name": "lights-can-communicate-v2-adapter",
                                              "version": "0.1.0.dev9"})
         self.assertEqual(result["sync"]["reason"], "frames_received")
         self.assertEqual(result["video"]["frames_received"], 1000)

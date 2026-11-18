@@ -1,7 +1,7 @@
 services:
   bridge:
     image: diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba
-    container_name: tmp_smart_lighting_hue_probe
+    container_name: tmp_lights_can_communicate_v2_hue_probe
     restart: "no"
     entrypoint: ["python3", "-u", "/probe/bootstrap.py", "--docker"]
     environment:

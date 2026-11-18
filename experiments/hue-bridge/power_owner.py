@@ -5,7 +5,7 @@ import threading
 import time
 from collections import deque
 
-import smart_lighting as lan
+import lights_can_communicate_v2 as lan
 
 GRANT_SECONDS = 2.0
 MAX_MESSAGE_AGE = 0.5

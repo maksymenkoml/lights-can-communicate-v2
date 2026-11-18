@@ -12,10 +12,10 @@ native channels remain fixed until a separate enrollment component is implemente
 From the repository root:
 
 ```sh
-python3 -B -m smart_lighting_core.build --output /new/path/smart-lighting-adapter.pyz
-python3 -I -B /new/path/smart-lighting-adapter.pyz --version
-python3 -I -B /new/path/smart-lighting-adapter.pyz --config /private/core.json --check
-python3 -I -B /new/path/smart-lighting-adapter.pyz --config /private/core.json
+python3 -B -m lights_can_communicate_v2_core.build --output /new/path/lights-can-communicate-v2-adapter.pyz
+python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --version
+python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json --check
+python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json
 ```
 
 Python 3.10+ is required. Native video also requires OpenSSL; preflight checks its
@@ -53,18 +53,18 @@ blocks actual startup. `desk-layout.json` is read from that same state directory
 A release directory holds everything the services run, without a checkout:
 
 ```sh
-python3 -B -m smart_lighting_core.dist --output /new/path/releases/0.1.0.devN
+python3 -B -m lights_can_communicate_v2_core.dist --output /new/path/releases/0.1.0.devN
 R=/new/path/releases/0.1.0.devN
-python3 -I -B $R/smart-lighting.pyz services --config /private/core.json \
+python3 -I -B $R/lights-can-communicate-v2.pyz services --config /private/core.json \
   --release $R --output /new/path/services-0.1.0.devN
 ```
 
-The release contains `smart-lighting.pyz` (adapter and Setup Studio),
+The release contains `lights-can-communicate-v2.pyz` (adapter and Setup Studio),
 `gateway/` (the virtual bridge modules) and `manifest.json` (version and
 SHA256 per file). `services` refuses a release of another version and writes
 into a new directory only:
 
-- `com.smart-lighting.adapter.plist` and `com.smart-lighting.setup.plist`:
+- `com.lights-can-communicate-v2.adapter.plist` and `com.lights-can-communicate-v2.setup.plist`:
   launchd agents that start at login and restart only after a non-zero exit.
   Logs go to `state_dir/logs`, which `services` creates because launchd does
   not create missing log directories.
@@ -90,7 +90,7 @@ Optional configuration sections:
 
 `adapter.power_authority` selects who owns Govee power: `owner` (default, the
 remote heartbeat of the Homebridge overlay) or `homekit` (this adapter executes
-power for the `homebridge-lights-can-communicate` plugin through `/homekit`;
+power for the `homebridge-lights-can-communicate-v2` plugin through `/homekit`;
 `/power-owner` is then closed). See `homebridge/README.md`.
 
 `gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
@@ -118,7 +118,7 @@ the recorded old invocation. No second writer should be started as a probe.
 Do not move/recreate HomeKit or Hue pairing state for this component replacement.
 
 The isolated process fixture requires the pinned test image, `--network none`,
-no published ports/private mounts and `SMART_LIGHTING_ISOLATED_TESTS=1`. It starts
+no published ports/private mounts and `LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS=1`. It starts
 only synthetic Govee targets, reads real local HTTP status and delivers SIGTERM.
 Default developer tests skip this opt-in lifecycle fixture. The pre-push hook also runs `python3 -B tests/check_core_archive.py`, exercising
 existing protocol, power and video suites with archive imports in fourteen- and
@@ -259,10 +259,10 @@ The plugin refuses a core whose `/homekit` API version differs from its
 journal. Run every command from a release archive:
 
 ```sh
-python3 -I -B RELEASE/smart-lighting.pyz stage --release RELEASE --base BASE
-python3 -I -B BASE/current/smart-lighting.pyz activate VERSION --base BASE
-python3 -I -B BASE/current/smart-lighting.pyz rollback --base BASE
-python3 -I -B BASE/current/smart-lighting.pyz status --base BASE
+python3 -I -B RELEASE/lights-can-communicate-v2.pyz stage --release RELEASE --base BASE
+python3 -I -B BASE/current/lights-can-communicate-v2.pyz activate VERSION --base BASE
+python3 -I -B BASE/current/lights-can-communicate-v2.pyz rollback --base BASE
+python3 -I -B BASE/current/lights-can-communicate-v2.pyz status --base BASE
 ```
 
 `stage` does the following and never changes the active release:

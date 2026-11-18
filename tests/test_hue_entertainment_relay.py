@@ -7,7 +7,7 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
-from smart_lighting_core.native_profile import NativeHueProfile
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402

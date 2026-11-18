@@ -2,8 +2,8 @@ import path from 'node:path';
 import { CoreClient, CREDENTIAL_FILE, readCredentials } from './client.js';
 import { Lamp } from './lamp.js';
 
-export const PLUGIN_NAME = 'homebridge-lights-can-communicate';
-export const PLATFORM_NAME = 'LightsCanCommunicate';
+export const PLUGIN_NAME = 'homebridge-lights-can-communicate-v2';
+export const PLATFORM_NAME = 'LightsCanCommunicateV2';
 export const POLL_MS = 1000;
 export const UNAVAILABLE_MS = 5000;
 const ROLES = new Set(['left', 'right']);
@@ -24,7 +24,7 @@ export function validateLamps(lamps) {
   return lamps;
 }
 
-export class LightsCanCommunicatePlatform {
+export class LightsCanCommunicateV2Platform {
   constructor(log, config, api, { client, setInterval: every = setInterval, now = Date.now } = {}) {
     this.log = log;
     this.config = config ?? {};

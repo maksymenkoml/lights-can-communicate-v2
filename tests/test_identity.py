@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-import smart_lighting as lighting
+import lights_can_communicate_v2 as lighting
 
 LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
@@ -308,7 +308,7 @@ class IdentityTests(unittest.TestCase):
             patch(
                 "sys.argv",
                 [
-                    "smart_lighting.py",
+                    "lights_can_communicate_v2.py",
                     "configure",
                     "--light",
                     "strip",
