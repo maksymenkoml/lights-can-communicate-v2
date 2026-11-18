@@ -40,9 +40,11 @@ vm.runInNewContext(source+`
 harness().then(app=>console.log(JSON.stringify(cases.map(config=>{
  const valid=app.run('validSyncZone('+JSON.stringify(config)+')');
  if(!valid)return {valid};
- app.run('layout.syncZone='+JSON.stringify(config));
- const bounds=xs.map(x=>app.run('syncZoneBounds(syncZonePoints(),'+x+')'));
- return {valid,points:app.run('syncZonePoints()'),bounds};
+ // The client works in desk-centred centimetres; the layout's world x is centre + 100.
+ app.run('environment.zone='+JSON.stringify(config.points));
+ const bounds=xs.map(x=>JSON.parse(app.run('JSON.stringify(syncBounds('+(x-100)+'))')));
+ const world='zonePoints().map(p=>({x:p.x+100,height:p.h}))';
+ return {valid,points:JSON.parse(app.run('JSON.stringify('+world+')')),bounds};
 }))));`,{require,__dirname:path.join(process.cwd(),'tests'),structuredClone,
        AbortController,setImmediate,console,cases,xs});
 """
@@ -83,8 +85,9 @@ const cases=JSON.parse(process.argv[1]);
 vm.runInNewContext(source+`
 harness().then(app=>{
  const result=cases.map(([w,h,x])=>{
-  app.run('layout.desk.width='+w+';layout.desk.height='+h);
-  return app.run('syncFadeY('+(x*5)+')');
+  // Govee Right at world x; the floor lamp's fade is the zone height at its x.
+  app.run('environment.width='+w+';environment.height='+h+';lamps[1].x='+(x-100));
+  return app.run('(b=>b?b[1]-b[0]:0)(syncBounds(lamps[1].x))');
  });
  console.log(JSON.stringify(result));
 });`,{require,__dirname:path.join(process.cwd(),'tests'),structuredClone,
@@ -94,11 +97,11 @@ harness().then(app=>{
                                 capture_output=True, text=True, timeout=10, check=True)
         actual = json.loads(result.stdout)
         self.assertEqual(len(actual), len(cases))
-        for case, y in zip(cases, actual):
+        for case, client_fade in zip(cases, actual):
             width,height,x = case
             data = copy.deepcopy(layout())
             data['desk'] = {'width':width,'height':height}
             data['devices'][1]['positionCm']['x'] = x
             fade = sync_profile(data)['govee']['right']['fade_cm']
             with self.subTest(width=width,height=height,x=x):
-                self.assertAlmostEqual(y, 850-(height-fade)*5)
+                self.assertAlmostEqual(client_fade, fade)
