@@ -72,21 +72,53 @@ def _attenuate(rgb, gain):
     return tuple(round(value * gain) for value in rgb)
 
 
-def sync_profile(validated_layout):
-    """Build a deterministic, public-role-only Sync profile from a validated layout."""
-    devices = {row["id"]: row for row in validated_layout["devices"] if row["id"] in _ROLES}
-    monitor = devices["hue-monitor"]["positionCm"]
-    width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
-    height = width * 9 / 16
-    zone = zone_points(validated_layout)
-
+def _visibility_function(zone, fade_on):
+    """Return gain(x, height) for a resolved zone; every gain is 1 while the fade is off."""
     def visibility(x, physical_height):
+        if not fade_on:
+            return 1
         bounds = vertical_bounds(zone, x)
         if bounds is None:
             return 1
         lower, upper = bounds
         return (_point_gain(physical_height, upper, upper-lower) if upper > lower
                 else int(physical_height >= upper))
+    return visibility
+
+
+def _govee_segments(zone, fade_on, x, base):
+    """Return per-segment (gain, lit centre height) from bottom to top, plus the fade width."""
+    bounds = vertical_bounds(zone, x) if fade_on else None
+    fade = bounds[1]-bounds[0] if bounds is not None else 0
+    rows = []
+    for segment in range(7):
+        low = base + 6 + segment * 128 / 7
+        high = base + 6 + (segment + 1) * 128 / 7
+        rows.append(_segment_visibility(low, high, bounds[1], fade)
+                    if bounds is not None else (1, (low+high)/2))
+    return rows, fade
+
+
+def _devices(validated_layout):
+    return {row["id"]: row for row in validated_layout["devices"] if row["id"] in _ROLES}
+
+
+def _strip_gains(visibility, monitor, width, height):
+    anchors = [
+        (-.5,-.5),(-.5,0),(-.5,.5),(-.25,.5),(0,.5),(.25,.5),(.5,.5),(.5,0),(.5,-.5),
+    ]
+    return [visibility(monitor['x']+u*width, monitor['height']+v*height) for u,v in anchors]
+
+
+def sync_profile(validated_layout):
+    """Build a deterministic, public-role-only Sync profile from a validated layout."""
+    devices = _devices(validated_layout)
+    monitor = devices["hue-monitor"]["positionCm"]
+    width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
+    height = width * 9 / 16
+    zone = zone_points(validated_layout)
+    fade_on = validated_layout.get("syncFalloff", True)
+    visibility = _visibility_function(zone, fade_on)
 
     def screen_point(x, physical_height):
         u = max(0, min(1, (x - monitor["x"]) / width + 0.5))
@@ -96,10 +128,10 @@ def sync_profile(validated_layout):
         edge = min(range(4), key=(u, 1 - u, v, 1 - v).__getitem__)
         return ((0, v), (1, v), (u, 0), (u, 1))[edge]
 
-    # Removed rows and rows that keep their own light are outside the composition.
+    # Removed rows and rows with their own light or off during Sync are outside it.
     enabled = [role for key, role in _ROLES.items()
                if devices[key].get("enabled", True)
-               and devices[key].get("syncRole", "sync") != "own"]
+               and devices[key].get("syncRole", "sync") == "sync"]
     profile = {
         "basis": "screen-perimeter-v1",
         "enabled_roles": enabled,
@@ -111,22 +143,13 @@ def sync_profile(validated_layout):
     }
     for key, side in (("govee-left", "left"), ("govee-right", "right")):
         position = devices[key]["positionCm"]
-        base = position["height"] - 60
-        samples = []
-        gains = []
-        bounds = vertical_bounds(zone, position['x'])
-        fade = bounds[1]-bounds[0] if bounds is not None else 0
-        for segment in range(7):
-            low = base + 6 + segment * 128 / 7
-            high = base + 6 + (segment + 1) * 128 / 7
-            gain, center = (_segment_visibility(low, high, bounds[1], fade)
-                            if bounds is not None else (1,(low+high)/2))
-            samples.append(screen_point(position['x'], center) if center is not None else None)
-            gains.append(gain)
+        rows, fade = _govee_segments(zone, fade_on, position['x'], position["height"] - 60)
+        samples = [screen_point(position['x'], center) if center is not None else None
+                   for _, center in rows]
         profile["govee"][side] = {
             "samples": samples,
             "visible": [sample is not None for sample in samples],
-            'gains': gains,
+            'gains': [gain for gain, _ in rows],
             'fade_cm': fade,
         }
     for key, role in _ROLES.items():
@@ -134,14 +157,37 @@ def sync_profile(validated_layout):
             position = devices[key]["positionCm"]
             profile["plays"][role] = screen_point(position['x'], position['height'])
             profile['play_gains'][role] = visibility(position['x'], position['height'])
-    strip_anchors = [
-        (-.5,-.5),(-.5,0),(-.5,.5),(-.25,.5),(0,.5),(.25,.5),(.5,.5),(.5,0),(.5,-.5),
-    ]
-    profile['strip_gains'] = [visibility(monitor['x']+u*width, monitor['height']+v*height)
-                              for u,v in strip_anchors]
+    profile['strip_gains'] = _strip_gains(visibility, monitor, width, height)
     encoded = json.dumps(profile, sort_keys=True, separators=(",", ":"), allow_nan=False)
     profile["signature"] = hashlib.sha256(encoded.encode()).hexdigest()
     return profile
+
+
+def scene_fade(validated_layout):
+    """Return the without-Sync fade gains per role from ``sceneZone``/``sceneFalloff``.
+
+    ``left``/``right`` hold seven Govee segment gains from bottom to top, ``strip`` the
+    mean of the nine monitor-strip anchor gains and ``hue_*`` one gain per Play. Every
+    gain is 1 while the scene fade is off (the default).
+    """
+    devices = _devices(validated_layout)
+    zone = zone_points(validated_layout, "sceneZone")
+    fade_on = validated_layout.get("sceneFalloff", False)
+    visibility = _visibility_function(zone, fade_on)
+    monitor = devices["hue-monitor"]["positionCm"]
+    width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
+    result = {}
+    for key, side in (("govee-left", "left"), ("govee-right", "right")):
+        position = devices[key]["positionCm"]
+        rows, _ = _govee_segments(zone, fade_on, position["x"], position["height"] - 60)
+        result[side] = [gain for gain, _ in rows]
+    strip = _strip_gains(visibility, monitor, width, width * 9 / 16)
+    result["strip"] = sum(strip) / len(strip)
+    for key, role in _ROLES.items():
+        if role in _PLAY_CHANNELS:
+            position = devices[key]["positionCm"]
+            result[role] = visibility(position["x"], position["height"])
+    return result
 
 
 def _validate_frame(frame):

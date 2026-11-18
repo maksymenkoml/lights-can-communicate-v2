@@ -21,7 +21,7 @@ def layout():
     """A layout in the current format: older versions are refused on write."""
     from test_desk_layout import layout as stored
 
-    return stored() | {"version": 4}
+    return stored() | {"version": 5}
 
 
 def catalog_device(**changes):
@@ -91,6 +91,25 @@ class StudioTests(unittest.TestCase):
             reset = request('/api/layout', older, **{'If-Match': saved['revision']})
             self.assertNotIn('syncZone', reset['layout'])
             self.assertEqual(request('/api/layout'), reset)
+
+    def test_scene_zone_and_fade_switches_round_trip_and_an_omitted_scene_zone_survives(self):
+        from test_floor_zone_contract import custom_zone
+
+        with discovery_server(lambda: {}) as request:
+            data = layout() | {'sceneZone': custom_zone(), 'sceneFalloff': True,
+                               'syncFalloff': False}
+            data['devices'][0]['sceneScale'] = 40
+            saved = request('/api/layout', data)
+            self.assertEqual(saved['layout']['sceneZone'], data['sceneZone'])
+            self.assertEqual(saved['layout']['devices'][0]['sceneScale'], 40)
+            self.assertIs(saved['layout']['sceneFalloff'], True)
+            self.assertIs(saved['layout']['syncFalloff'], False)
+            older = layout() | {'sceneFalloff': True, 'syncFalloff': False}
+            saved = request('/api/layout', older, **{'If-Match': saved['revision']})
+            self.assertEqual(saved['layout']['sceneZone'], data['sceneZone'])
+            older['sceneZone'] = None
+            reset = request('/api/layout', older, **{'If-Match': saved['revision']})
+            self.assertNotIn('sceneZone', reset['layout'])
 
     def test_discovery_proxy_preserves_public_metadata_and_hides_private_fields(self):
         snapshot = {"connected": True, "devices": [catalog_device(ip="private-ip")],
@@ -250,7 +269,7 @@ class StudioTests(unittest.TestCase):
             path.write_text(json.dumps(older))
             old_revision = LayoutStore.digest(older)
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 4)
+            self.assertEqual(store.snapshot()["version"], 5)
             self.assertNotEqual(store.revision(), old_revision)
 
     def test_status_projection_excludes_keys_unselected_devices_and_raw_commands(self):

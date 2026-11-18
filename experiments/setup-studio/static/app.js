@@ -42,11 +42,15 @@ const SHAPES=['floor','strip','bar'];
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
 const virtualDevice=id=>/^virtual-[a-z0-9]{1,32}$/.test(id||'');
 const isRole=id=>Object.hasOwn(ROLES,id);
+// Hue lights take names of up to 32 characters; Govee and layout-only names up to 35.
+const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
+// During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
+const SYNC_ROLES=['sync','own','off'];
 function seedLamp(s){return {...clone(s),form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
 function defaults(){
- const environment={width:160,height:85,inches:32,zone:null};
+ const environment={width:160,height:85,inches:32,zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
  const lamps=SEED.map(seedLamp);lamps.forEach(l=>clampFixture(l,environment));
  return {room:'Office',environment,lamps};
 }
@@ -59,9 +63,10 @@ function maximumHeight(l){return l.form==='floor'?300-FLOOR_ANCHOR:300}
 function clampFixture(l,env=environment){l.x=clamp(Math.round(l.x/5)*5,-X_LIMIT,X_LIMIT);l.h=clamp(Math.round(l.h/5)*5,minimumHeight(l,env),maximumHeight(l))}
 const finite=(v,lo,hi,fallback)=>typeof v==='number'&&Number.isFinite(v)?clamp(v,lo,hi):fallback;
 function fromLayout(data){
- if(!data||typeof data!=='object'||![3,4].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
- const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.monitorInches,19,55,32),zone:null};
- if(validSyncZone(data.syncZone))environment.zone=data.syncZone.points.map(p=>({u:p.u,h:p.h}));
+ if(!data||typeof data!=='object'||![3,4,5].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
+ const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.monitorInches,19,55,32),
+  zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
+ for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
  if(SEED.some(s=>!rows.has(s.id)))return null;
  const place=(lamp,row)=>{
@@ -69,7 +74,9 @@ function fromLayout(data){
   const height=finite(row.positionCm.height,-400,600,0);
   lamp.h=lamp.form==='floor'?height-FLOOR_ANCHOR:height;
   lamp.scale=Math.round(finite(row.scale,0,100,lamp.scale));
-  lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=row.syncRole==='own'?'own':'sync';
+  if(isRole(row.id)&&typeof row.name==='string'&&row.name.trim()){lamp.name=row.name.trim().slice(0,nameLimit(row.id));lamp.named=true}
+  lamp.sceneScale=typeof row.sceneScale==='number'?Math.round(finite(row.sceneScale,0,100,lamp.scale)):null;
+  lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=SYNC_ROLES.includes(row.syncRole)&&(row.syncRole!=='off'||isRole(row.id))?row.syncRole:'sync';
   clampFixture(lamp,environment);return lamp;
  };
  const lamps=SEED.map(s=>place(seedLamp(s),rows.get(s.id)));
@@ -85,10 +92,11 @@ function fromLayout(data){
 }
 function pack(m={room,environment,lamps}){
  const env=m.environment;
- return {version:4,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
-  syncZone:env.zone?{version:1,points:env.zone.map(p=>({u:p.u,h:p.h}))}:null,
-  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
-   ...(l.enabled===false?{enabled:false}:{}),...(l.syncRole==='own'?{syncRole:'own'}:{}),
+ const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
+ return {version:5,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
+  syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
+  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,...(l.sceneScale!=null?{sceneScale:l.sceneScale}:{}),positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
+   ...(l.enabled===false?{enabled:false}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
 
@@ -97,7 +105,7 @@ let room,environment,lamps;
 let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],future=[],drag=null,toastTimer;
 const strip=()=>lamps.find(l=>l.id===MONITOR)||{x:0,h:110};
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
-const syncRole=l=>l.syncRole==='own'?'own':'sync';
+const syncRole=l=>SYNC_ROLES.includes(l.syncRole)?l.syncRole:'sync';
 function movableFixture(){return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false)}
 function selectionFocus(){return selected==='monitor'?'[data-select="monitor"]':'[data-lamp="'+selected+'"]'}
 function snapshot(){return JSON.stringify({lamps,environment})}
@@ -113,12 +121,16 @@ let pilot=null,pilotAt=-Infinity,pilotRequest=null,pilotGeneration=0,pilotTimer,
 function pilotFresh(){return !!pilot&&!document.hidden&&performance.now()-pilotAt<PILOT_FRESH_MS}
 const validRgb=c=>Array.isArray(c)&&c.length===3&&c.every(v=>Number.isInteger(v)&&v>=0&&v<=255);
 function rgbHex(rgb){return '#'+rgb.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('')}
-// Emitted zone colours (Govee bottom-to-top, strip nine anchors, Play one), or null when unlit.
-function liveColors(l){
+// Zone colours to draw (Govee bottom-to-top, strip nine anchors, Play one), or null when unlit.
+// The Sync view without running Sync previews Sync on every Sync lamp from the demo picture.
+function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
+// What the lamp emits now, as the adapter reports it.
+function emittedColors(l){
  if(l.unbound||l.enabled===false||!isRole(l.id)||!pilotFresh()||lampBlocker(l))return null;
  const row=pilot.lamps&&typeof pilot.lamps==='object'?pilot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
- if(row.source!=='scene-output'&&row.source!=='sync-output')return null;
+ // The view without Sync shows the lamps' own light only, even while Sync runs.
+ if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;
  if(!Array.isArray(row.colors)||!row.colors.length||!row.colors.every(validRgb))return null;
  const colors=Array.from({length:l.zones},(_,i)=>row.colors[row.colors.length===1?0:Math.min(i,row.colors.length-1)]);
  return colors.some(c=>c.some(v=>v>0))?colors:null;
@@ -137,6 +149,7 @@ function beamColor(colors){
 // Each lens zone keeps its hue; its opacity is its brightness relative to the lamp's brightest zone.
 function zoneStop(c,level){const z=light(c);return {color:rgbHex(z.rgb),opacity:level>0?opacityText(clamp(z.level/level)):'0'}}
 function lampDark(l){return !liveColors(l)}
+// With the demo picture every Sync lamp shows where it samples; with a live picture only lit lamps do.
 function pilotState(){
  if(!pilotFresh())return 'unknown';
  const state=pilot.sync&&typeof pilot.sync==='object'?pilot.sync.state:undefined;
@@ -197,7 +210,11 @@ function autoZonePoints(){
  const left=Math.floor(Math.min(-half-50,mx-mh-20,...xs.map(x=>x-20))/5)*5,right=Math.ceil(Math.max(half+50,mx+mh+20,...xs.map(x=>x+20))/5)*5;
  return [{x:left,h:H},{x:right,h:H},{x:right,h:H-15-Math.max(0,right-half)},{x:half,h:H-15},{x:-half,h:H-15},{x:left,h:H-15-Math.max(0,-half-left)}];
 }
-function zonePoints(){const z=environment.zone;return z?z.map(p=>({x:p.u*environment.width/2,h:environment.height+p.h})):autoZonePoints()}
+// Two configurations: the Sync view edits the Sync one, the room view the one without Sync.
+const view=()=>mode==='sync'?'sync':'scene';
+const corr=(l,c=view())=>c==='sync'?l.scale:l.sceneScale??l.scale;
+function setCorr(l,v){if(view()==='sync')l.scale=v;else l.sceneScale=v}
+function zonePoints(c=view()){const z=environment.zones[c];return z?z.map(p=>({x:p.u*environment.width/2,h:environment.height+p.h})):autoZonePoints()}
 function zoneConfig(points){return {version:1,points:points.map(p=>({u:p.x/(environment.width/2),h:p.h-environment.height}))}}
 function zoneIntersections(P,x){
  const hs=[];
@@ -205,7 +222,8 @@ function zoneIntersections(P,x){
   if(a.x===b.x)hs.push(a.h,b.h);else if(x===a.x)hs.push(a.h);else if(x===b.x)hs.push(b.h);else hs.push(a.h+(x-a.x)/(b.x-a.x)*(b.h-a.h))});
  return [...new Set(hs)].sort((a,b)=>a-b);
 }
-function syncBounds(x){const hs=zoneIntersections(zonePoints(),x);return hs.length?[hs[0],hs[hs.length-1]]:null}
+// The Sync fade switched off leaves every zone at full brightness.
+function syncBounds(x){if(!environment.fade.sync)return null;const hs=zoneIntersections(zonePoints('sync'),x);return hs.length?[hs[0],hs[hs.length-1]]:null}
 // The same validation as sync_zone.validate_zone, so a dragged corner is never refused by the server.
 function validSyncZone(config){
  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
@@ -247,7 +265,9 @@ function syncProjection(l){
  return [{point:syncPoint(l.x,l.h),gain:syncGain(l.x,l.h)}];
 }
 function syncSummary(l){const rows=syncProjection(l);return {rows,active:rows.filter(r=>r.gain>1e-8).length}}
-function zoneColor(l,i){const colors=liveColors(l),c=colors?.[Math.min(i,colors.length-1)];return c&&c.some(v=>v>0)?rgbHex(light(c).rgb):NEUTRAL_RAY}
+function zoneColor(l,i){
+ const colors=liveColors(l),c=colors?.[Math.min(i,colors.length-1)];return c&&c.some(v=>v>0)?rgbHex(light(c).rgb):NEUTRAL_RAY;
+}
 
 // ------------------------------------------------------------- drawing --
 const glyph={floor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 3v17M6 22h10"/><path d="M11 3v13" stroke-width="3" stroke-linecap="round"/></svg>',bar:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="9" width="18" height="6" rx="3"/></svg>',strip:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 20V5h16v15"/></svg>',desk:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 9h20M4 9v12M18 9v12"/></svg>',monitor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="20" height="14" rx="2"/><path d="M11 18v4M6 22h10"/></svg>'};
@@ -255,6 +275,7 @@ const closeIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stro
 const trashIcon='<svg viewBox="-7 -7 14 14" aria-hidden="true"><path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/></svg>';
 const plusIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4v12M4 10h12"/></svg>';
 const chipIcons={
+ fade:'<path d="M-4.6 -1.5H4.6M-3.6 1.5H3.6M-2.2 4.4H2.2"/><path d="M-4.6 -4.4H4.6"/>',
  auto:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
  rotate:'<path d="M-3.4 -2.6A4.2 4.2 0 1 1 -3.8 1.9M-3.4 -2.6V-5.8M-3.4 -2.6H-0.2"/>',
  more:'<circle class="dot" cx="-4" cy="0" r="1.1"/><circle class="dot" cx="0" cy="0" r="1.1"/><circle class="dot" cx="4" cy="0" r="1.1"/>',
@@ -302,12 +323,13 @@ function chipStatus(l){
  const b=lampBlocker(l);if(b)return blockerText(b);
  if(mode!=='sync')return '';
  if(syncRole(l)==='own')return 'own light';
+ if(syncRole(l)==='off')return 'off in Sync';
  const g=globalHealth();if(g.level!=='ok')return g.short;
  return syncSummary(l).active?'':'outside Sync';
 }
 function handlesSvg(geo){
  if(!selected)return '';
- if(selected==='zone')return mode==='sync'?'<g class="handles">'+zoneHandlesSvg()+'</g>':'';
+ if(selected==='zone')return '<g class="handles">'+zoneHandlesSvg()+'</g>';
  const {cx,cy,mw,mh,w,left,top}=geo,f=frameOf(geo);if(!f)return '';
  const s=strip(),l=lamps.find(l=>l.id===selected&&l.enabled!==false);
  const m=[];let knobs='',extra='',chip='',diag=null;
@@ -328,9 +350,9 @@ function handlesSvg(geo){
    m.push({axis:'v',x:f.left-12,y1:740,y2:f.ref,text:l.h+' cm',edit:'h',value:l.h,leader:f.left});
    m.push({axis:'h',x1:cx,x2:f.x,y:758,text:signed(l.x-s.x),edit:'x',value:l.x-s.x});
   }
-  const t=correctionTrack(l),ky=t.top+t.len*(1-l.scale/100);
+  const t=correctionTrack(l),c=corr(l),ky=t.top+t.len*(1-c/100);
   knobs+='<line class="rail" x1="'+t.tx+'" y1="'+t.top+'" x2="'+t.tx+'" y2="'+(t.top+t.len)+'"/><line class="rail-fill" x1="'+t.tx+'" y1="'+ky+'" x2="'+t.tx+'" y2="'+(t.top+t.len)+'"/>'+knob('scale',t.tx,ky,'ns-resize','Brightness correction');
-  extra+=tagSvg(t.tx,t.top+t.len+16,l.scale+'%','corr',l.scale);
+  extra+=tagSvg(t.tx,t.top+t.len+16,c+'%','corr',c);
   const actions=(l.shape==='bar'?[{id:'rotate',label:'Rotate 90°'}]:[]).concat([{id:'more',label:'Lamp settings'}]);
   chip=chipSvg(f.x,f.top-6,l.name,chipStatus(l),actions);
  }
@@ -341,36 +363,52 @@ function handlesSvg(geo){
  return '<g class="handles">'+lines+labels+extra+knobs+chip+'</g>';
 }
 function zoneHandlesSvg(){
- const P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,auto=!environment.zone;
+ const c=view(),P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,auto=!environment.zones[c],on=environment.fade[c];
  let out='';
- P.forEach((p,i)=>out+=knob('zp-'+i,sx(p.x),sy(p.h),'move','Zone corner · drag'));
- const actions=auto?[]:[{id:'auto',label:'Restore the automatic zone'}];
- return out+chipSvg((sx(P[0].x)+sx(-environment.width/2))/2,sy(P[0].h)-12,'Sync zone',auto?'auto':'',actions);
+ if(on)P.forEach((p,i)=>out+=knob('zp-'+i,sx(p.x),sy(p.h),'move','Zone corner · drag'));
+ const actions=[{id:'fade',label:on?'Turn the fade off':'Turn the fade on'}].concat(on&&!auto?[{id:'auto',label:'Restore the automatic zone'}]:[]);
+ return out+chipSvg((sx(P[0].x)+sx(-environment.width/2))/2,sy(P[0].h)-12,'Fade zone',on?auto?'auto':'':'off',actions);
 }
+function toggleFade(){const c=view();remember();environment.fade[c]=!environment.fade[c];render();tell(environment.fade[c]?'Fade on':'Fade off')}
 function dragZone(kind,p){
  const x=Math.round((p.x-500)/3.3/5)*5,h=Math.round((740-p.y)/3.3/5)*5;
  const i=+kind.slice(3),P=zonePoints().map(q=>({...q}));P[i]={x,h};
- const config=zoneConfig(P);if(validSyncZone(config))environment.zone=config.points;
+ const config=zoneConfig(P);if(validSyncZone(config))environment.zones[view()]=config.points;
 }
-function resetZone(){if(!environment.zone)return;remember();environment.zone=null;renderScene();renderHistory();tell('The zone is automatic again')}
+function resetZone(){const c=view();if(!environment.zones[c])return;remember();environment.zones[c]=null;renderScene();renderHistory();tell('The zone is automatic again')}
+// A lamp that is drawn but not connected shows a broken link where a problem shows "!".
+const UNLINKED_ICON='<path d="M-1.3 1.3 -2.4 2.4A1.8 1.8 0 0 1 -4.9 -0.1L-3.8 -1.2M1.3 -1.3 2.4 -2.4A1.8 1.8 0 0 1 4.9 0.1L3.8 1.2M-0.6 -3.4V-4.6M3.4 0.6H4.6"/>';
 function healthMarkSvg(l){
- if(selected===l.id||l.unbound||l.enabled===false)return '';
- const b=lampBlocker(l),f=lampFrame(l);
+ if(selected===l.id||l.enabled===false)return '';
+ const f=lampFrame(l),cx=f.right-f.x-3,cy=f.top-f.y+3;
+ if(l.unbound)return '<g class="health-badge unlinked" data-link-badge data-tooltip="Not connected"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><g transform="translate('+cx+' '+cy+')">'+UNLINKED_ICON+'</g></g>';
+ const b=lampBlocker(l);
  return '<g class="health-badge" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+(f.right-f.x-3)+'" cy="'+(f.top-f.y+3)+'" r="7.5"/><text x="'+(f.right-f.x-3)+'" y="'+(f.top-f.y+6.6)+'">!</text></g>';
 }
+// The monitor strip glows left to right like the screen picture: left side, three top zones, right side.
+function stripStops(colors){
+ const cs=colors||Array.from({length:9},()=>[0,0,0]),avg=(...c)=>[0,1,2].map(i=>c.reduce((a,x)=>a+x[i],0)/c.length);
+ return [avg(cs[0],cs[1],cs[2]),cs[3],cs[4],cs[5],avg(cs[6],cs[7],cs[8])];
+}
 function lensStops(l,colors,beam){
+ if(l.form==='strip'){const level=lampLevel(colors);return stripStops(colors).map((c,i)=>{const z=zoneStop(c,level);return '<stop offset="'+i*25+'%" stop-color="'+z.color+'" stop-opacity="'+z.opacity+'"/>'}).join('')}
  if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse(),n=cs.length,level=lampLevel(colors);return cs.map((c,i)=>{const z=zoneStop(c,level),a='" stop-color="'+z.color+'" stop-opacity="'+z.opacity+'"/>';return '<stop offset="'+(i/n*100)+'%'+a+'<stop offset="'+((i+1)/n*100)+'%'+a}).join('')}
  return '<stop stop-color="#fff8ed"/><stop offset=".48" stop-color="'+beam+'"/><stop offset="1" stop-color="'+beam+'" stop-opacity=".65"/>';
+}
+function lensAxis(l){
+ if(l.form!=='strip')return 'x1="0" y1="0" x2="0" y2="1"';
+ const w=monitorWidthCm(environment.inches)*3.3/2+11;return 'gradientUnits="userSpaceOnUse" x1="'+(-w)+'" y1="0" x2="'+w+'" y2="0"';
 }
 function lampSvg(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
  const colors=liveColors(l),beam=beamColor(colors),power=opacityText(lampLevel(colors));
- let box='',body='',wash='',lens='',hit='';
+ let box='',body='',wash='',off='',lens='',hit='';
  const glowOpacity=.21;
  if(l.form==='floor'){
   box='x="-25" y="-239" width="50" height="477"';
   body='<ellipse class="contact-shadow" cx="5" cy="225" rx="28" ry="5"/><ellipse fill="url(#body-metal)" stroke="#526075" stroke-width="1" cx="0" cy="220" rx="20" ry="5"/><path d="M0 218v-17" stroke="#49566c" stroke-width="5"/><rect x="-7.5" y="-225" width="15" height="432" rx="7.5" fill="url(#body-metal)" stroke="#718097" stroke-width=".8"/><path class="object-edge" d="M-5 -215V196"/>';
   wash='<path class="render-wash" opacity="'+glowOpacity+'" d="M-3 208 Q-115 -2 -92 -250 Q0 -306 92 -250 Q115 -2 3 208Z"/><ellipse class="render-wash" opacity="'+glowOpacity+'" cx="0" cy="-70" rx="43" ry="180"/>';
+  off='<rect class="lens-off" x="-3.5" y="-220" width="7" height="420" rx="3.5"/>';
   lens='<path class="render-bloom" stroke-width="35" opacity=".3" d="M0 198V-218"/><rect x="-3.5" y="-220" width="7" height="420" rx="3.5" fill="url(#lens-'+l.id+')"/>';
  }else if(l.form==='strip'){
   const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;
@@ -378,39 +416,76 @@ function lampSvg(l){
   const path='M'+(-w-11)+' '+h+'V'+(-h-11)+'H'+(w+11)+'V'+h;
   hit='<path class="hit" d="'+path+'" style="fill:none;stroke:transparent;stroke-width:25;pointer-events:stroke"/>';
   body='<path d="'+path+'" fill="none" stroke="#58667a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>';
-  wash='<path class="render-bloom" stroke-width="94" opacity="'+(glowOpacity*1.6)+'" d="'+path+'"/>';
-  lens='<path class="render-emission" stroke-width="5" d="'+path+'"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
+  wash='<path class="render-bloom" stroke-width="94" opacity="'+(glowOpacity*1.6)+'" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/>';
+  off='<path class="lens-off" stroke-width="5" d="'+path+'"/>';
+  lens='<path class="render-emission" stroke-width="5" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
  }else{
   box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';
   const rotation=l.vertical?-90:0;
   body='<g transform="rotate('+rotation+')"><ellipse class="contact-shadow" cx="3" cy="13" rx="43" ry="5"/><rect x="-41" y="-12" width="82" height="24" rx="10" fill="url(#body-metal)" stroke="#64738a" stroke-width="1"/><path class="object-edge" d="M-30 -9h60"/></g>';
   wash='<g transform="rotate('+rotation+')"><path class="render-wash" opacity="'+(glowOpacity*1.4)+'" d="M-32 -2 -105 -105 Q0 -163 105 -105 L32 -2Z"/></g>';
+  off='<g transform="rotate('+rotation+')"><rect class="lens-off" x="-35" y="-7" width="70" height="13" rx="6.5"/></g>';
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }
  const mark=healthMarkSvg(l);
- return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" x1="0" y1="0" x2="0" y2="1">'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
+ return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
 }
+const BEZEL=5;
 function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const right=left+w,bottom=cy+mh/2,mx=cx-mw/2,my=cy-mh/2;
  const defs='<defs><linearGradient id="wood-face" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--wood-top)"/><stop offset="1" stop-color="var(--wood-front)"/></linearGradient><linearGradient id="glass-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="var(--glass-top)"/><stop offset=".5" stop-color="var(--glass-bottom)"/><stop offset="1" stop-color="var(--glass-top)"/></linearGradient><filter id="furniture-shadow" x="-100%" y="-200%" width="300%" height="500%"><feGaussianBlur stdDeviation="5"/></filter></defs>';
  let desk='<ellipse cx="500" cy="741" rx="'+(w/2-3)+'" ry="5" fill="#243247" opacity=".08" filter="url(#furniture-shadow)"/>';
  for(const x of [left+15,right-27])desk+='<rect x="'+x+'" y="'+(top+13)+'" width="12" height="'+(740-top-15)+'" rx="2" fill="var(--furniture-metal)"/><path d="M'+(x+1)+' '+(top+22)+'V736" stroke="#ffffff" stroke-opacity=".18"/><rect x="'+(x-9)+'" y="736" width="30" height="4" rx="2" fill="var(--furniture-metal)"/>';
  desk+='<rect x="'+(left+17)+'" y="'+(top+23)+'" width="'+(w-34)+'" height="5" rx="2" fill="var(--furniture-metal)" opacity=".55"/><rect x="'+left+'" y="'+top+'" width="'+w+'" height="16" rx="3" fill="url(#wood-face)"/><path d="M'+(left+3)+' '+(top+1)+'H'+(right-3)+'" stroke="var(--wood-edge)" stroke-width="2"/><path d="M'+(left+8)+' '+(top+8)+'H'+(right-8)+'M'+(left+17)+' '+(top+11)+'H'+(right-28)+'" stroke="#70451f" stroke-opacity=".12" stroke-width=".6"/>';
- const monitor='<rect x="'+mx+'" y="'+my+'" width="'+mw+'" height="'+mh+'" rx="7" fill="#445367" stroke="#77879b" stroke-width="1"/><rect x="'+(mx+4)+'" y="'+(my+4)+'" width="'+(mw-8)+'" height="'+(mh-9)+'" rx="4" fill="url(#glass-face)"/><path d="M'+(mx+7)+' '+(my+5)+'H'+(mx+mw-7)+'" stroke="#eaf5ff" stroke-opacity=".4"/><path d="M'+cx+' '+bottom+'v'+Math.max(0,top-bottom-9)+'" stroke="var(--furniture-metal)" stroke-width="5"/><path d="M'+cx+' '+(top-10)+'l-31 7h62Z" fill="var(--furniture-metal)"/><circle cx="'+cx+'" cy="'+(my+mh-3)+'" r=".9" fill="#c8d7e9" opacity=".5"/>';
+ // The diagonal measures the picture, so the bezel is drawn outside it and Sync samples sit on the picture's edge.
+ const B=BEZEL;
+ const monitor='<rect x="'+(mx-B)+'" y="'+(my-B)+'" width="'+(mw+2*B)+'" height="'+(mh+2*B)+'" rx="7" fill="#445367" stroke="#77879b" stroke-width="1"/><rect x="'+mx+'" y="'+my+'" width="'+mw+'" height="'+mh+'" rx="3" fill="url(#glass-face)"/><path d="M'+(mx+3)+' '+(my+1)+'H'+(mx+mw-3)+'" stroke="#eaf5ff" stroke-opacity=".4"/><path d="M'+cx+' '+(bottom+B)+'v'+Math.max(0,top-bottom-B-9)+'" stroke="var(--furniture-metal)" stroke-width="5"/><path d="M'+cx+' '+(top-10)+'l-31 7h62Z" fill="var(--furniture-metal)"/><circle cx="'+cx+'" cy="'+(my+mh+B/2)+'" r=".9" fill="#c8d7e9" opacity=".5"/>';
  const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
- return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3)+'" y="'+(my-3)+'" width="'+(mw+6)+'" height="'+(mh+6)+'" rx="9"/></g>';
+ return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
 }
-// The monitor picture in the Sync view: a soft gradient of the strip's emitted colours.
-const SCREEN_DARK='#1d222b';
-function screenStops(){
- const colors=pilotState()==='active'?liveColors(strip()):null;
- if(!colors||colors.length<9)return null;
- const avg=(...cs)=>rgbHex([0,1,2].map(i=>cs.reduce((a,c)=>a+c[i],0)/cs.length));
- return [avg(colors[0],colors[1],colors[2]),rgbHex(colors[3]),rgbHex(colors[4]),rgbHex(colors[5]),avg(colors[6],colors[7],colors[8])];
+// The monitor picture in the Sync view: a soft gradient of the strip's emitted colours
+// while Sync runs; otherwise a fixed radial demo picture that the lamps preview.
+function liveScreenStops(){
+ const colors=pilotState()==='active'?emittedColors(strip()):null;
+ return colors&&colors.length>=9?stripStops(colors).map(rgbHex):null;
+}
+const syncPreview=()=>mode==='sync'&&pilotState()!=='active';
+const screenDemo=()=>mode==='sync'&&!liveScreenStops();
+const screenStops=()=>liveScreenStops()||Array(5).fill(SCREEN_DARK);
+const SCREEN_DARK='#1d222b',DEMO_WEDGES=90;
+// The demo picture is a colour wheel around the screen centre, so every point of the
+// perimeter, and so every lamp zone, gets its own hue. u runs left to right, v bottom to top.
+function demoHue(u,v){const a=Math.atan2((v-.5)*2,(u-.5)*2)*180/Math.PI;return (a+360)%360}
+function hueRgb(hue){
+ const s=.62,l=.55,c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs(hue/60%2-1)),m=l-c/2;
+ const [r,g,b]=hue<60?[c,x,0]:hue<120?[x,c,0]:hue<180?[0,c,x]:hue<240?[0,x,c]:hue<300?[x,0,c]:[c,0,x];
+ return [r,g,b].map(v=>(v+m)*255);
+}
+const demoColor=(u,v)=>rgbHex(hueRgb(demoHue(u,v)));
+// What Sync would send each zone from the demo picture: its colour where the zone samples,
+// dimmed by the zone's falloff gain and the lamp's correction.
+function demoColors(l){
+ if(!isRole(l.id))return null;
+ const rows=syncProjection(l);if(!rows.length)return null;
+ const rgb=hex=>[1,3,5].map(k=>parseInt(hex.slice(k,k+2),16)),k=l.scale/100;
+ const colors=rows.map(row=>row.point&&row.gain>0?rgb(demoColor(row.point[0],row.point[1])).map(v=>Math.round(v*row.gain*k)):[0,0,0]);
+ return colors.some(c=>c.some(v=>v>0))?colors:null;
+}
+// The demo watermark is .2 of the screen height with .3em tracking; tracking trails the last letter,
+// so the anchor moves right by half of it (.03 of the height) to centre the letters.
+// Wedges in the screen's normalised space, so a wedge's hue is the hue demoColor gives its points.
+function demoWheelSvg(cx,cy,mw,mh){
+ let out='';
+ for(let i=0;i<DEMO_WEDGES;i++){
+  const a0=i*360/DEMO_WEDGES,a1=(i+1)*360/DEMO_WEDGES,p=a=>{const t=a*Math.PI/180;return (cx+Math.cos(t)*mw)+' '+(cy-Math.sin(t)*mh)};
+  const color=rgbHex(hueRgb((a0+a1)/2));
+  out+='<path d="M'+cx+' '+cy+'L'+p(a0)+'L'+p(a1)+'Z" fill="'+color+'" stroke="'+color+'" stroke-width=".8"/>';
+ }
+ return out;
 }
 function syncScreenSvg({cx,cy,mw,mh}){
- const stops=screenStops(),offsets=[0,25,50,75,100],x=cx-mw/2+5,y=cy-mh/2+5,w=mw-10,h=mh-10;
- return '<g id="sync-screen" pointer-events="none"><defs><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+(stops?stops[i]:SCREEN_DARK)+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)" opacity="'+(stops?1:0)+'"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)" opacity="'+(stops?1:0)+'" data-screen-shade/></g>';
+ const stops=screenStops(),offsets=[0,25,50,75,100],x=cx-mw/2,y=cy-mh/2,w=mw,h=mh,demo=screenDemo();
+ return '<g id="sync-screen" pointer-events="none"><defs><clipPath id="screen-clip"><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/></clipPath><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+stops[i]+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)" opacity="'+(demo?0:1)+'"/><g id="screen-demo-image" clip-path="url(#screen-clip)" opacity="'+(demo?1:0)+'">'+demoWheelSvg(cx,cy,mw,mh)+'</g><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)"/><text class="screen-demo" x="'+(cx+h*.03)+'" y="'+cy+'" font-size="'+(+(h*.2).toFixed(1))+'" text-anchor="middle" dominant-baseline="central" opacity="'+(demo?1:0)+'" data-screen-demo>Demo</text></g>';
 }
 function syncZones(l,{cx,cy,mw,mh}){
  const x=500+l.x*3.3;
@@ -440,14 +515,15 @@ function syncLinksSvg(geo){
  });
  return out+'</g>';
 }
+// The fade zone of the current view; switched off, it stays as a faint outline to select and turn on.
 function syncVisibilitySvg(){
- const P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,pt=p=>sx(p.x)+' '+sy(p.h);
- let out='<g id="sync-visibility" class="zone-group'+(selected==='zone'?' chosen':'')+'" data-select="zone" role="button" aria-label="Sync falloff zone">';
+ const P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,pt=p=>sx(p.x)+' '+sy(p.h),on=environment.fade[view()];
+ let out='<g id="sync-visibility" class="zone-group'+(selected==='zone'?' chosen':'')+(on?'':' fade-off')+'" data-select="zone" role="button" aria-label="Fade zone">';
  out+='<path class="zone-hit" pointer-events="all" d="M'+P.map(pt).join('L')+'Z"/>';
  out+='<path class="fade-line" pointer-events="none" d="M'+pt(P[0])+'L'+pt(P[1])+'"/>';
  out+='<path class="fade-line zero" pointer-events="none" d="M'+pt(P[2])+'L'+pt(P[3])+'L'+pt(P[4])+'L'+pt(P[5])+'"/>';
  out+='<path class="fade-line side" pointer-events="none" d="M'+pt(P[1])+'L'+pt(P[2])+'M'+pt(P[5])+'L'+pt(P[0])+'"/>';
- out+='<g pointer-events="none">'+tagSvg(sx(P[1].x)+4,sy(P[1].h),'100%','',0,'start')+tagSvg(sx(P[2].x)+4,sy(P[2].h),'0%','',0,'start')+'</g>';
+ if(on)out+='<g pointer-events="none">'+tagSvg(sx(P[1].x)+4,sy(P[1].h),'100%','',0,'start')+tagSvg(sx(P[2].x)+4,sy(P[2].h),'0%','',0,'start')+'</g>';
  return out+'</g>';
 }
 function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16,w=environment.width*3.3;return {cx,cy,mw,mh,w,left:500-w/2,top:740-environment.height*3.3}}
@@ -470,7 +546,7 @@ function renderBaseScene(){
  const g=sceneGeometry(),{cx}=g;
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" x="-200%" y="-100%" width="500%" height="300%"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
- if(mode==='sync')out+=syncVisibilitySvg();
+ out+=syncVisibilitySvg();
  out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):'')+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
  $('#stage').innerHTML=out;applyFocus();updateStageViewport();
 }
@@ -565,7 +641,7 @@ function maskWashes(){document.querySelectorAll('#wash-layer [data-wash-for]').f
 function setAttr(node,key,value){if(node&&node.getAttribute(key)!==String(value))node.setAttribute(key,String(value))}
 function setVar(node,key,value){if(node&&node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)}
 function statusKey(){
- return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level]);
+ return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level,screenDemo(),syncPreview()]);
 }
 // Telemetry changes existing SVG attributes only: no layout rebuild, no save.
 function paintLive(){
@@ -577,14 +653,15 @@ function paintLive(){
   const level=lampLevel(colors);
   node.querySelectorAll('[data-sync-power]').forEach(g=>setAttr(g,'opacity',opacityText(level)));
   const stops=node.querySelectorAll('stop');
-  if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
+  if(l.form==='strip')stripStops(colors).forEach((c,i)=>{const z=zoneStop(c,level);setAttr(stops[i],'stop-color',z.color);setAttr(stops[i],'stop-opacity',z.opacity)});
+  else if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
   const badge=node.querySelector('[data-badge]'),b=lampBlocker(l);
   if(badge){setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  const screen=stage.querySelector('#sync-screen');
- if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops?stops[i]:SCREEN_DARK));setAttr(screen.querySelector('#screen-image'),'opacity',stops?1:0);setAttr(screen.querySelector('[data-screen-shade]'),'opacity',stops?1:0)}
+ if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops[i]));const demo=screenDemo()?1:0;setAttr(screen.querySelector('[data-screen-demo]'),'opacity',demo);setAttr(screen.querySelector('#screen-demo-image'),'opacity',demo);setAttr(screen.querySelector('#screen-image'),'opacity',1-demo)}
  stage.querySelectorAll('#sync-links [data-k]').forEach(n=>{
   const [id,part]=n.dataset.k.split(':'),l=lamps.find(l=>l.id===id);if(!l)return;
   const color=zoneColor(l,+part.slice(1));setAttr(n,part[0]==='r'?'stroke':'fill',color);
@@ -618,7 +695,7 @@ function startLabelEdit(node){
  input.addEventListener('blur',()=>finish(true));
 }
 function applyLabelEdit(edit,v){
- if(edit==='corr'){const l=lamps.find(l=>l.id===selected);if(!l)return;const before=snapshot();l.scale=clamp(Math.round(v),0,100);recordChange(before);renderScene();renderHistory();return}
+ if(edit==='corr'){const l=lamps.find(l=>l.id===selected);if(!l)return;const before=snapshot();setCorr(l,clamp(Math.round(v),0,100));recordChange(before);renderScene();renderHistory();return}
  if(edit==='gap'){changeField('h',v+monitorHalfCm()+environment.height);return}
  changeField(edit,v);
 }
@@ -641,7 +718,7 @@ function dragHandle(kind,p){
  if(kind==='desk-w')environment.width=clamp(Math.round(Math.abs(p.x-500)*2/3.3/5)*5,80,240);
  else if(kind==='desk-h'){const prev=environment.height;environment.height=clamp(Math.round((740-p.y)/3.3/5)*5,50,120);if(environment.height!==prev){s.h+=environment.height-prev;clampFixture(s)}}
  else if(kind==='mon-size'){const cx=500+s.x*3.3,cy=740-s.h*3.3,wcm=Math.max(Math.abs(p.x-cx)*2,Math.abs(p.y-cy)*2*16/9)/3.3;environment.inches=clamp(Math.round(wcm/2.54*Math.hypot(16,9)/16),19,55);clampFixture(s)}
- else if(kind==='scale'&&l){const t=correctionTrack(l);l.scale=clamp(Math.round((t.top+t.len-p.y)/t.len*20)*5,0,100)}
+ else if(kind==='scale'&&l){const t=correctionTrack(l);setCorr(l,clamp(Math.round((t.top+t.len-p.y)/t.len*20)*5,0,100))}
  if(snapshot()===before)return;
  drag.moved=true;renderScene();renderInspector();renderHistory();
 }
@@ -705,7 +782,7 @@ function toggleDarkScene(){
 }
 // The Sync switch chooses which settings are shown; it does not start or stop Sync.
 function applyMode(m){
- mode=m;if(m!=='sync'&&selected==='zone')selected=null;
+ mode=m;
  $('#sync-tool').classList.toggle('active',m==='sync');$('#sync-tool').setAttribute('aria-pressed',String(m==='sync'));$('#app').classList.toggle('sync-mode',m==='sync');
  store.set(VIEW_KEY,m);renderScene();renderInspector();
 }
@@ -726,12 +803,12 @@ function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
 function closeObjectMenu(){if(!menuOpen)return;menuOpen=false;$('#object-menu').hidden=true;$('#stage').querySelector('[data-chip-action="more"]')?.classList.remove('open')}
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
 function cardMenu(l){
- const c=l.scale,b=lampBlocker(l),editable=virtualDevice(l.id);
- return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="32"'+(editable?'':' readonly')+'>'
+ const c=corr(l),b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
+ return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')
-  +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']],syncRole(l),l.unbound)+'</div></div>'
-  +'<div class="card-actions"><button data-menu="blink" disabled title="'+(l.unbound?'Not connected':'Blink is not available yet')+'">'+iconSvg('blink')+'Blink</button>'
+  +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div></div>'
+  +'<div class="card-actions"><button data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'Blink</button>'
   +'<button data-menu="reset" title="Reset correction to 100%"'+(c===100?' disabled':'')+'>'+iconSvg('reset')+(c===100?'Correction 100%':c+'% → 100%')+'</button></div>'
   +'<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';
 }
@@ -764,24 +841,38 @@ function openObjectMenu(anchor){
  if(name&&!name.readOnly){name.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();renameLamp(l.id,name.value);name.blur()}else if(e.key==='Escape'){name.value=l.name;closeObjectMenu()}});name.addEventListener('change',()=>renameLamp(l.id,name.value))}
 }
 function refreshCard(){requestAnimationFrame(()=>{closeObjectMenu();const b=$('#stage').querySelector('[data-chip-action="more"]');if(b)openObjectMenu(b)})}
-// Only layout-only drawings carry a stored name; role and discovered names are canonical.
+// Layout-only drawings and the six desk lamps carry a stored name (a desk lamp's name also
+// renames it in the Hue app and HomeKit); discovered lamps keep their canonical name.
 function renameLamp(id,value){
- const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,32);if(!l||!virtualDevice(l.id)||!v||v===l.name)return;
- const before=snapshot();l.name=v;recordChange(before);renderScene();renderList();renderHistory();
+ const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,l?nameLimit(l.id):0);if(!l||!(virtualDevice(l.id)||isRole(l.id))||!v||v===l.name)return;
+ const before=snapshot();l.name=v;if(isRole(l.id))l.named=true;recordChange(before);renderScene();renderList();renderHistory();
  if(menuOpen){const chip=$('#stage').querySelector('.obj-chip');if(chip)placeMenu($('#object-menu'),chip.getBoundingClientRect())}
 }
 function resetCorrection(){
- const l=lamps.find(l=>l.id===selected);if(!l||l.scale===100)return;
- const before=snapshot();l.scale=100;recordChange(before);renderScene();renderHistory();tell('Correction reset to 100%');
+ const l=lamps.find(l=>l.id===selected);if(!l||corr(l)===100)return;
+ const before=snapshot();setCorr(l,100);recordChange(before);renderScene();renderHistory();tell('Correction reset to 100%');
+}
+// Blink asks the adapter to flash the real lamp once; the drawing blinks too, so the owner sees which lamp was asked.
+const BLINK_REFUSED={'lamp off':'The lamp is off','writer closed':'The lamp is still turning on','sync active':'The lamp is syncing','busy':'The lamp is already blinking','paused':'Light output is paused','brightness unknown':'The lamp has not reported its brightness yet'};
+async function blinkLamp(l){
+ const node=$('#stage').querySelector('[data-lamp="'+l.id+'"]');
+ if(node){node.classList.remove('blinking');void node.getBoundingClientRect?.();node.classList.add('blinking');setTimeout(()=>node.classList.remove('blinking'),1000)}
+ try{
+  const response=await fetch('/api/identify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lamp:l.id})});
+  const body=await response.json().catch(()=>({}));
+  if(response.ok)tell('Blinking '+l.name);
+  else tell(response.status===409?BLINK_REFUSED[body.reason]||'The lamp cannot blink now':'Blink failed: the adapter is not responding');
+ }catch{tell('Blink failed: the adapter is not responding')}
 }
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
- if(id.startsWith('role-')){const v=id.slice(5);if(['sync','own'].includes(v)&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
+ if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
  if(id==='reset'){closeObjectMenu();resetCorrection();return true}
+ if(id==='blink'){if(!l.unbound)blinkLamp(l);return true}
  return false;
 }
 
@@ -819,8 +910,9 @@ function lampRowStatus(l){
  if(l.unbound)return '<span class="lp-status">Not connected</span>';
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
+ if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
  if(mode==='sync'&&!syncSummary(l).active)return '<span class="lp-status">Outside Sync</span>';
- return l.scale!==100?'<span class="lp-status">'+l.scale+'%</span>':'';
+ return corr(l)!==100?'<span class="lp-status">'+corr(l)+'%</span>':'';
 }
 function roomRows(){
  return activeLamps().map(l=>confirmRemove===l.id
@@ -946,7 +1038,10 @@ function mergeLayouts(base,local,remote){
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
  for(const key of ['room','monitorInches'])field(result,key,base[key],local[key]);
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
- field(result,'syncZone',base.syncZone??null,local.syncZone??null);
+ for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
+ // Canonical responses also omit fade switches at their defaults.
+ field(result,'syncFalloff',base.syncFalloff??true,local.syncFalloff??true);
+ field(result,'sceneFalloff',base.sceneFalloff??false,local.sceneFalloff??false);
  for(const key of ['width','height'])field(result.desk,key,base.desk[key],local.desk[key]);
  const old=new Map(base.devices.map(d=>[d.id,d])),mine=new Map(local.devices.map(d=>[d.id,d]));
  for(const [id]of old)if(!mine.has(id))result.devices=result.devices.filter(d=>d.id!==id);
@@ -954,9 +1049,9 @@ function mergeLayouts(base,local,remote){
   const previous=old.get(id),target=result.devices.find(d=>d.id===id);
   if(!previous){if(!target)result.devices.push(clone(current));continue;}
   if(!target){if(!equal(previous,current))result.devices.push(clone(current));continue;}
-  for(const key of ['scale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
+  for(const key of ['scale','sceneScale','orientation','name','shape','model','zones'])field(target,key,previous[key],current[key]);
   field(target,'enabled',previous.enabled===false?false:undefined,current.enabled===false?false:undefined);
-  field(target,'syncRole',previous.syncRole==='own'?'own':undefined,current.syncRole==='own'?'own':undefined);
+  field(target,'syncRole',previous.syncRole!=='sync'?previous.syncRole:undefined,current.syncRole!=='sync'?current.syncRole:undefined);
   for(const key of ['x','height'])field(target.positionCm,key,previous.positionCm[key],current.positionCm[key]);
  }
  return result;
@@ -1046,7 +1141,7 @@ let hoverKey=null;
 function hoverAnchor(key){
  if(key==='desk'){const top=740-environment.height*3.3;return {x:500,y:top-23,name:'Desk'}}
  if(key==='monitor'){const m=strip(),mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16;return {x:500+m.x*3.3,y:740-m.h*3.3-mh/2-41,name:'Monitor'}}
- if(key==='zone'){const P=zonePoints();return {x:(500+P[0].x*3.3+500-environment.width/2*3.3)/2,y:740-P[0].h*3.3-23,name:'Sync zone'}}
+ if(key==='zone'){const P=zonePoints();return {x:(500+P[0].x*3.3+500-environment.width/2*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
  const l=lamps.find(l=>l.id===key&&l.enabled!==false);if(!l)return null;const f=lampFrame(l);return {x:f.x,y:f.top-17,name:l.name};
 }
 function showHover(key){
@@ -1125,7 +1220,7 @@ stage.addEventListener('pointerdown',event=>{
 stage.addEventListener('pointerdown',()=>showHover(null),true);
 stage.addEventListener('pointerdown',e=>{
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
- if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else openObjectMenu(action);return}
+ if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}
  closeObjectMenu();
  const grip=e.target.closest('[data-handle]');

@@ -5,6 +5,7 @@
  * the bridge identifier cache and Apple Home keeps its rooms and scenes.
  */
 export const BATCH_MS = 30;
+export const NAME_MAX = 64; // HAP limit of the Name characteristic
 
 export class Lamp {
   constructor(api, accessory, lamp, client, log) {
@@ -19,7 +20,7 @@ export class Lamp {
     accessory.context.role = lamp.role;
     accessory.context.deviceId = lamp.deviceId;
 
-    const info = accessory.getService(Service.AccessoryInformation)
+    const info = this.info = accessory.getService(Service.AccessoryInformation)
       || accessory.addService(Service.AccessoryInformation);
     info.setCharacteristic(Characteristic.Manufacturer, 'Govee')
       .setCharacteristic(Characteristic.Model, lamp.model || 'H6076')
@@ -68,10 +69,36 @@ export class Lamp {
     }
   }
 
+  /**
+   * Show the owner's name from Light Studio. Only display names change: UUID,
+   * AID and IID stay, so rooms, scenes and automations survive. Name and
+   * ConfiguredName on the Lightbulb are updated only where the accessory
+   * already has them, so no characteristic (and no IID) is added. Apple Home
+   * may keep a name that the owner edited in the Home app.
+   */
+  rename(name) {
+    const value = typeof name === 'string' ? name.trim() : '';
+    if (!value || value.length > NAME_MAX || value === this.appliedName) return;
+    this.appliedName = value;
+    const { Characteristic } = this.hap;
+    if (typeof this.accessory.updateDisplayName === 'function') {
+      this.accessory.updateDisplayName(value);
+    } else {
+      this.accessory.displayName = value;
+      this.accessory._associatedHAPAccessory.displayName = value;
+    }
+    this.info.updateCharacteristic(Characteristic.Name, value);
+    for (const type of [Characteristic.Name, Characteristic.ConfiguredName]) {
+      if (type && this.service.testCharacteristic(type)) this.service.updateCharacteristic(type, value);
+    }
+    this.log.info?.(`Name from Light Studio: ${value}`);
+  }
+
   /** Apply the core's state; unknown values keep the last known HomeKit value. */
   update(state) {
     if (!state || typeof state !== 'object') return;
     const { Characteristic } = this.hap;
+    if (state.name !== undefined) this.rename(state.name);
     const apply = (type, key, value) => {
       if (value === null || value === undefined || this.values[key] === value) return;
       this.values[key] = value;

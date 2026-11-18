@@ -333,6 +333,112 @@ class HueStripTests(unittest.TestCase):
             client.write({"on": {"on": True}})
 
 
+class FakeNames:
+    def __init__(self, names):
+        self.value = names
+
+    def names(self):
+        return dict(self.value)
+
+    def scale(self, role, fallback):
+        return fallback
+
+
+class OwnerNameTests(unittest.TestCase):
+    def pinned(self, light_name="Hue Monitor"):
+        requests = []
+        light = {"id": STRIP_ID, "metadata": {"name": light_name}, "on": {"on": True}}
+
+        def request(method, path, body):
+            requests.append((method, path, body))
+            if method == "PUT" and "metadata" in body:
+                light["metadata"] = dict(body["metadata"])
+            return {"data": [dict(light, rid=STRIP_ID)], "errors": []}
+
+        client = PinnedHueClient(
+            {"bridge": "192.168.10.21", "hue_key": "test"}, requester=request,
+            profile=NativeHueProfile.from_dict(profile_data()))
+        return client, requests
+
+    def test_rename_sends_only_the_name_and_refuses_unusable_names(self):
+        client, requests = self.pinned()
+        client.rename("Desk strip")
+        self.assertEqual(requests, [("PUT", "/clip/v2/resource/light/" + STRIP_ID,
+                                     {"metadata": {"name": "Desk strip"}})])
+        for name in ("", "x" * 33, 5, None):
+            with self.assertRaises(ValueError):
+                client.rename(name)
+        client.rename("x" * 32)
+        # The color path still has no metadata or name access.
+        with self.assertRaises(ValueError):
+            client.write({"metadata": {"name": "Other"}})
+        self.assertEqual(len(requests), 2)
+
+    def test_the_name_is_written_once_per_layout_change(self):
+        client, requests = self.pinned()
+        store = FakeNames({})
+        proxy = HueStripProxy(client, layout_store=store, clock=lambda: 10)
+        writes = lambda: [r for r in requests if r[0] == "PUT"]  # noqa: E731
+        # No owner name: nothing is read or written, however often it runs.
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(requests, [])
+        store.value = {"strip": "Desk strip"}
+        self.assertTrue(proxy.sync_owner_name())
+        self.assertEqual([r[2] for r in writes()], [{"metadata": {"name": "Desk strip"}}])
+        count = len(requests)
+        for _ in range(3):
+            self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), count)
+        # Another role's name never reaches this light.
+        store.value = {"strip": "Desk strip", "hue_left": "Left"}
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), count)
+        store.value = {"strip": "Monitor bar"}
+        self.assertTrue(proxy.sync_owner_name())
+        self.assertEqual(writes()[-1][2], {"metadata": {"name": "Monitor bar"}})
+        # Removing the owner name leaves the light's name alone.
+        store.value = {}
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(writes()), 2)
+
+    def test_a_light_that_already_has_the_name_is_not_written(self):
+        client, requests = self.pinned(light_name="Desk strip")
+        proxy = HueStripProxy(client, layout_store=FakeNames({"strip": "Desk strip"}),
+                              clock=lambda: 10)
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual([r[0] for r in requests], ["GET"])
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), 1)
+
+    def test_a_name_set_in_the_hue_app_stays_until_the_layout_name_changes(self):
+        client, requests = self.pinned()
+        store = FakeNames({"strip": "Desk strip"})
+        proxy = HueStripProxy(client, layout_store=store, clock=lambda: 10)
+        proxy.sync_owner_name()
+        client.rename("Chosen in Hue app")
+        count = len(requests)
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(len(requests), count)
+
+    def test_a_failed_name_write_is_retried_only_after_the_pause(self):
+        clock = [10.0]
+        calls = []
+
+        class Broken(FakeHue):
+            def read(self):
+                calls.append("read")
+                raise OSError("bridge unreachable")
+
+        proxy = HueStripProxy(Broken(), layout_store=FakeNames({"strip": "Desk strip"}),
+                              clock=lambda: clock[0])
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertFalse(proxy.sync_owner_name())
+        self.assertEqual(calls, ["read"])
+        clock[0] += 31
+        proxy.sync_owner_name()
+        self.assertEqual(calls, ["read", "read"])
+
+
 class FakeResponse:
     def __init__(self, status, body, will_close=False):
         self.status, self.body, self.will_close = status, body, will_close

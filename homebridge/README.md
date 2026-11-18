@@ -26,6 +26,18 @@ It replaces the version-specific overlay of `@homebridge-plugins/homebridge-gove
   the core after a short settling time. After five seconds without the core,
   the lamps show "No Response".
 
+## Lamp names
+
+When Light Studio gives a lamp a name, `GET /homekit` reports it as `name` in
+that lamp's entry (absent without an owner name). When it differs from the
+accessory's current one, the plugin sets the accessory display name and the
+`Name` of AccessoryInformation, and updates the Lightbulb `Name` and
+`ConfiguredName` only if the accessory already has those characteristics, so
+no characteristic and no IID is added. UUID and AID never change, so rooms,
+scenes and automations survive. Without a core name the configured `name` is
+kept. Apple Home may keep a name the owner set in the Home app (it stores
+its own name per accessory); in that case rename the accessory in Home too.
+
 ## Configuration
 
 `config.json` platform entry (no secrets):

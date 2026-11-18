@@ -13,6 +13,10 @@ from bridge_output import strip_changes
 import lights_can_communicate_v2 as lan
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
+# Hue bridges accept at most 32 characters in a light's name. The layout limits
+# the Hue role names to the same length, so a longer name is refused, not cut.
+HUE_NAME_MAX = 32
+NAME_RETRY_SECONDS = 30
 HUE_BRIGHTNESS_SCALES = {"strip": 1.0, "hue_left": 1.0, "hue_center": 0.5, "hue_right": 1.0}
 
 
@@ -184,6 +188,24 @@ class PinnedHueClient:
         ):
             raise ValueError("Native power write not confirmed")
 
+    def rename(self, name):
+        """Set only this pinned light's name; never color, power or any other field."""
+        if not isinstance(name, str) or not 1 <= len(name) <= HUE_NAME_MAX:
+            raise ValueError("Invalid native Hue light name")
+        result = self.requester("PUT", self.path, {"metadata": {"name": name}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native rename not confirmed")
+
+    def identify(self):
+        """Blink only this pinned light (Hue v2 ``identify``); never color or power."""
+        result = self.requester("PUT", self.path, {"identify": {"action": "identify"}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native identify not confirmed")
+
 
 def merge_hue_body(previous, update):
     result = copy.deepcopy(previous or {})
@@ -217,11 +239,7 @@ class HueStripProxy:
         if role not in resources or resources[role] != self.resource_id:
             raise ValueError("Hue role does not match the selected resource")
         self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
-        self.applied_scale = (
-            layout_store.scale(role, self.brightness_scale)
-            if layout_store is not None
-            else self.brightness_scale
-        )
+        self.applied_scale = self.layout_factor()
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
         self.state_lock = threading.RLock()
@@ -240,6 +258,19 @@ class HueStripProxy:
         self.writes = 0
         self.last_result = "waiting"
         self.last_payload = None
+        # The name this proxy last wrote to, or read from, the physical light.
+        self.named = None
+        self.name_failed = float("-inf")
+
+    def layout_factor(self):
+        """Return the scene correction times the role's scene fade gain."""
+        store = self.layout_store
+        if store is None:
+            return self.brightness_scale
+        scale = getattr(store, "scene_scale", store.scale)(self.role, self.brightness_scale)
+        loader = getattr(store, "scene_fade", None)
+        fade = loader() if loader is not None else None
+        return scale * (fade.get(self.role, 1) if fade else 1)
 
     def submit(self, payload):
         if (
@@ -300,8 +331,9 @@ class HueStripProxy:
         return True
 
     def included(self):
-        enabled = getattr(self.layout_store, "enabled", None)
-        return enabled(self.role) if enabled is not None else True
+        # Scenes keep every present lamp, including those with their own light in Sync.
+        present = getattr(self.layout_store, "present", None)
+        return present(self.role) if present is not None else True
 
     def govee_allowed(self):
         if not self.included():
@@ -346,11 +378,7 @@ class HueStripProxy:
                             "native streaming" if native["mode"] == "streaming" else "native off"
                         )
                     return False
-                scale = (
-                    self.layout_store.scale(self.role, self.brightness_scale)
-                    if self.layout_store is not None
-                    else self.brightness_scale
-                )
+                scale = self.layout_factor()
                 if scale != self.applied_scale:
                     self.restore = True
                     if self.desired is None:
@@ -434,10 +462,38 @@ class HueStripProxy:
                     sleep(pause)
             return False
 
+    def sync_owner_name(self):
+        """Give the physical light the owner's name when Light Studio changed it.
+
+        Nothing is written without an owner name, when the light already has the
+        name, or while the name equals the one this proxy last applied or read.
+        A name the owner later sets in the Hue app stays until the owner changes
+        the name in Light Studio. A failed write is retried every
+        NAME_RETRY_SECONDS. Returns True after a write.
+        """
+        names = getattr(self.layout_store, "names", None)
+        name = names().get(self.role) if names is not None else None
+        if (name is None or name == self.named
+                or self.clock() - self.name_failed < NAME_RETRY_SECONDS):
+            return False
+        try:
+            with self.command_lock:
+                current = self.client.read().get("metadata", {}).get("name")
+                if current == name:
+                    self.named = name
+                    return False
+                self.client.rename(name)
+                self.named = name
+                return True
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            self.name_failed = self.clock()
+            return False
+
     def run(self, stop):
         while not stop.is_set():
             self.wake.clear()
             self.process_once()
+            self.sync_owner_name()
             self.wake.wait(0.5)
 
     def snapshot(self):

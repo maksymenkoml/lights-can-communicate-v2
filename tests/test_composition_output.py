@@ -39,6 +39,8 @@ class Layout:
     def enabled(self, role, fallback=True):
         return role in self.roles
 
+    present = enabled
+
     def scale(self, role, fallback):
         return fallback
 

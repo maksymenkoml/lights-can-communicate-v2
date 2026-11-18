@@ -17,7 +17,7 @@ import re
 import threading
 import time
 
-from power_owner import GRANT_SECONDS, MAX_MESSAGE_AGE
+from power_owner import GRANT_SECONDS, MAX_MESSAGE_AGE, switch_power
 from power_requests import PowerRequestUnavailable
 
 import lights_can_communicate_v2 as lan
@@ -40,7 +40,7 @@ def _empty():
 
 class HomeKitPower:
     def __init__(self, targets, state_file, sender, observe, idle=lambda side: True,
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, names=dict):
         self.roles = {lan.device_key(device): device["side"] for device in targets}
         if len(self.roles) != 2 or set(self.roles.values()) != set(ROLES):
             raise ValueError("HomeKit power requires the two selected roles")
@@ -48,6 +48,8 @@ class HomeKitPower:
         self.state_file = state_file
         self.sender, self.observe, self.idle = sender, observe, idle
         self.clock, self.sleep = clock, sleep
+        # Owner names of the lamps from Light Studio: {role: name}, possibly empty.
+        self.names = names
         self.lock = threading.RLock()
         self.transitions = {side: threading.Lock() for side in ROLES}
         self.intent = self._load()
@@ -57,6 +59,9 @@ class HomeKitPower:
         self.revisions = {side: 0 for side in ROLES}
         self.last_command = {side: float("-inf") for side in ROLES}
         self.disagree_since = {side: None for side in ROLES}
+        # Sync holds (sync_off.py): lamps switched off for a Sync session. A hold
+        # is not HomeKit intent, is never adopted by tick() and closes the gate.
+        self.holds = set()
 
     # Persistence ----------------------------------------------------------
 
@@ -102,7 +107,8 @@ class HomeKitPower:
 
     def allowed(self, side):
         with self.lock:
-            return self.intent.get(side, {}).get("on") is True and self.confirmed.get(side, False)
+            return (self.intent.get(side, {}).get("on") is True and side not in self.holds
+                    and self.confirmed.get(side, False))
 
     def settled(self, side, on):
         """Whether Home already wants, and the lamp already has, this power state."""
@@ -130,6 +136,7 @@ class HomeKitPower:
                     side: {"requested_on": self.intent[side]["on"] is True,
                            "color_allowed": self.allowed(side),
                            "revision": self.revisions[side],
+                           "sync_hold": side in self.holds,
                            # A local authority never expires; unknown intent is not published.
                            "grant_remaining": GRANT_SECONDS
                            if self.intent[side]["on"] is not None else 0}
@@ -141,6 +148,7 @@ class HomeKitPower:
 
     def state(self):
         observed = self.observe()
+        names = self.names()
         with self.lock:
             roles = {}
             for side in ROLES:
@@ -160,6 +168,9 @@ class HomeKitPower:
                     "saturation": intent["saturation"],
                     "color_temperature": round(1e6 / kelvin) if kelvin else None,
                 }
+                if side in names:
+                    # Only an owner name is reported; without one HomeKit keeps its own.
+                    roles[side]["name"] = names[side]
             return {"version": 1, "roles": roles}
 
     def set(self, payload):
@@ -180,6 +191,9 @@ class HomeKitPower:
                 # Like the Govee plugin: 0% is a coordinated Off, not a brightness.
                 payload = {**payload, "on": False}
                 del payload["brightness"]
+            if "on" in payload:
+                # An owner power change during Sync ends the Sync hold: it wins.
+                self.owner_power(side)
             with self.lock:
                 intent = self.intent[side]
                 previous = dict(intent)
@@ -272,6 +286,73 @@ class HomeKitPower:
             self.sleep(0.05)
         return False
 
+    # Sync hold ------------------------------------------------------------
+
+    def _send_turn(self, side, on):
+        with self.lock:
+            sent = self.last_command[side] = self.clock()
+            self.sender(self.devices[side], "turn", {"value": 1 if on else 0})
+            return sent
+
+    def sync_hold(self, side, send=True):
+        """Switch a lamp off for Sync without changing intent; True when it is held.
+
+        A lamp that is already off is not held. Without ``send`` (crash recovery)
+        the hold is placed without a command, so tick() cannot adopt the Off.
+        """
+        if side not in ROLES:
+            raise ValueError("Unknown Sync hold role")
+        with self.transitions[side]:
+            native = self.observe().get(side, {}).get("on") if send else None
+            with self.lock:
+                if side in self.holds:
+                    return True
+                if send and (native if native is not None
+                             else self.intent[side]["on"]) is not True:
+                    return False
+                self.holds.add(side)
+                self.revisions[side] += 1
+                self.disagree_since[side] = None
+            if send:
+                switch_power(lambda on: self._send_turn(side, on), self.observe, side, False,
+                             self.clock, self.sleep)
+            return True
+
+    def sync_held(self, side):
+        with self.lock:
+            return side in self.holds
+
+    def sync_release(self, side):
+        """Restore On after Sync unless the owner changed the lamp.
+
+        Returns "restored", "superseded" (no hold left, or the owner wants Off) or
+        "failed"; a failed restore keeps the hold, so the session can retry it.
+        """
+        with self.transitions[side]:
+            with self.lock:
+                if side not in self.holds:
+                    return "superseded"
+                self.holds.discard(side)
+                self.revisions[side] += 1
+                if self.intent[side]["on"] is False:
+                    return "superseded"
+            restored = False
+            try:
+                restored = self._power(side, True)
+            finally:
+                if not restored:
+                    with self.lock:
+                        self.holds.add(side)
+                        self.revisions[side] += 1
+            return "restored" if restored else "failed"
+
+    def owner_power(self, side):
+        """An explicit owner power request for this lamp ends its Sync hold."""
+        with self.lock:
+            if side in self.holds:
+                self.holds.discard(side)
+                self.revisions[side] += 1
+
     # Native observation ---------------------------------------------------
 
     def tick(self):
@@ -285,7 +366,10 @@ class HomeKitPower:
                 native = observed.get(side, {}).get("on")
                 with self.lock:
                     intent = self.intent[side]["on"]
-                    if native is None:
+                    if side in self.holds:
+                        # A Sync hold's Off is never adopted as owner intent.
+                        self.disagree_since[side] = None
+                    elif native is None:
                         self.disagree_since[side] = None
                     elif intent is None:
                         self._adopt(side, native)

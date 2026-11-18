@@ -267,9 +267,10 @@ class HomeKitRouteTests(unittest.TestCase):
         temp = TemporaryDirectory(prefix="tmp_homekit_route_")
         self.addCleanup(temp.cleanup)
         self.lamps = FakeLamps()
+        self.owner_names = {}
         self.power = HomeKitPower(targets(), Path(temp.name) / "intent.json", self.lamps.send,
                                   self.lamps.observe, clock=self.lamps.clock,
-                                  sleep=self.lamps.sleep)
+                                  sleep=self.lamps.sleep, names=lambda: dict(self.owner_names))
         self.power.tick()
         controller = PilotController(targets(), sender=self.power.wrap(self.lamps.send),
                                      power_owner=self.power)
@@ -357,6 +358,24 @@ class HomeKitRouteTests(unittest.TestCase):
             self.url + "/status", headers={"X-Adapter-Token": TOKEN}), timeout=5)
         with status:
             self.assertIsNone(status.headers["X-LCC-Response"])
+
+    def test_owner_names_are_reported_per_lamp_and_the_response_stays_signed(self):
+        status, body = self.call("/homekit")
+        self.assertTrue(all("name" not in lamp for lamp in body["roles"].values()))
+        self.owner_names.update(left="Desk left", strip="Not a HomeKit lamp")
+        headers = self.signed("GET", "/homekit", b"")
+        request = urllib.request.Request(self.url + "/homekit", headers=headers)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=5) as response:
+            data = response.read()
+            self.assertEqual(response.headers["X-LCC-Response"], response_signature(
+                OWNER, headers["X-LCC-Nonce"], 200, data))
+        roles = json.loads(data)["roles"]
+        self.assertEqual(roles["left"]["name"], "Desk left")
+        self.assertNotIn("name", roles["right"])
+        self.assertEqual(set(roles), {"left", "right"})
+        status, body = self.call("/homekit", {"role": "right", "on": False})
+        self.assertEqual(body["roles"]["left"]["name"], "Desk left")
 
     def test_signature_matches_the_plugin_vector(self):
         # Same vector as tests/homebridge_plugin.test.mjs.

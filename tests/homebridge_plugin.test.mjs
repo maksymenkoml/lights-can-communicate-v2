@@ -209,6 +209,68 @@ test('polling mirrors the core state and marks the lamps unavailable only after 
     hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
 });
 
+test('an owner name from the core renames the accessory without changing identifiers', async () => {
+  const { platform, client } = harness();
+  await platform.start();
+  const lamp = platform.lamps.get('left');
+  const accessory = lamp.accessory._associatedHAPAccessory;
+  const info = accessory.getService(hap.Service.AccessoryInformation);
+  const before = { ...identifiers(accessory), aid: accessory.aid, uuid: accessory.UUID };
+  // No name from the core: the configured name stays.
+  assert.equal(lamp.accessory.displayName, 'Mykola office L');
+  client.roles.left = { on: true, name: '  Desk left  ' };
+  await platform.poll();
+  assert.equal(lamp.accessory.displayName, 'Desk left');
+  assert.equal(accessory.displayName, 'Desk left');
+  assert.equal(info.getCharacteristic(hap.Characteristic.Name).value, 'Desk left');
+  assert.equal(platform.lamps.get('right').accessory.displayName, 'Mykola office R');
+  assert.deepEqual({ ...identifiers(accessory), aid: accessory.aid, uuid: accessory.UUID }, before);
+  // A later answer without a name keeps the last name; another name renames again.
+  client.roles.left = { on: true };
+  await platform.poll();
+  assert.equal(lamp.accessory.displayName, 'Desk left');
+  client.roles.left = { on: true, name: 'Left floor' };
+  await platform.poll();
+  assert.equal(lamp.accessory.displayName, 'Left floor');
+});
+
+test('the Lightbulb Name and ConfiguredName follow only where the accessory has them', async () => {
+  const { platform, client } = harness();
+  await platform.start();
+  const lamp = platform.lamps.get('left');
+  const { Characteristic } = hap;
+  assert.equal(lamp.service.testCharacteristic(Characteristic.Name), false);
+  client.roles.left = { on: true, name: 'Desk left' };
+  await platform.poll();
+  // The renaming added no characteristic that would need a new IID.
+  assert.equal(lamp.service.testCharacteristic(Characteristic.Name), false);
+  assert.equal(lamp.service.testCharacteristic(Characteristic.ConfiguredName), false);
+
+  lamp.service.getCharacteristic(Characteristic.Name);
+  lamp.service.getCharacteristic(Characteristic.ConfiguredName);
+  client.roles.left = { on: true, name: 'Left floor' };
+  await platform.poll();
+  assert.equal(lamp.service.getCharacteristic(Characteristic.Name).value, 'Left floor');
+  assert.equal(lamp.service.getCharacteristic(Characteristic.ConfiguredName).value, 'Left floor');
+});
+
+test('an unusable core name is ignored; Homebridge updateDisplayName is preferred', async () => {
+  const { platform, client } = harness();
+  await platform.start();
+  const lamp = platform.lamps.get('left');
+  const calls = [];
+  lamp.accessory.updateDisplayName = name => { calls.push(name); lamp.accessory.displayName = name; };
+  for (const name of ['', '   ', 'x'.repeat(65), 7, null]) {
+    client.roles.left = { on: true, name };
+    await platform.poll();
+  }
+  assert.deepEqual(calls, []);
+  assert.equal(lamp.accessory.displayName, 'Mykola office L');
+  client.roles.left = { on: true, name: 'Desk left' };
+  await platform.poll();
+  assert.deepEqual(calls, ['Desk left']);
+});
+
 test('requests are signed and never carry the credential itself', async () => {
   assert.equal(sign('b'.repeat(64), 'POST', '/homekit', '1000.000', 'c'.repeat(32),
     JSON.stringify({ role: 'left', on: true })),

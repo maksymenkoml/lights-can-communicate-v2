@@ -26,6 +26,9 @@ ASSETS = {
     "/fonts/commissioner-latin.woff2": ("fonts/commissioner-latin.woff2", "font/woff2"),
 }
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
+# Adapter refusal reasons passed through to the UI; anything else is "refused".
+IDENTIFY_REASONS = ("lamp off", "writer closed", "sync active", "busy", "unavailable",
+                    "brightness unknown", "paused")
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
 DISCOVERY_FIELDS = (
     "id", "provider", "name", "model", "shape", "zones", "supported", "online",
@@ -294,9 +297,25 @@ def _asset(name):
     return path.read_bytes()
 
 
+def _post_local_json(url, body, timeout, headers):
+    """POST to the loopback adapter; return (status, JSON body) including refusals."""
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", **headers})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoLocalRedirect())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read(4096))
+    except urllib.error.HTTPError as error:
+        with error:
+            try:
+                return error.code, json.loads(error.read(4096))
+            except ValueError:
+                return error.code, {}
+
+
 def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
-                bridge_url="http://127.0.0.1"):
+                bridge_url="http://127.0.0.1", identify_post=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
 
     def default_source_fetch():
@@ -343,6 +362,30 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 error.close()
             return {"connected": False, "devices": [],
                     "providers": {"govee": "unavailable", "hue": "unavailable"}}
+
+    def identify(role):
+        """Forward an owner Blink to the adapter; return (status, public body)."""
+        if (store.path.parent / "live-output-hold").exists():
+            return 409, {"accepted": False, "reason": "paused"}
+        try:
+            if identify_post is not None:
+                status, body = identify_post(role)
+            else:
+                token = token_file.read_text().strip()
+                # A Govee blink takes about 1.2 s before the adapter answers.
+                status, body = _post_local_json(adapter_url + "/identify", {"role": role}, 3,
+                                                 {"X-Adapter-Token": token})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return 503, {"accepted": False, "reason": "adapter unavailable"}
+        reason = body.get("reason") if isinstance(body, dict) else None
+        if status == 200:
+            return 200, {"accepted": True}
+        if status == 409:
+            return 409, {"accepted": False,
+                         "reason": reason if reason in IDENTIFY_REASONS else "refused"}
+        return 503, {"accepted": False, "reason": "adapter unavailable"}
 
     def validate_bindings(data):
         if not isinstance(data, dict) or not isinstance(data.get("devices"), list):
@@ -407,12 +450,15 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):
-            if urlsplit(self.path).path != "/api/layout":
+            path = urlsplit(self.path).path
+            if path not in ("/api/layout", "/api/identify"):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
             if self.headers.get_content_type() != "application/json":
                 return self.respond(415, {"error": "JSON required"})
+            if path == "/api/identify":
+                return self.identify()
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 16384:
@@ -431,11 +477,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                     if not isinstance(data, dict) or data.get("version") != LAYOUT_VERSION:
                         raise ValueError("Writes must use the current layout version")
                     previous = store.snapshot()
-                    if (isinstance(data, dict) and 'syncZone' not in data
-                            and previous and 'syncZone' in previous):
-                        # A stale client cannot silently erase a newer custom zone.
-                        # New clients send explicit null to return to automatic.
-                        data = {**data, 'syncZone': previous['syncZone']}
+                    for zone in ('syncZone', 'sceneZone'):
+                        if (isinstance(data, dict) and zone not in data
+                                and previous and zone in previous):
+                            # A stale client cannot silently erase a newer custom zone.
+                            # New clients send explicit null to return to automatic.
+                            data = {**data, zone: previous[zone]}
                     validate_bindings(data)
                     result = store.save(data)
                 return self.respond(200, result)
@@ -443,6 +490,23 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 return self.respond(400, {"error": "invalid desk layout"})
             except OSError:
                 return self.respond(503, {"error": "layout storage unavailable"})
+
+        def identify(self):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 1024:
+                    return self.respond(413, {"error": "identify payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if (not isinstance(data, dict) or set(data) != {"lamp"}
+                        or not isinstance(data["lamp"], str)):
+                    raise ValueError("Expected a lamp")
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid identify request"})
+            role = ROLES.get(data["lamp"])
+            if role is None:
+                # Only the six role lamps can blink; discovered lamps come later.
+                return self.respond(404, {"error": "unknown lamp"})
+            return self.respond(*identify(role))
 
         def local_request(self):
             hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}

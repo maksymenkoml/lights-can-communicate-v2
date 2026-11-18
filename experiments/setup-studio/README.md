@@ -43,21 +43,48 @@ files and credentials are never served. The page makes no external requests.
 whole layout with `If-Match: "<revision>"` (`""` when nothing is saved yet). A
 missing header returns 428 and a stale revision returns 409; the client then
 refetches and merges its changes field by field. Writes must use the current
-layout version (4); older versions are refused. The browser keeps a
+layout version (5); older versions are refused. The browser keeps a
 draft (`light-studio-grid-v3`, `-base`, `-pending`): offline edits are retried
 every 3 s, and the first load imports a browser draft when the server has none.
 
-Layout version 4 stores centimetres. World x has the desk centre at 100 cm. A
+Layout version 5 stores centimetres. World x has the desk centre at 100 cm. A
 floor lamp's `height` is its bottom + 60 cm; other lamps and the monitor strip
 store their centre. `scale` is the brightness correction (0-100) and
 `syncZone` the optional custom falloff zone (missing or null is Auto).
 `enabled: false` removes one of the six role lamps from the layout and from
 Sync; removing a found or drawn lamp deletes its row. The optional
 `syncRole: "own"` keeps a lamp in the room but outside the Sync composition, so
-it keeps its own light; `"sync"` is the default and is not stored. Version 3
-files load as version 4, so their revision changes and pages opened before
-the upgrade must refetch. Writes accept geometry and corrections only: no power,
+it keeps its own light; `"off"` (role lamps only) also leaves the composition and
+switches the lamp off while Sync runs, restoring it afterwards (see
+`core/README.md`, "Lamp controls"); `"sync"` is the default and is not stored.
+Outside Sync, own-light and off lamps still get scenes. The six role rows accept
+an optional `name` (1-35 characters after stripping, 1-32 for the four Hue lamps,
+no control characters), stored only when given: it is the lamp's name in Light
+Studio, on the virtual Hue bridge, in HomeKit and on the physical Hue light
+(see `core/README.md`, "Lamp names"). A row without `name` renames nothing; an
+invalid name refuses the whole write. Version 5 adds
+the second, without-Sync (scene) configuration: row `sceneScale` (0-100, default
+`scale`), top-level `sceneZone` (same format as `syncZone`, missing or null is
+Auto) and the booleans `syncFalloff` (default true) and `sceneFalloff` (default
+false). The defaults are not stored. A fade that is off gives every gain 1 and
+samples Govee segments at their centres. Scene output includes every present
+lamp, own-light ones too. A write that omits `sceneZone` keeps the saved one,
+like `syncZone`; omitted fade switches mean their defaults. Version 3 and 4
+files load as version 5, so their revision changes and pages opened before the
+upgrade must refetch. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
+
+## Blink
+
+`POST /api/identify` with `{"lamp": "<role lamp id>"}` (for example
+`"govee-left"`) asks the adapter to blink that lamp so the owner can find it. It
+has the same local-origin protections as layout writes (Host, Origin,
+`Sec-Fetch-Site`, `application/json`). Only the six role lamps can blink: other
+ids return 404, a malformed body 400. The answer is 200 `{"accepted": true}`,
+409 `{"accepted": false, "reason"}` when the adapter refuses (`lamp off`,
+`writer closed`, `sync active`, `busy`, `unavailable`, `brightness unknown`, or
+`paused` during the owner's live-output hold) and 503 when the adapter is not
+reachable or the blink was not delivered. Only an owner click triggers it.
 
 ## Found lamps
 
