@@ -5,6 +5,12 @@ import sys
 import threading
 
 
+def is_client_hello(data):
+    """DTLS handshake record (type 22, version 1.x) carrying a ClientHello (type 1)."""
+    return (len(data) > 13 and data[0] == 22 and data[1] == 0xFE
+            and data[2] in (0xFD, 0xFF) and data[13] == 1)
+
+
 class UdpPortGuard:
     """Bind before OpenSSL; discard idle packets without forwarding or replaying them.
 
@@ -22,6 +28,7 @@ class UdpPortGuard:
         self.worker = None
         self.closed = False
         self.discarded = 0
+        self.client_hellos = 0
         self.last_error = None
         self.worker_name = f"dtls-idle-udp-{id(self):x}"
 
@@ -71,7 +78,7 @@ class UdpPortGuard:
     def _drain(self):
         while not self.done.is_set():
             try:
-                self.sock.recvfrom(65535)
+                data, _ = self.sock.recvfrom(65535)
             except socket.timeout:
                 continue
             except OSError:
@@ -80,12 +87,16 @@ class UdpPortGuard:
                 return
             with self.lock:
                 self.discarded += 1
+                # A peer that OpenSSL is not connected to starts a new DTLS session.
+                if is_client_hello(data):
+                    self.client_hellos += 1
 
     def snapshot(self):
         with self.lock:
             return {
                 "running": self.worker is not None and self.worker.is_alive(),
                 "discarded_datagrams": self.discarded,
+                "client_hellos": self.client_hellos,
                 "last_error": self.last_error,
             }
 

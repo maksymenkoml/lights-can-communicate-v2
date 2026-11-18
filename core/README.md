@@ -277,6 +277,24 @@ This operational recovery is not an automatic Docker Desktop repair mechanism.
 See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
 sequential live observation windows, tests and measurement limits.
 
+### Source reconnection without a new Start
+
+`openssl s_server -listen` serves one DTLS association and then only receives
+datagrams from that peer. A source that vanished without `close_notify` and
+handshakes again from a new port, without a new REST Start, previously reached
+only the UDP guard, which discarded its ClientHello; the retained session
+waited indefinitely until a phone Stop/Start. The guard now counts DTLS
+ClientHello records it discards. When the current association has been idle
+for more than 0.5 seconds and a new ClientHello arrived after it was
+established, the receiver ends that association and listens again for the same
+Start, without deactivating the stream. The client's retransmitted ClientHello
+then completes the new session. A pause on the established connection sends no
+ClientHello and is retained; Stop, a superseding Start, shutdown and owner Off
+keep their existing precedence. The bridge journal records `source_reconnected`,
+`source_timeout` and `dtls_closed` with the guard's `client_hellos` count, and
+receiver status counts `reconnects`. `tests/test_receiver_reconnect.py`
+reproduces the vanished-client case with real OpenSSL DTLS (Linux only).
+
 ## Light Studio composition and projection
 
 `0.1.0.dev6` uses saved Light Studio placement and optional v3 `enabled:false`

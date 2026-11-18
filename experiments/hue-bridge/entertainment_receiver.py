@@ -173,6 +173,14 @@ def dtls_diagnostic(line):
     return None
 
 
+RECONNECT_IDLE = 0.5
+_END = {
+    "source reconnected": ("waiting", "source_reconnected"),
+    "source timeout": ("idle", "source_timeout"),
+    "DTLS EOF": ("unavailable", "dtls_closed"),
+}
+
+
 class EntertainmentReceiver:
     def __init__(self, url, token, openssl="openssl", enabled=False, udp_guard=None,
                  diagnostics=None):
@@ -250,8 +258,6 @@ class EntertainmentReceiver:
             self.udp_guard.close()
 
     def serve(self, group, user):
-        from services.entertainment import _psk_value
-
         if (
             not self.enabled
             or group.id_v2 != GROUP_ID
@@ -287,6 +293,16 @@ class EntertainmentReceiver:
             self.serving = True
             self.serving_group = group
             self.serving_generation = generation
+        while self._session(group, user, generation):
+            pass
+
+    def _client_hellos(self):
+        return self.udp_guard.snapshot()["client_hellos"] if self.udp_guard is not None else 0
+
+    def _session(self, group, user, generation):
+        """Serve one DTLS association; True means listen again for the same Start."""
+        from services.entertainment import _psk_value
+
         outbox = StreamOutbox(self.url, self.token, diagnostics=self.diagnostics)
         self.current_outbox = outbox
         done = threading.Event()
@@ -294,6 +310,8 @@ class EntertainmentReceiver:
         diagnostic_worker = None
         worker = None
         end_reason = "source stopped"
+        reconnect = False
+        restart = False
         try:
             process = subprocess.Popen(
                 [
@@ -342,6 +360,9 @@ class EntertainmentReceiver:
                 target=collect_diagnostics, daemon=True, name="dtls-diagnostics"
             )
             diagnostic_worker.start()
+            # Hellos that reach the guard from now on come from a peer that
+            # this association does not serve: the source started a new session.
+            hellos = self._client_hellos()
             with self.lock:
                 self.status.update(active=True, last_result="waiting for DTLS frames")
             worker = threading.Thread(
@@ -360,6 +381,12 @@ class EntertainmentReceiver:
                 idle_for = time.monotonic() - last_data
                 if not received and idle_for > 45:
                     end_reason = "source timeout"
+                    break
+                if idle_for > RECONNECT_IDLE and self._client_hellos() > hellos:
+                    # A legitimate pause sends nothing; a new ClientHello means
+                    # the old association is gone and must not fence the new one.
+                    end_reason = "source reconnected"
+                    reconnect = True
                     break
                 if received and idle_for > 0.5:
                     with self.lock:
@@ -423,7 +450,7 @@ class EntertainmentReceiver:
             with self.listener_condition:
                 if group.stream.get("_proc") is process:
                     group.stream.pop("_proc", None)
-                    if self.generation is generation:
+                    if self.generation is generation and not reconnect:
                         group.update_attr({"stream": {"active": False, "owner": None}})
             if worker is not None:
                 worker.join(timeout=0.5)
@@ -432,6 +459,15 @@ class EntertainmentReceiver:
                     active=False, forwarded=outbox.forwarded, last_error=outbox.last_error
                 )
                 self.status["last_result"] = end_reason
-                self.serving = False
-                self.serving_group = None
+                restart = (reconnect and not self.closed and self.generation is generation
+                           and group.stream.get("active") is True)
+                if restart:
+                    self.status["reconnects"] = self.status.get("reconnects", 0) + 1
+                else:
+                    self.serving = False
+                    self.serving_group = None
                 self.listener_condition.notify_all()
+            if end_reason in _END:
+                self.diagnostics.record(*_END[end_reason],
+                                        {"client_hellos": self._client_hellos()})
+        return restart
