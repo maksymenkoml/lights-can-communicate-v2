@@ -173,6 +173,7 @@ class HomeKitPower:
                 del payload["brightness"]
             with self.lock:
                 intent = self.intent[side]
+                previous = dict(intent)
                 if "brightness" in payload:
                     intent["brightness"] = payload["brightness"]
                 if "hue" in payload or "saturation" in payload:
@@ -189,6 +190,12 @@ class HomeKitPower:
                 confirmed = self._power(side, payload["on"])
             if confirmed and self.allowed(side) and self.idle(side):
                 confirmed = self._apply_static(side, payload)
+                if not confirmed:
+                    # HomeKit must keep showing what the lamp actually has.
+                    with self.lock:
+                        for key in ("brightness", "hue", "saturation", "kelvin"):
+                            self.intent[side][key] = previous[key]
+                        self._save()
             return confirmed
 
     def _apply_static(self, side, payload):

@@ -190,10 +190,14 @@ class HomeKitPowerTests(unittest.TestCase):
 
     def test_undelivered_brightness_or_color_is_not_confirmed(self):
         self.power.tick()
+        self.power.set({"role": "left", "brightness": 40})
         self.lamps.undelivered.add("brightness")
         self.assertFalse(self.power.set({"role": "left", "brightness": 30}))
+        self.assertEqual(self.power.state()["roles"]["left"]["brightness"], 40)
+        self.assertEqual(self.make().state()["roles"]["left"]["brightness"], 40)
         self.lamps.undelivered = {"colorwc"}
         self.assertFalse(self.power.set({"role": "left", "hue": 10, "saturation": 20}))
+        self.assertIsNone(self.power.state()["roles"]["left"]["hue"])
         self.lamps.undelivered.clear()
         self.assertTrue(self.power.set({"role": "left", "hue": 10, "saturation": 20}))
 
