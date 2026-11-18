@@ -43,7 +43,9 @@ LAYOUT_VERSION = 5
 LAYOUT_VERSIONS = (3, 4, LAYOUT_VERSION)
 # Fade switches are stored only when they differ from these defaults.
 FALLOFF_DEFAULTS = {"syncFalloff": True, "sceneFalloff": False}
-SYNC_ROLES = ("sync", "own")
+# "off" switches a role lamp off for each Sync session (see sync_off.py); only the
+# six role rows accept it. Discovered and unbound rows keep "sync" or "own".
+SYNC_ROLES = ("sync", "own", "off")
 
 
 def layout_event(resource):
@@ -123,12 +125,14 @@ def validate_layout(value):
         if not enabled:
             device['enabled'] = False
         # "sync" is the default and is never stored; "own" keeps the lamp's own
-        # light during Sync by excluding it from the composition.
+        # light during Sync and "off" switches it off while Sync runs. Both exclude
+        # the lamp from the composition; outside Sync it still gets scenes.
         sync_role = row.get("syncRole", "sync")
-        if type(sync_role) is not str or sync_role not in SYNC_ROLES:
+        if (type(sync_role) is not str or sync_role not in SYNC_ROLES
+                or (sync_role == "off" and key not in ROLES)):
             raise ValueError("Invalid Sync role")
-        if sync_role == "own":
-            device["syncRole"] = "own"
+        if sync_role != "sync":
+            device["syncRole"] = sync_role
         if row.get("sceneScale") is not None:
             device["sceneScale"] = number(row["sceneScale"], 0, 100)
         if key.startswith("virtual-"):
@@ -172,8 +176,8 @@ def validate_layout(value):
 
 
 def composed(device):
-    """A validated row takes part in the Sync composition."""
-    return device.get("enabled", True) and device.get("syncRole", "sync") != "own"
+    """A validated row takes part in the Sync composition ("own" and "off" do not)."""
+    return device.get("enabled", True) and device.get("syncRole", "sync") == "sync"
 
 
 def minimum_anchor_height(device, monitor_inches):
@@ -303,6 +307,15 @@ class LayoutStore:
     def present(self, role, fallback=True):
         """Return scene membership: every lamp that is not removed, own light included."""
         return self._member(role, fallback, lambda device: device.get("enabled", True))
+
+    def sync_off_roles(self):
+        """Return the present role lamps that Sync switches off ("off"), in layout order."""
+        data = self.snapshot()
+        if not data:
+            return []
+        return [ROLES[device["id"]] for device in data["devices"]
+                if device["id"] in ROLES and device.get("enabled", True)
+                and device.get("syncRole") == "off"]
 
     def scene_fade(self):
         """Return the scene fade gains per role (all 1 while the fade is off), or None."""

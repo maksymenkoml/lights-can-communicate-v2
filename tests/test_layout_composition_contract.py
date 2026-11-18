@@ -54,7 +54,7 @@ class LayoutCompositionTests(unittest.TestCase):
         self.assertNotIn('syncRole', result['devices'][0])
         self.assertEqual(result['devices'][4]['syncRole'], 'own')
         self.assertEqual(validate_layout(copy.deepcopy(result)), result)
-        for invalid in ('off', 'Own', '', None, True, 1, ['own'], {'own': True}):
+        for invalid in ('Off', 'Own', '', None, True, 1, ['own'], {'own': True}):
             data['devices'][4]['syncRole'] = invalid
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 validate_layout(data)

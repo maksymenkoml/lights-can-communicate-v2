@@ -450,6 +450,61 @@ Govee segment samples at their centres. The scene controller and the Hue scene
 proxies multiply the scene correction by the scene fade: per Govee segment (bottom
 to top), the strip's mean anchor gain and one gain per Play. Hue dimming never goes
 below 0.1 %. `LayoutStore.present()` is scene membership (every lamp that is not
-removed); `enabled()` stays the Sync composition (own-light lamps excluded). The
-virtual bridge forwards scenes to every present lamp. Version 3 and 4 files load as
-version 5.
+removed); `enabled()` stays the Sync composition (own-light and off lamps
+excluded). The virtual bridge forwards scenes to every present lamp. Version 3 and 4
+files load as version 5.
+
+## Lamp controls
+
+### Off during Sync
+
+A role lamp with `syncRole: "off"` (role rows only) is outside the Sync
+composition and is switched off for each Sync session. A session starts when the
+video output becomes active and ends when it is released (explicit stop or grace
+elapsed). At the start the adapter records each present "off" lamp's power and
+switches it off; at the end it switches the recorded lamps on again.
+
+- A lamp that is already off (or whose power is unknown) is not switched and stays
+  as it is.
+- An owner power change during the session wins: HomeKit (`/homekit`), Hue app
+  power for Govee (`/power-request`) or native Hue (`/native-power`), or a native
+  Hue light switched on directly at the owner's bridge. That lamp is not restored.
+  A HomeKit or Hue app On during the session switches the lamp on at once.
+- Govee: a Sync hold in the power authority. The hold is not owner intent, is
+  never adopted from native readings, and closes the color writer while it is
+  active; `GET /homekit` keeps showing the owner's intent (`sync_hold` appears in
+  the `/status` power snapshot). Power uses the Govee `turn` command. Without a
+  power authority (no owner credential) the adapter has no power path, so Govee
+  "off" lamps are left untouched and keep their own light, like "own".
+- Native Hue: the confirmed `{"on": {"on": …}}` write of `/native-power`. The
+  role is outside the composition, so the Sync safety fence does not require it
+  to be on.
+- Crash safety: the roles switched off are written to
+  `<state-dir>/sync-off-session.json` (`{"version": 1, "roles": [...]}`, atomic,
+  0600) before any command. On start, while no Sync runs, the adapter restores
+  them (a Govee lamp after its first fresh native reading, up to 15 s) and deletes
+  the file. A clean shutdown restores immediately. A failed restore stays in the
+  file and is retried every second.
+- Changing a lamp's `syncRole` while a session runs applies at the next session
+  start; the running session restores exactly the lamps it switched off.
+
+### Blink
+
+`POST /identify` with `{"role": "left" | "right" | "strip" | "hue_left" |
+"hue_center" | "hue_right"}` and the `X-Adapter-Token` header blinks one lamp.
+It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
+"reason"}` when refused, 503 when a command was not delivered and 400 on bad
+input. It refuses while Sync drives the role (`sync active`), while the lamp is
+off or not freshly observed (`lamp off`), while its color writer is closed
+(`writer closed`), while another blink of the same lamp runs (`busy`) and for an
+unconfigured native role (`unavailable`).
+
+- Govee: two short dips (to 10 %, or a third of a dim lamp's brightness, 300 ms
+  each) through the power-gated color sender, then the exact previous brightness.
+  While a blink runs, the scene and Sync writers' commands to that lamp are
+  rejected and resent after the blink; other lamps keep rendering.
+- Native Hue: the Hue v2 `{"identify": {"action": "identify"}}` write on the
+  pinned light, through its own client method (the color write still refuses
+  power and identify).
+
+Setup Studio forwards `POST /api/identify {"lamp"}` here.

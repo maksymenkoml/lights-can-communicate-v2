@@ -54,7 +54,10 @@ store their centre. `scale` is the brightness correction (0-100) and
 `enabled: false` removes one of the six role lamps from the layout and from
 Sync; removing a found or drawn lamp deletes its row. The optional
 `syncRole: "own"` keeps a lamp in the room but outside the Sync composition, so
-it keeps its own light; `"sync"` is the default and is not stored. Version 5 adds
+it keeps its own light; `"off"` (role lamps only) also leaves the composition and
+switches the lamp off while Sync runs, restoring it afterwards (see
+`core/README.md`, "Lamp controls"); `"sync"` is the default and is not stored.
+Outside Sync, own-light and off lamps still get scenes. Version 5 adds
 the second, without-Sync (scene) configuration: row `sceneScale` (0-100, default
 `scale`), top-level `sceneZone` (same format as `syncZone`, missing or null is
 Auto) and the booleans `syncFalloff` (default true) and `sceneFalloff` (default
@@ -65,6 +68,18 @@ like `syncZone`; omitted fade switches mean their defaults. Version 3 and 4
 files load as version 5, so their revision changes and pages opened before the
 upgrade must refetch. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
+
+## Blink
+
+`POST /api/identify` with `{"lamp": "<role lamp id>"}` (for example
+`"govee-left"`) asks the adapter to blink that lamp so the owner can find it. It
+has the same local-origin protections as layout writes (Host, Origin,
+`Sec-Fetch-Site`, `application/json`). Only the six role lamps can blink: other
+ids return 404, a malformed body 400. The answer is 200 `{"accepted": true}`,
+409 `{"accepted": false, "reason"}` when the adapter refuses (`lamp off`,
+`writer closed`, `sync active`, `busy`, `unavailable`, `brightness unknown`, or
+`paused` during the owner's live-output hold) and 503 when the adapter is not
+reachable or the blink was not delivered. Only an owner click triggers it.
 
 ## Found lamps
 

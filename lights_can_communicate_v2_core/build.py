@@ -27,6 +27,8 @@ PILOT_MODULES = (
     "sync_projection",
     "sync_zone",
     "native_location_cache",
+    "identify",
+    "sync_off",
 )
 CORE_MODULES = (
     "__init__", "__main__", "config", "cli", "discovery", "hue_discovery", "live_preview",

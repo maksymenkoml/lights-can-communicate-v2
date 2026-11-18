@@ -141,6 +141,14 @@ class PinnedHueClient:
         ):
             raise ValueError("Native power write not confirmed")
 
+    def identify(self):
+        """Blink only this pinned light (Hue v2 ``identify``); never color or power."""
+        result = self.requester("PUT", self.path, {"identify": {"action": "identify"}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native identify not confirmed")
+
 
 def merge_hue_body(previous, update):
     result = copy.deepcopy(previous or {})

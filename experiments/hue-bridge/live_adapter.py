@@ -28,11 +28,14 @@ from homekit_power import (  # noqa: E402
 )
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
+from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from sync_health import export as export_diagnostics  # noqa: E402
+from sync_off import STATE_FILE as SYNC_OFF_FILE  # noqa: E402
+from sync_off import SyncOffSession  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
 import lights_can_communicate_v2 as lan  # noqa: E402
@@ -488,7 +491,7 @@ class PilotController:
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
-                power_requests=None, homekit=None):
+                power_requests=None, homekit=None, identify=None, sync_off=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -566,6 +569,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 result["power_owner"] = power_owner.snapshot()
             if service_info is not None:
                 result["service"] = dict(service_info)
+            if sync_off is not None:
+                result["sync_off"] = sync_off.snapshot()
             if preview is not None:
                 try:
                     output_snapshot = preview.snapshot()
@@ -591,10 +596,10 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
             if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
-                                 "/native-power",
+                                 "/native-power", "/identify",
                                  "/homekit") or (
                 self.path == "/stream" and video_output is None
-            ):
+            ) or (self.path == "/identify" and identify is None):
                 return self.respond(404, {"error": "not found"})
             try:
                 size = int(self.headers.get("Content-Length", "0"))
@@ -628,13 +633,32 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 elif self.path == "/power-request":
                     if broker is None:
                         return self.respond(503, {"accepted": False})
-                    return self.respond(200, {"accepted": broker.request(payload)})
+                    accepted = broker.request(payload)
+                    if sync_off is not None:
+                        # An owner power change during Sync wins over the Sync hold.
+                        for role in payload["states"]:
+                            sync_off.owner_power(role)
+                    return self.respond(200, {"accepted": accepted})
+                elif self.path == "/identify":
+                    if (not isinstance(payload, dict) or set(payload) != {"role"}
+                            or not isinstance(payload["role"], str)):
+                        raise ValueError("Invalid identify request")
+                    try:
+                        identify(payload["role"])
+                    except IdentifyRefused as refused:
+                        return self.respond(409, {"accepted": False, "reason": refused.reason})
+                    except IdentifyFailed:
+                        return self.respond(503, {"accepted": False})
+                    return self.respond(200, {"accepted": True})
                 elif self.path == "/native-power":
                     roles = payload.get("roles") if isinstance(payload, dict) else None
                     if (not isinstance(roles, dict) or not roles
                             or set(roles) - set(hue_proxies)
                             or any(type(value) is not bool for value in roles.values())):
                         raise ValueError("Invalid native power request")
+                    if sync_off is not None:
+                        for role in roles:
+                            sync_off.owner_power(role)
                     try:
                         confirmed = all([hue_proxies[role].set_power(value)
                                          for role, value in roles.items()])
@@ -723,6 +747,8 @@ def main(argv=None, service_info=None):
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])
+            power_owner.attach_power(lan.send_to_target,
+                                     observe=lambda: controller.power_observations())
             power_requests = PowerRequests(power_owner)
         sender = power_owner.wrap(sender)
     elif args.power_authority == "homekit":
@@ -768,6 +794,16 @@ def main(argv=None, service_info=None):
         for proxy in hue_proxies.values():
             proxy.output_lock = video.lock
             proxy.write_gate = lambda: not video.active()
+    identify = Identify(controller, hue_proxies, video=video, power_owner=power_owner,
+                        layout_store=layout_store)
+    identify.sender = sender
+    controller.sender = identify.wrap(controller.sender)
+    if video is not None:
+        video.controller.sender = identify.wrap(video.controller.sender)
+    sync_off = SyncOffSession(
+        layout_store, (lambda: video.active()) if video is not None else (lambda: False),
+        state_dir / SYNC_OFF_FILE, govee=power_owner, native=hue_proxies,
+        observe=controller.power_observations)
     if homekit is not None:
         idle["check"] = lambda side: (
             (video is None or not video.active()) and side not in controller.jobs)
@@ -803,6 +839,8 @@ def main(argv=None, service_info=None):
             preview=preview,
             power_requests=power_requests,
             homekit=homekit,
+            identify=identify,
+            sync_off=sync_off,
         ),
     )
     video_thread = http_thread = None
@@ -829,6 +867,8 @@ def main(argv=None, service_info=None):
                 target=video.run, args=(video_stop,), name="pilot-video"
             )
             video_thread.start()
+        threading.Thread(target=sync_off.run, args=(stop,), daemon=True,
+                         name="pilot-sync-off").start()
         transport = PilotTransport(
             controller.targets,
             publish_statuses,
@@ -861,6 +901,8 @@ def main(argv=None, service_info=None):
     except KeyboardInterrupt:
         print("Pilot adapter stopped.", flush=True)
     finally:
+        # Restore lamps switched off for Sync while native readings are still live.
+        sync_off.close()
         stop.set()
         if power_requests is not None:
             power_requests.close()

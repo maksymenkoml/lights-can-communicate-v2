@@ -38,6 +38,7 @@ CONTRACTS = [
     "test_sync_visibility_fade",
     "test_sync_zone",
     "test_floor_zone_contract",
+    "test_lamp_controls",
 ]
 RUNTIME = [
     "live_adapter",
@@ -60,6 +61,8 @@ RUNTIME = [
     "sync_projection",
     "sync_zone",
     "native_location_cache",
+    "identify",
+    "sync_off",
 ]
 
 
