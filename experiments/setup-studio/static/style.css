@@ -33,8 +33,6 @@ h1,h2,p{margin:0}
 .lamp.chosen .outline,.lamp:focus-visible .outline{opacity:1}
 .lamp-name{fill:var(--muted);text-anchor:middle;opacity:0;pointer-events:none}
 
-.dimension{fill:var(--muted);text-anchor:middle;pointer-events:none;opacity:0}
-.desk-group:hover .dimension,.desk-group.chosen .dimension,.monitor-group:hover .dimension,.monitor-group.chosen .dimension{opacity:1}
 .lamp.chosen .lamp-name{opacity:0}
 .axis{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 6;opacity:.18;vector-effect:non-scaling-stroke;pointer-events:none}
 .toolbar{position:absolute;bottom:25px;left:50%;transform:translateX(-50%);display:flex;gap:3px;padding:6px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);z-index:6}
@@ -58,14 +56,12 @@ h1,h2,p{margin:0}
 .scene-toggle:hover,.scene-toggle[aria-pressed=true]{color:var(--accent);background:var(--soft)}
 .scene-toggle svg{width:17px;height:17px}
 .scene-toggle .sun{display:none}.scene-toggle[aria-pressed=true] .moon{display:none}.scene-toggle[aria-pressed=true] .sun{display:block}
-@media(max-width:550px){.scene-toggle{width:34px;height:34px;border-radius:10px}}
 @property --scene-sweep{syntax:'<number>';inherits:false;initial-value:0}
 .scene-snapshot{position:absolute;inset:0;z-index:2;pointer-events:none;mask-repeat:no-repeat;mask-size:100% 100%;will-change:mask-image}
 .scene-snapshot.motion-halo.reveal-light{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),transparent calc(var(--scene-sweep)*100% - 14%),#000 calc(var(--scene-sweep)*100% + 14%))}
 .scene-snapshot.motion-halo.reveal-dark{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),#000 calc(var(--scene-sweep)*100% - 14%),transparent calc(var(--scene-sweep)*100% + 14%))}
 .app .scene-snapshot.snapshot-light .stage{--edge:#8994a5;--line:#dce1e8;--muted:#9299a5}
 
-.lamp .render-housing{fill:var(--canvas);stroke:var(--edge);stroke-width:1.4}
 .lamp .render-emission{fill:none;stroke:var(--beam);stroke-linecap:round;stroke-linejoin:round}
 .lamp .render-wash{fill:var(--beam);filter:url(#wall-wash);pointer-events:none}
 .lamp .render-bloom{fill:none;stroke:var(--beam);filter:url(#bloom);stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
@@ -86,7 +82,6 @@ h1,h2,p{margin:0}
 .ui-tooltip.visible{opacity:1}
 
 .lamp,.desk-group,.monitor-group{transition:opacity .28s ease}
-.desk-group .dimension{display:none}
 .handles{pointer-events:none}
 .handle{pointer-events:all;outline:none}
 .handle .knob{fill:var(--surface);stroke:var(--accent);vector-effect:non-scaling-stroke}
@@ -119,7 +114,6 @@ h1,h2,p{margin:0}
 .dim-input{position:absolute;z-index:9;width:76px;height:26px;transform:translate(-50%,-50%);border:1px solid var(--accent);background:var(--surface);color:var(--text);text-align:center;font-size:11px;font-variant-numeric:tabular-nums;outline:none;box-shadow:0 0 0 3px var(--soft);appearance:textfield}
 .dim-input::-webkit-inner-spin-button,.dim-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 
-.app.dark-scene .stage,.app .scene-snapshot.snapshot-dark .stage{--halo:#151920;--tag-text:#c3cddc}
 
 .dim{fill:none;stroke:var(--accent);stroke-width:1;vector-effect:non-scaling-stroke;opacity:.8}
 .dim.leader{stroke-dasharray:2 3}
@@ -131,7 +125,6 @@ h1,h2,p{margin:0}
 .rail{stroke:var(--tag-text);stroke-opacity:.28;stroke-width:2;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .rail-fill{stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .handle .knob{stroke-width:1.6}
-.monitor-group .dimension{display:none}
 .lamp,.lamp:focus,.desk-group:focus,.monitor-group:focus{outline:none}
 
 .desk-axis{fill:none;stroke:var(--accent);stroke-width:1;stroke-dasharray:4 6;opacity:.28;vector-effect:non-scaling-stroke;pointer-events:none}
@@ -197,7 +190,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .card .card-name{font-size:15.5px}
 .ui-tooltip{line-height:1.45}
 .obj-chip text{font-size:12.5px}
-.tag-text,.lamp-name,.dimension{font-size:11.5px}
+.tag-text,.lamp-name{font-size:11.5px}
 
 /* Radii: panels 8, controls 5, pills 3 */
 .toolbar,.list-toggle,.history,.object-menu,.toast{border-radius:var(--r-panel)}
@@ -218,7 +211,6 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 
 /* The light snapshot used by the scene transition must match the live light scene */
 
-.app .scene-snapshot.snapshot-light .stage{--tag-text:#1d3348}
 
 /* Night scene in navy */
 .app.dark-scene>.scene-background,.app .scene-snapshot.snapshot-dark .scene-background{background-color:#0f1c2a}
