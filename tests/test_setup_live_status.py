@@ -66,6 +66,19 @@ def status():
 
 
 class SetupLiveStatusTests(unittest.TestCase):
+    def test_projection_adds_verified_sync_reason_and_role_blockers(self):
+        data = status()
+        data["targets"][1]["native"]["onOff"] = 0
+        data["video"]["diagnostics"] = {"events": [
+            {"state": "waiting", "reason": "native_unavailable", "metrics": {}}]}
+        result = studio.project_status(data, source_active=True)
+        self.assertEqual(result["sync"]["reason"], "native_unavailable")
+        self.assertEqual(result["sync"]["blockers"], [{"role": "right", "code": "native_off"}])
+        self.assertNotIn("PRIVATE", json.dumps(result))
+        unclassified = studio.project_status(status(), source_active=False)
+        self.assertEqual(unclassified["sync"]["state"], "off")
+        self.assertEqual(unclassified["sync"]["reason"], "unknown")
+
     def test_projection_keeps_calibrated_colors_and_native_metadata_without_private_fields(self):
         try:
             result = studio.project_status(status(), source_active=False)

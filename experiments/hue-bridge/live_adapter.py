@@ -26,6 +26,7 @@ from pilot_transport import PilotTransport  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
+from sync_health import export as export_diagnostics  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
 import smart_lighting as lan  # noqa: E402
@@ -475,7 +476,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 return self.respond(403, {"error": "unauthorized"})
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
-            if self.path != "/status":
+            if self.path not in ("/status", "/diagnostics"):
                 return self.respond(404, {"error": "not found"})
             result = controller.snapshot()
             loader = getattr(getattr(controller, "layout_store", None), "sync_profile", None)
@@ -502,6 +503,9 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 except Exception:
                     output_snapshot = {}
                 result["preview"] = build_preview(result, output_snapshot)
+            if self.path == "/diagnostics":
+                # Allowlisted export: no credentials, addresses or device identifiers.
+                return self.respond(200, export_diagnostics(result))
             self.respond(200, result)
 
         def do_POST(self):

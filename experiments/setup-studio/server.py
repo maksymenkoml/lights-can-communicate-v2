@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hue-bridge"))
 from desk_layout import ROLES, LayoutStore  # noqa: E402
+from sync_health import derive as derive_sync_health  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 ASSETS = {
@@ -226,11 +227,14 @@ def project_status(data, source_active=None):
         count = 9 if identifier == "hue-monitor" else 7 if identifier.startswith("govee-") else 1
         lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
                     included=identifier in included)
+    # Verified cause only; the existing state label keeps its meaning.
+    health = derive_sync_health(data)
     return {
         "version": 1,
         "connected": True,
         "mode": mode,
-        "sync": {"state": sync_state},
+        "sync": {"state": sync_state, "reason": health["reason"],
+                 "blockers": health["blockers"]},
         "lamps": lamps,
     }
 
