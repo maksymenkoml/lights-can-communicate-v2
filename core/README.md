@@ -234,7 +234,9 @@ An explicit On/Off for these lights now goes to the adapter's authenticated
 - The write counts as confirmed only after a read-back shows the new state.
   Turning a light on reapplies its composition color.
 - An unconfirmed write, or a write during the owner's live-output hold,
-  returns 503. The virtual light then shows the real state again.
+  returns 503. The virtual light then shows the real state again: the
+  pre-request value is restored first, and fresh native readings correct any
+  light whose write took effect anyway, such as part of a room request.
 
 The virtual lights also mirror each proxy's native power when the reading is
 fresh (no older than 5 seconds), so an Off from Apple Home appears in the Hue
