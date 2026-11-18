@@ -20,6 +20,11 @@ def hue_play_name(side):
     return f"Hue Play {side}"
 
 
+# The diyHue default for a new bridge and the names earlier pilots forced.
+LEGACY_BRIDGE_NAMES = frozenset({
+    "DiyHue Bridge", "Smart Lighting Probe", "Lights Can Communicate v2 Probe",
+})
+
 LEGACY_NAMES = {
     "lights": {
         "Govee Left TEST": govee_name("Left"),
@@ -34,12 +39,12 @@ LEGACY_NAMES = {
 
 
 def rename_legacy(config):
-    """Replace exact pilot test names in place; return the number of renames."""
-    renamed = 0
+    """Replace default and exact pilot test names in place."""
+    settings = config.get("config", {})
+    if settings.get("name") in LEGACY_BRIDGE_NAMES:
+        settings["name"] = BRIDGE_NAME
     for section, names in LEGACY_NAMES.items():
         for resource in config.get(section, {}).values():
             replacement = names.get(getattr(resource, "name", None))
             if replacement is not None:
                 resource.name = replacement
-                renamed += 1
-    return renamed

@@ -16,27 +16,40 @@ def resource(name):
 class HueNameTests(unittest.TestCase):
     def test_exact_pilot_names_are_replaced_and_identities_kept(self):
         config = {
+            "config": {"name": "Lights Can Communicate v2 Probe"},
             "lights": {"1": resource("Govee Left TEST"), "4": resource("Hue Play Center PROXY"),
                        "3": resource("Hue Monitor PROXY")},
             "groups": {"1": resource("Probe Office TEST"), "90": resource("Desk Sync PILOT")},
             "scenes": {"a": resource("Probe Violet Amber TEST"), "b": resource("Vapor wave")},
         }
-        self.assertEqual(rename_legacy(config), 6)
+        rename_legacy(config)
+        self.assertEqual(config["config"]["name"], BRIDGE_NAME)
         self.assertEqual([r.name for r in config["lights"].values()],
                          ["Govee Left", "Hue Play Center", "Hue Monitor"])
         self.assertEqual(config["groups"]["1"].name, ROOM_NAME)
         self.assertEqual(config["groups"]["90"].name, AREA_NAME)
         self.assertEqual(config["scenes"]["a"].name, "Violet Amber")
         self.assertEqual(config["scenes"]["b"].name, "Vapor wave")
-        self.assertTrue(all(r.id_v2 == "unchanged"
-                            for section in config.values() for r in section.values()))
-        self.assertEqual(rename_legacy(config), 0)
+        resources = [r for key, section in config.items() if key != "config"
+                     for r in section.values()]
+        self.assertTrue(all(r.id_v2 == "unchanged" for r in resources))
+        names = [r.name for r in resources]
+        rename_legacy(config)
+        self.assertEqual([r.name for r in resources], names)
 
     def test_names_chosen_in_the_hue_app_are_never_overwritten(self):
-        config = {"lights": {"1": resource("Desk left lamp")},
+        config = {"config": {"name": "Mykola desk bridge"},
+                  "lights": {"1": resource("Desk left lamp")},
                   "groups": {"1": resource("Govee Left TEST room")}}
-        self.assertEqual(rename_legacy(config), 0)
+        rename_legacy(config)
+        self.assertEqual(config["config"]["name"], "Mykola desk bridge")
         self.assertEqual(config["lights"]["1"].name, "Desk left lamp")
+        self.assertEqual(config["groups"]["1"].name, "Govee Left TEST room")
+
+    def test_a_new_bridge_gets_the_production_name(self):
+        config = {"config": {"name": "DiyHue Bridge"}}
+        rename_legacy(config)
+        self.assertEqual(config["config"]["name"], BRIDGE_NAME)
 
     def test_no_production_name_carries_a_test_marker(self):
         for name in (BRIDGE_NAME, ROOM_NAME, AREA_NAME):

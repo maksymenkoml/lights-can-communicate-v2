@@ -35,7 +35,6 @@ from flask import abort, g, jsonify, request  # noqa: E402
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 from hue_names import (  # noqa: E402
     AREA_NAME,
-    BRIDGE_NAME,
     MONITOR_NAME,
     ROOM_NAME,
     govee_name,
@@ -74,7 +73,6 @@ config = configManager.bridgeConfig.yaml_config
 settings = config["config"]
 settings.update(
     {
-        "name": BRIDGE_NAME,
         "discovery": False,
         "Remote API enabled": False,
         "timezone": "America/Toronto",
