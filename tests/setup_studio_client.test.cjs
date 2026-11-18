@@ -520,7 +520,7 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  answer=pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[0,128,0]],{source:'scene-output'})}});
  await app.advance(200);
  assert.equal(app.$('#sync-status span').textContent,'Not syncing');
- assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0.708','scene colours stay visible at their brightness');
+ assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),app.run('opacityText(lampLevel(demoColors(lamps.find(l=>l.id==="play-left"))))'),'the Sync view previews the demo picture instead of the scene');
  assert.equal(app.stage.writes,writes);
  answer=unverified;await app.advance(200);
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0','colours without a verified output source are not light');
@@ -547,18 +547,36 @@ test('the view without Sync shows only the lamps own light, even while Sync runs
  assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),'1','the Sync view shows them');
 });
 
-test('without a live picture the monitor shows labelled demo colors and the rays sample them',async()=>{
- const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'})}})});
+test('without running Sync the Sync view previews the demo picture on the screen and every Sync lamp',async()=>{
+ const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'}),'play-left':lit([[0,255,0]],{source:'scene-output',on:false})}})});
+ assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00','the view without Sync shows the scene');
  await app.click(app.$('#sync-tool'));
  const stops=[...app.stage.querySelectorAll('#screen-colors stop')].map(s=>s.getAttribute('stop-color'));
  assert.deepEqual(stops,json(app,'DEMO_SCREEN'));
  assert.equal(app.stage.querySelector('[data-screen-demo]').textContent,'Demo');
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'1');
+ const left=json(app,'lamps.find(l=>l.id==="govee-left")');
+ assert.deepEqual(json(app,'liveColors(lamps.find(l=>l.id==="govee-left"))'),json(app,'demoColors(lamps.find(l=>l.id==="govee-left"))'));
+ assert.notEqual(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00','the lamp no longer shows its scene colour');
+ assert.equal(app.run('demoColors(lamps.find(l=>l.id==="govee-left"))').length,left.zones);
+ assert.equal(app.run('demoColor(0)'),'#2d4f8a');assert.equal(app.run('demoColor(1)'),'#c8553d');
+ assert.equal(json(app,'demoColors(lamps.find(l=>l.id==="govee-left"))').at(-1).join(),json(app,'(()=>{const l=lamps.find(l=>l.id==="govee-left"),r=syncProjection(l).at(-1);return [1,3,5].map(k=>Math.round(parseInt(demoColor(r.point[0]).slice(k,k+2),16)*r.gain*l.scale/100))})()').join(),'a zone takes the picture colour where it samples, dimmed by gain and correction');
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
  assert.ok(rays.length>0);
- for(const ray of rays)assert.equal(ray.getAttribute('stroke'),app.run('demoColor('+ray.dataset.u+')'),'a ray takes the demo colour where it samples');
- assert.equal(app.run('demoColor(0)'),'#2d4f8a');assert.equal(app.run('demoColor(1)'),'#c8553d');
+ for(const ray of rays){const i=+ray.dataset.k.split(':r')[1];assert.equal(ray.getAttribute('stroke'),app.run('zoneColor(lamps.find(l=>l.id==="govee-left"),'+i+')'))}
+ const correction=app.run('lampLevel(demoColors(lamps.find(l=>l.id==="govee-left")))');
+ app.run('lamps.find(l=>l.id==="govee-left").scale=40');
+ assert.ok(app.run('lampLevel(demoColors(lamps.find(l=>l.id==="govee-left")))')<correction,'the correction dims the preview');
+});
+
+test('the monitor strip glows left to right in its side and top colours',async()=>{
+ const colors=[[255,0,0],[255,0,0],[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,0,128],[0,0,128],[0,0,128]];
+ const app=await harness({pilot:pilotOk({lamps:{'hue-monitor':lit(colors,{source:'scene-output'})}})});
+ const stops=()=>[...app.lamp('hue-monitor').querySelectorAll('stop')].map(s=>s.getAttribute('stop-color')+'/'+s.getAttribute('stop-opacity'));
+ assert.deepEqual(stops(),['#ff0000/1','#00ff00/1','#0000ff/1','#ffff00/1','#0000ff/0.708']);
+ assert.equal(app.lamp('hue-monitor').querySelector('linearGradient').getAttribute('gradientUnits'),'userSpaceOnUse');
+ assert.match(app.lamp('hue-monitor').querySelector('.render-emission').getAttribute('style'),/url\(#lens-hue-monitor\)/);
 });
 
 test('a lamp wash takes its hue from the emitted colours weighted by brightness',async()=>{
