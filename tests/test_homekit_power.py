@@ -26,6 +26,7 @@ class FakeLamps:
         self.reachable = {"left": True, "right": True}
         self.sent = []
         self.ignore = set()
+        self.undelivered = set()
         self.sides = {item["device"]: item["side"] for item in targets()}
 
     def clock(self):
@@ -37,6 +38,8 @@ class FakeLamps:
     def send(self, device, command, data):
         side = self.sides[device["device"]]
         self.sent.append((side, command, data))
+        if command in self.undelivered:
+            return False
         if command == "turn" and side not in self.ignore:
             self.native[side] = data["value"] == 1
         return True
@@ -171,6 +174,28 @@ class HomeKitPowerTests(unittest.TestCase):
             ("left", "turn", {"value": 1}), ("left", "brightness", {"value": 40}),
             ("left", "colorwc", {"color": {"r": 255, "g": 255, "b": 255},
                                  "colorTemInKelvin": 4000})])
+
+    def test_unconfirmed_power_shows_the_verified_lamp_until_it_confirms(self):
+        self.power.tick()
+        self.lamps.ignore.add("right")
+        self.assertFalse(self.power.set({"role": "right", "on": False}))
+        state = self.power.state()["roles"]["right"]
+        self.assertEqual((state["on"], state["requested_on"]), (True, False))
+        self.assertFalse(self.power.allowed("right"))
+        # A late native Off confirms the request without a new command.
+        self.lamps.native["right"] = False
+        self.power.tick()
+        self.assertFalse(self.power.state()["roles"]["right"]["on"])
+        self.assertFalse(self.power.unconfirmed["right"])
+
+    def test_undelivered_brightness_or_color_is_not_confirmed(self):
+        self.power.tick()
+        self.lamps.undelivered.add("brightness")
+        self.assertFalse(self.power.set({"role": "left", "brightness": 30}))
+        self.lamps.undelivered = {"colorwc"}
+        self.assertFalse(self.power.set({"role": "left", "hue": 10, "saturation": 20}))
+        self.lamps.undelivered.clear()
+        self.assertTrue(self.power.set({"role": "left", "hue": 10, "saturation": 20}))
 
     def test_zero_brightness_is_an_off(self):
         self.power.tick()

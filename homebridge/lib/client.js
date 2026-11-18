@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { isIPv4 } from 'node:net';
 
 export const CREDENTIAL_FILE = 'lights-can-communicate.json';
 
@@ -21,10 +22,21 @@ export function readCredentials(path) {
   }
   const url = new URL(value.endpoint);
   if (url.protocol !== 'http:' || url.username || url.password || url.search || url.hash
-    || !['', '/'].includes(url.pathname)) {
-    throw new Error('Core endpoint must be a plain HTTP origin');
+    || !['', '/'].includes(url.pathname) || !localAddress(url.hostname)) {
+    throw new Error('Core endpoint must be a plain HTTP origin on a local address');
   }
   return { endpoint: url.origin, token: value.token };
+}
+
+/**
+ * The core speaks plain HTTP like the rest of the local control plane. The
+ * credential may therefore only go to loopback or a private LAN address,
+ * never to a name that could resolve elsewhere.
+ */
+export function localAddress(host) {
+  if (!isIPv4(host)) return false;
+  const [a, b] = host.split('.').map(Number);
+  return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
 }
 
 export class CoreClient {

@@ -8,7 +8,6 @@ export const BATCH_MS = 30;
 
 export class Lamp {
   constructor(api, accessory, lamp, client, log) {
-    this.api = api;
     this.hap = api.hap;
     this.accessory = accessory;
     this.role = lamp.role;
@@ -36,10 +35,9 @@ export class Lamp {
     characteristic(Characteristic.ColorTemperature)
       .onSet(value => this.send({ color_temperature: Math.round(value) }));
 
-    this.adaptive = new this.hap.AdaptiveLightingController(this.service, {
+    accessory.configureController(new this.hap.AdaptiveLightingController(this.service, {
       controllerMode: this.hap.AdaptiveLightingControllerMode.AUTOMATIC,
-    });
-    accessory.configureController(this.adaptive);
+    }));
   }
 
   /** Hue and saturation arrive as separate writes; send them as one color. */

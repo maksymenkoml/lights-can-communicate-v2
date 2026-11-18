@@ -50,6 +50,8 @@ class HomeKitPower:
         self.transitions = {side: threading.Lock() for side in ROLES}
         self.intent = self._load()
         self.confirmed = {side: False for side in ROLES}
+        # A power command that native state has not confirmed (yet).
+        self.unconfirmed = {side: False for side in ROLES}
         self.revisions = {side: 0 for side in ROLES}
         self.last_command = {side: float("-inf") for side in ROLES}
         self.disagree_since = {side: None for side in ROLES}
@@ -136,8 +138,11 @@ class HomeKitPower:
                 intent = self.intent[side]
                 native = observed.get(side, {}).get("on")
                 kelvin = intent["kelvin"]
+                # HomeKit shows the verified lamp, not an unconfirmed request.
+                shown = native if self.unconfirmed[side] and native is not None else intent["on"]
                 roles[side] = {
-                    "on": intent["on"],
+                    "on": shown,
+                    "requested_on": intent["on"],
                     "confirmed": self.confirmed[side],
                     "native_on": native,
                     "reachable": native is not None,
@@ -183,26 +188,35 @@ class HomeKitPower:
             if "on" in payload:
                 confirmed = self._power(side, payload["on"])
             if confirmed and self.allowed(side) and self.idle(side):
-                self._apply_static(side, payload)
+                confirmed = self._apply_static(side, payload)
             return confirmed
 
     def _apply_static(self, side, payload):
-        """Home color applies only while no scene or Sync owns the lamp."""
+        """Home color applies only while no scene or Sync owns the lamp.
+
+        Returns False when a command was not delivered to a verified route.
+        """
         device, intent = self.devices[side], self.intent[side]
+        commands = []
+        if ("brightness" in payload or payload.get("on") is True) and intent["brightness"]:
+            commands.append(("brightness", {"value": intent["brightness"]}))
+        if set(payload) & {"hue", "saturation", "color_temperature"} or payload.get("on") is True:
+            if intent["kelvin"] is not None:
+                commands.append(("colorwc", {"color": {"r": 255, "g": 255, "b": 255},
+                                             "colorTemInKelvin": intent["kelvin"]}))
+            elif intent["hue"] is not None:
+                red, green, blue = (round(channel * 255) for channel in colorsys.hsv_to_rgb(
+                    intent["hue"] / 360, intent["saturation"] / 100, 1))
+                commands.append(("colorwc", {"color": {"r": red, "g": green, "b": blue},
+                                             "colorTemInKelvin": 0}))
+        delivered = True
         with self.lock:
-            if "brightness" in payload or payload.get("on") is True:
-                if intent["brightness"] is not None:
-                    self.sender(device, "brightness", {"value": intent["brightness"]})
-            color = set(payload) & {"hue", "saturation", "color_temperature"}
-            if color or payload.get("on") is True:
-                if intent["kelvin"] is not None:
-                    self.sender(device, "colorwc", {"color": {"r": 255, "g": 255, "b": 255},
-                                                    "colorTemInKelvin": intent["kelvin"]})
-                elif intent["hue"] is not None:
-                    red, green, blue = (round(channel * 255) for channel in colorsys.hsv_to_rgb(
-                        intent["hue"] / 360, intent["saturation"] / 100, 1))
-                    self.sender(device, "colorwc", {"color": {"r": red, "g": green, "b": blue},
-                                                    "colorTemInKelvin": 0})
+            for command, data in commands:
+                try:
+                    delivered = self.sender(device, command, data) is True and delivered
+                except OSError:
+                    delivered = False
+        return delivered
 
     def _power(self, side, on):
         device = self.devices[side]
@@ -210,6 +224,7 @@ class HomeKitPower:
             # Holding the gate lock here waits out any in-flight color send.
             self.intent[side]["on"] = on
             self.confirmed[side] = False
+            self.unconfirmed[side] = True
             self.revisions[side] += 1
             self.disagree_since[side] = None
             self._save()
@@ -221,6 +236,7 @@ class HomeKitPower:
             sample = observed.get("sample")
             if observed.get("on") is on and type(sample) in (int, float) and sample > started:
                 with self.lock:
+                    self.unconfirmed[side] = False
                     if on and self.intent[side]["on"] is True:
                         self.confirmed[side] = True
                         self.revisions[side] += 1
@@ -250,6 +266,12 @@ class HomeKitPower:
                         self.disagree_since[side] = None
                     elif intent is None:
                         self._adopt(side, native)
+                    elif native is intent and self.unconfirmed[side]:
+                        # A late native reading confirms the earlier command.
+                        self.unconfirmed[side] = False
+                        if intent and not self.confirmed[side]:
+                            self.confirmed[side] = True
+                            self.revisions[side] += 1
                     elif intent and native and not self.confirmed[side]:
                         self.confirmed[side] = True
                         self.revisions[side] += 1
@@ -266,6 +288,7 @@ class HomeKitPower:
     def _adopt(self, side, native):
         self.intent[side]["on"] = native
         self.confirmed[side] = native
+        self.unconfirmed[side] = False
         self.revisions[side] += 1
         self.disagree_since[side] = None
         try:

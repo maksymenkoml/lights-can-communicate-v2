@@ -223,6 +223,8 @@ test('the core credential must be a private, well-formed file', () => {
       [{ version: 1, endpoint: 'http://192.168.99.10:19880/x', token }, 0o600],
       [{ version: 1, endpoint: 'http://user:PRIVATE@host:1', token }, 0o600],
       [{ version: 1, endpoint: 'http://192.168.99.10:19880', token: 'PRIVATE' }, 0o600],
+      [{ version: 1, endpoint: 'http://8.8.8.8:19880', token }, 0o600],
+      [{ version: 1, endpoint: 'http://core.example:19880', token }, 0o600],
     ]) {
       write(value, mode);
       assert.throws(() => readCredentials(file), error => !error.message.includes('PRIVATE'));
