@@ -43,7 +43,7 @@ const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
 const virtualDevice=id=>/^virtual-[a-z0-9]{1,32}$/.test(id||'');
 const isRole=id=>Object.hasOwn(ROLES,id);
 // Hue lights take names of up to 32 characters; Govee and layout-only names up to 35.
-const nameLimit=id=>realDevice(id)?80:isRole(id)&&!id.startsWith('govee-')?32:35;
+const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
