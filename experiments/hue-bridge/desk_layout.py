@@ -9,6 +9,7 @@ import re
 import tempfile
 import threading
 import time
+import unicodedata
 import uuid
 from pathlib import Path
 
@@ -46,6 +47,23 @@ FALLOFF_DEFAULTS = {"syncFalloff": True, "sceneFalloff": False}
 # "off" switches a role lamp off for each Sync session (see sync_off.py); only the
 # six role rows accept it. Discovered and unbound rows keep "sync" or "own".
 SYNC_ROLES = ("sync", "own", "off")
+# Owner name of a role lamp ("name" on the six role rows). The Hue roles are
+# also written to the physical Hue light, whose name holds 32 characters.
+NAME_LIMIT = 35
+HUE_NAME_LIMIT = 32
+HUE_LAYOUT_ROLES = ("hue-monitor", "play-left", "play-center", "play-right")
+
+
+def owner_name(value, key):
+    """Return the stripped owner name of role row ``key`` or raise ValueError."""
+    limit = HUE_NAME_LIMIT if key in HUE_LAYOUT_ROLES else NAME_LIMIT
+    if not isinstance(value, str):
+        raise ValueError("Invalid lamp name")
+    name = value.strip()
+    if (not 1 <= len(name) <= limit
+            or any(unicodedata.category(char).startswith("C") for char in name)):
+        raise ValueError("Invalid lamp name")
+    return name
 
 
 def layout_event(resource):
@@ -135,6 +153,9 @@ def validate_layout(value):
             device["syncRole"] = sync_role
         if row.get("sceneScale") is not None:
             device["sceneScale"] = number(row["sceneScale"], 0, 100)
+        if key in ROLES and row.get("name") is not None:
+            # Missing means "no owner name": nothing is renamed anywhere.
+            device["name"] = owner_name(row["name"], key)
         if key.startswith("virtual-"):
             shape, name = row.get("shape"), row.get("name", "Нова лампа")
             if (
@@ -279,6 +300,14 @@ class LayoutStore:
                 if ROLES.get(device["id"]) == role:
                     return device["scale"] / 100
         return fallback
+
+    def names(self):
+        """Return ``{role: name}`` for the role lamps that have an owner name."""
+        data = self.snapshot()
+        if not data:
+            return {}
+        return {ROLES[device["id"]]: device["name"] for device in data["devices"]
+                if device["id"] in ROLES and "name" in device}
 
     def scene_scale(self, role, fallback):
         """Return the without-Sync correction: ``sceneScale``, else the Sync ``scale``."""

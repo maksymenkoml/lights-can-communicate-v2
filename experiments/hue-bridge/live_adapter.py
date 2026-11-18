@@ -743,7 +743,7 @@ def main(argv=None, service_info=None):
             power_owner = homekit = HomeKitPower(
                 config["targets"], state_dir / "homekit-power.json", lan.send_to_target,
                 observe=lambda: controller.power_observations(),
-                idle=lambda side: idle["check"](side))
+                idle=lambda side: idle["check"](side), names=layout_store.names)
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])

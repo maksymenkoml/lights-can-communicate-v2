@@ -57,7 +57,12 @@ Sync; removing a found or drawn lamp deletes its row. The optional
 it keeps its own light; `"off"` (role lamps only) also leaves the composition and
 switches the lamp off while Sync runs, restoring it afterwards (see
 `core/README.md`, "Lamp controls"); `"sync"` is the default and is not stored.
-Outside Sync, own-light and off lamps still get scenes. Version 5 adds
+Outside Sync, own-light and off lamps still get scenes. The six role rows accept
+an optional `name` (1-35 characters after stripping, 1-32 for the four Hue lamps,
+no control characters), stored only when given: it is the lamp's name in Light
+Studio, on the virtual Hue bridge, in HomeKit and on the physical Hue light
+(see `core/README.md`, "Lamp names"). A row without `name` renames nothing; an
+invalid name refuses the whole write. Version 5 adds
 the second, without-Sync (scene) configuration: row `sceneScale` (0-100, default
 `scale`), top-level `sceneZone` (same format as `syncZone`, missing or null is
 Auto) and the booleans `syncFalloff` (default true) and `sceneFalloff` (default

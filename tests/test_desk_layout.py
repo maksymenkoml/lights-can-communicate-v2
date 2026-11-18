@@ -36,7 +36,64 @@ def layout():
     }
 
 
+def named(**names):
+    data = layout()
+    data["version"] = 5
+    for row in data["devices"]:
+        if row["id"] in names:
+            row["name"] = names[row["id"]]
+    return data
+
+
 class LayoutTests(unittest.TestCase):
+    def test_role_rows_accept_an_optional_stripped_name(self):
+        result = validate_layout(named(**{"govee-left": "  Desk left  ", "play-center": "C" * 32,
+                                          "govee-right": "R" * 35}))
+        rows = {row["id"]: row for row in result["devices"]}
+        self.assertEqual(rows["govee-left"]["name"], "Desk left")
+        self.assertEqual(rows["play-center"]["name"], "C" * 32)
+        self.assertEqual(rows["govee-right"]["name"], "R" * 35)
+        # Missing or null means no owner name, and nothing is stored.
+        self.assertNotIn("name", rows["hue-monitor"])
+        result = validate_layout(named(**{"hue-monitor": None}))
+        self.assertTrue(all("name" not in row for row in result["devices"]))
+        self.assertEqual(result["version"], 5)
+
+    def test_role_names_are_bounded_printable_text(self):
+        for role, name in (("govee-left", ""), ("govee-left", "   "), ("govee-left", "x" * 36),
+                           ("hue-monitor", "x" * 33), ("play-left", "x" * 33),
+                           ("govee-left", "tab\there"), ("govee-left", "line\nbreak"),
+                           ("govee-left", "bell\x07"), ("govee-left", "nul\x00"),
+                           ("govee-left", "zero\u200bwidth"), ("govee-left", 5),
+                           ("govee-left", ["x"])):
+            with self.assertRaises(ValueError, msg=repr((role, name))):
+                validate_layout(named(**{role: name}))
+        # A padded name is measured after stripping.
+        validate_layout(named(**{"hue-monitor": " " + "x" * 32 + " "}))
+
+    def test_store_names_maps_adapter_roles_to_owner_names(self):
+        with TemporaryDirectory(prefix="tmp_layout_names_") as folder:
+            store = LayoutStore(Path(folder) / "layout.json")
+            self.assertEqual(store.names(), {})
+            store.save(layout())
+            self.assertEqual(store.names(), {})
+            store.save(named(**{"govee-left": "Desk left", "hue-monitor": "Monitor bar",
+                                "play-right": "Right Play"}))
+            self.assertEqual(store.names(), {"left": "Desk left", "strip": "Monitor bar",
+                                             "hue_right": "Right Play"})
+            self.assertNotEqual(store.revision(), LayoutStore.digest(validate_layout(layout())))
+            store.save(named(**{"govee-left": "Floor lamp"}))
+            self.assertEqual(store.names(), {"left": "Floor lamp"})
+
+    def test_names_of_unbound_rows_keep_their_rules(self):
+        data = layout()
+        data["devices"].append({"id": "virtual-abc", "scale": 50, "shape": "bar",
+                                "positionCm": {"x": 50, "height": 40}, "name": "x" * 35})
+        self.assertEqual(validate_layout(data)["devices"][-1]["name"], "x" * 35)
+        data["devices"][-1]["name"] = "x" * 36
+        with self.assertRaises(ValueError):
+            validate_layout(data)
+
     def test_layout_event_retains_complete_entertainment_resource(self):
         resource = {
             "id": "desk-area", "type": "entertainment_configuration",

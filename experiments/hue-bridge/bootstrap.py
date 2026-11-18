@@ -37,6 +37,8 @@ from hue_names import (  # noqa: E402
     AREA_NAME,
     MONITOR_NAME,
     ROOM_NAME,
+    SLOT_ROLES,
+    OwnerNames,
     govee_name,
     hue_play_name,
     rename_legacy,
@@ -263,6 +265,28 @@ if api_key not in config["apiUsers"]:
     config["apiUsers"][api_key] = ApiUser.ApiUser(
         api_key, "LightsCanCommunicateV2Probe#selftest", None)
 rename_legacy(config)
+
+
+def publish_light_names(lamps):
+    """Tell Hue clients about renamed lights the way diyHue announces other updates."""
+    for lamp in lamps:
+        resource = lamp.getV2Api()
+        StreamEvent({
+            "creationtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "id": str(uuid.uuid4()), "type": "update",
+            "data": [{key: resource[key] for key in ("id", "id_v1", "type", "metadata")
+                      if key in resource}],
+        })
+
+
+# A name set in Light Studio for a role lamp names its virtual light. Resource
+# IDs stay; without an owner name the current name stays.
+owner_names = OwnerNames(
+    config["lights"], {slot: role for slot, role in SLOT_ROLES.items() if slot in selected_slots},
+    layout_store.names, save=lambda: configManager.bridgeConfig.save_config(backup=False),
+    publish=publish_light_names,
+)
+owner_names.apply(announce=False)  # Nothing listens before the bridge starts.
 configManager.bridgeConfig.save_config(backup=False)
 
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402
@@ -437,6 +461,18 @@ def watch_layout():
 
 if live_output is not None:
     threading.Thread(target=watch_layout, daemon=True, name='desk-composition').start()
+
+
+def watch_owner_names():
+    while True:
+        try:
+            owner_names.apply()
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        time.sleep(.5)
+
+
+threading.Thread(target=watch_owner_names, daemon=True, name='desk-names').start()
 
 
 def publish_power_groups(changed_slots):

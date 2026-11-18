@@ -508,3 +508,37 @@ unconfigured native role (`unavailable`).
   power and identify).
 
 Setup Studio forwards `POST /api/identify {"lamp"}` here.
+
+## Lamp names
+
+A role row of the layout may carry `name` (see `experiments/setup-studio/README.md`;
+1-35 characters, 1-32 for `hue-monitor` and `play-*`, stripped, no control
+characters). `LayoutStore.names()` returns `{role: name}` for the rows that have
+one. A missing name means "no owner name": nothing is renamed anywhere, and
+removing a name later does not undo earlier renames. A name is applied where
+the layout name changes, and once at start:
+
+- Virtual Hue bridge (`bootstrap.py`, `hue_names.OwnerNames`): the virtual light
+  of the role (slots 1-6, `hue_names.SLOT_ROLES`) takes the name, which diyHue
+  serves as both v1 `name` and v2 `metadata.name`; the bridge configuration is
+  saved and an `update` event with the light's `id`, `id_v1`, `type` and
+  `metadata` goes to the Hue app through the normal diyHue event queue (and the
+  event journal). Resource IDs never change. The layout is checked every
+  half second. A name that the owner later sets in the Hue app stays until the
+  Light Studio name changes. The Hue app may show its cached name until it
+  refreshes; the Sync box reads the name when it next lists the lights.
+- HomeKit: `GET /homekit` adds `name` to each lamp (`left`, `right`) that has an
+  owner name, and omits it otherwise. The signed body and `X-LCC-Response`
+  are computed as before; the API version stays 1 (the field is optional). The
+  Homebridge plugin renames the accessory display name, the AccessoryInformation
+  `Name` and, only where present, the Lightbulb `Name` and `ConfiguredName`.
+  UUID, AID and IID never change. See `homebridge/README.md`.
+- Physical Hue lights (`hue_strip_proxy.py`): `PinnedHueClient.rename(name)`
+  sends only `{"metadata": {"name": name}}` to the pinned light; the color
+  `write()` allowlist is unchanged. `HueStripProxy.sync_owner_name()` runs in the
+  proxy loop. It reads the light and writes only when the owner name differs
+  from the light's name and from the name the proxy last applied or read, so it
+  does not write on every loop, without an owner name, or at start when the
+  light already has the name. A failed write is retried every 30 seconds. A
+  name longer than 32 characters is refused by the client (the layout already
+  refuses it for Hue lamps), never cut.

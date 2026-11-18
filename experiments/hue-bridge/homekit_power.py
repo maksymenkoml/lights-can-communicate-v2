@@ -40,7 +40,7 @@ def _empty():
 
 class HomeKitPower:
     def __init__(self, targets, state_file, sender, observe, idle=lambda side: True,
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, names=dict):
         self.roles = {lan.device_key(device): device["side"] for device in targets}
         if len(self.roles) != 2 or set(self.roles.values()) != set(ROLES):
             raise ValueError("HomeKit power requires the two selected roles")
@@ -48,6 +48,8 @@ class HomeKitPower:
         self.state_file = state_file
         self.sender, self.observe, self.idle = sender, observe, idle
         self.clock, self.sleep = clock, sleep
+        # Owner names of the lamps from Light Studio: {role: name}, possibly empty.
+        self.names = names
         self.lock = threading.RLock()
         self.transitions = {side: threading.Lock() for side in ROLES}
         self.intent = self._load()
@@ -139,6 +141,7 @@ class HomeKitPower:
 
     def state(self):
         observed = self.observe()
+        names = self.names()
         with self.lock:
             roles = {}
             for side in ROLES:
@@ -158,6 +161,9 @@ class HomeKitPower:
                     "saturation": intent["saturation"],
                     "color_temperature": round(1e6 / kelvin) if kelvin else None,
                 }
+                if side in names:
+                    # Only an owner name is reported; without one HomeKit keeps its own.
+                    roles[side]["name"] = names[side]
             return {"version": 1, "roles": roles}
 
     def set(self, payload):
