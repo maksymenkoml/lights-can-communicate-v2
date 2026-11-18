@@ -840,13 +840,13 @@ def main(argv=None, service_info=None):
         if args.power_authority == "homekit":
             idle = {}
             power_owner = homekit = HomeKitPower(
-                config["targets"], state_dir / "homekit-power.json", lan.send_to_target,
+                config["targets"], state_dir / "homekit-power.json", lan.send_power_to_target,
                 observe=lambda: controller.power_observations(),
                 idle=lambda side: idle["check"](side), names=layout_store.names)
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])
-            power_owner.attach_power(lan.send_to_target,
+            power_owner.attach_power(lan.send_power_to_target,
                                      observe=lambda: controller.power_observations())
             power_requests = PowerRequests(
                 power_owner, observe=lambda: controller.power_observations())
