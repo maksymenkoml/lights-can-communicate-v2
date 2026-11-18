@@ -511,8 +511,8 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  assert.equal(app.stage.querySelector('#screen-image').getAttribute('opacity'),'1');
  answer=pilotOk({lamps:{'play-left':lit([[0,128,0]])}});
  await app.advance(200);
- assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#008000');
- assert.equal(app.stage.querySelector('[data-wash-for="play-left"]').style.getPropertyValue('--beam'),'#008000');
+ assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00');
+ assert.equal(app.stage.querySelector('[data-wash-for="play-left"]').style.getPropertyValue('--beam'),'#00ff00');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
  assert.equal(app.stage.querySelector('#screen-image').getAttribute('opacity'),'0','dark screen without strip colours');
  assert.equal(app.stage.writes,writes,'the stage markup was not rebuilt');
@@ -520,22 +520,38 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  answer=pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[0,128,0]],{source:'scene-output'})}});
  await app.advance(200);
  assert.equal(app.$('#sync-status span').textContent,'Not syncing');
- assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'1','scene colours stay visible');
+ assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0.708','scene colours stay visible at their brightness');
  assert.equal(app.stage.writes,writes);
  answer=unverified;await app.advance(200);
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0','colours without a verified output source are not light');
  await app.advance(2000);assert.equal(app.posts.length,0);
 });
 
-test('a selected lamp shows rays coloured by its emitted zones',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[10,0,0],[20,0,0],[30,0,0],[40,0,0],[50,0,0],[60,0,0],[70,0,0]])}})});
+test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
+ const hues=['#ff0000','#00ff00','#0000ff','#ffff00','#00ffff','#ff00ff','#ffffff'];
+ const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]])}})});
  await app.click(app.$('#sync-tool'));
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
  assert.ok(rays.length>0&&rays.length<7,'zones below the Sync zone have no ray');
- for(const ray of rays){const i=+ray.dataset.k.split(':r')[1];assert.equal(ray.getAttribute('stroke'),'#'+((i+1)*10).toString(16).padStart(2,'0')+'0000')}
+ for(const ray of rays){const i=+ray.dataset.k.split(':r')[1];assert.equal(ray.getAttribute('stroke'),hues[i])}
  app.run('select("monitor")');await app.settle();
  assert.equal(app.stage.querySelectorAll('#sync-links .ray').length,rays.length,'the monitor shows every lit lamp');
+});
+
+test('dim zones glow faintly in their hue and black zones emit no light',async()=>{
+ const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[0,0,0],[0,0,0],[0,0,0],[64,32,0],[255,128,0],[0,0,0],[0,0,0]]),'play-left':lit([[0,0,64]])}})});
+ const floor=app.lamp('govee-left'),stops=[...floor.querySelectorAll('stop')];
+ // Stops run top to bottom in pairs; zone 4 (index 3 from the bottom) is dim, zone 5 bright.
+ const zone=i=>stops[2*(6-i)];
+ assert.equal(zone(4).getAttribute('stop-color'),'#ff8000');assert.equal(zone(4).getAttribute('stop-opacity'),'1');
+ assert.equal(zone(3).getAttribute('stop-color'),'#ff8000','a dim zone keeps its hue');
+ assert.equal(zone(3).getAttribute('stop-opacity'),'0.501','and glows at its brightness');
+ assert.equal(zone(0).getAttribute('stop-opacity'),'0','a black zone emits nothing');
+ assert.equal(floor.querySelector('[data-sync-power]').getAttribute('opacity'),'1');
+ const play=app.lamp('play-left');
+ assert.equal(play.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#0000ff');
+ assert.equal(play.querySelector('[data-sync-power]').getAttribute('opacity'),'0.501','a dim Play glows faintly');
 });
 
 test('the room view is a local preference and never part of the layout',async()=>{

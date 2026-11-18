@@ -123,10 +123,17 @@ function liveColors(l){
  return colors.some(c=>c.some(v=>v>0))?colors:null;
 }
 const NEUTRAL_BEAM='#b5c7e6',NEUTRAL_RAY='#8e9cab';
+// Light adds to the wall: a colour's hue is drawn at full strength and its
+// brightness becomes opacity, so a dim zone glows faintly instead of painting it dark.
+function light(c){const m=Math.max(c[0],c[1],c[2]);return m>0?{rgb:c.map(v=>v*255/m),level:Math.sqrt(m/255)}:{rgb:[0,0,0],level:0}}
+const opacityText=v=>String(+v.toFixed(3));
+function lampLevel(colors){return colors?Math.max(0,...colors.map(c=>light(c).level)):0}
 function beamColor(colors){
- const lit=(colors||[]).filter(c=>c.some(v=>v>0));
+ const lit=(colors||[]).filter(c=>c.some(v=>v>0)).map(c=>light(c).rgb);
  return lit.length?rgbHex([0,1,2].map(i=>lit.reduce((a,c)=>a+c[i],0)/lit.length)):NEUTRAL_BEAM;
 }
+// Each lens zone keeps its hue; its opacity is its brightness relative to the lamp's brightest zone.
+function zoneStop(c,level){const z=light(c);return {color:rgbHex(z.rgb),opacity:level>0?opacityText(clamp(z.level/level)):'0'}}
 function lampDark(l){return !liveColors(l)}
 function pilotState(){
  if(!pilotFresh())return 'unknown';
@@ -238,7 +245,7 @@ function syncProjection(l){
  return [{point:syncPoint(l.x,l.h),gain:syncGain(l.x,l.h)}];
 }
 function syncSummary(l){const rows=syncProjection(l);return {rows,active:rows.filter(r=>r.gain>1e-8).length}}
-function zoneColor(l,i){const colors=liveColors(l);return colors?rgbHex(colors[Math.min(i,colors.length-1)]):NEUTRAL_RAY}
+function zoneColor(l,i){const colors=liveColors(l),c=colors?.[Math.min(i,colors.length-1)];return c&&c.some(v=>v>0)?rgbHex(light(c).rgb):NEUTRAL_RAY}
 
 // ------------------------------------------------------------- drawing --
 const glyph={floor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 3v17M6 22h10"/><path d="M11 3v13" stroke-width="3" stroke-linecap="round"/></svg>',bar:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="9" width="18" height="6" rx="3"/></svg>',strip:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 20V5h16v15"/></svg>',desk:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 9h20M4 9v12M18 9v12"/></svg>',monitor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="20" height="14" rx="2"/><path d="M11 18v4M6 22h10"/></svg>'};
@@ -350,12 +357,12 @@ function healthMarkSvg(l){
  return '<g class="health-badge" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+(f.right-f.x-3)+'" cy="'+(f.top-f.y+3)+'" r="7.5"/><text x="'+(f.right-f.x-3)+'" y="'+(f.top-f.y+6.6)+'">!</text></g>';
 }
 function lensStops(l,colors,beam){
- if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse(),n=cs.length;return cs.map((c,i)=>'<stop offset="'+(i/n*100)+'%" stop-color="'+rgbHex(c)+'"/><stop offset="'+((i+1)/n*100)+'%" stop-color="'+rgbHex(c)+'"/>').join('')}
+ if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse(),n=cs.length,level=lampLevel(colors);return cs.map((c,i)=>{const z=zoneStop(c,level),a='" stop-color="'+z.color+'" stop-opacity="'+z.opacity+'"/>';return '<stop offset="'+(i/n*100)+'%'+a+'<stop offset="'+((i+1)/n*100)+'%'+a}).join('')}
  return '<stop stop-color="#fff8ed"/><stop offset=".48" stop-color="'+beam+'"/><stop offset="1" stop-color="'+beam+'" stop-opacity=".65"/>';
 }
 function lampSvg(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
- const colors=liveColors(l),beam=beamColor(colors),power=colors?1:0;
+ const colors=liveColors(l),beam=beamColor(colors),power=opacityText(lampLevel(colors));
  let box='',body='',wash='',lens='',hit='';
  const glowOpacity=.21;
  if(l.form==='floor'){
@@ -565,9 +572,10 @@ function paintLive(){
   const node=stage.querySelector('[data-lamp="'+l.id+'"]');if(!node)continue;
   const colors=liveColors(l),beam=beamColor(colors);
   setVar(node.querySelector('[data-beam]'),'--beam',beam);
-  node.querySelectorAll('[data-sync-power]').forEach(g=>setAttr(g,'opacity',colors?1:0));
+  const level=lampLevel(colors);
+  node.querySelectorAll('[data-sync-power]').forEach(g=>setAttr(g,'opacity',opacityText(level)));
   const stops=node.querySelectorAll('stop');
-  if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{setAttr(stops[2*i],'stop-color',rgbHex(c));setAttr(stops[2*i+1],'stop-color',rgbHex(c))})}
+  if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
   const badge=node.querySelector('[data-badge]'),b=lampBlocker(l);
   if(badge){setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
