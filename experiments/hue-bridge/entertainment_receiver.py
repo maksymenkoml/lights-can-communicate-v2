@@ -175,10 +175,6 @@ def dtls_diagnostic(line):
 
 RECONNECT_IDLE = 0.5
 CANDIDATE_SECONDS = 10
-_END = {
-    "source timeout": ("idle", "source_timeout"),
-    "DTLS EOF": ("unavailable", "dtls_closed"),
-}
 
 
 class EntertainmentReceiver:
@@ -419,9 +415,14 @@ class EntertainmentReceiver:
                     # Only a ClientHello during the current pause counts; the
                     # established association stays until a replacement proves itself.
                     answered = hello
-                    started = self._listen(user)
-                    candidate = {"process": started, "parser": FrameBuffer(), "since": now,
-                                 "diagnostics": self._collect(started)}
+                    try:
+                        started = self._listen(user)
+                    except OSError:
+                        # No replacement; the established association keeps serving.
+                        started = None
+                    if started is not None:
+                        candidate = {"process": started, "parser": FrameBuffer(), "since": now,
+                                     "diagnostics": self._collect(started)}
                 if candidate is not None and (candidate["process"].poll() is not None
                                               or now - candidate["since"] > CANDIDATE_SECONDS):
                     self._stop(candidate["process"], candidate["diagnostics"])
@@ -517,5 +518,7 @@ class EntertainmentReceiver:
                 self.serving = False
                 self.serving_group = None
                 self.listener_condition.notify_all()
-            if end_reason in _END:
-                self.diagnostics.record(*_END[end_reason])
+            if end_reason == "source timeout":
+                self.diagnostics.record("idle", "source_timeout")
+            elif end_reason == "DTLS EOF":
+                self.diagnostics.record("unavailable", "dtls_closed")

@@ -83,6 +83,25 @@ class ReceiverReconnectTests(unittest.TestCase):
         self.assertNotIn("reconnects", loop.receiver.snapshot())
         self.assertEqual(loop.frames()[-1]["colors"][0], [0, 22222, 0, 0])
 
+    def test_replacement_spawn_failure_keeps_the_association(self):
+        guard, loop = self.guarded_loop()
+        connection = loop.start()
+        loop.frame(connection, 11111)
+        wait_for(lambda: len(loop.frames()) == 1)
+        process = loop.group.stream["_proc"]
+
+        def exhausted():
+            raise OSError("Synthetic process limit")
+
+        loop.before_spawn = exhausted
+        time.sleep(0.7)
+        self.forged_hello(guard)
+        time.sleep(0.5)
+        loop.frame(connection, 22222)
+        wait_for(lambda: len(loop.frames()) == 2)
+        self.assertIs(loop.group.stream["_proc"], process)
+        self.assertTrue(loop.receiver.snapshot()["active"])
+
     def test_stop_while_a_replacement_listens_leaves_no_listener(self):
         guard, loop = self.guarded_loop()
         connection = loop.start()
