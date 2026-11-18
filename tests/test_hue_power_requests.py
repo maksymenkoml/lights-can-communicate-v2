@@ -13,16 +13,24 @@ from hue_power_requests import HuePowerRequests, HuePowerUnavailable  # noqa: E4
 
 class HuePowerRequestTests(unittest.TestCase):
     def setUp(self):
-        self.calls, self.refreshed = [], []
+        self.calls, self.refreshed, self.native, self.feedback_calls = [], [], [], []
         self.lights = {slot: SimpleNamespace(id_v1=slot, id_v2="light-" + slot)
-                       for slot in ("1", "2", "3")}
+                       for slot in ("1", "2", "3", "4", "7")}
         group = SimpleNamespace(id_v1="0", type="LightGroup",
                                 getV2GroupedLight=lambda: {"id": "group-all"},
                                 lights=[lambda lamp=lamp: lamp for lamp in self.lights.values()])
         self.gateway = HuePowerRequests(
             "http://127.0.0.1:19880", "adapter-key", self.lights, {"0": group},
-            SimpleNamespace(refresh_once=lambda **kwargs: self.refreshed.append(True)),
+            SimpleNamespace(
+                refresh_once=lambda **kwargs: self.refreshed.append(True),
+                hold_native=lambda slots: self.feedback_calls.append(("hold", set(slots))),
+                release_native=lambda slots: self.feedback_calls.append(
+                    ("release", set(slots))),
+                restore_native=lambda previous: self.feedback_calls.append(
+                    ("restore", previous)),
+            ),
             sender=lambda states: self.calls.append(states),
+            native_sender=lambda roles: self.native.append(roles),
         )
 
     def v2(self, kind, rid, payload, status=200):
@@ -34,6 +42,34 @@ class HuePowerRequestTests(unittest.TestCase):
         self.v2("grouped_light", "group-all", {"on": {"on": False}})
         self.assertEqual(self.calls, [{"right": True}, {"left": False, "right": False}])
         self.assertEqual(len(self.refreshed), 2)
+        # The room also switches the native Hue lights through their own path.
+        self.assertEqual(self.native, [{"strip": False, "hue_left": False}])
+
+    def test_native_hue_lights_switch_through_the_genuine_bridge(self):
+        self.v2("light", "light-3", {"on": {"on": True}})
+        self.gateway.after_request("PUT", "/api/key/lights/4/state", 200,
+                                   {"on": False}, [{"success": {"/lights/4/state/on": False}}])
+        self.assertEqual(self.native, [{"strip": True}, {"hue_left": False}])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.feedback_calls, [("hold", {"3"}), ("release", {"3"}),
+                                               ("hold", {"4"}), ("release", {"4"})])
+
+    def test_unconfirmed_native_power_restores_the_real_state(self):
+        def refuse(roles):
+            raise ValueError("Power was not confirmed")
+
+        self.gateway.native_sender = refuse
+        with self.assertRaises(HuePowerUnavailable):
+            self.gateway.after_request(
+                "PUT", "/clip/v2/resource/light/light-3", 200, {"on": {"on": True}},
+                {"data": [{"rid": "light-3", "rtype": "light"}]},
+                previous={"3": False, "1": True})
+        self.assertEqual(self.feedback_calls[-1], ("restore", {"3": False}))
+        self.gateway.native_sender = lambda roles: self.native.append(roles)
+        self.gateway.enabled = lambda: False
+        with self.assertRaises(HuePowerUnavailable):
+            self.v2("light", "light-3", {"on": {"on": True}})
+        self.assertEqual(self.native, [])
 
     def test_explicit_v1_light_and_group_route_the_same_roles(self):
         for resource, rid, field in (("lights", "2", "state"), ("groups", "0", "action")):
@@ -45,7 +81,7 @@ class HuePowerRequestTests(unittest.TestCase):
     def test_scenes_colors_internal_or_unselected_resources_never_send_power(self):
         self.v2("scene", "scene-id", {"recall": {"action": "active"}, "on": {"on": True}})
         self.v2("light", "light-2", {"dimming": {"brightness": 50}})
-        self.v2("light", "light-3", {"on": {"on": True}})
+        self.v2("light", "light-7", {"on": {"on": True}})
         self.gateway.after_request("PUT", "/api/key/groups/0/action", 200,
                                    {"scene": "scene-id", "on": True}, [])
         self.gateway.after_request("POST", "/clip/v2/resource/light/light-2", 200,

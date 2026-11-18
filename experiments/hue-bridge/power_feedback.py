@@ -9,6 +9,10 @@ import urllib.request
 
 class PowerFeedback:
     SLOTS = {"1": "left", "2": "right"}
+    # Native Hue lights mirror the genuine bridge as the adapter last read it.
+    NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
+    NATIVE_FRESH = 5.0
+    NATIVE_HOLD = 15.0
 
     def __init__(self, url, token, lights, lock, resume, publish_groups, fetcher=None,
                  clock=time.monotonic):
@@ -19,6 +23,7 @@ class PowerFeedback:
         self.states, self.revisions = {}, {}
         self.clock, self.corrections = clock, {}
         self.last_error = None
+        self.native_holds = {}
 
     def fetch(self):
         request = urllib.request.Request(
@@ -45,9 +50,59 @@ class PowerFeedback:
         if changed:
             self.publish_groups(changed)
 
+    def hold_native(self, slots):
+        with self.lock:
+            for slot in slots:
+                self.native_holds[slot] = self.clock() + self.NATIVE_HOLD
+
+    def release_native(self, slots):
+        with self.lock:
+            for slot in slots:
+                self.native_holds.pop(slot, None)
+
+    def restore_native(self, previous):
+        """Undo a rejected virtual write of native lights."""
+        with self.lock:
+            changed = set()
+            for slot, value in previous.items():
+                lamp = self.lights.get(slot)
+                if (slot in self.NATIVE_SLOTS and lamp is not None and type(value) is bool
+                        and lamp.state.get("on") is not value):
+                    lamp.state["on"] = value
+                    lamp.genStreamEvent({"on": {"on": value}})
+                    changed.add(slot)
+            if changed:
+                self.publish_groups(changed)
+
+    def mirror_native(self, payload):
+        """Show the actual native power of fresh, healthy proxies in the virtual lights."""
+        proxies = dict(payload.get("hue_play") or {}) if isinstance(payload, dict) else {}
+        if isinstance(payload, dict) and isinstance(payload.get("hue_strip"), dict):
+            proxies["strip"] = payload["hue_strip"]
+        with self.lock:
+            changed = set()
+            now = self.clock()
+            for slot, role in self.NATIVE_SLOTS.items():
+                lamp, value = self.lights.get(slot), proxies.get(role)
+                if lamp is None or not isinstance(value, dict):
+                    continue
+                if self.native_holds.get(slot, float("-inf")) > now:
+                    continue
+                on, age = value.get("native_on"), value.get("native_age")
+                if (type(on) is not bool or type(age) not in (int, float)
+                        or not math.isfinite(age) or not 0 <= age <= self.NATIVE_FRESH):
+                    continue
+                if lamp.state.get("on") is not on:
+                    lamp.state["on"] = on
+                    lamp.genStreamEvent({"on": {"on": on}})
+                    changed.add(slot)
+            if changed:
+                self.publish_groups(changed)
+
     def refresh_once(self, force=(), fallback=None):
         try:
             payload = self.fetcher()
+            self.mirror_native(payload)
             authority = payload.get("power_owner") if isinstance(payload, dict) else None
             if not isinstance(authority, dict) or authority.get("enforced") is not True:
                 raise ValueError("Power authority unavailable")

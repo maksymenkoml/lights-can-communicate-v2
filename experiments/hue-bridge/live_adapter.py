@@ -546,6 +546,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
             if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
+                                 "/native-power",
                                  "/homekit") or (
                 self.path == "/stream" and video_output is None
             ):
@@ -583,6 +584,18 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     if broker is None:
                         return self.respond(503, {"accepted": False})
                     return self.respond(200, {"accepted": broker.request(payload)})
+                elif self.path == "/native-power":
+                    roles = payload.get("roles") if isinstance(payload, dict) else None
+                    if (not isinstance(roles, dict) or not roles
+                            or set(roles) - set(hue_proxies)
+                            or any(type(value) is not bool for value in roles.values())):
+                        raise ValueError("Invalid native power request")
+                    try:
+                        confirmed = all([hue_proxies[role].set_power(value)
+                                         for role, value in roles.items()])
+                    except (OSError, ValueError, KeyError):
+                        confirmed = False
+                    return self.respond(200 if confirmed else 503, {"accepted": confirmed})
                 elif self.path == "/stream":
                     accepted = video_output.submit(payload)
                     # Only an authenticated, fully consumed stream envelope may

@@ -13,17 +13,19 @@ class HuePowerUnavailable(RuntimeError):
 
 class HuePowerRequests:
     SLOTS = {"1": "left", "2": "right"}
+    # Pinned native Hue lights; their power belongs to the genuine Hue bridge.
+    NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
 
-    def __init__(self, url, token, lights, groups, feedback, sender=None, enabled=lambda: True):
+    def __init__(self, url, token, lights, groups, feedback, sender=None, enabled=lambda: True,
+                 native_sender=None):
         self.url, self.token = url.rstrip("/"), token
         self.lights, self.groups, self.feedback = lights, groups, feedback
         self.sender, self.enabled = sender or self.send, enabled
+        self.native_sender = native_sender or self.send_native
 
-    def send(self, states):
+    def _post(self, path, body):
         request = urllib.request.Request(
-            self.url + "/power-request", method="POST",
-            data=json.dumps({"id": uuid.uuid4().hex, "issued_at": time.time(),
-                             "states": states}).encode(),
+            self.url + path, method="POST", data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json", "X-Adapter-Token": self.token},
         )
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -35,14 +37,23 @@ class HuePowerRequests:
             if type(result) is not dict or result.get("accepted") is not True:
                 raise ValueError("Power was not confirmed")
 
+    def send_native(self, roles):
+        self._post("/native-power", {"roles": roles})
+
+    def send(self, states):
+        self._post("/power-request", {"id": uuid.uuid4().hex, "issued_at": time.time(),
+                                      "states": states})
+
     def snapshot(self):
         return {slot: lamp.state["on"] for slot, lamp in self.lights.items()
-                if slot in self.SLOTS and type(lamp.state.get("on")) is bool}
+                if (slot in self.SLOTS or slot in self.NATIVE_SLOTS)
+                and type(lamp.state.get("on")) is bool}
 
-    def _selected(self, resource, rid, v2):
+    def _selected(self, resource, rid, v2, slots=None):
+        slots = self.SLOTS if slots is None else slots
         if resource in {"light", "lights"}:
             return [lamp for slot, lamp in self.lights.items()
-                    if slot in self.SLOTS and lamp.id_v1 == slot
+                    if slot in slots and lamp.id_v1 == slot
                     and (lamp.id_v2 if v2 else slot) == rid]
         for group in self.groups.values():
             if group.type == "Entertainment":
@@ -50,7 +61,7 @@ class HuePowerRequests:
             identity = group.getV2GroupedLight()["id"] if v2 else group.id_v1
             if identity == rid:
                 return [lamp for reference in group.lights if (lamp := reference()) is not None
-                        and lamp.id_v1 in self.SLOTS
+                        and lamp.id_v1 in slots
                         and self.lights.get(lamp.id_v1) is lamp]
         return []
 
@@ -85,11 +96,16 @@ class HuePowerRequests:
             value = payload["on"]
         else:
             return
+        native = self._selected(resource, rid, v2, self.NATIVE_SLOTS)
         selected = self._selected(resource, rid, v2)
-        if not selected:
+        if not selected and not native:
             return
         if type(value) is not bool:
             raise HuePowerUnavailable("Invalid explicit power request")
+        if native:
+            self._native(native, value, previous)
+        if not selected:
+            return
         confirmed = False
         try:
             if not self.enabled():
@@ -105,3 +121,21 @@ class HuePowerRequests:
             fallback = ({slot: before for slot, before in (previous or {}).items() if slot in slots}
                         if not confirmed else None)
             self.feedback.refresh_once(force=slots, fallback=fallback)
+
+    def _native(self, selected, value, previous):
+        slots = {lamp.id_v1 for lamp in selected}
+        # Keep feedback from mirroring the old state while the write is in flight.
+        self.feedback.hold_native(slots)
+        try:
+            if not self.enabled():
+                raise HuePowerUnavailable("Explicit power control is unavailable")
+            self.native_sender({self.NATIVE_SLOTS[lamp.id_v1]: value for lamp in selected})
+            self.feedback.release_native(slots)
+        except (OSError, ValueError, TypeError) as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            self.feedback.release_native(slots)
+            # Show the real state again instead of the rejected virtual write.
+            self.feedback.restore_native({slot: before for slot, before
+                                          in (previous or {}).items() if slot in slots})
+            raise HuePowerUnavailable("Power request was not confirmed") from None

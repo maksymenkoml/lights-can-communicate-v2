@@ -131,6 +131,17 @@ class PinnedHueClient:
             raise ValueError("Native strip write not confirmed")
 
 
+    def power(self, on):
+        """Switch only this pinned light; the color path never changes power."""
+        if type(on) is not bool:
+            raise ValueError("Expected boolean power")
+        result = self.requester("PUT", self.path, {"on": {"on": on}})
+        if result.get("errors") or not any(
+            item.get("rid") == self.resource_id for item in result.get("data", [])
+        ):
+            raise ValueError("Native power write not confirmed")
+
+
 def merge_hue_body(previous, update):
     result = copy.deepcopy(previous or {})
     colors = {"gradient", "color", "color_temperature"}
@@ -356,6 +367,27 @@ class HueStripProxy:
                 self.healthy = False
                 self.native_seen = float("-inf")
                 self.last_result = "native unavailable or rejected"
+            return False
+
+    def set_power(self, on, attempts=5, pause=0.2, sleep=time.sleep):
+        """Switch the native light and confirm it by reading it back."""
+        with self.command_lock:
+            self.client.power(on)
+            for attempt in range(attempts):
+                native = self.client.read()
+                if native.get("id") != self.resource_id:
+                    raise ValueError("Wrong native Hue resource")
+                if native.get("on", {}).get("on") is on:
+                    with self.state_lock:
+                        self.native = copy.deepcopy(native)
+                        self.native_seen = self.clock()
+                    if on:
+                        # Reapply the composition color once the light is on.
+                        self.restore = True
+                        self.wake.set()
+                    return True
+                if attempt + 1 < attempts:
+                    sleep(pause)
             return False
 
     def run(self, stop):
