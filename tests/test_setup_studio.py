@@ -17,6 +17,13 @@ studio = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(studio)
 
 
+def layout():
+    """A layout in the current format: older versions are refused on write."""
+    from test_desk_layout import layout as stored
+
+    return stored() | {"version": 4}
+
+
 def catalog_device(**changes):
     return {
         "id": "device-" + "a" * 32, "provider": "govee", "name": "Third lamp",
@@ -47,6 +54,9 @@ def discovery_server(fetch):
 
         def request(path="/api/discovery", body=None, **headers):
             data = None if body is None else json.dumps(body).encode()
+            if data is not None and "If-Match" not in headers:
+                # Writes name the revision they edit; tests override it explicitly.
+                headers["If-Match"] = '"' + (request("/api/layout")["revision"] or "") + '"'
             try:
                 with opener.open(urllib.request.Request(
                     base + path, data=data,
@@ -67,7 +77,6 @@ def discovery_server(fetch):
 
 class StudioTests(unittest.TestCase):
     def test_zone_survives_older_client_save_and_explicit_null_resets_it(self):
-        from test_desk_layout import layout
         from test_floor_zone_contract import custom_zone
 
         with discovery_server(lambda: {}) as request:
@@ -124,8 +133,6 @@ class StudioTests(unittest.TestCase):
             self.assertNotIn("private-token", json.dumps(result))
 
     def test_malformed_layout_posts_return_validation_errors_without_losing_saved_geometry(self):
-        from test_desk_layout import layout
-
         with discovery_server(lambda: {}) as request:
             saved = request("/api/layout", layout())
             for body in (["bad"], {"devices": [None]}):
@@ -135,8 +142,6 @@ class StudioTests(unittest.TestCase):
                 self.assertEqual(request("/api/layout"), saved)
 
     def test_only_selectable_canonical_new_bindings_are_accepted_and_saved_rows_edit_offline(self):
-        from test_desk_layout import layout
-
         state = {"connected": True, "devices": [catalog_device()],
                  "providers": {"govee": "ready", "hue": "ready"}}
         def fetch():
@@ -179,8 +184,6 @@ class StudioTests(unittest.TestCase):
             self.assertEqual(len(request("/api/layout", data)["layout"]["devices"]), 6)
 
     def test_layout_api_persists_geometry_and_rejects_cross_origin_or_stale_writes(self):
-        from test_desk_layout import layout
-
         with TemporaryDirectory(prefix="tmp_studio_layout_") as folder:
             server = ThreadingHTTPServer(
                 ("127.0.0.1", 0), studio.handler_for(Path(folder) / "missing-token")
@@ -203,27 +206,31 @@ class StudioTests(unittest.TestCase):
             try:
                 with opener.open(base + "/api/layout") as response:
                     self.assertIsNone(json.load(response)["layout"])
-                with post(layout()) as response:
+                with post(layout(), **{"If-Match": '""'}) as response:
                     result = json.load(response)
                 self.assertEqual(result["layout"]["desk"]["width"], 160)
+                current = {"If-Match": '"' + result["revision"] + '"'}
                 with opener.open(base + "/api/layout") as response:
                     self.assertEqual(json.load(response), result)
-                for headers, code in [
-                    ({"Origin": "https://unrelated.example"}, 403),
-                    ({"Host": "unrelated.example"}, 403),
-                    ({"If-Match": "stale-revision"}, 409),
+                older = layout() | {"version": 3}
+                for body, headers, code in [
+                    (layout(), {**current, "Origin": "https://unrelated.example"}, 403),
+                    (layout(), {**current, "Host": "unrelated.example"}, 403),
+                    (layout(), {}, 428),
+                    (layout(), {"If-Match": "stale-revision"}, 409),
+                    (older, current, 400),
                 ]:
                     with (
-                        self.subTest(headers=headers),
+                        self.subTest(headers=headers, version=body["version"]),
                         self.assertRaises(urllib.error.HTTPError) as e,
                     ):
-                        post(layout(), **headers)
+                        post(body, **headers)
                     self.assertEqual(e.exception.code, code)
                     e.exception.close()
                 bad = layout()
                 bad["devices"][0]["ip"] = "192.168.10.123"
                 with self.assertRaises(urllib.error.HTTPError) as error:
-                    post(bad)
+                    post(bad, **current)
                 self.assertEqual(error.exception.code, 400)
                 error.exception.close()
                 self.assertEqual(
@@ -233,6 +240,18 @@ class StudioTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join()
+
+    def test_a_migrated_version_three_file_changes_the_revision_seen_by_old_pages(self):
+        from desk_layout import LayoutStore
+
+        with TemporaryDirectory(prefix="tmp_studio_migration_") as folder:
+            path = Path(folder) / "desk-layout.json"
+            older = layout() | {"version": 3}
+            path.write_text(json.dumps(older))
+            old_revision = LayoutStore.digest(older)
+            store = LayoutStore(path)
+            self.assertEqual(store.snapshot()["version"], 4)
+            self.assertNotEqual(store.revision(), old_revision)
 
     def test_status_projection_excludes_keys_unselected_devices_and_raw_commands(self):
         result = studio.project_status(

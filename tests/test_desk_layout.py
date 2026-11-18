@@ -1,4 +1,5 @@
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -129,6 +130,27 @@ class LayoutTests(unittest.TestCase):
             mutate(data)
             with self.assertRaises(ValueError):
                 validate_layout(data)
+
+    def test_version_three_and_four_load_and_always_return_version_four(self):
+        for version in (3, 4):
+            data = layout()
+            data["version"] = version
+            with self.subTest(version=version):
+                self.assertEqual(validate_layout(data)["version"], 4)
+        for version in (2, 5, "4", 4.0, True, None):
+            data = layout()
+            data["version"] = version
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                validate_layout(data)
+
+    def test_version_three_file_is_upgraded_on_the_next_save(self):
+        with TemporaryDirectory(prefix="tmp_desk_layout_v3_") as folder:
+            path = Path(folder) / "layout.json"
+            path.write_text(json.dumps(layout()))
+            store = LayoutStore(path)
+            self.assertEqual(store.snapshot()["version"], 4)
+            store.save(store.snapshot())
+            self.assertEqual(json.loads(path.read_text())["version"], 4)
 
     def test_atomic_persistence_and_invalid_file_keep_last_good_configuration(self):
         with TemporaryDirectory(prefix="tmp_desk_layout_") as folder:
