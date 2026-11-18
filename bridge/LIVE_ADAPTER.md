@@ -1,8 +1,8 @@
-# Direct physical-output pilot
+# Live adapter: direct physical output
 
 ## Current status
 
-The pilot now also includes the owner's confirmed monitor strip and three
+The live adapter now also includes the owner's confirmed monitor strip and three
 under-desk Hue Play lamps. The virtual room has six lights. A separate
 `Vapor wave DESK` scene supplies five gradient points to the strip, the first
 point to both left lights, the last point to both right lights, and the middle
@@ -35,7 +35,7 @@ The following observation does not identify the cause of that disconnect.
 After reconnect, all four native lights reported streaming. Across a
 7-second observation their proxy write counters stayed at 61 each and the
 Govee command counter stayed at 3460, despite virtual Play remaining active.
-The pilot yielded physical output to Sync in this observed window.
+The adapter yielded physical output to Sync in this observed window.
 
 After the owner stopped Sync, all four lights reported normal mode. Across
 the next observation each native proxy wrote two updates and the Govee
@@ -44,9 +44,9 @@ delivery resumed. The owner separately confirmed that all lights visually
 returned as before and the shared animation continues. See
 `evidence/desk-sync-observation.json`.
 
-That initial test used native-only Sync and held Govee at their last color. The subsequent opt-in video relay now receives actual Sync Box frames and forwards them to both Govee and the selected native Hue area, with per-lamp calibration. See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for menu acceptance, gameplay status and pacing measurements.
+That initial test used native-only Sync and held Govee at their last color. The subsequent opt-in video relay now receives actual Sync Box frames and forwards them to both Govee and the selected native Hue area, with per-lamp calibration. See [ENTERTAINMENT.md](ENTERTAINMENT.md) for menu acceptance, gameplay status and pacing measurements.
 
-The owner resumed hardware testing on 2026-11-13. The selected two-lamp pilot
+The owner resumed hardware testing on 2026-11-13. The selected two-lamp live output
 was restarted with the saved 0.65 calibration. The owner confirmed smooth
 Vapor wave Play after the continuous receiver update.
 
@@ -80,7 +80,7 @@ the genuine Hue light's stored palette.
 The two Govee slots retain their existing test resource IDs and room. Slot 1
 maps to left and slot 2 maps to right. The host configuration contains exactly
 the two previously confirmed Govee IDs and a 0.65 multiplier for each side.
-No genuine Hue bridge key is copied into the container or pilot target file.
+No genuine Hue bridge key is copied into the container or the adapter target file.
 
 Opt-in slot 3 maps to the genuine gradient strip. Opt-in slots 4, 5, and 6
 map to the explicitly confirmed Hue Play Left, Center, and Right. Each role
@@ -95,7 +95,7 @@ their saved palette are retained; exact old action membership is not promised.
 
 The controller sends only color and brightness commands. Native off or stale
 state blocks output. Virtual off stops output without changing physical power.
-Existing Homebridge scenes continue to own on/off during this pilot.
+Existing Homebridge scenes continue to own on/off for the live adapter.
 
 ## Smoothness investigation
 
@@ -148,7 +148,7 @@ These tests made no physical network requests.
 
 - `bridge_output.py` coalesces per-side targets and preserves their duration.
 - `live_adapter.py` validates the token, command shape, age, session, and sequence.
-- `pilot_transport.py` owns UDP 4002 and publishes fresh pinned-ID state.
+- `govee_transport.py` owns UDP 4002 and publishes fresh pinned-ID state.
 - API key and adapter token values are never included in status output.
 - Native status checks and rendering use separate threads.
 - Each Hue proxy uses native transitions and checks its power and streaming
@@ -157,7 +157,7 @@ These tests made no physical network requests.
   state in any selected Hue pauses Govee rendering. This is a polling guard,
   not proof of HDMI Sync compatibility.
 - The old palette follower is stopped to prevent competing commands.
-- NAS deployment and a Homebridge package remain outside this pilot. Video relay support and its evidence boundaries are recorded separately in ENTERTAINMENT_PILOT.md; none of these checks establish general Sync Box reliability.
+- NAS deployment and a Homebridge package are outside this document. Video relay support and its evidence boundaries are recorded separately in [ENTERTAINMENT.md](ENTERTAINMENT.md); none of these checks establish general Sync Box reliability.
 
 ## Optional native Hue output
 
@@ -166,7 +166,7 @@ environment, then recreate only this project's bridge container. Start the
 host adapter with `--hue-config` pointing to the owner's private real-bridge
 configuration and `--hue-play`. Do not copy that configuration into Docker.
 The flags default off. Without them, the original two-Govee scope remains.
-The three confirmed native Play IDs are intentionally pinned for this pilot;
+The three confirmed native Play IDs are intentionally pinned for this desk;
 generic discovery and configuration belong to later plugin work.
 
 ## Resume gate
@@ -179,5 +179,5 @@ command pacing, and owner-operated left off/on recovery passed the resumed
 live checks. Right off/on was not separately cycled in this run.
 
 Retain the pinned IDs, 0.65 calibration, and the identity freshness limit.
-Do not run the old palette follower alongside the pilot. Any future owner
+Do not run the old palette follower alongside the live adapter. Any future owner
 hold must remain active until the owner explicitly permits testing again.

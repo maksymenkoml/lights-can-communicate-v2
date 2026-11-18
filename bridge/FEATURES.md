@@ -1,11 +1,11 @@
-# Pilot features and Homebridge migration scope
+# Features and Homebridge migration scope
 
 Status separates owner/physical acceptance, API observations, offline checks,
 and work that has not been implemented. Current physical video acceptance covers the PS5 menu and an owner-launched
 game. The owner reported that everything works great. The game title and
 optical timing were not recorded.
 
-| Capability | Pilot status | Evidence or limit |
+| Capability | Status | Evidence or limit |
 | --- | --- | --- |
 | Official Hue iPhone pairing and test room | Owner accepted | Separate virtual Bridge identity and saved pairing |
 | Static shared palette on six lights | Owner accepted | Two Govee, one monitor strip, three under-desk Play |
@@ -46,10 +46,10 @@ optical timing were not recorded.
 | Local setup UI and shared autosave | Implemented; owner confirmed layout migration | Simple schematic, 5 cm placement, atomic private server storage, offline retry and field-level concurrent edit merge |
 | Live layout positions in zoned Sync | Measured with actual Sync Box | Temporarily co-located Govee produced equal seven-zone targets in 25/25 samples; restored positions produced different targets again; native channel mapping unchanged |
 | Per-role brightness corrections from setup UI | Implemented, offline verified | Scene and video paths consume the same six-role layout; existing owner-accepted 0.65/0.50 defaults preserved; arbitrary slider values not separately visually accepted |
-| Automatic discovery and real grid placements | Activated; API and automated DOM verified | Existing sole Govee listener plus paired-Hue GET catalog; explicit canonical selection/autosave/offline edits. New bindings are configuration only. Owner tab was not opened; see ../../core/evidence/discovery-layout.json |
-| Live zone colors and Sync status in setup grid | Implemented; offline verified, activation held | Shared emitted-output observer, calibrated zones, freshness/Off masking and source-aware status; synthetic DOM/API/source/archive checks passed. Owner sleep hold retained; no optical acceptance. See ../../core/evidence/live-preview-offline.json |
-| Applying arbitrary topology from setup UI | Not implemented | Current physical driver and native IDs remain pinned; zoned output is a separate explicit pilot mode |
-| Packaged Python adapter | Activated locally; transport/API verified | Reproducible artifact, strict version-one configuration, no-IO preflight and SIGTERM cleanup. Real scene/Sync/Stop coverage; pinned desk profile remains. See ../../core/evidence/local-cutover.json |
+| Automatic discovery and real grid placements | Activated; API and automated DOM verified | Existing sole Govee listener plus paired-Hue GET catalog; explicit canonical selection/autosave/offline edits. New bindings are configuration only. Owner tab was not opened; see ../core/evidence/discovery-layout.json |
+| Live zone colors and Sync status in setup grid | Implemented; offline verified, activation held | Shared emitted-output observer, calibrated zones, freshness/Off masking and source-aware status; synthetic DOM/API/source/archive checks passed. Owner sleep hold retained; no optical acceptance. See ../core/evidence/live-preview-offline.json |
+| Applying arbitrary topology from setup UI | Not implemented | Current physical driver and native IDs remain pinned; zoned output is a separate explicit mode |
+| Packaged Python adapter | Activated locally; transport/API verified | Reproducible artifact, strict version-one configuration, no-IO preflight and SIGTERM cleanup. Real scene/Sync/Stop coverage; pinned desk profile remains. See ../core/evidence/local-cutover.json |
 | NAS service and own Homebridge package | Not implemented | Runtime is still on the Mac with a pinned reference bridge |
 
 ## What the Homebridge version must retain
@@ -64,10 +64,10 @@ optical timing were not recorded.
 - Separate host-side native credentials, bounded queue/replay checks, cleanup
   of only our stream, and recovery after unavailable networks or restart.
 - Operator configuration for roles/positions, scale, packet budget, native
-  Bridge/area mapping and diagnostics, replacing prototype constants.
+  Bridge/area mapping and diagnostics, replacing hard-coded constants.
 - NAS networking and service lifecycle validation, including Hue discovery,
   HTTPS identity and UDP Entertainment reachability.
 
 Package publication, full NAS runtime migration and a replacement setup UI are separate
-work. This pilot does not authorize a release or establish complete Hue API
+work. This document does not authorize a release or establish complete Hue API
 compatibility.

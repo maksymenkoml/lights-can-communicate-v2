@@ -34,7 +34,7 @@ including the profile path, for Govee-only operation. `bind` defaults to loopbac
 select a reachable local address explicitly when the virtual bridge or existing
 Homebridge coordinator runs on another host/container.
 
-Referenced files retain the existing pilot formats. The two local token files
+Referenced files retain the existing live adapter formats. The two local token files
 must already exist, contain distinct bounded hexadecimal credentials and have
 owner-only permissions on POSIX. Preflight never generates credentials or
 changes permissions. Supply existing files through deployment/migration, not
@@ -181,7 +181,7 @@ Scene/video transitions share the recorder; failed sends do not advance the
 cache, and observer failures do not change transport results or sequencing.
 
 The local gateway exposes normalized zone RGB and source-aware Sync state through
-`/api/pilot`. Fresh Off/stale/unknown data masks glow. Retained idle receiver
+`/api/live`. Fresh Off/stale/unknown data masks glow. Retained idle receiver
 sessions report waiting; stale former external streaming cannot latch foreign.
 Static valid output stays visible while its native metadata remains fresh.
 The UI paints existing SVG attributes and never saves or rebuilds the layout for
@@ -333,7 +333,7 @@ credentials, frame payloads, exception text or device addresses are logged by
 these journals. A journal failure increments `write_errors` without interrupting
 output. Existing protocol request logs are separate.
 
-On the Mac pilot, stop Sync Box before recreating the bridge container, wait for
+On the Mac installation, stop Sync Box before recreating the bridge container, wait for
 the API/UDP guard, verify ingress, then start Box/Sync. A live Box sending into
 the container startup window has coincided with a broken Docker Desktop UDP
 publication; a running in-container guard alone is not proof of host ingress.

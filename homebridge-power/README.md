@@ -1,4 +1,4 @@
-# Homebridge power coordination pilot
+# Homebridge power coordination overlay
 
 Superseded by `homebridge/` (platform `LightsCanCommunicateV2`), where the core
 executes power itself and no Govee plugin file is patched. This overlay stays
@@ -25,7 +25,7 @@ and [11.40.0](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.40
 `prepare_overlay.py` pins the public `light.js` and `platform.js` SHA256 of each.
 Its unchanged original
 handler still performs the actual power command. The wrapper first pauses the
-pilot's color writer, and grants color after identity-verified native On confirmation. UUID generation and
+live adapter's color writer, and grants color after identity-verified native On confirmation. UUID generation and
 service creation are not replaced. The third accessory is passed through using
 the original setter without coordination.
 
@@ -87,7 +87,7 @@ Keep this file mode 0600. Its separate `lights-can-communicate-v2-power-state.js
 only owner intent; it does not replace Homebridge's accessory cache. Neither file
 belongs in Git or logs. The exact installed source must pass the manifest guard
 before any installation. A plugin upgrade invalidates this overlay until checked
-again; this is a compatibility experiment, not the final Homebridge package.
+again; this is a compatibility overlay, not the final Homebridge package.
 
 `apply-overlay.mjs` is read-only by default. With explicit `--apply`, it requires
 writable original source and backup storage on the same filesystem. It creates
