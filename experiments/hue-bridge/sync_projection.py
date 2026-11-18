@@ -96,7 +96,10 @@ def sync_profile(validated_layout):
         edge = min(range(4), key=(u, 1 - u, v, 1 - v).__getitem__)
         return ((0, v), (1, v), (u, 0), (u, 1))[edge]
 
-    enabled = [role for key, role in _ROLES.items() if devices[key].get("enabled", True)]
+    # Removed rows and rows that keep their own light are outside the composition.
+    enabled = [role for key, role in _ROLES.items()
+               if devices[key].get("enabled", True)
+               and devices[key].get("syncRole", "sync") != "own"]
     profile = {
         "basis": "screen-perimeter-v1",
         "enabled_roles": enabled,

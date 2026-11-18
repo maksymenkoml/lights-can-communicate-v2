@@ -32,7 +32,13 @@ PREVIEW_FIELDS = {
     "zones",
     "rate",
     "enabled",
+    "syncRole",
 }
+# Version 4 adds the optional row field ``syncRole``. Stored version 3 files load and
+# are returned as version 4; writes must use LAYOUT_VERSION.
+LAYOUT_VERSION = 4
+LAYOUT_VERSIONS = (3, LAYOUT_VERSION)
+SYNC_ROLES = ("sync", "own")
 
 
 def layout_event(resource):
@@ -53,8 +59,10 @@ def number(value, low, high):
 
 def validate_layout(value):
     allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "devices", "syncZone"}
-    if not isinstance(value, dict) or set(value) - allowed or value.get("version") != 3:
-        raise ValueError("Expected a version-three desk layout")
+    version = value.get("version") if isinstance(value, dict) else None
+    if (not isinstance(value, dict) or set(value) - allowed or type(version) is not int
+            or version not in LAYOUT_VERSIONS):
+        raise ValueError("Expected a version-three or version-four desk layout")
     if value.get("gridStepCm", 5) != 5:
         raise ValueError("Desk placement requires a five-centimeter grid")
     desk = value.get("desk")
@@ -67,7 +75,7 @@ def validate_layout(value):
     if not isinstance(devices, list) or not 6 <= len(devices) <= 12:
         raise ValueError("Expected the six selected lamps and optional unbound drawings")
     result = {
-        "version": 3,
+        "version": LAYOUT_VERSION,
         "gridStepCm": 5,
         "room": room,
         "desk": {
@@ -108,6 +116,13 @@ def validate_layout(value):
             raise ValueError('Invalid composition membership')
         if not enabled:
             device['enabled'] = False
+        # "sync" is the default and is never stored; "own" keeps the lamp's own
+        # light during Sync by excluding it from the composition.
+        sync_role = row.get("syncRole", "sync")
+        if type(sync_role) is not str or sync_role not in SYNC_ROLES:
+            raise ValueError("Invalid Sync role")
+        if sync_role == "own":
+            device["syncRole"] = "own"
         if key.startswith("virtual-"):
             shape, name = row.get("shape"), row.get("name", "Нова лампа")
             if (
@@ -136,6 +151,11 @@ def validate_layout(value):
 
         result['syncZone'] = validate_zone(value['syncZone'])
     return result
+
+
+def composed(device):
+    """A validated row takes part in the Sync composition."""
+    return device.get("enabled", True) and device.get("syncRole", "sync") != "own"
 
 
 def minimum_anchor_height(device, monitor_inches):
@@ -238,11 +258,12 @@ class LayoutStore:
         return fallback
 
     def enabled(self, role, fallback=True):
+        """Return Sync composition membership: removed and own-light rows are excluded."""
         data = self.snapshot()
         if data:
             for device in data['devices']:
                 if device['id'] == role or ROLES.get(device['id']) == role:
-                    return device.get('enabled', True)
+                    return composed(device)
         elif self.path.exists():
             # A corrupt saved selection is not permission to resume every lamp.
             return False

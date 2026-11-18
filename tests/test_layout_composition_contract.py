@@ -44,6 +44,56 @@ class LayoutCompositionTests(unittest.TestCase):
                              data['devices'][4]['positionCm'])
             self.assertNotEqual(store.sync_profile()['signature'], before['signature'])
 
+    def test_sync_role_own_roundtrips_and_sync_is_never_stored(self):
+        data = layout()
+        data['version'] = 4
+        data['devices'][0]['syncRole'] = 'sync'
+        data['devices'][4]['syncRole'] = 'own'
+        result = validate_layout(data)
+        self.assertEqual(result['version'], 4)
+        self.assertNotIn('syncRole', result['devices'][0])
+        self.assertEqual(result['devices'][4]['syncRole'], 'own')
+        self.assertEqual(validate_layout(copy.deepcopy(result)), result)
+        for invalid in ('off', 'Own', '', None, True, 1, ['own'], {'own': True}):
+            data['devices'][4]['syncRole'] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_layout(data)
+
+    def test_version_three_rows_upgrade_without_a_sync_role(self):
+        data = layout()
+        data['devices'][4]['enabled'] = False
+        result = validate_layout(data)
+        self.assertEqual(result['version'], 4)
+        self.assertTrue(all('syncRole' not in row for row in result['devices']))
+        self.assertIs(result['devices'][4]['enabled'], False)
+
+    def test_own_light_is_excluded_like_a_removed_row_but_keeps_its_place(self):
+        with TemporaryDirectory(prefix='tmp_composition_own_') as folder:
+            store = LayoutStore(Path(folder) / 'layout.json')
+            data = layout()
+            store.save(data)
+            before = store.sync_profile()
+            data['devices'][4]['syncRole'] = 'own'
+            data['devices'][0]['syncRole'] = 'own'
+            store.save(data)
+            profile = store.sync_profile()
+            self.assertFalse(store.enabled('hue_center'))
+            self.assertFalse(store.enabled('play-center'))
+            self.assertFalse(store.enabled('left'))
+            self.assertTrue(store.enabled('hue_left'))
+            self.assertEqual(profile['enabled_roles'], ['right', 'strip', 'hue_left', 'hue_right'])
+            self.assertEqual(profile['native_roles'], ['strip', 'hue_left', 'hue_right'])
+            removed = layout()
+            removed['devices'][4]['enabled'] = False
+            removed['devices'][0]['enabled'] = False
+            store.save(removed)
+            self.assertEqual(store.sync_profile()['enabled_roles'], profile['enabled_roles'])
+            self.assertEqual(store.sync_profile()['native_roles'], profile['native_roles'])
+            store.save(data)
+            self.assertEqual(store.snapshot()['devices'][4]['positionCm'],
+                             data['devices'][4]['positionCm'])
+            self.assertNotEqual(profile['signature'], before['signature'])
+
     def test_sparse_native_observer_records_only_complete_selected_roles(self):
         store = OutputPreviewStore()
         store.record_native_channels({1:(65535,0,0), 3:(0,65535,0)})

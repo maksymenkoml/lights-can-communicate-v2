@@ -16,9 +16,11 @@ from lights_can_communicate_v2_core.dist import STATE_SCHEMAS, build_release
 from lights_can_communicate_v2_core.install import Installation, InstallError, verify
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
-from desk_layout import validate_layout  # noqa: E402
+from desk_layout import LAYOUT_VERSION, validate_layout  # noqa: E402
 
 TOKEN = "a" * 48
+# A later release that changes the stored layout format.
+NEXT_LAYOUT_SCHEMA = {**STATE_SCHEMAS, "desk_layout": STATE_SCHEMAS["desk_layout"] + 1}
 
 
 def stopped(_config):
@@ -99,6 +101,7 @@ class InstallTests(unittest.TestCase):
             second = build_release(Path(again) / "release")
         self.assertEqual(second["files"], self.manifest["files"])
         # The declared layout schema is the one the gateway validates.
+        self.assertEqual(STATE_SCHEMAS["desk_layout"], LAYOUT_VERSION)
         with self.assertRaises(ValueError):
             validate_layout({"version": STATE_SCHEMAS["desk_layout"] + 1})
         js = (Path(__file__).resolve().parents[1] / "homebridge/lib/client.js").read_text()
@@ -217,7 +220,7 @@ class InstallTests(unittest.TestCase):
 
     def test_rollback_across_a_schema_change_restores_the_upgrade_snapshot(self):
         self.place("1.0.0")
-        self.place("2.0.0", state={**STATE_SCHEMAS, "desk_layout": 4})
+        self.place("2.0.0", state=NEXT_LAYOUT_SCHEMA)
         self.install.activate("1.0.0")
         upgrade = self.install.activate("2.0.0")
         (self.state / "desk-layout.json").write_text('{"version": 4, "marker": "migrated"}\n')
@@ -235,7 +238,7 @@ class InstallTests(unittest.TestCase):
 
     def test_every_interrupted_step_is_completed_by_the_next_command(self):
         self.place("1.0.0")
-        self.place("2.0.0", state={**STATE_SCHEMAS, "desk_layout": 4})
+        self.place("2.0.0", state=NEXT_LAYOUT_SCHEMA)
         self.install.activate("1.0.0")
         steps = (("_point", "activate"), ("snapshot", "activate"),
                  ("restore", "rollback"), ("_point", "rollback"))

@@ -37,6 +37,8 @@ SETUP_FILES = {
     "static/index.html": "static/index.html",
     "static/app.js": "static/app.js",
     "static/style.css": "static/style.css",
+    "static/fonts/commissioner-latin.woff2": "static/fonts/commissioner-latin.woff2",
+    "static/fonts/OFL.txt": "static/fonts/OFL.txt",
 }
 
 
