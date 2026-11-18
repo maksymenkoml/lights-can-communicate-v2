@@ -74,7 +74,7 @@ class GradientProfileTests(unittest.TestCase):
         lamp = SimpleNamespace(
             id_v1="1",
             id_v2="stable-id",
-            name="Govee Left TEST",
+            name="Govee Left",
             modelid="LCT015",
             state={"on": False, "bri": 100, "xy": [0.3, 0.3]},
             config={"archetype": "classicbulb"},
@@ -82,7 +82,7 @@ class GradientProfileTests(unittest.TestCase):
             function="mixed",
         )
         configure_signe(lamp, True)
-        self.assertEqual((lamp.id_v1, lamp.id_v2, lamp.name), ("1", "stable-id", "Govee Left TEST"))
+        self.assertEqual((lamp.id_v1, lamp.id_v2, lamp.name), ("1", "stable-id", "Govee Left"))
         self.assertFalse(lamp.state["on"])
         self.assertEqual(lamp.state["bri"], 100)
         self.assertEqual(lamp.modelid, "915005987201")
