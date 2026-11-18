@@ -87,6 +87,13 @@ class DeriveTests(unittest.TestCase):
         data = status(diagnostics={"events": [event("streaming", "guessed")]})
         self.assertEqual(sync_health.derive(data)["reason"], "unknown")
 
+    def test_unrecognized_latest_event_does_not_revive_an_older_reason(self):
+        # The latest event is the current state; an older reason may no longer hold.
+        data = status(diagnostics={"events": [event("waiting", "native_unavailable"),
+                                              event("streaming", "guessed")]})
+        health = sync_health.derive(data)
+        self.assertEqual((health["state"], health["reason"]), ("unknown", "unknown"))
+
     def test_power_owner_off_and_fence_are_blockers(self):
         data = status()
         data["power_owner"]["roles"]["right"].update(requested_on=False, color_allowed=False)
