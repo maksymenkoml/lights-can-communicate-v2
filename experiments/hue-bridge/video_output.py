@@ -294,13 +294,11 @@ class VideoOutput:
             self.relay.recover()
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             self.cleanup_pending = True
-        wake = getattr(self.lease, "wake", None)
         while not stop.is_set():
-            if wake is not None:
-                wake.clear()
+            self.lease.wake.clear()
             self.process_once()
             # A new frame wakes the worker at once; the timeout keeps grace handling.
-            (wake or stop).wait(0.05)
+            self.lease.wake.wait(0.05)
         for attempt in range(3):
             try:
                 self.release()

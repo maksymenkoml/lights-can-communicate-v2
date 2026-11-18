@@ -240,6 +240,8 @@ class PilotController:
                 self.streaming = bool(active)
                 self.last_sent.clear()
                 self.stream_brightness.clear()
+                # A ptReal slot can lie seconds ahead; it must not hold the stream.
+                self.next_send.clear()
 
     def update_statuses(self, statuses):
         with self.lock:
@@ -386,10 +388,14 @@ class PilotController:
                     # The lamp ignores other color commands while DreamView is on,
                     # so leave it even when no scene target is waiting yet.
                     try:
-                        if self.sender(device, "razer", razer_mode(False)):
-                            self.razer.pop(side)
+                        left = self.sender(device, "razer", razer_mode(False))
                     except OSError:
-                        pass
+                        left = False
+                    if not left:
+                        # Keep the scene target pending until the lamp leaves DreamView.
+                        self.rejected_sends[side] += 1
+                        continue
+                    self.razer.pop(side)
                 target = self.effective_target(side)
                 if target is None:
                     continue
