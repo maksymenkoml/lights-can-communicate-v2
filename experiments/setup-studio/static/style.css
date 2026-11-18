@@ -2,7 +2,7 @@
    The light/dark switch previews the room; it is not a theme of the controls. */
 @font-face{font-family:Commissioner;font-style:normal;font-weight:400 600;font-display:swap;src:url(/fonts/commissioner-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 
-:root{color-scheme:light;--fixture:#a7b0bf;--edge:#8994a5;--desk:#c8cfd9;--leg:#d6dce4;--screen:#e4e9f1;--screen-edge:#9ca7b7;--beam:#b5c7e6;--glow:.19;--dot:#b9c0cd55}
+:root{color-scheme:light;--edge:#8994a5;--beam:#b5c7e6}
 *{box-sizing:border-box}
 body{margin:0;background:var(--outer);color:var(--text);font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
 button,input{font:inherit}
@@ -58,18 +58,18 @@ h1,h2,p{margin:0}
 .scene-toggle:hover,.scene-toggle[aria-pressed=true]{color:var(--accent);background:var(--soft)}
 .scene-toggle svg{width:17px;height:17px}
 .scene-toggle .sun{display:none}.scene-toggle[aria-pressed=true] .moon{display:none}.scene-toggle[aria-pressed=true] .sun{display:block}
-.app.dark-scene .scene-background{top:78px;background-color:#151920;border-top:1px solid #dce1e8;--dot:#71807838}
-.app.dark-scene .stage{--fixture:#657280;--edge:#8293a6;--desk:#46505f;--leg:#303a48;--screen:#222b3b;--screen-edge:#667991;--line:#364050;--muted:#a0adc0;--glow:.38}
+.app.dark-scene .scene-background{top:78px;background-color:#151920;border-top:1px solid #dce1e8}
+.app.dark-scene .stage{--edge:#8293a6;--line:#364050;--muted:#a0adc0}
 @media(max-width:550px){.scene-toggle{width:34px;height:34px;border-radius:10px}.app.dark-scene .scene-background{top:70px}}
 .scene-background{top:78px;background-color:var(--canvas);border-top:1px solid transparent}
 @property --scene-sweep{syntax:'<number>';inherits:false;initial-value:0}
 .scene-snapshot{position:absolute;inset:0;z-index:2;pointer-events:none;mask-repeat:no-repeat;mask-size:100% 100%;will-change:mask-image}
 .scene-snapshot.motion-halo.reveal-light{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),transparent calc(var(--scene-sweep)*100% - 14%),#000 calc(var(--scene-sweep)*100% + 14%))}
 .scene-snapshot.motion-halo.reveal-dark{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),#000 calc(var(--scene-sweep)*100% - 14%),transparent calc(var(--scene-sweep)*100% + 14%))}
-.app .scene-snapshot.snapshot-light .scene-background{border-color:transparent;--dot:#b9c0cd55}
+.app .scene-snapshot.snapshot-light .scene-background{border-color:transparent}
 .app .scene-snapshot.snapshot-dark .scene-background{border-color:#dce1e8}
-.app .scene-snapshot.snapshot-light .stage{--fixture:#a7b0bf;--edge:#8994a5;--desk:#c8cfd9;--leg:#d6dce4;--screen:#e4e9f1;--screen-edge:#9ca7b7;--line:#dce1e8;--muted:#9299a5;--glow:.19}
-.app .scene-snapshot.snapshot-dark .stage{--glow:.38}
+.app .scene-snapshot.snapshot-light .stage{--edge:#8994a5;--line:#dce1e8;--muted:#9299a5}
+
 @media(max-width:550px){.scene-background{top:70px}}
 .lamp .render-housing{fill:var(--canvas);stroke:var(--edge);stroke-width:1.4}
 .lamp .render-emission{fill:none;stroke:var(--beam);stroke-linecap:round;stroke-linejoin:round}
@@ -79,7 +79,7 @@ h1,h2,p{margin:0}
 .lamp .object-edge{stroke:#ffffff;stroke-opacity:.5;stroke-width:1;fill:none;pointer-events:none}
 .furniture-select{fill:none;stroke:var(--accent);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0;pointer-events:none}
 .desk-group.chosen .furniture-select,.monitor-group.chosen .furniture-select{opacity:1}
-.stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--white-top:#f9fafc;--white-front:#dde3eb;--white-edge:#bac4d1;--glass-top:#b9c8d9;--glass-bottom:#7d90aa;--frame-face:#c2cbd7;}.app.dark-scene .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--white-top:#9ba6b5;--white-front:#69798c;--white-edge:#5a6778;--glass-top:#324355;--glass-bottom:#1b2635;--frame-face:#546171;}.app .scene-snapshot.snapshot-light .stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--white-top:#f9fafc;--white-front:#dde3eb;--white-edge:#bac4d1;--glass-top:#b9c8d9;--glass-bottom:#7d90aa;--frame-face:#c2cbd7;}.app .scene-snapshot.snapshot-dark .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--white-top:#9ba6b5;--white-front:#69798c;--white-edge:#5a6778;--glass-top:#324355;--glass-bottom:#1b2635;--frame-face:#546171;}
+.stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa;}.app.dark-scene .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--glass-top:#324355;--glass-bottom:#1b2635;}.app .scene-snapshot.snapshot-light .stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa;}.app .scene-snapshot.snapshot-dark .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--glass-top:#324355;--glass-bottom:#1b2635;}
 .sync-mode .lamp{cursor:grab}.sync-mode .lamp:active{cursor:grabbing}
 .app.placing .stage,.app.placing .lamp{cursor:crosshair}
 .app.placing .lamp.chosen .outline{opacity:0}.app.placing .placement-ghost .outline{opacity:1;stroke-dasharray:5 5}.placement-ghost{opacity:.6;pointer-events:none}
@@ -227,8 +227,8 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .app .scene-snapshot.snapshot-light .stage{--halo:#ebf0f3;--tag-text:#1d3348}
 
 /* Night scene in navy */
-.app.dark-scene>.scene-background,.app .scene-snapshot.snapshot-dark .scene-background{background-color:#0f1c2a;border-top-color:var(--line);--dot:#5c7a9230}
-.app.dark-scene #stage,.app .scene-snapshot.snapshot-dark .stage{--line:#24394d;--muted:#a3b5c7;--halo:#0f1c2a;--tag-text:#d3dee8;--accent:#5cc6cd;--soft:#5cc6cd22;--zone-off:#2c4256;--screen:#1a2a3c;--screen-edge:#5f7a94;--desk:#3c4f63;--leg:#2a3b4d;--fixture:#5d7287;--edge:#7f97ae}
+.app.dark-scene>.scene-background,.app .scene-snapshot.snapshot-dark .scene-background{background-color:#0f1c2a;border-top-color:var(--line)}
+.app.dark-scene #stage,.app .scene-snapshot.snapshot-dark .stage{--line:#24394d;--muted:#a3b5c7;--halo:#0f1c2a;--tag-text:#d3dee8;--accent:#5cc6cd;--soft:#5cc6cd22;--zone-off:#2c4256;--edge:#7f97ae}
 .app.dark-scene #stage .obj-chip>rect,.app .scene-snapshot.snapshot-dark .obj-chip>rect{fill:#1a2a3c;stroke:#2f465c}
 .app.dark-scene #stage .obj-chip text,.app .scene-snapshot.snapshot-dark .obj-chip text{fill:#e6eef5}
 .app.dark-scene #stage .obj-chip .chip-status,.app .scene-snapshot.snapshot-dark .obj-chip .chip-status{fill:#a3b5c7}
