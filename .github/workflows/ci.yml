@@ -66,14 +66,14 @@ jobs:
       - name: Python contracts without network or private state
         run: >-
           docker run --rm --network none
-          -e SMART_LIGHTING_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
+          -e LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
           --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
           -w /tmp --entrypoint python3 "$PILOT_IMAGE"
           -B -m unittest discover -s /workspace/tests -v
       - name: Executable archive contracts without network
         run: >-
           docker run --rm --network none
-          -e SMART_LIGHTING_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
+          -e LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS=1 -e PYTHONPATH=/workspace
           --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
           -w /workspace --entrypoint python3 "$PILOT_IMAGE"
           -B tests/check_core_archive.py

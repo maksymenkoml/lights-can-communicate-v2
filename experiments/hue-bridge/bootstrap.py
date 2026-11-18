@@ -28,6 +28,7 @@ from entertainment_stream import (  # noqa: E402
     CAPTURE_POSITIONS,
     GRADIENT_MODE,
     GROUP_ID,
+    IDENTITY_NAMESPACE,
     SLOT_CHANNELS,
 )
 from flask import abort, g, jsonify, request  # noqa: E402
@@ -64,7 +65,7 @@ config = configManager.bridgeConfig.yaml_config
 settings = config["config"]
 settings.update(
     {
-        "name": "Smart Lighting Probe",
+        "name": "Lights Can Communicate v2 Probe",
         "discovery": False,
         "Remote API enabled": False,
         "timezone": "America/Toronto",
@@ -108,7 +109,7 @@ for index, side in enumerate(("Left", "Right"), start=1):
         lamp = Light.Light(
             {
                 "id_v1": identifier,
-                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL, f"smart-lighting-probe/{side}")),
+                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/{side}")),
                 "name": f"Govee {side} TEST",
                 "modelid": "LCT015",
                 "protocol": "dummy",
@@ -131,7 +132,7 @@ if include_strip:
             {
                 "id_v1": "3",
                 "id_v2": str(
-                    uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/HueMonitorStrip")
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/HueMonitorStrip")
                 ),
                 "name": "Hue Monitor PROXY",
                 "modelid": "LCX006",
@@ -161,7 +162,7 @@ if include_hue_play:
                 {
                     "id_v1": identifier,
                     "id_v2": str(
-                        uuid.uuid5(uuid.NAMESPACE_URL, "smart-lighting-probe/HuePlay" + side)
+                        uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/HuePlay" + side)
                     ),
                     "name": "Hue Play " + side + " PROXY",
                     "modelid": "LCT015",
@@ -252,7 +253,8 @@ if include_entertainment:
     Light.Light.getV2Entertainment = desk_light_entertainment
 
 if api_key not in config["apiUsers"]:
-    config["apiUsers"][api_key] = ApiUser.ApiUser(api_key, "SmartLightingProbe#selftest", None)
+    config["apiUsers"][api_key] = ApiUser.ApiUser(
+        api_key, "LightsCanCommunicateV2Probe#selftest", None)
 configManager.bridgeConfig.save_config(backup=False)
 
 from bridge_output import BridgeOutput, PlayGuard, desk_palette_index  # noqa: E402

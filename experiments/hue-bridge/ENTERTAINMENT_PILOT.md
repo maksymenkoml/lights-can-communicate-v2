@@ -10,7 +10,7 @@ It is not a packaged Homebridge plugin or a NAS deployment.
 | Offline codec, channel mapping, arbitration and lifecycle | PASS | Full 139-test suite and Ruff |
 | Encrypted v2 reception through published Docker UDP 2100 | PASS | 30 synthetic packets sent and received; host video output disabled during that check |
 | Genuine Hue Bridge DTLS handshake | PASS | Four selected lights, 12 native channels, no video frames sent; owned stream released |
-| Sync Box switch to virtual area | PASS | Official Hue app via iPhone Mirroring paired the box to Smart Lighting Probe and Desk Sync PILOT |
+| Sync Box switch to virtual area | PASS | Official Hue app via iPhone Mirroring paired the box to Lights Can Communicate v2 Probe and Desk Sync PILOT |
 | Sync Box real frame format | PASS | Actual v2 RGB frames on all 14 source channels |
 | Physical video response in PS5 menu | PASS | Owner confirmed both Govee react with Hue, acceptable smoothness and delay |
 | PS5 gameplay | PASS | Owner launched the game and reported everything works great; title not recorded |
@@ -95,7 +95,7 @@ UUID is obtained from the `/auth/v1` response header. That UUID is the native
 v2 DTLS identity and the `active_streamer` ownership identifier; the application
 key is used for REST authentication. These are not interchangeable.
 
-The Sync Box 8K was discovered through `_huesync._tcp` as the owner's HSB2, firmware 2.5.4 / API level 10. Local token push-link did not complete and was not needed: the official Hue app changed the association from the genuine Hue Bridge / Mykola Office to Smart Lighting Probe / Desk Sync PILOT. No `.sync-box.json` credential was created. The same Change Hue Bridge flow exposes the genuine Hue Bridge for returning to native-only Sync. No box reset or HDMI rewiring was performed; the owner launches all games.
+The Sync Box 8K was discovered through `_huesync._tcp` as the owner's HSB2, firmware 2.5.4 / API level 10. Local token push-link did not complete and was not needed: the official Hue app changed the association from the genuine Hue Bridge / Mykola Office to Lights Can Communicate v2 Probe / Desk Sync PILOT. No `.sync-box.json` credential was created. The same Change Hue Bridge flow exposes the genuine Hue Bridge for returning to native-only Sync. No box reset or HDMI rewiring was performed; the owner launches all games.
 
 ## Older right-controller pacing
 

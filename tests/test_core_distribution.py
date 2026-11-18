@@ -17,13 +17,13 @@ from tempfile import TemporaryDirectory
 
 from test_native_profile import profile_data
 
-from smart_lighting_core import __version__
+from lights_can_communicate_v2_core import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 PINNED_LINUX = (
     sys.platform == "linux"
     and Path("/opt/hue-emulator").is_dir()
-    and os.environ.get("SMART_LIGHTING_ISOLATED_TESTS") == "1"
+    and os.environ.get("LIGHTS_CAN_COMMUNICATE_V2_ISOLATED_TESTS") == "1"
 )
 
 
@@ -38,7 +38,7 @@ class CoreDistributionTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 "-m",
-                "smart_lighting_core.build",
+                "lights_can_communicate_v2_core.build",
                 "--output",
                 str(self.artifact),
             ],
@@ -110,7 +110,8 @@ class CoreDistributionTests(unittest.TestCase):
     def test_archive_is_reproducible_allowlisted_and_self_contained(self):
         second = self.root / "second.pyz"
         result = subprocess.run(
-            [sys.executable, "-B", "-m", "smart_lighting_core.build", "--output", str(second)],
+            [sys.executable, "-B", "-m", "lights_can_communicate_v2_core.build",
+             "--output", str(second)],
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -120,9 +121,9 @@ class CoreDistributionTests(unittest.TestCase):
         with zipfile.ZipFile(self.artifact) as bundle:
             names = bundle.namelist()
             self.assertIn("live_adapter.py", names)
-            self.assertIn("smart_lighting.py", names)
-            self.assertIn("smart_lighting_core/cli.py", names)
-            self.assertIn("smart_lighting_core/native_profile.py", names)
+            self.assertIn("lights_can_communicate_v2.py", names)
+            self.assertIn("lights_can_communicate_v2_core/cli.py", names)
+            self.assertIn("lights_can_communicate_v2_core/native_profile.py", names)
             self.assertFalse(any("state/" in name or "tests/" in name for name in names))
             self.assertFalse(any(".lighting" in name or name.endswith(".jsonl") for name in names))
             manifest = json.loads(bundle.read("core-manifest.json"))
@@ -149,7 +150,7 @@ class CoreDistributionTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 "-m",
-                "smart_lighting_core.build",
+                "lights_can_communicate_v2_core.build",
                 "--output",
                 str(self.artifact),
             ],
@@ -183,7 +184,7 @@ sys.path.insert(0, sys.argv[1])
 def forbidden(*args, **kwargs):
     raise AssertionError("Missing profile attempted network setup")
 socket.socket = forbidden
-from smart_lighting_core.cli import main
+from lights_can_communicate_v2_core.cli import main
 raise SystemExit(main(sys.argv[2:]))
 """
         for mode in ([], ["--check"]):
@@ -207,7 +208,7 @@ sys.path.insert(0, sys.argv[1])
 def forbidden(*args, **kwargs):
     raise AssertionError("Check attempted network setup")
 socket.socket = forbidden
-from smart_lighting_core.cli import main
+from lights_can_communicate_v2_core.cli import main
 raise SystemExit(main(["--config", sys.argv[2], "--check"]))
 """
         result = subprocess.run(

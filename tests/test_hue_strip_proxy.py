@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from smart_lighting_core.native_profile import NativeHueProfile
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, hue_payload  # noqa: E402

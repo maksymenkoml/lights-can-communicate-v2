@@ -6,7 +6,7 @@ is authorized by this document alone.
 
 ## Intended outcome
 
-Install and operate Smart Lighting on the NAS through its own Homebridge plugin.
+Install and operate Lights Can Communicate v2 on the NAS through its own Homebridge plugin.
 The Mac must not be needed for scenes, video sync, power coordination or setup.
 Retain the tested six-light behavior and the existing Apple Home accessories,
 automations and Hue pairing. An unrelated device must never become a target

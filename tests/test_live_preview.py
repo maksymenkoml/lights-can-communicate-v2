@@ -23,8 +23,8 @@ from test_hue_strip_proxy import FakeHue, command  # noqa: E402
 from test_live_adapter import LEFT, targets  # noqa: E402
 from test_native_profile import PLAY_IDS, profile_data  # noqa: E402
 
-from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
-from smart_lighting_core.native_profile import NativeHueProfile  # noqa: E402
+from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
 
 def metadata():

@@ -40,7 +40,7 @@ Ruff and configures `core.hooksPath=.githooks`; Git does not install hooks on cl
   certificate/private-key material or `experiments/hue-bridge/state/`.
 - Preserve configured device IDs, HomeKit accessories/scenes, calibration and
   external Off requests. Discovery must not enroll additional outputs implicitly.
-- The runtime spans `smart_lighting_core/`, `experiments/hue-bridge/` and
+- The runtime spans `lights_can_communicate_v2_core/`, `experiments/hue-bridge/` and
   `experiments/setup-studio/`; `tests/` holds offline contracts. See `core/README.md`.
 - Communicate with the owner in Ukrainian; code, comments and repository docs use
   English. Never launch games. Name temporary helpers `tmp_*` and clean only

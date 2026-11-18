@@ -16,8 +16,8 @@ from pathlib import Path
 from entertainment_stream import POSITIONS, encode_frame, native_colors
 from native_location_cache import NativeLocationCache
 
-import smart_lighting as lan
-from smart_lighting_core.native_profile import NativeHueProfile
+import lights_can_communicate_v2 as lan
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 
 class DtlsConnection:

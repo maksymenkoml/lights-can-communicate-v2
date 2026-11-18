@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import smart_lighting as lighting
+import lights_can_communicate_v2 as lighting
 
 LEFT_ID = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT_ID = "BB:BB:BB:BB:BB:BB:BB:BB"
@@ -106,7 +106,8 @@ class CalibrationTests(LightingTestCase):
             TemporaryDirectory(prefix="tmp_lighting_test_") as directory,
             patch.object(lighting, "CONFIG", Path(directory) / ".lighting.json"),
             patch(
-                "sys.argv", ["smart_lighting.py", "calibrate", "--left", "0.5", "--right", "0.4"]
+                "sys.argv",
+                ["lights_can_communicate_v2.py", "calibrate", "--left", "0.5", "--right", "0.4"],
             ),
             redirect_stdout(io.StringIO()),
         ):

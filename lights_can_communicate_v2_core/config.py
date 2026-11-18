@@ -85,7 +85,7 @@ class GatewayConfig:
     lan_ip: str
     mac: str
     adapter_url: str
-    container_name: str = "smart-lighting-gateway"
+    container_name: str = "lights-can-communicate-v2-gateway"
     image: str = GATEWAY_IMAGE
     live_output: bool = False
     hue_strip: bool = False
@@ -129,7 +129,7 @@ def _gateway(value, adapter_port):
         raise ConfigError("Gateway LAN address must be specific")
     if not isinstance(value["mac"], str) or not _MAC.match(value["mac"]):
         raise ConfigError("Invalid gateway MAC address")
-    name = value.get("container_name", "smart-lighting-gateway")
+    name = value.get("container_name", "lights-can-communicate-v2-gateway")
     if not isinstance(name, str) or not _CONTAINER.match(name):
         raise ConfigError("Invalid gateway container name")
     image = value.get("image", GATEWAY_IMAGE)

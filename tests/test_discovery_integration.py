@@ -17,7 +17,7 @@ from pilot_transport import PilotTransport  # noqa: E402
 from test_desk_layout import layout  # noqa: E402
 from test_live_adapter import LEFT, targets  # noqa: E402
 
-import smart_lighting as lan  # noqa: E402
+import lights_can_communicate_v2 as lan  # noqa: E402
 
 
 class DiscoveryIntegrationTests(unittest.TestCase):

@@ -90,7 +90,7 @@ Use a distinct host identity, not the genuine Hue Bridge's MAC. The host
 must have ports 80/443 TCP and 1900 UDP available. From this directory:
 
 ```sh
-docker compose -p smart-lighting-hue-probe up -d
+docker compose -p lights-can-communicate-v2-hue-probe up -d
 ```
 
 Credentials, pairing keys, certificate, state, and sanitized request logs
@@ -112,7 +112,7 @@ the successful iPhone attempt was not independently recorded.
 To stop only this probe, preserve its state, and free its published ports:
 
 ```sh
-docker compose -p smart-lighting-hue-probe down
+docker compose -p lights-can-communicate-v2-hue-probe down
 ```
 
 Stop the task's separate `dns-sd` registration too. Do not stop unrelated

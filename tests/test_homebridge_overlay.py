@@ -43,8 +43,8 @@ class OverlayTests(unittest.TestCase):
                 'light': hashlib.sha256(before).hexdigest(),
                 'platform': hashlib.sha256(b'Unchanged accessory factory').hexdigest()})
             self.assertEqual(set(manifest['files']), {
-                'lib/device/light.js', 'lib/smart-lighting-power/owner-client.mjs',
-                'lib/smart-lighting-power/hook.mjs'})
+                'lib/device/light.js', 'lib/lights-can-communicate-v2-power/owner-client.mjs',
+                'lib/lights-can-communicate-v2-power/hook.mjs'})
             self.assertEqual((source / 'lib/device/light.js').read_bytes(), before)
             self.assertEqual(
                 (source / 'lib/platform.js').read_text(), 'Unchanged accessory factory')

@@ -10,8 +10,8 @@ import urllib.error
 from unittest.mock import patch
 
 try:
-    from smart_lighting_core.discovery import DeviceCatalog
-    from smart_lighting_core.hue_discovery import HueDiscoveryReader
+    from lights_can_communicate_v2_core.discovery import DeviceCatalog
+    from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader
 except ModuleNotFoundError:
     DeviceCatalog = HueDiscoveryReader = None
 
@@ -512,7 +512,7 @@ class ReaderTests(unittest.TestCase):
             reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
                                         self.catalog)
             self.assertFalse(reader.poll_once())
-            with patch("smart_lighting_core.hue_discovery.time.monotonic",
+            with patch("lights_can_communicate_v2_core.hue_discovery.time.monotonic",
                        side_effect=[0, 0, 2]):
                 self.assertFalse(reader.poll_once())
         self.assertEqual(self.catalog.snapshot()["providers"]["hue"], "unavailable")

@@ -7,7 +7,7 @@ import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
-from smart_lighting_core.native_profile import NativeHueProfile, NativeProfileError
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
 
 STRIP = "a1111111-1111-4111-8111-111111111111"
 LEFT = "b2222222-2222-4222-8222-222222222222"

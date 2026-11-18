@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hu
 from live_adapter import PilotController  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
 
-import smart_lighting as lan  # noqa: E402
+import lights_can_communicate_v2 as lan  # noqa: E402
 
 LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"

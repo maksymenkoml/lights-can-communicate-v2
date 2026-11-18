@@ -11,7 +11,7 @@ from test_desk_layout import layout  # noqa: E402
 from test_live_preview import metadata  # noqa: E402
 from test_setup_studio import studio  # noqa: E402
 
-from smart_lighting_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
+from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
 
 
 class LayoutCompositionTests(unittest.TestCase):

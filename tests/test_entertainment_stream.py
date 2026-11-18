@@ -148,3 +148,17 @@ class StreamTests(unittest.TestCase):
         self.assertTrue(lease.submit(envelope(sequence=123456)))
         self.assertFalse(lease.submit(envelope(sequence=123455)))
         self.assertEqual(lease.latest()[1], 123456)
+
+
+class PairedIdentityTests(unittest.TestCase):
+    def test_paired_bridge_identities_survive_project_renames(self):
+        # The Hue app and Sync Box are paired with these values on the live bridge.
+        import uuid
+
+        import entertainment_stream
+
+        self.assertEqual(entertainment_stream.AREA_ID, "ea1c1665-0ff0-5aad-8885-6c1157135199")
+        self.assertEqual(
+            str(uuid.uuid5(uuid.NAMESPACE_URL,
+                           f"{entertainment_stream.IDENTITY_NAMESPACE}/Left")),
+            "050b14cb-6e4f-55bf-910b-ecc92c6210bd")

@@ -4,8 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PowerOwnerClient } from './owner-client.mjs';
 
-const FILES = ['lib/device/light.js', 'lib/smart-lighting-power/hook.mjs',
-  'lib/smart-lighting-power/owner-client.mjs'];
+const FILES = ['lib/device/light.js', 'lib/lights-can-communicate-v2-power/hook.mjs',
+  'lib/lights-can-communicate-v2-power/owner-client.mjs'];
 // prepare_overlay.py pins each release's exact public light and factory hashes.
 const SUPPORTED_VERSIONS = new Set(['11.39.1', '11.40.0']);
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -46,14 +46,14 @@ function upgradeModules(options, io, manifest, bytes, plugin, storage) {
       || digest(data) !== previous.files[name]) throw Error('Installed module changed');
     originals.set(name, data);
   }
-  const directory = path.join(plugin, 'lib/smart-lighting-power');
+  const directory = path.join(plugin, 'lib/lights-can-communicate-v2-power');
   if (io.lstatSync(directory).isSymbolicLink()) throw Error('Symbolic module directory unsupported');
   io.accessSync(directory, io.constants.W_OK);
   io.accessSync(storage, io.constants.W_OK);
   if (io.statSync(directory).dev !== io.statSync(storage).dev) throw Error('Module backup filesystem differs');
   if (!options.apply) return { ready: true, installed: true, upgradeReady: true, files: FILES.slice(1) };
 
-  const backup = io.mkdtempSync(path.join(storage, 'smart-lighting-power-backup-'));
+  const backup = io.mkdtempSync(path.join(storage, 'lights-can-communicate-v2-power-backup-'));
   io.chmodSync(backup, 0o700);
   if ((io.statSync(backup).mode & 0o777) !== 0o700) throw Error('Private backup mode unavailable');
   io.writeFileSync(path.join(backup, 'previous-manifest.json'), JSON.stringify(previous, null, 2),
@@ -141,7 +141,7 @@ export function applyOverlay(options, io = fs) {
   // Constructor validates endpoint/credential without opening a connection.
   new PowerOwnerClient({ endpoint: config.endpoint, token: config.token });
   const configBytes = Buffer.from(JSON.stringify(config, null, 2) + '\n');
-  const configFile = path.join(storage, 'smart-lighting-power.json');
+  const configFile = path.join(storage, 'lights-can-communicate-v2-power.json');
   const light = path.join(plugin, FILES[0]);
   const factory = path.join(plugin, 'lib/platform.js');
   if (io.lstatSync(light).isSymbolicLink()) throw Error('Symbolic light source is unsupported');
@@ -160,7 +160,7 @@ export function applyOverlay(options, io = fs) {
     return { ready: true, installed: true, alreadyInstalled: true, version: pkg.version };
   }
   if (digest(original) !== manifest.original_light_sha256) throw Error('Plugin light source changed');
-  const moduleDir = path.join(plugin, 'lib/smart-lighting-power');
+  const moduleDir = path.join(plugin, 'lib/lights-can-communicate-v2-power');
   if (io.existsSync(moduleDir)) throw Error('Existing owner files must be preserved');
   const reusedConfig = io.existsSync(configFile) ? existingConfig(io, configFile, config) : undefined;
   const configReused = reusedConfig !== undefined;
@@ -173,7 +173,7 @@ export function applyOverlay(options, io = fs) {
   }
   if (!options.apply) return { ready: true, installed: false, version: pkg.version, files: FILES, configReused };
 
-  const backup = io.mkdtempSync(path.join(storage, 'smart-lighting-power-backup-'));
+  const backup = io.mkdtempSync(path.join(storage, 'lights-can-communicate-v2-power-backup-'));
   io.chmodSync(backup, 0o700);
   io.writeFileSync(path.join(backup, 'light.js'), original, { mode: 0o600, flag: 'wx' });
   io.writeFileSync(path.join(backup, 'manifest.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 });

@@ -10,8 +10,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from smart_lighting_core import cli
-from smart_lighting_core.config import ConfigError, load_config
+from lights_can_communicate_v2_core import cli
+from lights_can_communicate_v2_core.config import ConfigError, load_config
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
 import live_adapter as pilot  # noqa: E402

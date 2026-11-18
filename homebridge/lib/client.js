@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { readFileSync, statSync } from 'node:fs';
 import { isIPv4 } from 'node:net';
 
-export const CREDENTIAL_FILE = 'lights-can-communicate.json';
+export const CREDENTIAL_FILE = 'lights-can-communicate-v2.json';
 
 /** Read the private core endpoint and owner credential from Homebridge storage. */
 /** Version of the signed /homekit API; the release manifest records it as core_api.homekit. */

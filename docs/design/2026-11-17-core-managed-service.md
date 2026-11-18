@@ -37,18 +37,18 @@ stopped the bridge and nothing restarted it; Sync stayed down unnoticed.
 
 ### Distribution
 
-`python3 -B -m smart_lighting_core.dist --output DIR` creates a new directory
+`python3 -B -m lights_can_communicate_v2_core.dist --output DIR` creates a new directory
 `DIR` (never overwrites) containing:
 
-- `smart-lighting.pyz` – the existing deterministic archive plus the Setup
+- `lights-can-communicate-v2.pyz` – the existing deterministic archive plus the Setup
   Studio server module and its static assets.
 - `gateway/` – the bridge modules that today are bind-mounted (single source
-  of truth: `GATEWAY_MODULES` in `smart_lighting_core/dist.py`).
+  of truth: `GATEWAY_MODULES` in `lights_can_communicate_v2_core/dist.py`).
 - `manifest.json` – version and SHA256 of every file.
 
 ### Command line
 
-`smart-lighting.pyz [adapter|setup|ready|services] --config FILE`:
+`lights-can-communicate-v2.pyz [adapter|setup|ready|services] --config FILE`:
 
 - `adapter` (default, so `--config FILE [--check]` keeps working).
 - `setup` – serves Setup Studio from the archive on `setup.bind:setup.port`
@@ -58,8 +58,8 @@ stopped the bridge and nothing restarted it; Sync stayed down unnoticed.
   `/api/config` answer locally within a bounded time; prints a small JSON
   summary without credentials.
 - `services --release DIR --output OUT` – renders supervisor files with
-  absolute paths: `com.smart-lighting.adapter.plist`,
-  `com.smart-lighting.setup.plist` and `gateway-compose.json` (Compose accepts
+  absolute paths: `com.lights-can-communicate-v2.adapter.plist`,
+  `com.lights-can-communicate-v2.setup.plist` and `gateway-compose.json` (Compose accepts
   JSON, so no YAML dependency). Existing output files are never overwritten.
 
 ### Configuration
@@ -68,7 +68,7 @@ The version-one configuration gains two optional sections:
 
 - `setup`: `bind`, `port`.
 - `gateway`: `lan_ip`, `mac`, `container_name` (default
-  `smart-lighting-gateway`), `image` (pinned digest default), `adapter_url`,
+  `lights-can-communicate-v2-gateway`), `image` (pinned digest default), `adapter_url`,
   `live_output`, `hue_strip`, `hue_play`, `entertainment`, `gradient`,
   `timezone`.
 
@@ -88,7 +88,7 @@ as its configuration directory, as today. Logs go to `state_dir/logs`.
 
 ### Activation on the Mac (after merge, separate step)
 
-1. Build the release into `~/Library/Application Support/SmartLighting/releases/<version>`.
+1. Build the release into `~/Library/Application Support/LightsCanCommunicateV2/releases/<version>`.
 2. Stop the hand-started adapter and the current bridge container; copy (not
    move) the live state directory to the managed state location, keeping the
    old one as rollback.
