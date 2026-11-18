@@ -356,30 +356,30 @@ function lensStops(l,colors,beam){
 function lampSvg(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
  const colors=liveColors(l),beam=beamColor(colors),power=colors?1:0;
- let box='',body='',wash='',lens='',hit='',nameY=0;
+ let box='',body='',wash='',lens='',hit='';
  const glowOpacity=.21;
  if(l.form==='floor'){
-  box='x="-25" y="-239" width="50" height="477"';nameY=257;
+  box='x="-25" y="-239" width="50" height="477"';
   body='<ellipse class="contact-shadow" cx="5" cy="225" rx="28" ry="5"/><ellipse fill="url(#body-metal)" stroke="#526075" stroke-width="1" cx="0" cy="220" rx="20" ry="5"/><path d="M0 218v-17" stroke="#49566c" stroke-width="5"/><rect x="-7.5" y="-225" width="15" height="432" rx="7.5" fill="url(#body-metal)" stroke="#718097" stroke-width=".8"/><path class="object-edge" d="M-5 -215V196"/>';
   wash='<path class="render-wash" opacity="'+glowOpacity+'" d="M-3 208 Q-115 -2 -92 -250 Q0 -306 92 -250 Q115 -2 3 208Z"/><ellipse class="render-wash" opacity="'+glowOpacity+'" cx="0" cy="-70" rx="43" ry="180"/>';
   lens='<path class="render-bloom" stroke-width="35" opacity=".3" d="M0 198V-218"/><rect x="-3.5" y="-220" width="7" height="420" rx="3.5" fill="url(#lens-'+l.id+')"/>';
  }else if(l.form==='strip'){
   const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;
-  box='x="'+(-w-24)+'" y="'+(-h-24)+'" width="'+(2*w+48)+'" height="'+(2*h+48)+'"';nameY=-h-41;
+  box='x="'+(-w-24)+'" y="'+(-h-24)+'" width="'+(2*w+48)+'" height="'+(2*h+48)+'"';
   const path='M'+(-w-11)+' '+h+'V'+(-h-11)+'H'+(w+11)+'V'+h;
   hit='<path class="hit" d="'+path+'" style="fill:none;stroke:transparent;stroke-width:25;pointer-events:stroke"/>';
   body='<path d="'+path+'" fill="none" stroke="#58667a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>';
   wash='<path class="render-bloom" stroke-width="94" opacity="'+(glowOpacity*1.6)+'" d="'+path+'"/>';
   lens='<path class="render-emission" stroke-width="5" d="'+path+'"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
  }else{
-  box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';nameY=l.vertical?72:43;
+  box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';
   const rotation=l.vertical?-90:0;
   body='<g transform="rotate('+rotation+')"><ellipse class="contact-shadow" cx="3" cy="13" rx="43" ry="5"/><rect x="-41" y="-12" width="82" height="24" rx="10" fill="url(#body-metal)" stroke="#64738a" stroke-width="1"/><path class="object-edge" d="M-30 -9h60"/></g>';
   wash='<g transform="rotate('+rotation+')"><path class="render-wash" opacity="'+(glowOpacity*1.4)+'" d="M-32 -2 -105 -105 Q0 -163 105 -105 L32 -2Z"/></g>';
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }
  const mark=l.id==='pending-placement'?'':healthMarkSvg(l);
- return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" x1="0" y1="0" x2="0" y2="1">'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/><text class="lamp-name" y="'+nameY+'">'+esc(l.name)+'</text>'+mark+'</g>';
+ return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" x1="0" y1="0" x2="0" y2="1">'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
 }
 function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const right=left+w,bottom=cy+mh/2,mx=cx-mw/2,my=cy-mh/2;

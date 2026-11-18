@@ -31,9 +31,7 @@ h1,h2,p{margin:0}
 .lamp .hit{fill:transparent;stroke:transparent;stroke-width:15;pointer-events:all}
 .outline{fill:none;stroke:var(--accent);stroke-width:1.4;vector-effect:non-scaling-stroke;opacity:0}
 .lamp.chosen .outline,.lamp:focus-visible .outline{opacity:1}
-.lamp-name{fill:var(--muted);text-anchor:middle;opacity:0;pointer-events:none}
 
-.lamp.chosen .lamp-name{opacity:0}
 .axis{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 6;opacity:.18;vector-effect:non-scaling-stroke;pointer-events:none}
 .toolbar{position:absolute;bottom:25px;left:50%;transform:translateX(-50%);display:flex;gap:3px;padding:6px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);z-index:6}
 .tool{height:39px;width:42px;display:grid;place-items:center;color:var(--muted)}
@@ -190,7 +188,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .card .card-name{font-size:15.5px}
 .ui-tooltip{line-height:1.45}
 .obj-chip text{font-size:12.5px}
-.tag-text,.lamp-name{font-size:11.5px}
+.tag-text{font-size:11.5px}
 
 /* Radii: panels 8, controls 5, pills 3 */
 .toolbar,.list-toggle,.history,.object-menu,.toast{border-radius:var(--r-panel)}
@@ -227,7 +225,6 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .app:not(.dark-scene) #stage .lamp .render-wash,.app .scene-snapshot.snapshot-light .lamp .render-wash{opacity:.7;filter:url(#wall-wash) saturate(1.5) brightness(1.15)}
 .app:not(.dark-scene) #stage .lamp .render-bloom,.app .scene-snapshot.snapshot-light .lamp .render-bloom{opacity:.38;filter:url(#bloom) saturate(1.5) brightness(1.15)}
 
-.lamp:hover .lamp-name,.lamp:focus-visible .lamp-name{opacity:0}
 #hover-tag .tag-text{font-weight:500}
 
 .scene-snapshot.mode-fade{mask-image:none}
