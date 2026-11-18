@@ -292,7 +292,13 @@ replacement takes over only after it completes the PSK handshake and delivers
 a valid frame; otherwise it is stopped after ten seconds, or as soon as the
 established source resumes. An unauthenticated or stale ClientHello therefore
 cannot disconnect a working source. Stop, a superseding Start and shutdown
-end both listeners. The bridge journal records `source_reconnected`,
+end both listeners.
+
+A source that vanishes and does not handshake again at all (a Sync Box reboot)
+previously left the stream active indefinitely after its first frame; the Box
+then saw its old session as active and never sent a new Start. As on a Hue
+bridge, an established session now ends after ten seconds without data, the
+stream becomes inactive and the source can start again. The bridge journal records `source_reconnected`,
 `source_timeout` and `dtls_closed`, and receiver status counts `reconnects`.
 `tests/test_receiver_reconnect.py`
 reproduces the vanished-client case with real OpenSSL DTLS (Linux only).

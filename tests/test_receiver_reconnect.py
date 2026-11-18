@@ -9,6 +9,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
 import test_receiver_udp_guard as guarded  # noqa: E402
@@ -82,6 +83,25 @@ class ReceiverReconnectTests(unittest.TestCase):
         wait_for(lambda: loop.servers[1].poll() is not None)
         self.assertNotIn("reconnects", loop.receiver.snapshot())
         self.assertEqual(loop.frames()[-1]["colors"][0], [0, 22222, 0, 0])
+
+    def test_silent_source_ends_the_session_so_the_source_can_start_again(self):
+        guard, loop = self.guarded_loop()
+        connection = loop.start()
+        loop.frame(connection, 11111)
+        wait_for(lambda: len(loop.frames()) == 1)
+        # The source vanished without close_notify and sends nothing (Box reboot).
+        with patch("entertainment_receiver.STREAM_TIMEOUT", 1.5):
+            loop.threads[-1].join(5)
+        self.assertFalse(loop.threads[-1].is_alive())
+        self.assertFalse(loop.group.stream["active"])
+        status = loop.receiver.snapshot()
+        self.assertEqual(status["last_result"], "source timeout")
+        events = [(e["state"], e["reason"]) for e in status["diagnostics"]["events"]]
+        self.assertIn(("idle", "source_timeout"), events)
+        # The source's new Start is served normally.
+        again = loop.start()
+        loop.frame(again, 22222)
+        wait_for(lambda: len(loop.frames()) == 2)
 
     def test_replacement_spawn_failure_keeps_the_association(self):
         guard, loop = self.guarded_loop()

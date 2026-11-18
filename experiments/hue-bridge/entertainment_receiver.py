@@ -175,6 +175,9 @@ def dtls_diagnostic(line):
 
 RECONNECT_IDLE = 0.5
 CANDIDATE_SECONDS = 10
+# Hue bridges end an entertainment session after ten seconds without data;
+# a source that vanished then sees an inactive stream and sends a new Start.
+STREAM_TIMEOUT = 10
 
 
 class EntertainmentReceiver:
@@ -407,6 +410,9 @@ class EntertainmentReceiver:
                 now = time.monotonic()
                 idle_for = now - last_data
                 if not received and idle_for > 45:
+                    end_reason = "source timeout"
+                    break
+                if received and candidate is None and idle_for > STREAM_TIMEOUT:
                     end_reason = "source timeout"
                     break
                 hello = self._last_hello()
