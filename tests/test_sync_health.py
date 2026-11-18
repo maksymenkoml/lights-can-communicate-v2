@@ -206,6 +206,8 @@ class ExportTests(unittest.TestCase):
             change,
             {**change, "role": "PRIVATE_DEVICE"},
             {**change, "cause": "PRIVATE_CAUSE"},
+            {**change, "cause": []},
+            {**change, "role": {}},
             {**change, "timestamp": None},
             {**change, "requested_on": "PRIVATE", "token": "PRIVATE_TOKEN"},
         ] + [change] * 200

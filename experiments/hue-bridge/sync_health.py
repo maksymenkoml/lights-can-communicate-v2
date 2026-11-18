@@ -154,7 +154,8 @@ def _power_events(authority):
     clean = []
     for item in events[-MAX_EVENTS:] if isinstance(events, list) else []:
         item = _mapping(item)
-        if (item.get("role") in GOVEE_ROLES and item.get("cause") in _POWER_CAUSES
+        if (item.get("role") in GOVEE_ROLES and type(item.get("cause")) is str
+                and item["cause"] in _POWER_CAUSES
                 and type(item.get("timestamp")) is str and len(item["timestamp"]) <= 40):
             clean.append({
                 "timestamp": item["timestamp"], "role": item["role"], "cause": item["cause"],
