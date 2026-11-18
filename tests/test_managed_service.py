@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -236,8 +237,19 @@ class ManagedServiceTests(unittest.TestCase):
                     time.sleep(0.1)
             source = ROOT / "experiments/setup-studio/static"
             self.assertEqual(index, (source / "index.html").read_bytes())
-            with opener.open(url + "/app.js", timeout=1) as response:
-                self.assertEqual(response.read(), (source / "app.js").read_bytes())
+            for path, name, kind in (
+                    ("/app.js", "app.js", "text/javascript; charset=utf-8"),
+                    ("/style.css", "style.css", "text/css; charset=utf-8"),
+                    ("/fonts/commissioner-latin.woff2", "fonts/commissioner-latin.woff2",
+                     "font/woff2")):
+                with opener.open(url + path, timeout=1) as response:
+                    self.assertEqual(response.headers["Content-Type"], kind)
+                    self.assertEqual(response.read(), (source / name).read_bytes())
+            for path in ("/fonts/OFL.txt", "/fonts/", "/static/app.js", "/server.py"):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    opener.open(url + path, timeout=1)
+                caught.exception.close()
+                self.assertEqual(caught.exception.code, 404)
             with opener.open(url + "/api/pilot", timeout=2) as response:
                 self.assertFalse(json.load(response)["connected"])
             process.send_signal(signal.SIGTERM)

@@ -22,6 +22,8 @@ ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    # Self-hosted Commissioner (SIL OFL 1.1, fonts/OFL.txt): no runtime font requests.
+    "/fonts/commissioner-latin.woff2": ("fonts/commissioner-latin.woff2", "font/woff2"),
 }
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
