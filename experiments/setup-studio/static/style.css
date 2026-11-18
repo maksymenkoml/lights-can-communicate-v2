@@ -151,7 +151,8 @@ h1,h2,p{margin:0}
 .health-badge circle{fill:var(--h-color);stroke:var(--halo);stroke-width:2;vector-effect:non-scaling-stroke}
 .health-badge text{fill:#fff;font-weight:700;text-anchor:middle}
 .screen-off{fill:#1d222b}
-.screen-demo{font-size:12px;font-weight:500;fill:#fff;fill-opacity:.85;paint-order:stroke;stroke:#0f1c2a;stroke-opacity:.35;stroke-width:3px;stroke-linejoin:round;pointer-events:none;transition:opacity .28s ease}
+/* A watermark printed into the picture, like a shop display's demo mode, not a label over it. */
+.screen-demo{font-weight:600;letter-spacing:.3em;text-transform:uppercase;fill:#fff;fill-opacity:.42;pointer-events:none;transition:opacity .28s ease}
 
 .object-menu{position:absolute;z-index:9;padding:5px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);color:var(--text)}
 .object-menu svg{width:15px;height:15px;flex:none}

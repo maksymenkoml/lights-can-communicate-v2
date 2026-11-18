@@ -552,7 +552,7 @@ test('without a live picture the monitor shows labelled demo colors and the rays
  await app.click(app.$('#sync-tool'));
  const stops=[...app.stage.querySelectorAll('#screen-colors stop')].map(s=>s.getAttribute('stop-color'));
  assert.deepEqual(stops,json(app,'DEMO_SCREEN'));
- assert.equal(app.stage.querySelector('[data-screen-demo]').textContent,'Demo colors');
+ assert.equal(app.stage.querySelector('[data-screen-demo]').textContent,'Demo');
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'1');
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];

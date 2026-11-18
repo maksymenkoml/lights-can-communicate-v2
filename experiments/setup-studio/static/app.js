@@ -423,9 +423,11 @@ function demoColor(u){
  const rgb=hex=>[1,3,5].map(k=>parseInt(hex.slice(k,k+2),16)),a=rgb(DEMO_SCREEN[i]),b=rgb(DEMO_SCREEN[i+1]);
  return rgbHex(a.map((v,k)=>v+(b[k]-v)*f));
 }
+// The demo watermark is .2 of the screen height with .3em tracking; tracking trails the last letter,
+// so the anchor moves right by half of it (.03 of the height) to centre the letters.
 function syncScreenSvg({cx,cy,mw,mh}){
  const stops=screenStops(),offsets=[0,25,50,75,100],x=cx-mw/2+5,y=cy-mh/2+5,w=mw-10,h=mh-10;
- return '<g id="sync-screen" pointer-events="none"><defs><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+stops[i]+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)"/><text class="screen-demo" x="'+cx+'" y="'+(y+h-12)+'" text-anchor="middle" opacity="'+(screenDemo()?1:0)+'" data-screen-demo>Demo colors</text></g>';
+ return '<g id="sync-screen" pointer-events="none"><defs><linearGradient id="screen-colors" x1="0" y1="0" x2="1" y2="0">'+offsets.map((o,i)=>'<stop offset="'+o+'%" stop-color="'+stops[i]+'"/>').join('')+'</linearGradient><linearGradient id="screen-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1c2a" stop-opacity="0"/><stop offset="1" stop-color="#0f1c2a" stop-opacity=".45"/></linearGradient></defs><rect class="screen-off" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/><rect id="screen-image" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-colors)"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3" fill="url(#screen-shade)"/><text class="screen-demo" x="'+(cx+h*.03)+'" y="'+cy+'" font-size="'+(+(h*.2).toFixed(1))+'" text-anchor="middle" dominant-baseline="central" opacity="'+(screenDemo()?1:0)+'" data-screen-demo>Demo</text></g>';
 }
 function syncZones(l,{cx,cy,mw,mh}){
  const x=500+l.x*3.3;
