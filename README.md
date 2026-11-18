@@ -10,6 +10,22 @@ Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
 The palette CLI runs in the foreground; it is not a background service.
 
+## Light Studio
+
+[Light Studio](experiments/setup-studio/README.md) is the local UI for the desk
+lights. It places lamps on a 5 cm grid and keeps two configurations: one for
+Sync and one for scenes without Sync. Each configuration has its own brightness
+corrections and fade zone. A lamp card can blink the lamp, rename a desk lamp,
+and choose whether the lamp follows Sync, keeps its own light or switches off
+during Sync. Its frontend is in `experiments/setup-studio/static/` and its
+local server is `experiments/setup-studio/server.py`.
+
+![Light Studio in the Sync view: a colour-wheel demo picture on the monitor and the colours that Sync would send to the two Govee floor lamps and the monitor strip](docs/images/light-studio.png)
+
+*Sync view with the default six-light layout, captured locally without connected
+hardware. Without running Sync, the monitor shows a demo picture and the lamps
+preview the colours that Sync would send.*
+
 ## Development
 
 Use a feature branch; `main`/`master` are read-only for development. Only the owner
