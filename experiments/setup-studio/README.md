@@ -40,8 +40,10 @@ files and credentials are never served. The page makes no external requests.
 ## Layout API
 
 `GET /api/layout` returns `{layout, revision}`. `POST /api/layout` takes the
-whole layout with `If-Match: "<revision>"`; a stale revision returns 409 and the
-client refetches and merges its changes field by field. The browser keeps a
+whole layout with `If-Match: "<revision>"` (`""` when nothing is saved yet). A
+missing header returns 428 and a stale revision returns 409; the client then
+refetches and merges its changes field by field. Writes must use the current
+layout version (4); older versions are refused. The browser keeps a
 draft (`light-studio-grid-v3`, `-base`, `-pending`): offline edits are retried
 every 3 s, and the first load imports a browser draft when the server has none.
 
@@ -53,7 +55,8 @@ store their centre. `scale` is the brightness correction (0-100) and
 Sync; removing a found or drawn lamp deletes its row. The optional
 `syncRole: "own"` keeps a lamp in the room but outside the Sync composition, so
 it keeps its own light; `"sync"` is the default and is not stored. Version 3
-files load as version 4. Writes accept geometry and corrections only: no power,
+files load as version 4, so their revision changes and pages opened before
+the upgrade must refetch. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
 
 ## Found lamps

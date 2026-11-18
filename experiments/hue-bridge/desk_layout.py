@@ -34,8 +34,10 @@ PREVIEW_FIELDS = {
     "enabled",
     "syncRole",
 }
-# Version 4 adds the optional row field ``syncRole``; version 3 files load unchanged.
-LAYOUT_VERSIONS = (3, 4)
+# Version 4 adds the optional row field ``syncRole``. Stored version 3 files load and
+# are returned as version 4; writes must use LAYOUT_VERSION.
+LAYOUT_VERSION = 4
+LAYOUT_VERSIONS = (3, LAYOUT_VERSION)
 SYNC_ROLES = ("sync", "own")
 
 
@@ -73,7 +75,7 @@ def validate_layout(value):
     if not isinstance(devices, list) or not 6 <= len(devices) <= 12:
         raise ValueError("Expected the six selected lamps and optional unbound drawings")
     result = {
-        "version": 4,
+        "version": LAYOUT_VERSION,
         "gridStepCm": 5,
         "room": room,
         "desk": {

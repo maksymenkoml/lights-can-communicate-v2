@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hue-bridge"))
-from desk_layout import ROLES, LayoutStore  # noqa: E402
+from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -419,9 +419,17 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                     return self.respond(413, {"error": "layout payload too large"})
                 data = json.loads(self.rfile.read(size))
                 with store.lock:
+                    # Every write names the revision it edits ("" when none is saved), so
+                    # a page loaded before an upgrade or another edit cannot overwrite it.
                     expected = self.headers.get("If-Match")
-                    if expected is not None and expected.strip('"') != (store.revision() or ""):
+                    if expected is None:
+                        return self.respond(428, {"error": "If-Match required"})
+                    if expected.strip('"') != (store.revision() or ""):
                         return self.respond(409, {"error": "layout changed"})
+                    # Older formats are migrated when the stored file is read, never
+                    # accepted from a write.
+                    if not isinstance(data, dict) or data.get("version") != LAYOUT_VERSION:
+                        raise ValueError("Writes must use the current layout version")
                     previous = store.snapshot()
                     if (isinstance(data, dict) and 'syncZone' not in data
                             and previous and 'syncZone' in previous):
