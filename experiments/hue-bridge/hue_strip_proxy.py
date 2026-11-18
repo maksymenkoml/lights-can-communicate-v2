@@ -110,10 +110,6 @@ class PinnedHueClient:
         context.verify_mode = ssl.CERT_NONE
         return http.client.HTTPSConnection(self.bridge, timeout=1.5, context=context)
 
-    def close(self):
-        with self.connection_lock:
-            self._drop()
-
     def _drop(self):
         if self.connection is not None:
             self.connection.close()
