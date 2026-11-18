@@ -54,6 +54,16 @@ class HuePowerRequestTests(unittest.TestCase):
         self.assertEqual(self.feedback_calls, [("hold", {"3"}), ("release", {"3"}),
                                                ("hold", {"4"}), ("release", {"4"})])
 
+    def test_any_enrolled_native_role_gets_power_from_the_bridge_slot_map(self):
+        self.gateway = HuePowerRequests(
+            "http://127.0.0.1:19880", "adapter-key", self.lights, {}, self.gateway.feedback,
+            sender=lambda states: self.calls.append(states),
+            native_sender=lambda roles: self.native.append(roles),
+            native_slots={"7": "hue_desk"})
+        self.v2("light", "light-7", {"on": {"on": True}})
+        self.v2("light", "light-3", {"on": {"on": True}})
+        self.assertEqual(self.native, [{"hue_desk": True}])
+
     def test_unconfirmed_native_power_restores_the_real_state(self):
         def refuse(roles):
             raise ValueError("Power was not confirmed")
@@ -64,12 +74,20 @@ class HuePowerRequestTests(unittest.TestCase):
                 "PUT", "/clip/v2/resource/light/light-3", 200, {"on": {"on": True}},
                 {"data": [{"rid": "light-3", "rtype": "light"}]},
                 previous={"3": False, "1": True})
-        self.assertEqual(self.feedback_calls[-1], ("restore", {"3": False}))
+        self.assertEqual(self.feedback_calls[-2:], [("release", {"3"}),
+                                                     ("restore", {"3": False})])
+        refreshed = len(self.refreshed)
         self.gateway.native_sender = lambda roles: self.native.append(roles)
         self.gateway.enabled = lambda: False
         with self.assertRaises(HuePowerUnavailable):
-            self.v2("light", "light-3", {"on": {"on": True}})
+            self.gateway.after_request(
+                "PUT", "/clip/v2/resource/light/light-3", 200, {"on": {"on": True}},
+                {"data": [{"rid": "light-3", "rtype": "light"}]}, previous={"3": False})
         self.assertEqual(self.native, [])
+        # The owner hold also releases the write hold and restores the real state.
+        self.assertEqual(self.feedback_calls[-2:], [("release", {"3"}),
+                                                     ("restore", {"3": False})])
+        self.assertEqual(len(self.refreshed), refreshed + 1)
 
     def test_explicit_v1_light_and_group_route_the_same_roles(self):
         for resource, rid, field in (("lights", "2", "state"), ("groups", "0", "action")):

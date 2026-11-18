@@ -155,6 +155,8 @@ class HueStripTests(unittest.TestCase):
         client.power = lambda on: None
         proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000)
         self.assertFalse(proxy.set_power(False, attempts=3, sleep=lambda _: None))
+        # Status still reports the light's actual power from the read-back.
+        self.assertTrue(proxy.snapshot()["native_on"])
 
     def test_play_proxy_accepts_only_its_configured_role(self):
         client = FakeHue()

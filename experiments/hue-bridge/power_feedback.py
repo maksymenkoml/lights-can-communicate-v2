@@ -15,7 +15,9 @@ class PowerFeedback:
     NATIVE_HOLD = 15.0
 
     def __init__(self, url, token, lights, lock, resume, publish_groups, fetcher=None,
-                 clock=time.monotonic):
+                 clock=time.monotonic, native_slots=None):
+        if native_slots is not None:
+            self.NATIVE_SLOTS = dict(native_slots)
         self.url, self.token = url.rstrip("/"), token
         self.lights, self.lock = lights, lock
         self.resume, self.publish_groups = resume, publish_groups
@@ -76,6 +78,8 @@ class PowerFeedback:
 
     def mirror_native(self, payload):
         """Show the actual native power of fresh, healthy proxies in the virtual lights."""
+        # The adapter reports the strip separately and every other native role
+        # under hue_play; any configured role is mirrored the same way.
         proxies = dict(payload.get("hue_play") or {}) if isinstance(payload, dict) else {}
         if isinstance(payload, dict) and isinstance(payload.get("hue_strip"), dict):
             proxies["strip"] = payload["hue_strip"]

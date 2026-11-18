@@ -14,10 +14,14 @@ class HuePowerUnavailable(RuntimeError):
 class HuePowerRequests:
     SLOTS = {"1": "left", "2": "right"}
     # Pinned native Hue lights; their power belongs to the genuine Hue bridge.
+    # The bridge passes the same slot map it uses for color, so every native
+    # light enrolled for output also gets power; this is the default layout.
     NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
 
     def __init__(self, url, token, lights, groups, feedback, sender=None, enabled=lambda: True,
-                 native_sender=None):
+                 native_sender=None, native_slots=None):
+        if native_slots is not None:
+            self.NATIVE_SLOTS = dict(native_slots)
         self.url, self.token = url.rstrip("/"), token
         self.lights, self.groups, self.feedback = lights, groups, feedback
         self.sender, self.enabled = sender or self.send, enabled
@@ -130,12 +134,14 @@ class HuePowerRequests:
             if not self.enabled():
                 raise HuePowerUnavailable("Explicit power control is unavailable")
             self.native_sender({self.NATIVE_SLOTS[lamp.id_v1]: value for lamp in selected})
-            self.feedback.release_native(slots)
-        except (OSError, ValueError, TypeError) as error:
+        except (HuePowerUnavailable, OSError, ValueError, TypeError) as error:
             if isinstance(error, urllib.error.HTTPError):
                 error.close()
             self.feedback.release_native(slots)
-            # Show the real state again instead of the rejected virtual write.
+            # Undo the rejected virtual write, then let fresh native readings
+            # correct any light whose write took effect despite the failure.
             self.feedback.restore_native({slot: before for slot, before
                                           in (previous or {}).items() if slot in slots})
+            self.feedback.refresh_once()
             raise HuePowerUnavailable("Power request was not confirmed") from None
+        self.feedback.release_native(slots)

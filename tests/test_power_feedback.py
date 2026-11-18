@@ -59,6 +59,15 @@ class FeedbackTests(unittest.TestCase):
         self.assertTrue(self.lights["5"].state["on"])
         self.assertIn({"3"}, self.groups)
 
+    def test_a_newly_enrolled_native_role_is_mirrored_too(self):
+        feedback = PowerFeedback(
+            "http://adapter", "private-token", self.lights, threading.RLock(),
+            resume=lambda lamp: None, publish_groups=lambda slots: None,
+            fetcher=lambda: {"hue_play": {"hue_desk": {"native_on": False, "native_age": 0}}},
+            clock=lambda: self.now, native_slots={"7": "hue_desk"})
+        feedback.refresh_once()
+        self.assertFalse(self.lights["7"].state["on"])
+
     def test_stale_or_held_native_readings_never_change_virtual_lights(self):
         self.native(strip=False, age=9)
         self.feedback.refresh_once()

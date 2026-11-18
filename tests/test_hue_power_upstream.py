@@ -31,8 +31,10 @@ def fixture_request(g):
         for role, value in states.items():
             roles[role]['requested_on'] = value
             roles[role]['revision'] += 1
+    native_calls = []
     g['power_requests'] = HuePowerRequests('http://unused', 'test', lights,
         g['config']['groups'], feedback, sender=sender,
+        native_sender=lambda roles: native_calls.append(roles),
         enabled=lambda: not (state / 'live-output-hold').exists())
     client = g['app'].test_client()
     headers = {'hue-application-key': g['api_key']}
@@ -52,6 +54,10 @@ def fixture_request(g):
                            json={'on': {'on': True}}, headers=headers)
     assert response.status_code == 200, response.get_json()
     assert calls[-1] == {'left': True, 'right': True}
+    native_roles = {slot: role for slot, role in HuePowerRequests.NATIVE_SLOTS.items()
+                    if slot in lights}
+    if native_roles:
+        assert native_calls[-1] == {role: True for role in native_roles.values()}, native_calls
     response = client.put('/api/' + g['api_key'] + '/groups/0/action', json={'on': False})
     assert response.status_code == 200, response.get_json()
     assert calls[-1] == {'left': False, 'right': False}

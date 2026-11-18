@@ -377,10 +377,11 @@ class HueStripProxy:
                 native = self.client.read()
                 if native.get("id") != self.resource_id:
                     raise ValueError("Wrong native Hue resource")
+                # Status reports what the light actually does, confirmed or not.
+                with self.state_lock:
+                    self.native = copy.deepcopy(native)
+                    self.native_seen = self.clock()
                 if native.get("on", {}).get("on") is on:
-                    with self.state_lock:
-                        self.native = copy.deepcopy(native)
-                        self.native_seen = self.clock()
                     if on:
                         # Reapply the composition color once the light is on.
                         self.restore = True

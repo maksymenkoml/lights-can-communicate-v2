@@ -474,14 +474,19 @@ def power_aware_light_api(lamp):
 Light.Light.genStreamEvent = advertise_selected_power
 Light.Light.getV2Api = power_aware_light_api
 if live_output is not None:
+    # Every native Hue light routed for color also gets power, from one map.
+    native_power_slots = {slot: role for slot, role in live_output.slots.items()
+                          if role in live_output.hue_roles}
     power_feedback = PowerFeedback(
         live_output.url, live_output.token, config["lights"], play_guard.lock,
         resume=resume_power_color, publish_groups=publish_power_groups,
+        native_slots=native_power_slots,
     )
     power_feedback.refresh_once()
     power_requests = HuePowerRequests(
         live_output.url, live_output.token, config["lights"], config["groups"], power_feedback,
         enabled=lambda: not (state / "live-output-hold").exists(),
+        native_slots=native_power_slots,
     )
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
