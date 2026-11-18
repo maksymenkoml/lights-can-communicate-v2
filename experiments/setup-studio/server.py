@@ -282,12 +282,23 @@ def _read_local_json(url, timeout, headers=None):
         raise
 
 
+def _asset(name):
+    """Read a static asset from a source tree or from the executable archive."""
+    path = STATIC / name
+    loader = globals().get("__loader__")
+    if not path.is_file() and hasattr(loader, "get_data"):
+        # An archive member key, independent of symlinks in the archive path.
+        return loader.get_data("static/" + name)
+    return path.read_bytes()
+
+
 def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=None,
-                source_fetch=None):
+                source_fetch=None, adapter_url="http://127.0.0.1:19880",
+                bridge_url="http://127.0.0.1"):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
 
     def default_source_fetch():
-        data = _read_local_json("http://127.0.0.1/probe/status", 0.25)
+        data = _read_local_json(bridge_url + "/probe/status", 0.25)
         receiver = data.get("entertainment") if isinstance(data, dict) else None
         return receiver.get("active") if isinstance(receiver, dict) else None
 
@@ -302,7 +313,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
             else:
                 token = token_file.read_text().strip()
                 data = _read_local_json(
-                    "http://127.0.0.1:19880/status", 0.5, {"X-Adapter-Token": token}
+                    adapter_url + "/status", 0.5, {"X-Adapter-Token": token}
                 )
             result = project_status(data)
             if not result["connected"] or result["sync"]["state"] != "unknown":
@@ -320,7 +331,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                 return public_catalog(catalog_fetch())
             token = token_file.read_text().strip()
             request = urllib.request.Request(
-                "http://127.0.0.1:19880/discovery", headers={"X-Adapter-Token": token}
+                adapter_url + "/discovery", headers={"X-Adapter-Token": token}
             )
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open(request, timeout=1) as response:
@@ -384,7 +395,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
             path = urlsplit(self.path).path
             if path in ASSETS:
                 name, kind = ASSETS[path]
-                return self.respond(200, (STATIC / name).read_bytes(), kind)
+                return self.respond(200, _asset(name), kind)
             if path == "/api/layout":
                 return self.respond(200, store.response())
             if path == "/api/discovery":
@@ -435,19 +446,27 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
     return Handler
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=19881)
-    args = parser.parse_args()
-    token = Path(__file__).resolve().parents[1] / "hue-bridge/state/adapter-token"
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(token))
-    print(f"Setup studio: http://127.0.0.1:{args.port} (autosaved desk setup)", flush=True)
+def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
+          adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1"):
+    """Serve until interrupted; SIGTERM handling belongs to the caller."""
+    server = ThreadingHTTPServer((bind, port), handler_for(
+        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url))
+    print(f"Setup studio: http://{bind}:{port} (autosaved desk setup)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--port", type=int, default=19881)
+    args = parser.parse_args()
+    # Development entry point; the packaged service passes explicit paths.
+    token = Path(__file__).resolve().parents[1] / "hue-bridge/state/adapter-token"
+    serve(token, token.parent / "desk-layout.json", port=args.port)
 
 
 if __name__ == "__main__":
