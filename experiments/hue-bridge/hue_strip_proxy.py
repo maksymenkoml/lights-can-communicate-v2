@@ -174,11 +174,7 @@ class HueStripProxy:
         if role not in resources or resources[role] != self.resource_id:
             raise ValueError("Hue role does not match the selected resource")
         self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
-        self.applied_scale = (
-            layout_store.scale(role, self.brightness_scale)
-            if layout_store is not None
-            else self.brightness_scale
-        )
+        self.applied_scale = self.layout_factor()
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
         self.state_lock = threading.RLock()
@@ -197,6 +193,16 @@ class HueStripProxy:
         self.writes = 0
         self.last_result = "waiting"
         self.last_payload = None
+
+    def layout_factor(self):
+        """Return the scene correction times the role's scene fade gain."""
+        store = self.layout_store
+        if store is None:
+            return self.brightness_scale
+        scale = getattr(store, "scene_scale", store.scale)(self.role, self.brightness_scale)
+        loader = getattr(store, "scene_fade", None)
+        fade = loader() if loader is not None else None
+        return scale * (fade.get(self.role, 1) if fade else 1)
 
     def submit(self, payload):
         if (
@@ -257,8 +263,9 @@ class HueStripProxy:
         return True
 
     def included(self):
-        enabled = getattr(self.layout_store, "enabled", None)
-        return enabled(self.role) if enabled is not None else True
+        # Scenes keep every present lamp, including those with their own light in Sync.
+        present = getattr(self.layout_store, "present", None)
+        return present(self.role) if present is not None else True
 
     def govee_allowed(self):
         if not self.included():
@@ -303,11 +310,7 @@ class HueStripProxy:
                             "native streaming" if native["mode"] == "streaming" else "native off"
                         )
                     return False
-                scale = (
-                    self.layout_store.scale(self.role, self.brightness_scale)
-                    if self.layout_store is not None
-                    else self.brightness_scale
-                )
+                scale = self.layout_factor()
                 if scale != self.applied_scale:
                     self.restore = True
                     if self.desired is None:

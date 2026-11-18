@@ -33,11 +33,16 @@ PREVIEW_FIELDS = {
     "rate",
     "enabled",
     "syncRole",
+    "sceneScale",
 }
-# Version 4 adds the optional row field ``syncRole``. Stored version 3 files load and
-# are returned as version 4; writes must use LAYOUT_VERSION.
-LAYOUT_VERSION = 4
-LAYOUT_VERSIONS = (3, LAYOUT_VERSION)
+# Version 4 adds the optional row field ``syncRole``. Version 5 adds the second
+# (scene) configuration: row ``sceneScale`` and top-level ``sceneZone``,
+# ``syncFalloff`` and ``sceneFalloff``. Stored version 3 and 4 files load and are
+# returned as version 5; writes must use LAYOUT_VERSION.
+LAYOUT_VERSION = 5
+LAYOUT_VERSIONS = (3, 4, LAYOUT_VERSION)
+# Fade switches are stored only when they differ from these defaults.
+FALLOFF_DEFAULTS = {"syncFalloff": True, "sceneFalloff": False}
 SYNC_ROLES = ("sync", "own")
 
 
@@ -58,11 +63,12 @@ def number(value, low, high):
 
 
 def validate_layout(value):
-    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "devices", "syncZone"}
+    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "devices", "syncZone",
+               "sceneZone", *FALLOFF_DEFAULTS}
     version = value.get("version") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) - allowed or type(version) is not int
             or version not in LAYOUT_VERSIONS):
-        raise ValueError("Expected a version-three or version-four desk layout")
+        raise ValueError("Expected a version-three, version-four or version-five desk layout")
     if value.get("gridStepCm", 5) != 5:
         raise ValueError("Desk placement requires a five-centimeter grid")
     desk = value.get("desk")
@@ -123,6 +129,8 @@ def validate_layout(value):
             raise ValueError("Invalid Sync role")
         if sync_role == "own":
             device["syncRole"] = "own"
+        if row.get("sceneScale") is not None:
+            device["sceneScale"] = number(row["sceneScale"], 0, 100)
         if key.startswith("virtual-"):
             shape, name = row.get("shape"), row.get("name", "Нова лампа")
             if (
@@ -150,6 +158,16 @@ def validate_layout(value):
         from sync_zone import validate_zone
 
         result['syncZone'] = validate_zone(value['syncZone'])
+    if value.get('sceneZone') is not None:
+        from sync_zone import validate_zone
+
+        result['sceneZone'] = validate_zone(value['sceneZone'])
+    for field, default in FALLOFF_DEFAULTS.items():
+        flag = value.get(field, default)
+        if type(flag) is not bool:
+            raise ValueError("Invalid fade switch")
+        if flag is not default:
+            result[field] = flag
     return result
 
 
@@ -223,6 +241,7 @@ class LayoutStore:
         self.lock = threading.RLock()
         self.signature = None
         self.data = None
+        self.fade_cache = None
 
     def snapshot(self):
         with self.lock:
@@ -257,17 +276,45 @@ class LayoutStore:
                     return device["scale"] / 100
         return fallback
 
-    def enabled(self, role, fallback=True):
-        """Return Sync composition membership: removed and own-light rows are excluded."""
+    def scene_scale(self, role, fallback):
+        """Return the without-Sync correction: ``sceneScale``, else the Sync ``scale``."""
+        data = self.snapshot()
+        if data:
+            for device in data["devices"]:
+                if ROLES.get(device["id"]) == role:
+                    return device.get("sceneScale", device["scale"]) / 100
+        return fallback
+
+    def _member(self, role, fallback, test):
         data = self.snapshot()
         if data:
             for device in data['devices']:
                 if device['id'] == role or ROLES.get(device['id']) == role:
-                    return composed(device)
+                    return test(device)
         elif self.path.exists():
             # A corrupt saved selection is not permission to resume every lamp.
             return False
         return fallback
+
+    def enabled(self, role, fallback=True):
+        """Return Sync composition membership: removed and own-light rows are excluded."""
+        return self._member(role, fallback, composed)
+
+    def present(self, role, fallback=True):
+        """Return scene membership: every lamp that is not removed, own light included."""
+        return self._member(role, fallback, lambda device: device.get("enabled", True))
+
+    def scene_fade(self):
+        """Return the scene fade gains per role (all 1 while the fade is off), or None."""
+        from sync_projection import scene_fade
+
+        with self.lock:
+            data = self.snapshot()
+            if data is None:
+                return None
+            if self.fade_cache is None or self.fade_cache[0] != self.signature:
+                self.fade_cache = (self.signature, scene_fade(data))
+            return copy.deepcopy(self.fade_cache[1])
 
     def sync_profile(self):
         from sync_projection import sync_profile

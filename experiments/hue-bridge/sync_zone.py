@@ -125,9 +125,9 @@ def default_zone(layout):
     ]
 
 
-def zone_points(layout):
-    """Resolve a saved zone against current table dimensions into world points."""
-    zone = validate_zone(layout.get("syncZone"))
+def zone_points(layout, key="syncZone"):
+    """Resolve a saved zone (``syncZone`` or ``sceneZone``) into world points."""
+    zone = validate_zone(layout.get(key))
     if zone is None:
         return default_zone(layout)
     return [{"x": 100 + point["u"] * layout["desk"]["width"] / 2,

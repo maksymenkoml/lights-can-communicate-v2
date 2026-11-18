@@ -169,7 +169,13 @@ class PilotController:
         wall_clock=time.time,
         layout_store=None,
         power_owner=None,
+        configuration="sync",
     ):
+        if configuration not in ("sync", "scene"):
+            raise ValueError("Unknown output configuration")
+        # "sync" is the Sync composition; "scene" is the output without Sync, which
+        # uses scene membership, the scene correction and the scene fade.
+        self.configuration = configuration
         self.layout_store = layout_store
         self.power_owner = power_owner
         self.observer_epoch = secrets.token_hex(8)
@@ -236,8 +242,42 @@ class PilotController:
             return result
 
     def included(self, side):
-        enabled = getattr(self.layout_store, "enabled", None)
-        return enabled(side) if enabled is not None else True
+        name = "present" if self.configuration == "scene" else "enabled"
+        member = getattr(self.layout_store, name, None)
+        return member(side) if member is not None else True
+
+    def brightness_scale_for(self, side, base):
+        """Return this configuration's brightness correction for a side."""
+        name = "scene_scale" if self.configuration == "scene" else "scale"
+        return getattr(self.layout_store, name, self.layout_store.scale)(side, base)
+
+    def scene_gains(self, side):
+        """Return seven bottom-to-top scene fade gains, or None when nothing is faded."""
+        loader = getattr(self.layout_store, "scene_fade", None)
+        if self.configuration != "scene" or loader is None:
+            return None
+        fade = loader()
+        gains = fade.get(side) if fade else None
+        return gains if gains is not None and min(gains) < 1 else None
+
+    def fade_target(self, side, target):
+        """Attenuate a scene target by the scene fade without mutating the job."""
+        gains = self.scene_gains(side)
+        if gains is None:
+            return target
+        if "segments" in target or self.by_side[side].get("segment_count", 0) == 7:
+            segments = target.get("segments") or [as_rgb(target)] * 7
+            target = {key: value for key, value in target.items()
+                      if key not in ("rgb", "kelvin")}
+            target["segments"] = [
+                tuple(round(value * gain) for value in rgb)
+                for rgb, gain in zip(segments, gains)
+            ]
+        else:
+            # Without segments the strip's mean gain dims the whole lamp.
+            mean = sum(gains) / len(gains)
+            target["brightness"] = max(1, min(100, round(target["brightness"] * mean)))
+        return target
 
     def clear_side(self, side):
         """Forget output work while retaining the accepted source ordering fence."""
@@ -260,13 +300,14 @@ class PilotController:
         target = self.target(side)
         if target is not None and self.layout_store is not None:
             base = lan.parse_brightness_scale(self.by_side[side].get("brightness_scale", 1))
-            scale = self.layout_store.scale(side, base)
+            scale = self.brightness_scale_for(side, base)
             brightness = (
                 target["brightness"] * scale / base
                 if base
                 else self.jobs[side].get("source_bri", 254) / 254 * 100 * scale
             )
             target["brightness"] = max(1, min(100, round(brightness)))
+            target = self.fade_target(side, target)
         return target
 
     def submit(self, payload):
@@ -311,7 +352,11 @@ class PilotController:
                 initial = native_target(status, desired)
                 if self.layout_store is not None and status and "brightness" in status:
                     base = lan.parse_brightness_scale(device.get("brightness_scale", 1))
-                    scale = self.layout_store.scale(side, base)
+                    scale = self.brightness_scale_for(side, base)
+                    gains = self.scene_gains(side)
+                    if gains is not None and self.by_side[side].get("segment_count", 0) != 7:
+                        # The native brightness already carries the mean fade gain.
+                        scale *= sum(gains) / len(gains)
                     if base and scale:
                         initial["brightness"] *= base / scale
             self.jobs[side] = {
@@ -685,7 +730,8 @@ def main(argv=None, service_info=None):
     controller = PilotController(config["targets"],
                                  sender=preview.wrap_govee(sender, "scene-output"),
                                  layout_store=layout_store,
-                                 power_owner=power_owner)
+                                 power_owner=power_owner,
+                                 configuration="scene")
     hue_proxies = {}
     hue_config = None
     if args.hue_config:

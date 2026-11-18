@@ -431,11 +431,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, pilot_fetch=No
                     if not isinstance(data, dict) or data.get("version") != LAYOUT_VERSION:
                         raise ValueError("Writes must use the current layout version")
                     previous = store.snapshot()
-                    if (isinstance(data, dict) and 'syncZone' not in data
-                            and previous and 'syncZone' in previous):
-                        # A stale client cannot silently erase a newer custom zone.
-                        # New clients send explicit null to return to automatic.
-                        data = {**data, 'syncZone': previous['syncZone']}
+                    for zone in ('syncZone', 'sceneZone'):
+                        if (isinstance(data, dict) and zone not in data
+                                and previous and zone in previous):
+                            # A stale client cannot silently erase a newer custom zone.
+                            # New clients send explicit null to return to automatic.
+                            data = {**data, zone: previous[zone]}
                     validate_bindings(data)
                     result = store.save(data)
                 return self.respond(200, result)

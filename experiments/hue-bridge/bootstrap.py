@@ -399,7 +399,7 @@ Light.Light._setV1State = forward_selected_state
 
 def resume_power_color(lamp, full=False):
     if (live_output is None
-            or not layout_store.enabled(live_output.slots.get(lamp.id_v1, ''))):
+            or not layout_store.present(live_output.slots.get(lamp.id_v1, ''))):
         return
     selected = {
         key: lamp.state[key]
@@ -416,7 +416,7 @@ def resume_power_color(lamp, full=False):
 
 
 def reconcile_membership(previous):
-    current = {role:layout_store.enabled(role) for role in live_output.slots.values()}
+    current = {role:layout_store.present(role) for role in live_output.slots.values()}
     if previous is not None:
         for slot, role in live_output.slots.items():
             if current[role] and not previous.get(role, True):

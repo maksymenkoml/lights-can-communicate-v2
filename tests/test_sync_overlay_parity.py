@@ -41,9 +41,9 @@ harness().then(app=>console.log(JSON.stringify(cases.map(config=>{
  const valid=app.run('validSyncZone('+JSON.stringify(config)+')');
  if(!valid)return {valid};
  // The client works in desk-centred centimetres; the layout's world x is centre + 100.
- app.run('environment.zone='+JSON.stringify(config.points));
+ app.run('environment.zones.sync='+JSON.stringify(config.points));
  const bounds=xs.map(x=>JSON.parse(app.run('JSON.stringify(syncBounds('+(x-100)+'))')));
- const world='zonePoints().map(p=>({x:p.x+100,height:p.h}))';
+ const world='zonePoints("sync").map(p=>({x:p.x+100,height:p.h}))';
  return {valid,points:JSON.parse(app.run('JSON.stringify('+world+')')),bounds};
 }))));`,{require,__dirname:path.join(process.cwd(),'tests'),structuredClone,
        AbortController,setImmediate,console,cases,xs});

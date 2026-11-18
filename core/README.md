@@ -439,3 +439,17 @@ capture palette before attenuation and calibration. Scene playback remains
 independent. Source capture channels, identities, power and native membership
 are unchanged. The layout canonicalizer also keeps physical bodies above the
 floor; the table has dimensions only and cannot move off the floor.
+
+## Two configurations (layout version 5)
+
+Light Studio edits two independent configurations. With Sync uses `scale`,
+`syncZone` and `syncFalloff` (default on). Without Sync (scenes from the Hue app)
+uses row `sceneScale` (default `scale`), `sceneZone` (default automatic) and
+`sceneFalloff` (default off). A fade that is off gives every gain 1 and places
+Govee segment samples at their centres. The scene controller and the Hue scene
+proxies multiply the scene correction by the scene fade: per Govee segment (bottom
+to top), the strip's mean anchor gain and one gain per Play. Hue dimming never goes
+below 0.1 %. `LayoutStore.present()` is scene membership (every lamp that is not
+removed); `enabled()` stays the Sync composition (own-light lamps excluded). The
+virtual bridge forwards scenes to every present lamp. Version 3 and 4 files load as
+version 5.

@@ -46,7 +46,7 @@ const isRole=id=>Object.hasOwn(ROLES,id);
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 function seedLamp(s){return {...clone(s),form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
 function defaults(){
- const environment={width:160,height:85,inches:32,zone:null};
+ const environment={width:160,height:85,inches:32,zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
  const lamps=SEED.map(seedLamp);lamps.forEach(l=>clampFixture(l,environment));
  return {room:'Office',environment,lamps};
 }
@@ -59,9 +59,10 @@ function maximumHeight(l){return l.form==='floor'?300-FLOOR_ANCHOR:300}
 function clampFixture(l,env=environment){l.x=clamp(Math.round(l.x/5)*5,-X_LIMIT,X_LIMIT);l.h=clamp(Math.round(l.h/5)*5,minimumHeight(l,env),maximumHeight(l))}
 const finite=(v,lo,hi,fallback)=>typeof v==='number'&&Number.isFinite(v)?clamp(v,lo,hi):fallback;
 function fromLayout(data){
- if(!data||typeof data!=='object'||![3,4].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
- const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.monitorInches,19,55,32),zone:null};
- if(validSyncZone(data.syncZone))environment.zone=data.syncZone.points.map(p=>({u:p.u,h:p.h}));
+ if(!data||typeof data!=='object'||![3,4,5].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
+ const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.monitorInches,19,55,32),
+  zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
+ for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
  if(SEED.some(s=>!rows.has(s.id)))return null;
  const place=(lamp,row)=>{
@@ -69,6 +70,7 @@ function fromLayout(data){
   const height=finite(row.positionCm.height,-400,600,0);
   lamp.h=lamp.form==='floor'?height-FLOOR_ANCHOR:height;
   lamp.scale=Math.round(finite(row.scale,0,100,lamp.scale));
+  lamp.sceneScale=typeof row.sceneScale==='number'?Math.round(finite(row.sceneScale,0,100,lamp.scale)):null;
   lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=row.syncRole==='own'?'own':'sync';
   clampFixture(lamp,environment);return lamp;
  };
@@ -85,9 +87,10 @@ function fromLayout(data){
 }
 function pack(m={room,environment,lamps}){
  const env=m.environment;
- return {version:4,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
-  syncZone:env.zone?{version:1,points:env.zone.map(p=>({u:p.u,h:p.h}))}:null,
-  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
+ const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
+ return {version:5,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
+  syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
+  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,...(l.sceneScale!=null?{sceneScale:l.sceneScale}:{}),positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
    ...(l.enabled===false?{enabled:false}:{}),...(l.syncRole==='own'?{syncRole:'own'}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
@@ -202,7 +205,11 @@ function autoZonePoints(){
  const left=Math.floor(Math.min(-half-50,mx-mh-20,...xs.map(x=>x-20))/5)*5,right=Math.ceil(Math.max(half+50,mx+mh+20,...xs.map(x=>x+20))/5)*5;
  return [{x:left,h:H},{x:right,h:H},{x:right,h:H-15-Math.max(0,right-half)},{x:half,h:H-15},{x:-half,h:H-15},{x:left,h:H-15-Math.max(0,-half-left)}];
 }
-function zonePoints(){const z=environment.zone;return z?z.map(p=>({x:p.u*environment.width/2,h:environment.height+p.h})):autoZonePoints()}
+// Two configurations: the Sync view edits the Sync one, the room view the one without Sync.
+const view=()=>mode==='sync'?'sync':'scene';
+const corr=(l,c=view())=>c==='sync'?l.scale:l.sceneScale??l.scale;
+function setCorr(l,v){if(view()==='sync')l.scale=v;else l.sceneScale=v}
+function zonePoints(c=view()){const z=environment.zones[c];return z?z.map(p=>({x:p.u*environment.width/2,h:environment.height+p.h})):autoZonePoints()}
 function zoneConfig(points){return {version:1,points:points.map(p=>({u:p.x/(environment.width/2),h:p.h-environment.height}))}}
 function zoneIntersections(P,x){
  const hs=[];
@@ -210,7 +217,8 @@ function zoneIntersections(P,x){
   if(a.x===b.x)hs.push(a.h,b.h);else if(x===a.x)hs.push(a.h);else if(x===b.x)hs.push(b.h);else hs.push(a.h+(x-a.x)/(b.x-a.x)*(b.h-a.h))});
  return [...new Set(hs)].sort((a,b)=>a-b);
 }
-function syncBounds(x){const hs=zoneIntersections(zonePoints(),x);return hs.length?[hs[0],hs[hs.length-1]]:null}
+// The Sync fade switched off leaves every zone at full brightness.
+function syncBounds(x){if(!environment.fade.sync)return null;const hs=zoneIntersections(zonePoints('sync'),x);return hs.length?[hs[0],hs[hs.length-1]]:null}
 // The same validation as sync_zone.validate_zone, so a dragged corner is never refused by the server.
 function validSyncZone(config){
  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
@@ -262,6 +270,7 @@ const closeIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stro
 const trashIcon='<svg viewBox="-7 -7 14 14" aria-hidden="true"><path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/></svg>';
 const plusIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4v12M4 10h12"/></svg>';
 const chipIcons={
+ fade:'<path d="M-4.6 -1.5H4.6M-3.6 1.5H3.6M-2.2 4.4H2.2"/><path d="M-4.6 -4.4H4.6"/>',
  auto:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
  rotate:'<path d="M-3.4 -2.6A4.2 4.2 0 1 1 -3.8 1.9M-3.4 -2.6V-5.8M-3.4 -2.6H-0.2"/>',
  more:'<circle class="dot" cx="-4" cy="0" r="1.1"/><circle class="dot" cx="0" cy="0" r="1.1"/><circle class="dot" cx="4" cy="0" r="1.1"/>',
@@ -314,7 +323,7 @@ function chipStatus(l){
 }
 function handlesSvg(geo){
  if(!selected)return '';
- if(selected==='zone')return mode==='sync'?'<g class="handles">'+zoneHandlesSvg()+'</g>':'';
+ if(selected==='zone')return '<g class="handles">'+zoneHandlesSvg()+'</g>';
  const {cx,cy,mw,mh,w,left,top}=geo,f=frameOf(geo);if(!f)return '';
  const s=strip(),l=lamps.find(l=>l.id===selected&&l.enabled!==false);
  const m=[];let knobs='',extra='',chip='',diag=null;
@@ -335,9 +344,9 @@ function handlesSvg(geo){
    m.push({axis:'v',x:f.left-12,y1:740,y2:f.ref,text:l.h+' cm',edit:'h',value:l.h,leader:f.left});
    m.push({axis:'h',x1:cx,x2:f.x,y:758,text:signed(l.x-s.x),edit:'x',value:l.x-s.x});
   }
-  const t=correctionTrack(l),ky=t.top+t.len*(1-l.scale/100);
+  const t=correctionTrack(l),c=corr(l),ky=t.top+t.len*(1-c/100);
   knobs+='<line class="rail" x1="'+t.tx+'" y1="'+t.top+'" x2="'+t.tx+'" y2="'+(t.top+t.len)+'"/><line class="rail-fill" x1="'+t.tx+'" y1="'+ky+'" x2="'+t.tx+'" y2="'+(t.top+t.len)+'"/>'+knob('scale',t.tx,ky,'ns-resize','Brightness correction');
-  extra+=tagSvg(t.tx,t.top+t.len+16,l.scale+'%','corr',l.scale);
+  extra+=tagSvg(t.tx,t.top+t.len+16,c+'%','corr',c);
   const actions=(l.shape==='bar'?[{id:'rotate',label:'Rotate 90°'}]:[]).concat([{id:'more',label:'Lamp settings'}]);
   chip=chipSvg(f.x,f.top-6,l.name,chipStatus(l),actions);
  }
@@ -348,18 +357,19 @@ function handlesSvg(geo){
  return '<g class="handles">'+lines+labels+extra+knobs+chip+'</g>';
 }
 function zoneHandlesSvg(){
- const P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,auto=!environment.zone;
+ const c=view(),P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,auto=!environment.zones[c],on=environment.fade[c];
  let out='';
- P.forEach((p,i)=>out+=knob('zp-'+i,sx(p.x),sy(p.h),'move','Zone corner · drag'));
- const actions=auto?[]:[{id:'auto',label:'Restore the automatic zone'}];
- return out+chipSvg((sx(P[0].x)+sx(-environment.width/2))/2,sy(P[0].h)-12,'Sync zone',auto?'auto':'',actions);
+ if(on)P.forEach((p,i)=>out+=knob('zp-'+i,sx(p.x),sy(p.h),'move','Zone corner · drag'));
+ const actions=[{id:'fade',label:on?'Turn the fade off':'Turn the fade on'}].concat(on&&!auto?[{id:'auto',label:'Restore the automatic zone'}]:[]);
+ return out+chipSvg((sx(P[0].x)+sx(-environment.width/2))/2,sy(P[0].h)-12,'Fade zone',on?auto?'auto':'':'off',actions);
 }
+function toggleFade(){const c=view();remember();environment.fade[c]=!environment.fade[c];render();tell(environment.fade[c]?'Fade on':'Fade off')}
 function dragZone(kind,p){
  const x=Math.round((p.x-500)/3.3/5)*5,h=Math.round((740-p.y)/3.3/5)*5;
  const i=+kind.slice(3),P=zonePoints().map(q=>({...q}));P[i]={x,h};
- const config=zoneConfig(P);if(validSyncZone(config))environment.zone=config.points;
+ const config=zoneConfig(P);if(validSyncZone(config))environment.zones[view()]=config.points;
 }
-function resetZone(){if(!environment.zone)return;remember();environment.zone=null;renderScene();renderHistory();tell('The zone is automatic again')}
+function resetZone(){const c=view();if(!environment.zones[c])return;remember();environment.zones[c]=null;renderScene();renderHistory();tell('The zone is automatic again')}
 function healthMarkSvg(l){
  if(selected===l.id||l.unbound||l.enabled===false)return '';
  const b=lampBlocker(l),f=lampFrame(l);
@@ -382,12 +392,13 @@ function lensAxis(l){
 function lampSvg(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
  const colors=liveColors(l),beam=beamColor(colors),power=opacityText(lampLevel(colors));
- let box='',body='',wash='',lens='',hit='';
+ let box='',body='',wash='',off='',lens='',hit='';
  const glowOpacity=.21;
  if(l.form==='floor'){
   box='x="-25" y="-239" width="50" height="477"';
   body='<ellipse class="contact-shadow" cx="5" cy="225" rx="28" ry="5"/><ellipse fill="url(#body-metal)" stroke="#526075" stroke-width="1" cx="0" cy="220" rx="20" ry="5"/><path d="M0 218v-17" stroke="#49566c" stroke-width="5"/><rect x="-7.5" y="-225" width="15" height="432" rx="7.5" fill="url(#body-metal)" stroke="#718097" stroke-width=".8"/><path class="object-edge" d="M-5 -215V196"/>';
   wash='<path class="render-wash" opacity="'+glowOpacity+'" d="M-3 208 Q-115 -2 -92 -250 Q0 -306 92 -250 Q115 -2 3 208Z"/><ellipse class="render-wash" opacity="'+glowOpacity+'" cx="0" cy="-70" rx="43" ry="180"/>';
+  off='<rect class="lens-off" x="-3.5" y="-220" width="7" height="420" rx="3.5"/>';
   lens='<path class="render-bloom" stroke-width="35" opacity=".3" d="M0 198V-218"/><rect x="-3.5" y="-220" width="7" height="420" rx="3.5" fill="url(#lens-'+l.id+')"/>';
  }else if(l.form==='strip'){
   const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;
@@ -396,16 +407,18 @@ function lampSvg(l){
   hit='<path class="hit" d="'+path+'" style="fill:none;stroke:transparent;stroke-width:25;pointer-events:stroke"/>';
   body='<path d="'+path+'" fill="none" stroke="#58667a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>';
   wash='<path class="render-bloom" stroke-width="94" opacity="'+(glowOpacity*1.6)+'" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/>';
+  off='<path class="lens-off" stroke-width="5" d="'+path+'"/>';
   lens='<path class="render-emission" stroke-width="5" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
  }else{
   box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';
   const rotation=l.vertical?-90:0;
   body='<g transform="rotate('+rotation+')"><ellipse class="contact-shadow" cx="3" cy="13" rx="43" ry="5"/><rect x="-41" y="-12" width="82" height="24" rx="10" fill="url(#body-metal)" stroke="#64738a" stroke-width="1"/><path class="object-edge" d="M-30 -9h60"/></g>';
   wash='<g transform="rotate('+rotation+')"><path class="render-wash" opacity="'+(glowOpacity*1.4)+'" d="M-32 -2 -105 -105 Q0 -163 105 -105 L32 -2Z"/></g>';
+  off='<g transform="rotate('+rotation+')"><rect class="lens-off" x="-35" y="-7" width="70" height="13" rx="6.5"/></g>';
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }
  const mark=healthMarkSvg(l);
- return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
+ return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
 }
 function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const right=left+w,bottom=cy+mh/2,mx=cx-mw/2,my=cy-mh/2;
@@ -478,14 +491,15 @@ function syncLinksSvg(geo){
  });
  return out+'</g>';
 }
+// The fade zone of the current view; switched off, it stays as a faint outline to select and turn on.
 function syncVisibilitySvg(){
- const P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,pt=p=>sx(p.x)+' '+sy(p.h);
- let out='<g id="sync-visibility" class="zone-group'+(selected==='zone'?' chosen':'')+'" data-select="zone" role="button" aria-label="Sync falloff zone">';
+ const P=zonePoints(),sx=x=>500+x*3.3,sy=h=>740-h*3.3,pt=p=>sx(p.x)+' '+sy(p.h),on=environment.fade[view()];
+ let out='<g id="sync-visibility" class="zone-group'+(selected==='zone'?' chosen':'')+(on?'':' fade-off')+'" data-select="zone" role="button" aria-label="Fade zone">';
  out+='<path class="zone-hit" pointer-events="all" d="M'+P.map(pt).join('L')+'Z"/>';
  out+='<path class="fade-line" pointer-events="none" d="M'+pt(P[0])+'L'+pt(P[1])+'"/>';
  out+='<path class="fade-line zero" pointer-events="none" d="M'+pt(P[2])+'L'+pt(P[3])+'L'+pt(P[4])+'L'+pt(P[5])+'"/>';
  out+='<path class="fade-line side" pointer-events="none" d="M'+pt(P[1])+'L'+pt(P[2])+'M'+pt(P[5])+'L'+pt(P[0])+'"/>';
- out+='<g pointer-events="none">'+tagSvg(sx(P[1].x)+4,sy(P[1].h),'100%','',0,'start')+tagSvg(sx(P[2].x)+4,sy(P[2].h),'0%','',0,'start')+'</g>';
+ if(on)out+='<g pointer-events="none">'+tagSvg(sx(P[1].x)+4,sy(P[1].h),'100%','',0,'start')+tagSvg(sx(P[2].x)+4,sy(P[2].h),'0%','',0,'start')+'</g>';
  return out+'</g>';
 }
 function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16,w=environment.width*3.3;return {cx,cy,mw,mh,w,left:500-w/2,top:740-environment.height*3.3}}
@@ -508,7 +522,7 @@ function renderBaseScene(){
  const g=sceneGeometry(),{cx}=g;
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" x="-200%" y="-100%" width="500%" height="300%"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
- if(mode==='sync')out+=syncVisibilitySvg();
+ out+=syncVisibilitySvg();
  out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):'')+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
  $('#stage').innerHTML=out;applyFocus();updateStageViewport();
 }
@@ -657,7 +671,7 @@ function startLabelEdit(node){
  input.addEventListener('blur',()=>finish(true));
 }
 function applyLabelEdit(edit,v){
- if(edit==='corr'){const l=lamps.find(l=>l.id===selected);if(!l)return;const before=snapshot();l.scale=clamp(Math.round(v),0,100);recordChange(before);renderScene();renderHistory();return}
+ if(edit==='corr'){const l=lamps.find(l=>l.id===selected);if(!l)return;const before=snapshot();setCorr(l,clamp(Math.round(v),0,100));recordChange(before);renderScene();renderHistory();return}
  if(edit==='gap'){changeField('h',v+monitorHalfCm()+environment.height);return}
  changeField(edit,v);
 }
@@ -680,7 +694,7 @@ function dragHandle(kind,p){
  if(kind==='desk-w')environment.width=clamp(Math.round(Math.abs(p.x-500)*2/3.3/5)*5,80,240);
  else if(kind==='desk-h'){const prev=environment.height;environment.height=clamp(Math.round((740-p.y)/3.3/5)*5,50,120);if(environment.height!==prev){s.h+=environment.height-prev;clampFixture(s)}}
  else if(kind==='mon-size'){const cx=500+s.x*3.3,cy=740-s.h*3.3,wcm=Math.max(Math.abs(p.x-cx)*2,Math.abs(p.y-cy)*2*16/9)/3.3;environment.inches=clamp(Math.round(wcm/2.54*Math.hypot(16,9)/16),19,55);clampFixture(s)}
- else if(kind==='scale'&&l){const t=correctionTrack(l);l.scale=clamp(Math.round((t.top+t.len-p.y)/t.len*20)*5,0,100)}
+ else if(kind==='scale'&&l){const t=correctionTrack(l);setCorr(l,clamp(Math.round((t.top+t.len-p.y)/t.len*20)*5,0,100))}
  if(snapshot()===before)return;
  drag.moved=true;renderScene();renderInspector();renderHistory();
 }
@@ -744,7 +758,7 @@ function toggleDarkScene(){
 }
 // The Sync switch chooses which settings are shown; it does not start or stop Sync.
 function applyMode(m){
- mode=m;if(m!=='sync'&&selected==='zone')selected=null;
+ mode=m;
  $('#sync-tool').classList.toggle('active',m==='sync');$('#sync-tool').setAttribute('aria-pressed',String(m==='sync'));$('#app').classList.toggle('sync-mode',m==='sync');
  store.set(VIEW_KEY,m);renderScene();renderInspector();
 }
@@ -765,7 +779,7 @@ function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
 function closeObjectMenu(){if(!menuOpen)return;menuOpen=false;$('#object-menu').hidden=true;$('#stage').querySelector('[data-chip-action="more"]')?.classList.remove('open')}
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
 function cardMenu(l){
- const c=l.scale,b=lampBlocker(l),editable=virtualDevice(l.id);
+ const c=corr(l),b=lampBlocker(l),editable=virtualDevice(l.id);
  return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="32"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')
@@ -810,8 +824,8 @@ function renameLamp(id,value){
  if(menuOpen){const chip=$('#stage').querySelector('.obj-chip');if(chip)placeMenu($('#object-menu'),chip.getBoundingClientRect())}
 }
 function resetCorrection(){
- const l=lamps.find(l=>l.id===selected);if(!l||l.scale===100)return;
- const before=snapshot();l.scale=100;recordChange(before);renderScene();renderHistory();tell('Correction reset to 100%');
+ const l=lamps.find(l=>l.id===selected);if(!l||corr(l)===100)return;
+ const before=snapshot();setCorr(l,100);recordChange(before);renderScene();renderHistory();tell('Correction reset to 100%');
 }
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
@@ -859,7 +873,7 @@ function lampRowStatus(l){
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
  if(mode==='sync'&&!syncSummary(l).active)return '<span class="lp-status">Outside Sync</span>';
- return l.scale!==100?'<span class="lp-status">'+l.scale+'%</span>':'';
+ return corr(l)!==100?'<span class="lp-status">'+corr(l)+'%</span>':'';
 }
 function roomRows(){
  return activeLamps().map(l=>confirmRemove===l.id
@@ -1085,7 +1099,7 @@ let hoverKey=null;
 function hoverAnchor(key){
  if(key==='desk'){const top=740-environment.height*3.3;return {x:500,y:top-23,name:'Desk'}}
  if(key==='monitor'){const m=strip(),mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16;return {x:500+m.x*3.3,y:740-m.h*3.3-mh/2-41,name:'Monitor'}}
- if(key==='zone'){const P=zonePoints();return {x:(500+P[0].x*3.3+500-environment.width/2*3.3)/2,y:740-P[0].h*3.3-23,name:'Sync zone'}}
+ if(key==='zone'){const P=zonePoints();return {x:(500+P[0].x*3.3+500-environment.width/2*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
  const l=lamps.find(l=>l.id===key&&l.enabled!==false);if(!l)return null;const f=lampFrame(l);return {x:f.x,y:f.top-17,name:l.name};
 }
 function showHover(key){
@@ -1164,7 +1178,7 @@ stage.addEventListener('pointerdown',event=>{
 stage.addEventListener('pointerdown',()=>showHover(null),true);
 stage.addEventListener('pointerdown',e=>{
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
- if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else openObjectMenu(action);return}
+ if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}
  closeObjectMenu();
  const grip=e.target.closest('[data-handle]');

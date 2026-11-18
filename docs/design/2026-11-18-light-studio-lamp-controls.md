@@ -7,25 +7,45 @@ cannot execute yet: switching a lamp off while Sync runs, blinking a lamp to
 find it, naming the six desk lamps, and a brightness correction that differs
 between Sync and the lamp's own light. The owner chose (2026-11-18):
 
-- one PR for these four controls, for the six role lamps only;
+- these controls cover the six role lamps only;
 - connecting discovered lamps to Sync is a separate later design and PR;
 - a lamp name set in Light Studio is used everywhere: Light Studio, the
   virtual Hue bridge, HomeKit and the physical Hue lights.
 
 This work starts after #32 (native Hue power) merges and reuses its power path.
 
+## Two configurations
+
+Light Studio edits two independent configurations: with Sync (the Sync view)
+and without Sync (the room view, scenes from the Hue app). Each has its own
+brightness correction per lamp, its own fade zone below the desk, and its own
+switch that turns the fade on or off. The owner decided this on 2026-11-18.
+
+- With Sync: `scale`, `syncZone`, `syncFalloff` (default on, as before).
+- Without Sync: `sceneScale` (default `scale`), `sceneZone` (default automatic),
+  `sceneFalloff` (default off, so scenes look as before until the owner turns
+  it on).
+- Fade off means every gain is 1: zones keep full brightness and Govee
+  segments sample at their centres.
+- Scene output applies the scene fade per Govee segment (bottom to top, as in
+  Sync), to each Play's dimming and to the strip's dimming (mean of its nine
+  anchor gains). Hue dimming never goes below 0.1 %, because scene writes may
+  not switch power.
+- "Own light" means only "outside the Sync composition". Scene paths (scene
+  controller, Hue scene proxies, the bridge's scene forwarding) include every
+  present lamp; only Sync paths exclude own-light lamps.
+
 ## Layout (version 5)
 
-Role rows gain optional fields; version 4 files load as version 5.
+Version 4 files load as version 5; writes must use version 5.
 
-- `syncRole`: `"sync"` (default, not stored), `"own"`, `"off"`. `"off"` is
-  outside the Sync composition like `"own"`, and the adapter also switches the
-  lamp off for the Sync session.
-- `name`: 1-35 characters for role rows. Missing means the built-in name.
-- `sceneScale`: 0-100, the correction outside Sync. Missing means `scale`.
-  `scale` stays the correction during Sync.
+- Top level: `syncZone` (existing), `sceneZone` (same format, optional),
+  `syncFalloff` and `sceneFalloff` (booleans, optional, defaults above).
+- Rows: `sceneScale` 0-100 (optional, default `scale`).
+- Role rows (lamp controls, below): `syncRole` gains `"off"`; `name` 1-35
+  characters.
 
-`STATE_SCHEMAS["desk_layout"]` becomes 5. Writes must use version 5.
+`STATE_SCHEMAS["desk_layout"]` becomes 5.
 
 ## Off during Sync
 
@@ -68,13 +88,13 @@ Role rows gain optional fields; version 4 files load as version 5.
 - Physical Hue lights: the adapter writes `metadata.name` to the pinned light
   on the owner's Hue bridge, only when the name changes in Light Studio.
 
-## Correction per Sync state
+## Light Studio views
 
-- The scene controller and Hue proxies use `sceneScale` outside Sync; the Sync
-  controller and the relay use `scale`. The proxy changes scale only at a mode
-  change, so a Sync toggle causes one restore write, not repeated writes.
-- Light Studio shows the correction for the current view: Sync view edits
-  `scale`, the room view edits `sceneScale`.
+- Each view edits its own configuration: correction rail, fade zone and the
+  fade switch on the zone chip. A zone that is off stays selectable as a faint
+  outline, so it can be turned on again.
+- The Sync view without running Sync previews Sync from a demo picture on
+  every Sync lamp; the room view shows only the lamps' own light.
 
 ## Not in this PR
 

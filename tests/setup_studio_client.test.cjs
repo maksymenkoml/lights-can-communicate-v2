@@ -154,8 +154,9 @@ function saved(){return {version:3,gridStepCm:5,room:'Office',desk:{width:160,he
  ['play-left',70,40,100],['play-center',100,40,50],['play-right',130,40,100]
 ].map(([id,x,height,scale])=>({id,scale,positionCm:{x,height},orientation:'horizontal'}))};}
 function canonical(layout){
- const result=structuredClone(layout);result.version=4;
- if(result.syncZone==null)delete result.syncZone;
+ // What the page sends: version 5 with both configurations' zones and fade switches.
+ const result=structuredClone(layout);result.version=5;
+ result.syncZone??=null;result.sceneZone??=null;result.syncFalloff??=true;result.sceneFalloff??=false;
  for(const row of result.devices){if(row.enabled!==false)delete row.enabled;if(row.syncRole!=='own')delete row.syncRole;row.orientation??='horizontal';}
  return result;
 }
@@ -229,7 +230,7 @@ test('server layout is authoritative and maps layout rows to room coordinates',a
  assert.deepEqual(json(app,'lamps.map(l=>[l.id,l.x,l.h])'),[['govee-left',-50,20],['govee-right',80,0],['hue-monitor',5,115],['play-left',-30,40],['play-center',0,40],['play-right',30,40]]);
  assert.equal(app.posts.length,0);
  assert.equal(app.$('#draft-status').dataset.state,'saved');
- assert.deepEqual(JSON.parse(app.run('JSON.stringify(pack())')),{...canonical(remote),syncZone:null});
+ assert.deepEqual(JSON.parse(app.run('JSON.stringify(pack())')),canonical(remote));
  assert.equal(app.$('#count').textContent,'6');
 });
 
@@ -245,13 +246,13 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
-test('edits autosave once after 300 ms with If-Match and version 4, undo saves too',async()=>{
+test('edits autosave once after 300 ms with If-Match and version 5, undo saves too',async()=>{
  const app=await harness();
  app.lamp('play-left').focus();await app.press(app.lamp('play-left'),'ArrowRight');
  assert.equal(app.$('#draft-status').dataset.state,'pending');
  await app.advance(299);assert.equal(app.posts.length,0);
  await app.advance(1);assert.equal(app.posts.length,1);
- assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,4);
+ assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,5);
  assert.deepEqual(app.posts[0].body.devices[3].positionCm,{x:75,height:40});
  assert.equal(app.$('#draft-status').dataset.state,'saved');
  // Rapid edits coalesce into one request.
@@ -293,7 +294,7 @@ test('the first load imports a browser draft when the server has none',async()=>
  assert.equal(app.run('lamps[0].x'),-110);
  await app.advance(300);
  assert.equal(app.posts.length,1);assert.equal(app.posts[0].ifMatch,'""');
- assert.deepEqual(app.posts[0].body,{...canonical(draft),syncZone:null});
+ assert.deepEqual(app.posts[0].body,canonical(draft));
  // With a server layout and no pending edits, the server wins over the draft.
  const again=await harness({layout:saved(),storage:new Map([['light-studio-grid-v3',JSON.stringify(draft)]])});
  await again.advance(1000);assert.equal(again.posts.length,0);assert.equal(again.run('lamps[0].x'),-80);
@@ -607,6 +608,43 @@ test('the room view is a local preference and never part of the layout',async()=
  assert.ok(app.$('#app').classList.contains('dark-scene'));
  await app.advance(2000);assert.equal(app.posts.length,0);
  const again=await harness({storage});assert.equal(again.run('mode'),'sync');
+});
+
+test('each view edits its own correction, fade zone and fade switch',async()=>{
+ const app=await harness();
+ const left=()=>json(app,'lamps.find(l=>l.id==="govee-left")');
+ assert.equal(app.run('view()'),'scene');
+ app.run('select("govee-left")');app.run('applyLabelEdit("corr",40)');await app.advance(300);
+ let body=app.posts.at(-1).body,row=body.devices.find(r=>r.id==='govee-left');
+ assert.equal(row.sceneScale,40,'the room view edits the correction without Sync');assert.equal(row.scale,65,'the Sync correction stays');
+ assert.equal(body.syncFalloff,true);assert.equal(body.sceneFalloff,false,'the fade without Sync is off by default');
+ app.run('select("zone")');
+ assert.ok(app.stage.querySelector('#sync-visibility.fade-off'),'a switched-off zone stays as a faint outline in the room view');
+ assert.equal(app.stage.querySelectorAll('[data-handle^="zp-"]').length,0,'no corners while the fade is off');
+ app.run('toggleFade()');await app.advance(300);
+ assert.equal(app.posts.at(-1).body.sceneFalloff,true);
+ app.run('drag={handle:"zp-3",before:snapshot(),moved:false};dragHandle("zp-3",{x:500+90*3.3,y:740-70*3.3});');
+ app.dispatch(app.stage,'pointerup');await app.advance(300);
+ body=app.posts.at(-1).body;
+ assert.equal(body.sceneZone.points[3].u,90/80);assert.equal(body.syncZone,null,'the Sync zone stays automatic');
+ await app.click(app.$('#sync-tool'));
+ assert.equal(app.run('corr(lamps.find(l=>l.id==="govee-left"))'),65,'the Sync view shows the Sync correction');
+ const gains=()=>json(app,'syncProjection(lamps.find(l=>l.id==="govee-left")).map(r=>r.gain)');
+ assert.ok(gains().some(g=>g<1),'the Sync fade dims lower zones');
+ app.run('select("zone")');app.run('toggleFade()');await app.advance(300);
+ assert.equal(app.posts.at(-1).body.syncFalloff,false);
+ assert.deepEqual(gains(),Array(7).fill(1),'without the fade every zone keeps full brightness');
+ assert.equal(left().sceneScale,40);
+});
+
+test('an unlit lens or zone shows black under the light',async()=>{
+ const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[255,0,0]],{source:'scene-output',on:false})}})});
+ const node=app.lamp('play-left'),off=node.querySelector('.lens-off');
+ assert.ok(off,'a black lens is drawn');
+ let inside=false;for(let n=off.parentNode;n&&n!==node;n=n.parentNode)if(n.getAttribute?.('data-sync-power')!=null)inside=true;
+ assert.ok(!inside,'outside the brightness groups, so it shows when the lamp is off');
+ assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0');
+ for(const id of ['govee-left','hue-monitor'])assert.ok(app.lamp(id).querySelector('.lens-off'),id);
 });
 
 test('the desk, monitor and zone are edited in place and saved in layout units',async()=>{
