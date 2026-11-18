@@ -21,6 +21,11 @@ class ReceiverReconnectTests(unittest.TestCase):
     guard = guarded.ReceiverUdpGuardTests.guard
     guarded_loop = guarded.ReceiverUdpGuardTests.guarded_loop
 
+    def forged_hello(self, guard):
+        # Shaped like a DTLS 1.2 ClientHello, but from a peer without the key.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as other:
+            other.sendto(b"\x16\xfe\xfd" + bytes(10) + b"\x01" + bytes(40), guard.address)
+
     def test_vanished_client_then_new_handshake_resumes_frames(self):
         guard, loop = self.guarded_loop()
         first = loop.start()
@@ -40,36 +45,57 @@ class ReceiverReconnectTests(unittest.TestCase):
         self.assertGreaterEqual(guard.snapshot()["client_hellos"], 1)
         events = [(e["state"], e["reason"]) for e in status["diagnostics"]["events"]]
         self.assertIn(("waiting", "source_reconnected"), events)
-        self.assertEqual(loop.overlapping_listeners, 0)
+        # Exactly the old association and its replacement; the old one is gone.
+        self.assertEqual(len(loop.servers), 2)
+        wait_for(lambda: loop.servers[0].poll() is not None)
+        loop.frame(second, 33333)
+        wait_for(lambda: len(loop.frames()) == 3)
 
-    def test_pause_on_the_established_connection_is_retained(self):
+    def test_hello_while_streaming_does_not_end_a_later_pause(self):
+        guard, loop = self.guarded_loop()
+        connection = loop.start()
+        loop.frame(connection, 11111)
+        wait_for(lambda: len(loop.frames()) == 1)
+        self.forged_hello(guard)
+        wait_for(lambda: guard.snapshot()["client_hellos"] == 1)
+        loop.frame(connection, 22222)
+        wait_for(lambda: len(loop.frames()) == 2)
+        time.sleep(1.5)
+        self.assertEqual(len(loop.servers), 1)
+        loop.frame(connection, 33333)
+        wait_for(lambda: len(loop.frames()) == 3)
+        self.assertNotIn("reconnects", loop.receiver.snapshot())
+
+    def test_unauthenticated_hello_during_a_pause_keeps_the_association(self):
         guard, loop = self.guarded_loop()
         connection = loop.start()
         loop.frame(connection, 11111)
         wait_for(lambda: len(loop.frames()) == 1)
         process = loop.group.stream["_proc"]
-        # A stray datagram that is not a ClientHello must not end the session.
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as other:
-            other.sendto(b"\x17\xfe\xfd" + bytes(20), guard.address)
-        wait_for(lambda: guard.snapshot()["discarded_datagrams"] >= 1)
-        time.sleep(2.5)
-        self.assertIs(loop.group.stream["_proc"], process)
+        time.sleep(0.7)
+        self.forged_hello(guard)
+        wait_for(lambda: len(loop.servers) == 2)
+        # The forged peer never authenticates; the paused source resumes.
         loop.frame(connection, 22222)
         wait_for(lambda: len(loop.frames()) == 2)
+        self.assertIs(loop.group.stream["_proc"], process)
+        wait_for(lambda: loop.servers[1].poll() is not None)
         self.assertNotIn("reconnects", loop.receiver.snapshot())
+        self.assertEqual(loop.frames()[-1]["colors"][0], [0, 22222, 0, 0])
 
-    def test_stop_during_reconnect_does_not_listen_again(self):
+    def test_stop_while_a_replacement_listens_leaves_no_listener(self):
         guard, loop = self.guarded_loop()
-        first = loop.start()
-        loop.frame(first, 11111)
+        connection = loop.start()
+        loop.frame(connection, 11111)
         wait_for(lambda: len(loop.frames()) == 1)
-        first.process.kill()
-        first.process.wait(2)
+        time.sleep(0.7)
+        self.forged_hello(guard)
+        wait_for(lambda: len(loop.servers) == 2)
         loop.group.stream["active"] = False
         loop.threads[-1].join(4)
         self.assertFalse(loop.threads[-1].is_alive())
+        self.assertTrue(all(server.poll() is not None for server in loop.servers))
         self.assertFalse(loop.receiver.snapshot()["active"])
-
 
 if __name__ == "__main__":
     unittest.main()

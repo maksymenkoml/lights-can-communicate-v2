@@ -284,15 +284,17 @@ datagrams from that peer. A source that vanished without `close_notify` and
 handshakes again from a new port, without a new REST Start, previously reached
 only the UDP guard, which discarded its ClientHello; the retained session
 waited indefinitely until a phone Stop/Start. The guard now counts DTLS
-ClientHello records it discards. When the current association has been idle
-for more than 0.5 seconds and a new ClientHello arrived after it was
-established, the receiver ends that association and listens again for the same
-Start, without deactivating the stream. The client's retransmitted ClientHello
-then completes the new session. A pause on the established connection sends no
-ClientHello and is retained; Stop, a superseding Start, shutdown and owner Off
-keep their existing precedence. The bridge journal records `source_reconnected`,
-`source_timeout` and `dtls_closed` with the guard's `client_hellos` count, and
-receiver status counts `reconnects`. `tests/test_receiver_reconnect.py`
+ClientHello records it discards and remembers when the last one arrived. When
+the current association has been idle for more than 0.5 seconds and a
+ClientHello arrived during that pause, the receiver starts a second listener
+beside it. The established association keeps receiving its own peer. The
+replacement takes over only after it completes the PSK handshake and delivers
+a valid frame; otherwise it is stopped after ten seconds, or as soon as the
+established source resumes. An unauthenticated or stale ClientHello therefore
+cannot disconnect a working source. Stop, a superseding Start and shutdown
+end both listeners. The bridge journal records `source_reconnected`,
+`source_timeout` and `dtls_closed`, and receiver status counts `reconnects`.
+`tests/test_receiver_reconnect.py`
 reproduces the vanished-client case with real OpenSSL DTLS (Linux only).
 
 ## Light Studio composition and projection

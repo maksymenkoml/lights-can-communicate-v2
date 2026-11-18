@@ -3,6 +3,7 @@
 import socket
 import sys
 import threading
+import time
 
 
 def is_client_hello(data):
@@ -29,6 +30,7 @@ class UdpPortGuard:
         self.closed = False
         self.discarded = 0
         self.client_hellos = 0
+        self.last_client_hello = None
         self.last_error = None
         self.worker_name = f"dtls-idle-udp-{id(self):x}"
 
@@ -90,6 +92,7 @@ class UdpPortGuard:
                 # A peer that OpenSSL is not connected to starts a new DTLS session.
                 if is_client_hello(data):
                     self.client_hellos += 1
+                    self.last_client_hello = time.monotonic()
 
     def snapshot(self):
         with self.lock:
@@ -97,6 +100,7 @@ class UdpPortGuard:
                 "running": self.worker is not None and self.worker.is_alive(),
                 "discarded_datagrams": self.discarded,
                 "client_hellos": self.client_hellos,
+                "last_client_hello": self.last_client_hello,
                 "last_error": self.last_error,
             }
 
