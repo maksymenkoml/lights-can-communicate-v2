@@ -66,7 +66,8 @@ into a new directory only:
 
 - `com.smart-lighting.adapter.plist` and `com.smart-lighting.setup.plist`:
   launchd agents that start at login and restart only after a non-zero exit.
-  Logs go to `state_dir/logs`.
+  Logs go to `state_dir/logs`, which `services` creates because launchd does
+  not create missing log directories.
 - `gateway-compose.json` (only with a `gateway` section): the pinned diyHue
   image with `restart: unless-stopped`, read-only module mounts from the
   release, `state_dir` as its configuration directory and a health check.
@@ -89,7 +90,8 @@ Optional configuration sections:
 
 `gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
 digest), `adapter_url` (default `http://host.docker.internal:<adapter port>`)
-and `timezone`. Rendering and readiness never load, start or stop services;
+and `timezone`. With a `gateway` section the adapter `bind` must not be a
+loopback address: the container reaches the host through its network. Rendering and readiness never load, start or stop services;
 loading the agents and starting the compose project is a separate, owner
 authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
 

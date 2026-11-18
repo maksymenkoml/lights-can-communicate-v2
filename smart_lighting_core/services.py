@@ -58,7 +58,7 @@ def _release(release):
 
 
 def agent(label, command, config, config_path, release, python):
-    log = config.logs_dir / f"{command}.log"
+    log = config.state_dir / "logs" / f"{command}.log"
     return {
         "Label": label,
         "ProgramArguments": [str(python), "-I", "-B", str(release / ARCHIVE), command,
@@ -90,7 +90,7 @@ def gateway_compose(config, release):
                 "entrypoint": ["python3", "-u", "/probe/bootstrap.py", "--docker"],
                 "environment": gateway.environment(),
                 "extra_hosts": ["host.docker.internal:host-gateway"],
-                "ports": list(GATEWAY_PORTS),
+                "ports": GATEWAY_PORTS,
                 "volumes": volumes,
                 "stop_grace_period": "20s",
                 "healthcheck": {
@@ -122,6 +122,9 @@ def render(config, config_path, release, output, python):
     for name, data in files.items():
         with (output / name).open("xb") as stream:
             stream.write(data)
+    # launchd opens the log paths before the command runs and does not create
+    # missing parents; an absent directory would keep both agents from starting.
+    (config.state_dir / "logs").mkdir(mode=0o700, exist_ok=True)
     return sorted(files)
 
 

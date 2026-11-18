@@ -87,7 +87,6 @@ class ManagedServiceTests(unittest.TestCase):
                          f"http://host.docker.internal:{self.value['adapter']['port']}")
         self.assertEqual(config.gateway.environment()["PROBE_HUE_STRIP"], "false")
         self.assertEqual(config.gateway.environment()["PROBE_ENTERTAINMENT"], "true")
-        self.assertEqual(config.logs_dir, config.state_dir / "logs")
         del self.value["gateway"], self.value["setup"]
         self.save()
         config = load_config(self.config_path)
@@ -108,6 +107,12 @@ class ManagedServiceTests(unittest.TestCase):
                     load_config(self.config_path)
                 self.assertNotIn("PRIVATE", str(caught.exception))
                 self.value["gateway"] = saved
+        self.value["adapter"]["bind"] = "127.0.0.1"
+        self.save()
+        with self.assertRaises(ConfigError) as caught:
+            load_config(self.config_path)
+        self.assertIn("reachable", str(caught.exception))
+        self.value["adapter"]["bind"] = "0.0.0.0"
         self.value["setup"] = {"bind": "8.8.8.8"}
         self.save()
         with self.assertRaises(ConfigError):
@@ -176,6 +181,7 @@ class ManagedServiceTests(unittest.TestCase):
             self.assertTrue(volume.endswith(":ro"))
         self.assertEqual(gateway["environment"]["IP"], "192.168.99.10")
         self.assertEqual(gateway["environment"]["PROBE_LIVE_OUTPUT"], "true")
+        self.assertTrue((state / "logs").is_dir())
         text = "".join(path.read_text(errors="ignore") for path in output.iterdir())
         self.assertNotIn(TOKEN, text)
         self.assertNotIn("b" * 64, text)

@@ -165,10 +165,6 @@ class ServiceConfig:
     setup: SetupConfig = SetupConfig()
     gateway: GatewayConfig | None = None
 
-    @property
-    def logs_dir(self):
-        return self.state_dir / "logs"
-
     def arguments(self):
         result = [
             "--state-dir",
@@ -213,6 +209,9 @@ def load_config(path):
     bind = _address(options.get("bind", "127.0.0.1"), "adapter bind address")
     setup = _setup(data.get("setup", {}))
     gateway = _gateway(data["gateway"], port) if "gateway" in data else None
+    if gateway is not None and ipaddress.IPv4Address(bind).is_loopback:
+        # A container reaches the host through its network, never its loopback.
+        raise ConfigError("Gateway requires an adapter bind reachable from its container")
     resolved = {key: _path(path.parent, options[key], key) for key in paths}
     resolved.update(
         {
