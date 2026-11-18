@@ -93,6 +93,19 @@ class ManagedServiceTests(unittest.TestCase):
         self.assertIsNone(config.gateway)
         self.assertEqual(config.setup.port, 19881)
 
+    def test_power_authority_defaults_to_the_remote_owner(self):
+        config = load_config(self.config_path)
+        self.assertEqual(config.power_authority, "owner")
+        self.assertEqual(config.arguments()[-2:], ["--power-authority", "owner"])
+        self.value["adapter"]["power_authority"] = "homekit"
+        self.save()
+        self.assertEqual(load_config(self.config_path).arguments()[-1], "homekit")
+        self.value["adapter"]["power_authority"] = "PRIVATE"
+        self.save()
+        with self.assertRaises(ConfigError) as caught:
+            load_config(self.config_path)
+        self.assertNotIn("PRIVATE", str(caught.exception))
+
     def test_invalid_gateway_values_are_rejected_without_echo(self):
         for field, value in (("image", "diyhue/core:latest"), ("lan_ip", "8.8.8.8"),
                              ("lan_ip", "0.0.0.0"), ("mac", "PRIVATE-MAC"),

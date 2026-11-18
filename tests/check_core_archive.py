@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = [
     "test_live_adapter",
+    "test_homekit_power",
     "test_power_owner",
     "test_power_owner_integration",
     "test_power_requests",
@@ -47,6 +48,7 @@ RUNTIME = [
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "pilot_transport",
+    "homekit_power",
     "power_owner",
     "power_requests",
     "video_output",

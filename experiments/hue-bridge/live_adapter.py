@@ -20,6 +20,7 @@ if Path(__file__).is_file():
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, segment_data  # noqa: E402
+from homekit_power import HomeKitPower, HomeKitRequests  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
@@ -437,7 +438,7 @@ class PilotController:
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
-                power_requests=None):
+                power_requests=None, homekit=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -470,10 +471,21 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             return hmac.compare_digest(self.headers.get("X-Adapter-Token", "").encode(),
                                        token.encode())
 
+        def owner_authorized(self):
+            return power_token is not None and hmac.compare_digest(
+                self.headers.get("X-Power-Owner-Token", "").encode(), power_token.encode())
+
         def do_GET(self):
             self.stream_keep_alive = False
-            if not self.authorized():
+            if self.path == "/homekit" and homekit is not None:
+                if not self.owner_authorized():
+                    return self.respond(403, {"error": "unauthorized"})
+            elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
+            if self.path == "/homekit":
+                if homekit is None:
+                    return self.respond(404, {"error": "not found"})
+                return self.respond(200, homekit.state())
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
             if self.path not in ("/status", "/diagnostics"):
@@ -510,16 +522,17 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
 
         def do_POST(self):
             self.stream_keep_alive = False
-            if self.path == "/power-owner":
-                if power_owner is None or power_token is None:
+            if self.path in ("/power-owner", "/homekit"):
+                # The local HomeKit authority fences the legacy remote owner.
+                if (power_owner is None or power_token is None
+                        or (self.path == "/power-owner") is not (homekit is None)):
                     return self.respond(404, {"error": "not found"})
-                if not hmac.compare_digest(
-                    self.headers.get("X-Power-Owner-Token", "").encode(), power_token.encode()
-                ):
+                if not self.owner_authorized():
                     return self.respond(403, {"error": "unauthorized"})
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
-            if self.path not in ("/command", "/stream", "/power-owner", "/power-request") or (
+            if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
+                                 "/homekit") or (
                 self.path == "/stream" and video_output is None
             ):
                 return self.respond(404, {"error": "not found"})
@@ -543,6 +556,10 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                                               "observed": observed,
                                               **broker.exchange(envelope, capability,
                                                                 observed, accepted)})
+                elif self.path == "/homekit":
+                    confirmed = homekit.set(payload)
+                    return self.respond(200 if confirmed else 503,
+                                        {"accepted": confirmed, **homekit.state()})
                 elif self.path == "/power-request":
                     if broker is None:
                         return self.respond(503, {"accepted": False})
@@ -578,6 +595,8 @@ def main(argv=None, service_info=None):
     parser.add_argument("--hue-stream-config", type=Path)
     parser.add_argument("--native-profile", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
+    parser.add_argument("--power-authority", choices=("owner", "homekit"), default="owner",
+                        help="owner: remote heartbeat; homekit: this adapter executes power")
     args = parser.parse_args(argv)
     if args.hue_play and not args.hue_config:
         parser.error("--hue-play requires --hue-config")
@@ -608,7 +627,7 @@ def main(argv=None, service_info=None):
         with os.fdopen(descriptor, "w") as stream:
             stream.write(secrets.token_hex(24) + "\n")
     token = args.token_file.read_text().strip()
-    power_owner = power_token = None
+    power_owner = power_token = homekit = None
     power_requests = None
     preview = OutputPreviewStore()
     sender = lan.send_to_target
@@ -618,9 +637,19 @@ def main(argv=None, service_info=None):
                 or any(c not in "0123456789abcdef" for c in power_token)
                 or hmac.compare_digest(power_token.encode(), token.encode())):
             raise ValueError("Invalid power owner credential")
-        power_owner = PowerOwner(config["targets"])
-        power_requests = PowerRequests(power_owner)
+        if args.power_authority == "homekit":
+            idle = {}
+            power_owner = homekit = HomeKitPower(
+                config["targets"], state_dir / "homekit-power.json", lan.send_to_target,
+                observe=lambda: controller.power_observations(),
+                idle=lambda side: idle["check"](side))
+            power_requests = HomeKitRequests(homekit)
+        else:
+            power_owner = PowerOwner(config["targets"])
+            power_requests = PowerRequests(power_owner)
         sender = power_owner.wrap(sender)
+    elif args.power_authority == "homekit":
+        raise ValueError("HomeKit power requires a power owner credential")
     controller = PilotController(config["targets"],
                                  sender=preview.wrap_govee(sender, "scene-output"),
                                  layout_store=layout_store,
@@ -661,6 +690,9 @@ def main(argv=None, service_info=None):
         for proxy in hue_proxies.values():
             proxy.output_lock = video.lock
             proxy.write_gate = lambda: not video.active()
+    if homekit is not None:
+        idle["check"] = lambda side: (
+            (video is None or not video.active()) and side not in controller.jobs)
     controller.pause_gate = lambda: (
         (video is None or not video.active())
         and all(proxy.govee_allowed() for proxy in hue_proxies.values() if proxy.included())
@@ -692,6 +724,7 @@ def main(argv=None, service_info=None):
             catalog=catalog,
             preview=preview,
             power_requests=power_requests,
+            homekit=homekit,
         ),
     )
     video_thread = http_thread = None
@@ -701,6 +734,8 @@ def main(argv=None, service_info=None):
         controller.update_statuses(statuses)
         if video is not None:
             video.controller.update_statuses(statuses)
+        if homekit is not None:
+            homekit.tick()
 
     try:
         if hue_config is not None:
@@ -728,7 +763,8 @@ def main(argv=None, service_info=None):
         http_thread = threading.Thread(target=server.serve_forever, daemon=True, name="pilot-http")
         http_thread.start()
         print(
-            f"Pilot adapter on port {args.port}; two pinned Govee; no power commands.",
+            f"Pilot adapter on port {args.port}; two pinned Govee; "
+            + ("HomeKit power authority." if homekit is not None else "no power commands."),
             flush=True,
         )
         deadline = time.monotonic()

@@ -1,5 +1,9 @@
 # Homebridge power coordination pilot
 
+Superseded by `homebridge/` (platform `LightsCanCommunicate`), where the core
+executes power itself and no Govee plugin file is patched. This overlay stays
+in use until that migration is authorized and performed.
+
 Installed as an approved compatibility overlay on the NAS on 2026-11-14.
 Existing HomeKit accessories, bridge identity, services and pairing are retained.
 Automatic Apple Home Off/On has live API coverage; the owner confirmed physical

@@ -88,6 +88,11 @@ Optional configuration sections:
             "entertainment": true, "gradient": true}
 ```
 
+`adapter.power_authority` selects who owns Govee power: `owner` (default, the
+remote heartbeat of the Homebridge overlay) or `homekit` (this adapter executes
+power for the `homebridge-lights-can-communicate` plugin through `/homekit`;
+`/power-owner` is then closed). See `homebridge/README.md`.
+
 `gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
 digest), `adapter_url` (default `http://host.docker.internal:<adapter port>`)
 and `timezone`. With a `gateway` section the adapter `bind` must not be a

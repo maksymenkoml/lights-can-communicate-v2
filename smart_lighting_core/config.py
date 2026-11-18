@@ -162,6 +162,7 @@ class ServiceConfig:
     hue_play: bool
     hue_stream_config_file: Path | None
     native_profile_file: Path | None = None
+    power_authority: str = "owner"
     setup: SetupConfig = SetupConfig()
     gateway: GatewayConfig | None = None
 
@@ -188,6 +189,7 @@ class ServiceConfig:
             result.extend(["--hue-stream-config", str(self.hue_stream_config_file)])
         if self.native_profile_file:
             result.extend(["--native-profile", str(self.native_profile_file)])
+        result.extend(["--power-authority", self.power_authority])
         return result
 
 
@@ -201,7 +203,11 @@ def load_config(path):
     options = data["adapter"]
     paths = {"targets_file", "token_file", "power_owner_token_file"}
     optional_paths = {"hue_config_file", "hue_stream_config_file", "native_profile_file"}
-    _fields(options, paths, optional_paths | {"bind", "port", "gradient", "hue_play"}, "adapter")
+    _fields(options, paths,
+            optional_paths | {"bind", "port", "gradient", "hue_play", "power_authority"},
+            "adapter")
+    if options.get("power_authority", "owner") not in ("owner", "homekit"):
+        raise ConfigError("Invalid power authority")
     for field in ("gradient", "hue_play"):
         if type(options.get(field, False)) is not bool:
             raise ConfigError(f"Expected boolean {field}")
@@ -235,6 +241,7 @@ def load_config(path):
         port=port,
         gradient=options.get("gradient", False),
         hue_play=options.get("hue_play", False),
+        power_authority=options.get("power_authority", "owner"),
         setup=setup,
         gateway=gateway,
         **resolved,

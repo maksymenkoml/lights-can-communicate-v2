@@ -1,0 +1,19 @@
+{
+  "name": "homebridge-lights-can-communicate",
+  "displayName": "Lights Can Communicate",
+  "version": "0.1.0",
+  "description": "Homebridge accessories for the desk lamps owned by the Lights Can Communicate core",
+  "type": "module",
+  "main": "index.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "keywords": ["homebridge-plugin"],
+  "engines": {
+    "homebridge": "^1.8.0 || ^2.0.0",
+    "node": "^22.12.0 || ^24 || ^26"
+  },
+  "files": ["index.js", "lib/", "config.schema.json"],
+  "devDependencies": {
+    "@homebridge/hap-nodejs": "2.3.0"
+  }
+}
