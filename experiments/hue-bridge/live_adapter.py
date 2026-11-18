@@ -20,7 +20,12 @@ if Path(__file__).is_file():
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_segments import interpolate, segment_data  # noqa: E402
-from homekit_power import HomeKitPower, HomeKitRequests, SignatureVerifier  # noqa: E402
+from homekit_power import (  # noqa: E402
+    HomeKitPower,
+    HomeKitRequests,
+    SignatureVerifier,
+    response_signature,
+)
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402
@@ -463,7 +468,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             nonce = getattr(self, "signed_nonce", None)
             if nonce is not None:
                 self.send_header("X-LCC-Response",
-                                 signatures.sign_response(nonce, status, data))
+                                 response_signature(power_token, nonce, status, data))
             keep_alive = getattr(self, "stream_keep_alive", False)
             self.send_header("Connection", "keep-alive" if keep_alive else "close")
             self.close_connection = not keep_alive

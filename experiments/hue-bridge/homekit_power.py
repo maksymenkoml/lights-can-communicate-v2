@@ -338,9 +338,6 @@ class SignatureVerifier:
         self.lock = threading.Lock()
         self.seen = {}
 
-    def sign_response(self, nonce, status, body):
-        return response_signature(self.token, nonce, status, body)
-
     def verify(self, method, path, headers, body):
         timestamp = headers.get("X-LCC-Timestamp", "")
         nonce = headers.get("X-LCC-Nonce", "")
