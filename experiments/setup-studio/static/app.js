@@ -370,9 +370,13 @@ function dragZone(kind,p){
  const config=zoneConfig(P);if(validSyncZone(config))environment.zones[view()]=config.points;
 }
 function resetZone(){const c=view();if(!environment.zones[c])return;remember();environment.zones[c]=null;renderScene();renderHistory();tell('The zone is automatic again')}
+// A lamp that is drawn but not connected shows a broken link where a problem shows "!".
+const UNLINKED_ICON='<path d="M-1.3 1.3 -2.4 2.4A1.8 1.8 0 0 1 -4.9 -0.1L-3.8 -1.2M1.3 -1.3 2.4 -2.4A1.8 1.8 0 0 1 4.9 0.1L3.8 1.2M-0.6 -3.4V-4.6M3.4 0.6H4.6"/>';
 function healthMarkSvg(l){
- if(selected===l.id||l.unbound||l.enabled===false)return '';
- const b=lampBlocker(l),f=lampFrame(l);
+ if(selected===l.id||l.enabled===false)return '';
+ const f=lampFrame(l),cx=f.right-f.x-3,cy=f.top-f.y+3;
+ if(l.unbound)return '<g class="health-badge unlinked" data-link-badge data-tooltip="Not connected"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><g transform="translate('+cx+' '+cy+')">'+UNLINKED_ICON+'</g></g>';
+ const b=lampBlocker(l);
  return '<g class="health-badge" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+(f.right-f.x-3)+'" cy="'+(f.top-f.y+3)+'" r="7.5"/><text x="'+(f.right-f.x-3)+'" y="'+(f.top-f.y+6.6)+'">!</text></g>';
 }
 // The monitor strip glows left to right like the screen picture: left side, three top zones, right side.

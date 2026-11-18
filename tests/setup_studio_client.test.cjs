@@ -637,6 +637,17 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
  assert.equal(left().sceneScale,40);
 });
 
+test('a drawn lamp that is not connected shows a broken-link badge where problems show',async()=>{
+ const remote=saved();remote.devices.push({id:discovered().id,name:'Third <lamp>',model:'H6076',shape:'floor',zones:7,scale:45,positionCm:{x:150,height:60}});
+ const app=await harness({layout:remote});
+ const node=app.lamp(discovered().id),badge=node.querySelector('[data-link-badge]');
+ assert.ok(badge,'the badge is drawn');assert.equal(badge.dataset.tooltip,'Not connected');
+ assert.equal(node.querySelector('[data-badge]'),null,'no problem badge');
+ assert.equal(app.lamp('govee-left').querySelector('[data-link-badge]'),null,'connected lamps have none');
+ app.run('select("'+discovered().id+'")');await app.settle();
+ assert.equal(app.lamp(discovered().id).querySelector('[data-link-badge]'),null,'hidden while the chip is shown');
+});
+
 test('an unlit lens or zone shows black under the light',async()=>{
  const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[255,0,0]],{source:'scene-output',on:false})}})});
  const node=app.lamp('play-left'),off=node.querySelector('.lens-off');
