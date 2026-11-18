@@ -15,7 +15,10 @@ an Apple Home Off even with fresh LAN status. The original plugin itself notes
 implicit power-on from color commands and delays its own Off by 400 ms.
 
 This overlay coordinates the main-light On setter and the existing instance color writers in the exact installed
-[`@homebridge-plugins/homebridge-govee` 11.39.1 source](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.39.1/lib/device/light.js).
+`@homebridge-plugins/homebridge-govee` source. Verified releases are
+[11.39.1](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.39.1/lib/device/light.js)
+and [11.40.0](https://github.com/homebridge-plugins/homebridge-govee/blob/v11.40.0/lib/device/light.js);
+`prepare_overlay.py` pins the public `light.js` and `platform.js` SHA256 of each.
 Its unchanged original
 handler still performs the actual power command. The wrapper first pauses the
 pilot's color writer, and grants color after identity-verified native On confirmation. UUID generation and
@@ -53,11 +56,12 @@ the current NAS power writer.
 
 ```sh
 python3 -B experiments/homebridge-power/prepare_overlay.py \
-  --source /path/to/exact-public-11.39.1-source \
+  --source /path/to/exact-public-release-source \
   --output /new/local/overlay-directory
 ```
 
-The builder verifies package identity/version and the original `light.js` SHA256,
+The builder verifies package identity/version and the original `light.js` and
+`platform.js` SHA256 of that release,
 refuses existing output, retains the upstream license and produces a manifest.
 Only three runtime files are in the overlay: the patched light handler and two
 new modules under `lib/smart-lighting-power/`. Source, package metadata, platform
@@ -90,6 +94,25 @@ backup. Concurrent changes are preserved and stop installation; ambiguous
 rollback state is retained for inspection. It never changes the package,
 platform factory, Homebridge configuration, accessory cache or pairing files,
 and never restarts a service itself.
+
+A plugin upgrade replaces the package, including the overlay modules, but keeps
+the private owner config and intent state in Homebridge storage. Reinstalling on
+the new verified release reuses that config only when it is a regular mode-0600
+file identical to the artifact config; it is never rewritten, and rollback
+never removes it. A different or broader-permission config stops installation
+for inspection.
+
+Before preparing a newly verified release, run the native writer contract
+against its public source:
+
+```sh
+node tests/check_native_writers_upstream.mjs /path/to/release/lib/device/light.js
+```
+
+11.40.0 changes Home 0% brightness into a native state Off and adds a
+raw-zone AWS status refresh. The hook already routes 0% through the
+coordinated Off, so exactly one Off is sent; the setter, sender and transport
+interfaces used by the hook are unchanged.
 
 The installer restricts and verifies the actual config inode as mode 0600 before
 writing credential bytes. This matters on Synology, where inherited permissions
