@@ -1,7 +1,7 @@
 # Lights Can Communicate v2 prototype
 
 The current six-light virtual Hue pilot is documented in
-[experiments/hue-bridge](experiments/hue-bridge/README.md). Its first distributable
+[bridge](bridge/README.md). Its first distributable
 adapter component is documented in [core/README.md](core/README.md). The commands
 below describe the original palette-following experiment.
 

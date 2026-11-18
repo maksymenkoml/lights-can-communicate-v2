@@ -54,7 +54,7 @@ def prepare(config):
     # archive all runtime modules already live in the archive's import root.
     from pathlib import Path
 
-    pilot = Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"
+    pilot = Path(__file__).resolve().parents[1] / "bridge"
     if Path(__file__).is_file():
         sys.path.insert(0, str(pilot))
     import live_adapter
@@ -133,7 +133,7 @@ def _setup_module():
         import importlib.util
         from pathlib import Path
 
-        source = Path(__file__).resolve().parents[1] / "experiments/setup-studio/server.py"
+        source = Path(__file__).resolve().parents[1] / "studio/server.py"
         spec = importlib.util.spec_from_file_location("setup_studio", source)
         setup_studio = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(setup_studio)

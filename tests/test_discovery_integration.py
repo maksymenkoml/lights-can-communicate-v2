@@ -10,7 +10,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import positions, validate_layout  # noqa: E402
 from live_adapter import PilotController, handler_for  # noqa: E402
 from pilot_transport import PilotTransport  # noqa: E402

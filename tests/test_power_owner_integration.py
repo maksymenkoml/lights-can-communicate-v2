@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'experiments/hue-bridge'))
+sys.path.insert(0, str(ROOT / 'bridge'))
 from live_adapter import PilotController, handler_for  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402

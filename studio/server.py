@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
 
@@ -539,7 +539,7 @@ def main():
     parser.add_argument("--port", type=int, default=19881)
     args = parser.parse_args()
     # Development entry point; the packaged service passes explicit paths.
-    token = Path(__file__).resolve().parents[1] / "hue-bridge/state/adapter-token"
+    token = Path(__file__).resolve().parents[1] / "bridge/state/adapter-token"
     serve(token, token.parent / "desk-layout.json", port=args.port)
 
 

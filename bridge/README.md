@@ -26,7 +26,7 @@ a local reference experiment.
 
 See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for actual Sync Box video relay, PS5 menu/game/Stop acceptance, right-lamp pacing, and remaining hardware coverage limits. [FEATURES.md](FEATURES.md) separates verified pilot features from Homebridge work.
 
-**Live desk layout:** the [setup studio](../setup-studio/README.md) now saves
+**Live desk layout:** the [setup studio](../studio/README.md) now saves
 the owner's six-role layout into the private shared state. Positions relative
 to the monitor update the eighteen-channel source area; each Govee retains
 three Signe anchors over seven physical zones. A controlled live Sync Box

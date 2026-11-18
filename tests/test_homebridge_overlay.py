@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-MODULE = Path(__file__).resolve().parents[1] / 'experiments/homebridge-power/prepare_overlay.py'
+MODULE = Path(__file__).resolve().parents[1] / 'homebridge-power/prepare_overlay.py'
 spec = importlib.util.spec_from_file_location('power_overlay', MODULE)
 overlay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(overlay)

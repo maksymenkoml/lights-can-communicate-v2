@@ -5,7 +5,7 @@ import unittest
 import urllib.error
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_receiver import StreamOutbox, dtls_diagnostic  # noqa: E402
 from test_entertainment_stream import colors  # noqa: E402
 

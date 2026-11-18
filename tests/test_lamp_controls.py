@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LayoutStore, composed, validate_layout  # noqa: E402
 from entertainment_stream import VideoLease  # noqa: E402
 from homekit_power import HomeKitPower  # noqa: E402
@@ -740,7 +740,7 @@ class IdentifyRouteTests(IdentifyFixture):
 
 spec = importlib.util.spec_from_file_location(
     "setup_studio_identify",
-    Path(__file__).resolve().parents[1] / "experiments/setup-studio/server.py")
+    Path(__file__).resolve().parents[1] / "studio/server.py")
 studio = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(studio)
 

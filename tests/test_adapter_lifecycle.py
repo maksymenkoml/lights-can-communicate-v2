@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as pilot  # noqa: E402
 from entertainment_stream import VideoLease  # noqa: E402
 from test_live_adapter import targets  # noqa: E402

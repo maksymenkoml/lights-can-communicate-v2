@@ -17,7 +17,7 @@ from lights_can_communicate_v2_core import cli
 from lights_can_communicate_v2_core.config import ConfigError, load_config
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import hue_entertainment_relay as relay_module  # noqa: E402
 import live_adapter as pilot  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402

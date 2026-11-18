@@ -49,7 +49,7 @@ def build(output):
     root = Path(__file__).resolve().parents[1]
     paths = {"lights_can_communicate_v2.py": root / "lights_can_communicate_v2.py"}
     paths.update(
-        {name + ".py": root / "experiments/hue-bridge" / (name + ".py") for name in PILOT_MODULES}
+        {name + ".py": root / "bridge" / (name + ".py") for name in PILOT_MODULES}
     )
     paths.update(
         {
@@ -58,7 +58,7 @@ def build(output):
             for name in CORE_MODULES
         }
     )
-    paths.update({name: root / "experiments/setup-studio" / source
+    paths.update({name: root / "studio" / source
                   for name, source in SETUP_FILES.items()})
     files = {}
     for name, path in paths.items():

@@ -7,7 +7,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'experiments/hue-bridge'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
 from live_adapter import PilotController, handler_for  # noqa: E402
 from stream_http import StreamHttpSender  # noqa: E402
 from test_live_adapter import targets  # noqa: E402

@@ -40,7 +40,7 @@ jobs:
       - name: Lint
         run: |
           uvx --offline --from "$(cat requirements-dev.txt)" ruff check .
-          node --check experiments/setup-studio/static/app.js
+          node --check studio/static/app.js
       - name: JavaScript contracts
         run: node --test tests/*.test.cjs tests/*.test.mjs
       - name: Python contracts
@@ -58,7 +58,7 @@ jobs:
           persist-credentials: false
       - name: Resolve the Compose image pin
         run: |
-          image=$(PROBE_IP=127.0.0.1 PROBE_MAC=00:11:22:33:44:55 docker compose -f experiments/hue-bridge/compose.yaml config --images)
+          image=$(PROBE_IP=127.0.0.1 PROBE_MAC=00:11:22:33:44:55 docker compose -f bridge/compose.yaml config --images)
           printf '%s\n' "$image" | grep -Eq '^diyhue/core@sha256:[a-f0-9]{64}$'
           echo "PILOT_IMAGE=$image" >> "$GITHUB_ENV"
       - name: Pull pinned public test image

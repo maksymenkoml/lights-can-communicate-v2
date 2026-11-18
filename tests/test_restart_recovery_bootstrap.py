@@ -287,7 +287,7 @@ os._exit(0)
                      "Requires the pinned public diyHue image")
 class RestartBootstrapTests(unittest.TestCase):
     def test_bootstrap_main_error_still_shuts_down_receiver(self):
-        source = Path(__file__).resolve().parents[1] / "experiments/hue-bridge/bootstrap.py"
+        source = Path(__file__).resolve().parents[1] / "bridge/bootstrap.py"
         with tempfile.TemporaryDirectory(prefix="tmp_restart-error-") as directory:
             folder = Path(directory)
             driver = folder / "tmp_error_driver.py"
@@ -301,7 +301,7 @@ class RestartBootstrapTests(unittest.TestCase):
             self.assertIn('{"guard_closed": true, "receiver_closed": true}', process.stdout)
 
     def test_actual_upstream_signals_shutdown_before_vendor_hard_exit(self):
-        source = Path(__file__).resolve().parents[1] / "experiments/hue-bridge/bootstrap.py"
+        source = Path(__file__).resolve().parents[1] / "bridge/bootstrap.py"
         for phase in ("signal-term", "signal-int", "signal-hold", "signal-timeout"):
             with self.subTest(phase=phase), tempfile.TemporaryDirectory(
                     prefix="tmp_restart-signal-") as directory:
@@ -332,7 +332,7 @@ class RestartBootstrapTests(unittest.TestCase):
                     self.assertLess(events.index("guard.close"), events.index("shutdown.done"))
 
     def test_cold_replay_partial_cancel_hold_and_shutdown_through_real_bootstrap(self):
-        source = Path(__file__).resolve().parents[1] / "experiments/hue-bridge/bootstrap.py"
+        source = Path(__file__).resolve().parents[1] / "bridge/bootstrap.py"
         with tempfile.TemporaryDirectory(prefix="tmp_restart-bootstrap-") as directory:
             folder = Path(directory)
             state = folder / "state"

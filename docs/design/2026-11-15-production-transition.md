@@ -107,6 +107,6 @@ acceptance. Passing the existing unit suite alone does not establish these gates
 ## Primary references
 
 - Homebridge custom UI: https://github.com/homebridge/plugin-ui-utils
-- Current implemented subset: experiments/hue-bridge/FEATURES.md
-- Recovery evidence: experiments/hue-bridge/RECOVERY.md
-- Installed overlay limits: experiments/homebridge-power/README.md
+- Current implemented subset: bridge/FEATURES.md
+- Recovery evidence: bridge/RECOVERY.md
+- Installed overlay limits: homebridge-power/README.md

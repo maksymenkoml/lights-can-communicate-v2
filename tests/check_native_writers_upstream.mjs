@@ -4,7 +4,7 @@ import { AsyncResource } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { coordinatedNativeWrites } from '../experiments/homebridge-power/hook.mjs';
+import { coordinatedNativeWrites } from '../homebridge-power/hook.mjs';
 
 const source = readFileSync(process.argv[2], 'utf8');
 // Public light.js of each release accepted by prepare_overlay.py.

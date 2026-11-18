@@ -77,7 +77,7 @@ For local bridge code reloads, preserve the existing private state and use:
 docker compose -p lights-can-communicate-v2-hue-probe up -d --force-recreate --no-deps --pull never bridge
 ```
 
-Run this from `experiments/hue-bridge`. Preserve the selected opt-in profile in
+Run this from `bridge`. Preserve the selected opt-in profile in
 its private `.env`; this pilot uses `PROBE_GOVEE_GRADIENT=true`. A plain container
 restart did not repair the observed stale publication. Do not restart the shared
 Docker daemon or grant the bridge access to its control socket for this workaround.

@@ -102,7 +102,7 @@ authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
 
 ## Compatibility and operation
 
-The `experiments/hue-bridge/live_adapter.py` command retains its existing flags.
+The `bridge/live_adapter.py` command retains its existing flags.
 Hue output now requires `--native-profile` together with `--hue-config`.
 Its state directory still defaults to the target file's parent, and its bind
 address still defaults to all interfaces. The packaged launcher adds explicit
@@ -513,7 +513,7 @@ Setup Studio forwards `POST /api/identify {"lamp"}` here.
 
 ## Lamp names
 
-A role row of the layout may carry `name` (see `experiments/setup-studio/README.md`;
+A role row of the layout may carry `name` (see `studio/README.md`;
 1-35 characters, 1-32 for `hue-monitor` and `play-*`, stripped, no control
 characters). `LayoutStore.names()` returns `{role: name}` for the rows that have
 one. A missing name means "no owner name": nothing is renamed anywhere, and

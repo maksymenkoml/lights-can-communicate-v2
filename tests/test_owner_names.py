@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "experiments/hue-bridge"))
+sys.path.insert(0, str(ROOT / "bridge"))
 from hue_names import SLOT_ROLES, OwnerNames  # noqa: E402
 
 
@@ -83,7 +83,7 @@ class OwnerNamesTests(unittest.TestCase):
         self.assertEqual((fixture.saves, fixture.published), (0, []))
 
     def test_slot_roles_match_the_bridge_output_mapping(self):
-        source = (ROOT / "experiments/hue-bridge/bridge_output.py").read_text()
+        source = (ROOT / "bridge/bridge_output.py").read_text()
         for slot, role in SLOT_ROLES.items():
             self.assertIn(f'"{slot}"', source)
             self.assertIn(f'"{role}"', source)
@@ -96,7 +96,7 @@ class OwnerNamesTests(unittest.TestCase):
 
 class BootstrapAnnouncementTests(unittest.TestCase):
     def test_renamed_lights_are_announced_as_a_v2_update_with_their_metadata(self):
-        source = ROOT / "experiments/hue-bridge/bootstrap.py"
+        source = ROOT / "bridge/bootstrap.py"
         tree = ast.parse(source.read_text())
         function = next(node for node in ast.walk(tree)
                         if isinstance(node, ast.FunctionDef) and node.name == "publish_light_names")
@@ -116,7 +116,7 @@ class BootstrapAnnouncementTests(unittest.TestCase):
             "metadata": {"name": "Desk left", "archetype": "sultan_bulb"}}])
 
     def test_bootstrap_applies_names_at_start_and_watches_changes(self):
-        text = (ROOT / "experiments/hue-bridge/bootstrap.py").read_text()
+        text = (ROOT / "bridge/bootstrap.py").read_text()
         self.assertIn("owner_names.apply(announce=False)", text)
         self.assertIn("name='desk-names'", text)
         self.assertIn("layout_store.names", text)

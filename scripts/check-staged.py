@@ -19,7 +19,7 @@ def main():
     private_names = {'.lighting.json', '.lighting-stream.json', '.sync-box.json', '.env'}
     for name in names:
         path = Path(name)
-        if (path.name in private_names or name.startswith('experiments/hue-bridge/state/')
+        if (path.name in private_names or name.startswith('bridge/state/')
                 or name.endswith(('.pem', '.key'))):
             print('Private configuration cannot be committed: ' + name, file=sys.stderr)
             return 1

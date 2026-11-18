@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { PowerOwnerClient } from '../../experiments/homebridge-power/owner-client.mjs';
-import { coordinatedNativeWrites } from '../../experiments/homebridge-power/hook.mjs';
+import { PowerOwnerClient } from '../../homebridge-power/owner-client.mjs';
+import { coordinatedNativeWrites } from '../../homebridge-power/hook.mjs';
 
 const base = process.argv[2];
 if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw Error('Loopback endpoint required');

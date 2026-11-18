@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_stream import VideoLease  # noqa: E402
 from govee_segments import razer_colors  # noqa: E402
 from live_adapter import PilotController, normalize_state  # noqa: E402

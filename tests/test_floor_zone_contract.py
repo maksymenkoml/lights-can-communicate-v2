@@ -4,7 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'experiments/hue-bridge'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
 from desk_layout import validate_layout  # noqa: E402
 from sync_projection import project_native_frame, sync_profile  # noqa: E402
 from test_desk_layout import layout  # noqa: E402

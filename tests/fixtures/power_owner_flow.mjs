@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { PowerOwnerClient } from '../../experiments/homebridge-power/owner-client.mjs';
+import { PowerOwnerClient } from '../../homebridge-power/owner-client.mjs';
 
 const base = process.argv[2];
 if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw Error('Loopback test endpoint required');

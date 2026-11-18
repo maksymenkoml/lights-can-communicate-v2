@@ -5,8 +5,8 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { PowerOwnerClient } from '../experiments/homebridge-power/owner-client.mjs';
-import { coordinatedNativeWrites, coordinatedSetter } from '../experiments/homebridge-power/hook.mjs';
+import { PowerOwnerClient } from '../homebridge-power/owner-client.mjs';
+import { coordinatedNativeWrites, coordinatedSetter } from '../homebridge-power/hook.mjs';
 
 const RIGHT = 'D4:A5:D2:21:C0:46:4F:55';
 

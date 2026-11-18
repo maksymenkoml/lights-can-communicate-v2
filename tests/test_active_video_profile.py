@@ -4,7 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_stream import GRADIENT_MODE, VideoLease  # noqa: E402
 from live_adapter import PilotController  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402

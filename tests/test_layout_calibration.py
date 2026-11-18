@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_stream import native_colors  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
 from live_adapter import PilotController  # noqa: E402

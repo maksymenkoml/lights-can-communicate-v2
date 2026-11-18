@@ -70,7 +70,7 @@ def build_release(output):
         gateway = output / "gateway"
         gateway.mkdir()
         for name in GATEWAY_MODULES:
-            source = root / "experiments/hue-bridge" / (name + ".py")
+            source = root / "bridge" / (name + ".py")
             if source.is_symlink() or not source.is_file():
                 raise ValueError("Missing or redirected gateway source")
             shutil.copyfile(source, gateway / (name + ".py"))

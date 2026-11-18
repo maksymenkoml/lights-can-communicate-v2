@@ -59,7 +59,7 @@ the current NAS power writer.
 ## Prepare, do not install
 
 ```sh
-python3 -B experiments/homebridge-power/prepare_overlay.py \
+python3 -B homebridge-power/prepare_overlay.py \
   --source /path/to/exact-public-release-source \
   --output /new/local/overlay-directory
 ```
@@ -152,7 +152,7 @@ fresh identity-confirmed native samples stayed Off and color permission stayed
 closed. Plain On restored both grants, seven zones and advancing video frames
 in six samples. Existing native-cache safety pauses occurred during Off sampling
 and recovered; this is not evidence of uninterrupted video. See
-`../hue-bridge/evidence/nas-power-live.json`.
+`../bridge/evidence/nas-power-live.json`.
 
 The owner subsequently confirmed physical Right Lamp Off through Apple Home.
 Pending: visual On confirmation, equivalent live Left Lamp coverage, and existing
@@ -195,7 +195,7 @@ authorization, replay, and concurrent geometry publication during a snapshot.
 After recreating only the live reference bridge, six read-only samples showed
 the existing NAS Right Off matching both virtual state and the actual Hue v2
 API. Left remained On and feedback reported no errors; see
-`../hue-bridge/evidence/hue-power-feedback-live.json`.
+`../bridge/evidence/hue-power-feedback-live.json`.
 
 ## iPhone verification and SSE repair
 
@@ -228,9 +228,9 @@ closed color permission; Apple Home later reflected On again. A repeated ordinar
 Home Off succeeded in eight fresh native readbacks. The cause of that missed
 physical write is unresolved and is not hidden by the UI result. The wrapper/NAS
 power writer was not changed by this SSE slice. See
-`../hue-bridge/evidence/iphone-power-feedback.json`.
+`../bridge/evidence/iphone-power-feedback.json`.
 
-The owner sleep hold is `experiments/hue-bridge/state/live-output-hold`. It must
+The owner sleep hold is `bridge/state/live-output-hold`. It must
 remain until the owner explicitly resumes physical testing. Keep the live adapter
 and test bridge stopped during this hold. Source-only checks may use isolated
 containers with `--network none` and no private state mounts. On resume, use the
@@ -283,7 +283,7 @@ locally cached until the app refreshes even when fresh reads are correct.
 
 ## Latest live boundary
 
-See [confirmed-power-live.json](../hue-bridge/evidence/confirmed-power-live.json).
+See [confirmed-power-live.json](../bridge/evidence/confirmed-power-live.json).
 The uncapped Left scene stream had 64.4% fresh identity/native coverage during
 one On capture; a 4/s zonal test profile reached 99.3%. Three subsequent Left Off
 cases at 4/s converged in 4.78, 5.41 and 5.00 seconds, including independent Left
@@ -321,7 +321,7 @@ explicitly reported that the connection had ended due to iPhone use. A repeat
 requires an uninterrupted mirroring session; this is not proof of a bridge or
 Hue app bug. Sync showed PS5 Disconnected, so no renewed video test was started.
 Final native/API states are both Off with the original Vapor wave DESK Play
-restored. See `../hue-bridge/evidence/iphone-confirmed-power-live.json`.
+restored. See `../bridge/evidence/iphone-confirmed-power-live.json`.
 
 ## Explicit Hue App power commands
 

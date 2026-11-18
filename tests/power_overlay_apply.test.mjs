@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { applyOverlay } from '../experiments/homebridge-power/apply-overlay.mjs';
+import { applyOverlay } from '../homebridge-power/apply-overlay.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 function fixture(version = '11.39.1') {

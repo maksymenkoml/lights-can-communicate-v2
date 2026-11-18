@@ -5,7 +5,7 @@ import types
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_names import AREA_NAME, BRIDGE_NAME, ROOM_NAME, rename_legacy  # noqa: E402
 
 

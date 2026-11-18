@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'experiments/hue-bridge'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
 from desk_layout import LayoutStore, validate_layout  # noqa: E402
 from test_desk_layout import layout  # noqa: E402
 from test_live_preview import metadata  # noqa: E402

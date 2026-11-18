@@ -15,7 +15,7 @@ from lights_can_communicate_v2_core import __version__, services
 from lights_can_communicate_v2_core.dist import STATE_SCHEMAS, build_release
 from lights_can_communicate_v2_core.install import Installation, InstallError, verify
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, validate_layout  # noqa: E402
 
 TOKEN = "a" * 48
