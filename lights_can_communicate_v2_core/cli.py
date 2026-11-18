@@ -59,7 +59,7 @@ def prepare(config):
         sys.path.insert(0, str(pilot))
     import live_adapter
 
-    import smart_lighting as lan
+    import lights_can_communicate_v2 as lan
 
     token, owner = _credential(config.token_file), _credential(config.power_owner_token_file)
     if hmac.compare_digest(token, owner):
@@ -176,7 +176,7 @@ def _adapter(config, check):
         return 0
     _interruptible(lambda: runtime.main(
         config.arguments(),
-        service_info={"name": "smart-lighting-adapter", "version": __version__},
+        service_info={"name": "lights-can-communicate-v2-adapter", "version": __version__},
     ))
     return 0
 
@@ -196,7 +196,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv and argv[0] in install.COMMANDS:
         return install.main(argv)
-    parser = argparse.ArgumentParser(description="Smart Lighting managed core")
+    parser = argparse.ArgumentParser(description="Lights Can Communicate v2 managed core")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("command", nargs="?", default="adapter",
                         choices=("adapter", "setup", "ready", "services"))

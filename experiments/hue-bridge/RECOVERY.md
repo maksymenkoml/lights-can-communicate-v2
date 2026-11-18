@@ -74,7 +74,7 @@ it does not establish that every Box connection failure has the same cause.
 For local bridge code reloads, preserve the existing private state and use:
 
 ```sh
-docker compose -p smart-lighting-hue-probe up -d --force-recreate --no-deps --pull never bridge
+docker compose -p lights-can-communicate-v2-hue-probe up -d --force-recreate --no-deps --pull never bridge
 ```
 
 Run this from `experiments/hue-bridge`. Preserve the selected opt-in profile in

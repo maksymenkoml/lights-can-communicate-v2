@@ -20,7 +20,7 @@ import time
 from power_owner import GRANT_SECONDS, MAX_MESSAGE_AGE
 from power_requests import PowerRequestUnavailable
 
-import smart_lighting as lan
+import lights_can_communicate_v2 as lan
 
 ROLES = ("left", "right")
 CONFIRM_SECONDS = 3.0

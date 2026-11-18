@@ -1,6 +1,6 @@
 # Homebridge power coordination pilot
 
-Superseded by `homebridge/` (platform `LightsCanCommunicate`), where the core
+Superseded by `homebridge/` (platform `LightsCanCommunicateV2`), where the core
 executes power itself and no Govee plugin file is patched. This overlay stays
 in use until that migration is authorized and performed.
 
@@ -68,12 +68,12 @@ The builder verifies package identity/version and the original `light.js` and
 `platform.js` SHA256 of that release,
 refuses existing output, retains the upstream license and produces a manifest.
 Only three runtime files are in the overlay: the patched light handler and two
-new modules under `lib/smart-lighting-power/`. Source, package metadata, platform
+new modules under `lib/lights-can-communicate-v2-power/`. Source, package metadata, platform
 factory and Homebridge state are not changed by preparation. The upstream MIT
 license is included in each prepared artifact.
 
 The hook is optional when its private config is absent. A configured hook reads
-`smart-lighting-power.json` from `api.user.storagePath()`:
+`lights-can-communicate-v2-power.json` from `api.user.storagePath()`:
 
 ```json
 {
@@ -83,7 +83,7 @@ The hook is optional when its private config is absent. A configured hook reads
 }
 ```
 
-Keep this file mode 0600. Its separate `smart-lighting-power-state.json` contains
+Keep this file mode 0600. Its separate `lights-can-communicate-v2-power-state.json` contains
 only owner intent; it does not replace Homebridge's accessory cache. Neither file
 belongs in Git or logs. The exact installed source must pass the manifest guard
 before any installation. A plugin upgrade invalidates this overlay until checked

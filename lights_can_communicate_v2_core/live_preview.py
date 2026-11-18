@@ -8,7 +8,7 @@ import time
 from functools import reduce
 from operator import xor
 
-import smart_lighting as lan
+import lights_can_communicate_v2 as lan
 
 HUE_ROLES = {
     "strip": "hue-monitor",

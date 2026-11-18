@@ -74,7 +74,7 @@ release needs no npm and stays reproducible.
 
 ## Commands
 
-All run from a release archive: `python3 smart-lighting.pyz <command> --base BASE`.
+All run from a release archive: `python3 lights-can-communicate-v2.pyz <command> --base BASE`.
 
 - `stage --release DIR`: copies `DIR` to `releases/<version>.partial`,
   verifies every manifest hash, checks the Python version and the

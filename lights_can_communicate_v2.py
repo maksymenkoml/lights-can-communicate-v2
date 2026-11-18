@@ -672,7 +672,8 @@ def main():
         print("Press the physical button on Hue Bridge now. Waiting for pairing...", flush=True)
         end = time.monotonic() + 90
         while time.monotonic() < end:
-            result = hue_request(config, "/api", {"devicetype": "smart-lighting#desktop"})
+            result = hue_request(
+                config, "/api", {"devicetype": "lights-can-communicate-v2#desktop"})
             if result and "success" in result[0]:
                 config["hue_key"] = result[0]["success"]["username"]
                 save_config(config)

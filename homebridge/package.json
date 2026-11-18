@@ -1,8 +1,8 @@
 {
-  "name": "homebridge-lights-can-communicate",
-  "displayName": "Lights Can Communicate",
+  "name": "homebridge-lights-can-communicate-v2",
+  "displayName": "Lights Can Communicate v2",
   "version": "0.1.0",
-  "description": "Homebridge accessories for the desk lamps owned by the Lights Can Communicate core",
+  "description": "Homebridge accessories for the desk lamps owned by the Lights Can Communicate v2 core",
   "type": "module",
   "main": "index.js",
   "license": "UNLICENSED",

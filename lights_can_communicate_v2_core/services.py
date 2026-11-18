@@ -11,9 +11,9 @@ from pathlib import Path
 from . import __version__
 from .config import ConfigError
 
-ADAPTER_LABEL = "com.smart-lighting.adapter"
-SETUP_LABEL = "com.smart-lighting.setup"
-ARCHIVE = "smart-lighting.pyz"
+ADAPTER_LABEL = "com.lights-can-communicate-v2.adapter"
+SETUP_LABEL = "com.lights-can-communicate-v2.setup"
+ARCHIVE = "lights-can-communicate-v2.pyz"
 GATEWAY_MODULES = (
     "bootstrap",
     "bridge_output",
@@ -81,7 +81,7 @@ def gateway_compose(config, release):
     volumes += [f"{release / 'gateway' / (name + '.py')}:/probe/{name}.py:ro"
                 for name in GATEWAY_MODULES]
     return {
-        "name": "smart-lighting",
+        "name": "lights-can-communicate-v2",
         "services": {
             "gateway": {
                 "image": gateway.image,

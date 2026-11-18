@@ -7,7 +7,7 @@ import time
 from contextlib import redirect_stdout
 from pathlib import Path
 
-import smart_lighting as lighting
+import lights_can_communicate_v2 as lighting
 
 
 class MeasurementDone(Exception):

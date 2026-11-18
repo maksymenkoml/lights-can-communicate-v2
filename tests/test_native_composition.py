@@ -15,7 +15,7 @@ from test_hue_entertainment_relay import FakeConnection
 from test_native_profile import OTHER, profile_data
 from test_native_profile_integration import stream_config, synthetic_area
 
-from smart_lighting_core.native_profile import NativeHueProfile
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 ROLES = ('hue_center', 'hue_left', 'hue_right', 'strip')
 

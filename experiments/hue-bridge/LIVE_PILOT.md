@@ -117,7 +117,7 @@ Native off revokes the write gate before deferred batch publication.
 Only a fresh identity plus a fresh native-on status can authorize output.
 Status refresh alone cannot extend an old identity proof.
 
-The renderer still uses `smart_lighting.send_to_target` as its only write gate.
+The renderer still uses `lights_can_communicate_v2.send_to_target` as its only write gate.
 A mocked transport/render integration test exercises this gate at 50 ms.
 After owner resume, the same two lamps completed this 14-second live window:
 

@@ -49,12 +49,13 @@ def prepare(source, output, release=None):
     if text.count(ORIGINAL_SETTER) != 1:
         raise ValueError('Expected exactly one original main-light On setter')
     modified = (
-        "import { coordinatedSetter } from '../smart-lighting-power/hook.mjs'\n"
+        "import { coordinatedSetter } from '../lights-can-communicate-v2-power/hook.mjs'\n"
         + text.replace(ORIGINAL_SETTER, PATCHED_SETTER, 1)
     )
     files = {
         'lib/device/light.js': modified.encode(),
-        **{f'lib/smart-lighting-power/{name}': (Path(__file__).parent / name).read_bytes()
+        **{f'lib/lights-can-communicate-v2-power/{name}':
+           (Path(__file__).parent / name).read_bytes()
            for name in ('owner-client.mjs', 'hook.mjs')},
     }
     manifest = {'plugin': package['name'], 'version': version,

@@ -11,7 +11,7 @@ import {
   CORE_API, CoreClient, readCredentials, sign, signResponse,
 } from '../homebridge/lib/client.js';
 import {
-  LightsCanCommunicatePlatform, PLATFORM_NAME, PLUGIN_NAME, UNAVAILABLE_MS,
+  LightsCanCommunicateV2Platform, PLATFORM_NAME, PLUGIN_NAME, UNAVAILABLE_MS,
 } from '../homebridge/lib/platform.js';
 
 const LEFT = 'AA:AA:AA:AA:AA:AA:AA:AA';
@@ -72,7 +72,7 @@ function harness({ cached = [], client = new FakeClient(), lamps = LAMPS, clock 
   };
   const log = { warn: m => logs.push(m), error: m => logs.push(m), info: () => {} };
   const time = { now: clock ?? 0 };
-  const platform = new LightsCanCommunicatePlatform(log, { lamps }, api, {
+  const platform = new LightsCanCommunicateV2Platform(log, { lamps }, api, {
     client, setInterval: () => 0, now: () => time.now,
   });
   for (const accessory of cached) platform.configureAccessory(accessory);
@@ -268,7 +268,7 @@ test('a core with another HomeKit API version is refused before any write', asyn
 test('the core credential must be a private, well-formed file', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'tmp_plugin_credentials_'));
   try {
-    const file = path.join(dir, 'lights-can-communicate.json');
+    const file = path.join(dir, 'lights-can-communicate-v2.json');
     const write = (value, mode = 0o600) => {
       writeFileSync(file, JSON.stringify(value));
       chmodSync(file, mode);

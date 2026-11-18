@@ -10,8 +10,8 @@ import urllib.request
 
 from bridge_output import strip_changes
 
-import smart_lighting as lan
-from smart_lighting_core.native_profile import NativeHueProfile
+import lights_can_communicate_v2 as lan
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 HUE_BRIGHTNESS_SCALES = {"strip": 1.0, "hue_left": 1.0, "hue_center": 0.5, "hue_right": 1.0}
 

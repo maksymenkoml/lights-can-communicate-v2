@@ -42,13 +42,14 @@ SETUP_FILES = {
 
 def build(output):
     root = Path(__file__).resolve().parents[1]
-    paths = {"smart_lighting.py": root / "smart_lighting.py"}
+    paths = {"lights_can_communicate_v2.py": root / "lights_can_communicate_v2.py"}
     paths.update(
         {name + ".py": root / "experiments/hue-bridge" / (name + ".py") for name in PILOT_MODULES}
     )
     paths.update(
         {
-            "smart_lighting_core/" + name + ".py": root / "smart_lighting_core" / (name + ".py")
+            "lights_can_communicate_v2_core/" + name + ".py":
+                root / "lights_can_communicate_v2_core" / (name + ".py")
             for name in CORE_MODULES
         }
     )
@@ -59,7 +60,8 @@ def build(output):
         if path.is_symlink() or not path.is_file():
             raise ValueError("Missing or redirected runtime source")
         files[name] = path.read_bytes()
-    files["__main__.py"] = b"from smart_lighting_core.cli import main\nraise SystemExit(main())\n"
+    files["__main__.py"] = (
+        b"from lights_can_communicate_v2_core.cli import main\nraise SystemExit(main())\n")
     files["core-manifest.json"] = (
         json.dumps(
             {
