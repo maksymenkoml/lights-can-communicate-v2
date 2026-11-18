@@ -55,6 +55,13 @@ h1,h2,p{margin:0}
 .scene-toggle svg{width:17px;height:17px}
 .scene-toggle .sun{display:none}.scene-toggle[aria-pressed=true] .moon{display:none}.scene-toggle[aria-pressed=true] .sun{display:block}
 @property --scene-sweep{syntax:'<number>';inherits:false;initial-value:0}
+/* Live light eases between Sync updates (about 20 a second), so colour changes read as motion, not steps. */
+@property --beam{syntax:'<color>';inherits:true;initial-value:#b5c7e6}
+[data-beam]{transition:--beam 120ms linear}
+.lamp.lamp-wash{transition:--beam 120ms linear,opacity .28s ease}
+[data-sync-power],.lamp-wash>g{transition:opacity 120ms linear}
+.lamp [data-beam] stop,#screen-colors stop{transition:stop-color 120ms linear,stop-opacity 120ms linear}
+#screen-image{transition:opacity 120ms linear}
 .scene-snapshot{position:absolute;inset:0;z-index:2;pointer-events:none;mask-repeat:no-repeat;mask-size:100% 100%;will-change:mask-image}
 .scene-snapshot.motion-halo.reveal-light{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),transparent calc(var(--scene-sweep)*100% - 14%),#000 calc(var(--scene-sweep)*100% + 14%))}
 .scene-snapshot.motion-halo.reveal-dark{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),#000 calc(var(--scene-sweep)*100% - 14%),transparent calc(var(--scene-sweep)*100% + 14%))}
