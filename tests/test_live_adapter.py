@@ -309,6 +309,26 @@ class PilotTests(unittest.TestCase):
             controller.render()
             self.assertEqual([razer_colors(data) for _, name, data in self.sent
                               if name == "razer"], [[[red, 0, 0]] * 7])
+        # Video output clears last_sent every tick; an unchanged brightness is not
+        # re-sent, so every slot carries a color frame.
+        self.sent.clear()
+        self.now = 0.36
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.last_sent.clear()
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent], ["razer"])
+        # Render ticks every 30 ms are late for most 40 ms slots; the cadence still
+        # holds 25 frames/s instead of falling to one frame per 60 ms.
+        sent = 0
+        for tick in range(1, 51):
+            self.now = 0.36 + tick * 0.03
+            controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+            controller.last_sent.clear()
+            before = len(self.sent)
+            controller.render()
+            sent += len(self.sent) > before
+        self.assertGreaterEqual(sent, 36)
+        self.assertLessEqual(sent, 38)
         # The mode is renewed well within the lamp's one-minute timeout.
         self.sent.clear()
         self.now = 11

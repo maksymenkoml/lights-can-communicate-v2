@@ -210,6 +210,10 @@ class PilotController:
         self.streaming = False
         # Side -> time DreamView was last switched on; kept until it is switched off.
         self.razer = {}
+        # Brightness last sent while streaming. Video output re-sends every frame
+        # (last_sent is cleared each tick), but an unchanged brightness must not
+        # take a frame slot.
+        self.stream_brightness = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
         if len(self.ids) != 2:
@@ -235,6 +239,7 @@ class PilotController:
             if self.streaming != bool(active):
                 self.streaming = bool(active)
                 self.last_sent.clear()
+                self.stream_brightness.clear()
 
     def update_statuses(self, statuses):
         with self.lock:
@@ -364,6 +369,7 @@ class PilotController:
                     revision = self.power_owner.revision(side)
                     if self.power_revisions.get(side) != revision:
                         self.last_sent.pop(side, None)
+                        self.stream_brightness.pop(side, None)
                         self.power_revisions[side] = revision
                     if not self.power_owner.allowed(side):
                         self.last_sent.pop(side, None)
@@ -405,7 +411,8 @@ class PilotController:
                     commands = lan.govee_commands(target)
                 for name, data in commands:
                     changed = (
-                        old.get("brightness") != target["brightness"]
+                        (self.stream_brightness.get(side) if stream else old.get("brightness"))
+                        != target["brightness"]
                         if name == "brightness"
                         else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
                         != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
@@ -440,6 +447,8 @@ class PilotController:
                     complete = success and complete
                     if success and data is mode:
                         self.razer[side] = now
+                    if success and stream and name == "brightness":
+                        self.stream_brightness[side] = data["value"]
                     self.commands_sent += int(success)
                     if not success:
                         self.rejected_sends[side] += 1
@@ -452,7 +461,14 @@ class PilotController:
                             }
                         )
                 if updates and rate is not None:
-                    self.next_send[side] = now + len(updates) / rate
+                    interval = len(updates) / rate
+                    previous = self.next_send.get(side)
+                    if stream and previous is not None and 0 <= now - previous < interval:
+                        # Keep the frame cadence: a render tick that came a little
+                        # late must not stretch every later slot.
+                        self.next_send[side] = previous + interval
+                    else:
+                        self.next_send[side] = now + interval
                 if complete:
                     self.last_sent[side] = target
                     if refresh:
