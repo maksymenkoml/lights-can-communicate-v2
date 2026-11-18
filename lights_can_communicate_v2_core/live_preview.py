@@ -76,6 +76,22 @@ def _segments(data):
     return colors
 
 
+def _razer(data):
+    """Seven colors of a DreamView frame; None for a mode switch."""
+    pt = data.get("pt")
+    if not isinstance(pt, str) or len(pt) > 96:
+        raise ValueError("Invalid DreamView encoding")
+    raw = base64.b64decode(pt, validate=True)
+    if (len(raw) < 6 or raw[:2] != bytes([0xBB, 0x00]) or raw[2] != len(raw) - 5
+            or reduce(xor, raw[:-1], 0) != raw[-1]):
+        raise ValueError("Invalid DreamView packet")
+    if raw[3] == 0xB1:
+        return None
+    if raw[3] != 0xB0 or raw[5] != 7 or len(raw) != 7 * 3 + 7:
+        raise ValueError("Invalid DreamView colors")
+    return [list(raw[index:index + 3]) for index in range(6, 6 + 7 * 3, 3)]
+
+
 def _xy(value):
     x, y = value["x"], value["y"]
     if not _number(x, 0, 1) or not _number(y, 0.00001, 1):
@@ -149,6 +165,10 @@ class OutputPreviewStore:
                 return
         elif command == "ptReal":
             colors = _segments(data)
+        elif command == "razer":
+            colors = _razer(data)
+            if colors is None:
+                return
         else:
             return
         self._update("govee-" + side, source, colors, brightness)

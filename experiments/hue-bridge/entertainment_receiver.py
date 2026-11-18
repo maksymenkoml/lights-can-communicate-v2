@@ -25,6 +25,8 @@ class StreamOutbox:
         self.sender = sender or self.post
         self.session = str(uuid.uuid4())
         self.lock = threading.RLock()
+        # Set by every submit, so the outbox forwards at once instead of polling.
+        self.wake = threading.Event()
         self.pending = None
         self.sequence = 0
         self.forwarded = 0
@@ -52,6 +54,7 @@ class StreamOutbox:
             }
             if colors is not None:
                 self.pending["colors"] = [[k, *v] for k, v in sorted(colors.items())]
+        self.wake.set()
 
     def frame(self, colors):
         self.submit("frame", colors)
@@ -149,8 +152,10 @@ class StreamOutbox:
     def run(self, done):
         try:
             while not done.is_set():
+                self.wake.clear()
                 self.forward_once()
-                done.wait(0.05)
+                # A new frame wakes the outbox; the timeout bounds shutdown checks.
+                self.wake.wait(0.05)
             self.forward_once()
         finally:
             if self.http_sender is not None:

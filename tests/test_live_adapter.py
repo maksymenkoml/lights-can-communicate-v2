@@ -282,6 +282,50 @@ class PilotTests(unittest.TestCase):
         legacy.render()
         self.assertEqual([name for _, name, _ in self.sent], ["colorwc"])
 
+    def test_streaming_uses_dreamview_at_the_stream_rate(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7, max_gradient_packets_per_second=2)
+        controller = pilot.PilotController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        controller.update_statuses(self.controller.statuses)
+        controller.set_streaming(True)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        controller.submit(command(state=state, transitiontime=0))
+        controller.render()
+        frames = [razer_colors(data) for _, name, data in self.sent if name == "razer"]
+        self.assertEqual(frames[0], None)
+        self.assertEqual(frames[1], [[120, 0, 0]] * 7)
+        self.assertNotIn("ptReal", [name for _, name, _ in self.sent])
+        # 25 frames/s, not the 2/s ptReal budget: the next frame goes 0.12 s later.
+        for sequence, (now, red) in enumerate(((0.12, 60), (0.24, 30)), start=2):
+            self.sent.clear()
+            self.now = now
+            controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+            controller.submit(command(sequence=sequence, transitiontime=0,
+                                      state={**state, "segments": [[red, 0, 0]]}))
+            controller.render()
+            self.assertEqual([razer_colors(data) for _, name, data in self.sent
+                              if name == "razer"], [[[red, 0, 0]] * 7])
+        # The mode is renewed well within the lamp's one-minute timeout.
+        self.sent.clear()
+        self.now = 11
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.submit(command(sequence=9, transitiontime=0, state=state))
+        controller.render()
+        self.assertEqual([razer_colors(data) for _, name, data in self.sent
+                          if name == "razer"][0], None)
+        # Back to scene output: DreamView off first, then ptReal at the scene budget.
+        self.sent.clear()
+        self.now = 12
+        controller.set_streaming(False)
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.render()
+        self.assertEqual([name for _, name, _ in self.sent][:2], ["razer", "ptReal"])
+        self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
         self.now = 1.0

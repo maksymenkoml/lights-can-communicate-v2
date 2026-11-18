@@ -19,13 +19,15 @@ class ActiveVideoProfileTests(unittest.TestCase):
         for target in selected:
             target["segment_count"] = 7 if GRADIENT_MODE else 0
         self.sent = []
+        self.now = 10
         self.gate = PowerOwner(selected, clock=lambda: 10, wall_clock=lambda: 1000)
         self.controller = PilotController(
             selected,
             sender=self.gate.wrap(
                 lambda device, command, data: self.sent.append((device["device"], command)) or True
             ),
-            clock=lambda: 10,
+            # Video frames arrive over time; DreamView output is paced per lamp.
+            clock=lambda: self.now,
             wall_clock=lambda: 1000,
             power_owner=self.gate,
         )
@@ -42,6 +44,7 @@ class ActiveVideoProfileTests(unittest.TestCase):
         )
 
     def frame(self, sequence=1, black=False):
+        self.now += 0.2
         rows = [[i, 0, 0, 0] for i in range(18 if GRADIENT_MODE else 14)]
         if not black:
             rows[0] = [0, 65535, 0, 0]

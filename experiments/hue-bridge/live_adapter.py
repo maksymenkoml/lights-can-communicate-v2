@@ -19,7 +19,7 @@ if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
-from govee_segments import interpolate, segment_data  # noqa: E402
+from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
 from homekit_power import (  # noqa: E402
     HomeKitPower,
     HomeKitRequests,
@@ -160,6 +160,13 @@ def native_target(status, fallback):
     return result
 
 
+# DreamView frames per second while Sync streams. Both selected H6076 answered
+# every status poll at ~27 frames/s and started to miss them above ~38.
+STREAM_FRAMES_PER_SECOND = 25
+# The lamp leaves DreamView after a minute without frames; renew the mode well before.
+RAZER_RENEW_SECONDS = 10
+
+
 class PilotController:
     def __init__(
         self,
@@ -193,6 +200,16 @@ class PilotController:
             else None
             for item in self.targets
         }
+        self.stream_rates = {
+            item["side"]: number(item["max_stream_frames_per_second"], 1, 60)
+            if "max_stream_frames_per_second" in item
+            else STREAM_FRAMES_PER_SECOND
+            for item in self.targets
+        }
+        # Sync video streams zoned output through DreamView instead of ptReal.
+        self.streaming = False
+        # Side -> time DreamView was last switched on; kept until it is switched off.
+        self.razer = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
         if len(self.ids) != 2:
@@ -211,6 +228,13 @@ class PilotController:
         self.skipped_state = {side: 0 for side in self.by_side}
         self.rejected_sends = {side: 0 for side in self.by_side}
         self.color_samples = {side: deque(maxlen=500) for side in self.by_side}
+
+    def set_streaming(self, active):
+        """Use DreamView for zoned video output; scene output switches it off first."""
+        with self.lock:
+            if self.streaming != bool(active):
+                self.streaming = bool(active)
+                self.last_sent.clear()
 
     def update_statuses(self, statuses):
         with self.lock:
@@ -352,20 +376,33 @@ class PilotController:
                     if side in self.jobs:
                         self.skipped_state[side] += 1
                     continue
+                if not self.streaming and side in self.razer:
+                    # The lamp ignores other color commands while DreamView is on,
+                    # so leave it even when no scene target is waiting yet.
+                    try:
+                        if self.sender(device, "razer", razer_mode(False)):
+                            self.razer.pop(side)
+                    except OSError:
+                        pass
                 target = self.effective_target(side)
                 if target is None:
                     continue
                 old = self.last_sent.get(side, {})
                 refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
                 updates = []
-                commands = (
-                    [
+                stream = self.streaming and "segments" in target
+                if stream:
+                    commands = [
+                        ("razer", razer_data(target["segments"])),
+                        ("brightness", {"value": target["brightness"]}),
+                    ]
+                elif "segments" in target:
+                    commands = [
                         ("ptReal", segment_data(target["segments"])),
                         ("brightness", {"value": target["brightness"]}),
                     ]
-                    if "segments" in target
-                    else lan.govee_commands(target)
-                )
+                else:
+                    commands = lan.govee_commands(target)
                 for name, data in commands:
                     changed = (
                         old.get("brightness") != target["brightness"]
@@ -375,10 +412,19 @@ class PilotController:
                     )
                     if changed or refresh:
                         updates.append((name, data))
-                rate = self.packet_rates[side]
-                gradient_rate = self.gradient_packet_rates[side]
-                if "segments" in target and gradient_rate is not None:
-                    rate = min(rate, gradient_rate) if rate is not None else gradient_rate
+                mode = None
+                if stream and (side not in self.razer
+                               or now - self.razer[side] >= RAZER_RENEW_SECONDS):
+                    mode = razer_mode(True)
+                if mode is not None:
+                    updates.insert(0, ("razer", mode))
+                if stream:
+                    rate = self.stream_rates[side]
+                else:
+                    rate = self.packet_rates[side]
+                    gradient_rate = self.gradient_packet_rates[side]
+                    if "segments" in target and gradient_rate is not None:
+                        rate = min(rate, gradient_rate) if rate is not None else gradient_rate
                 if (
                     updates
                     and rate is not None
@@ -392,6 +438,8 @@ class PilotController:
                     except OSError:
                         success = False
                     complete = success and complete
+                    if success and data is mode:
+                        self.razer[side] = now
                     self.commands_sent += int(success)
                     if not success:
                         self.rejected_sends[side] += 1
@@ -414,6 +462,8 @@ class PilotController:
         with self.lock:
             return {
                 "active_sides": sorted(self.jobs),
+                "streaming": self.streaming,
+                "dreamview_sides": sorted(self.razer),
                 "commands_sent": self.commands_sent,
                 "skipped_state": dict(self.skipped_state),
                 "rejected_sends": dict(self.rejected_sends),

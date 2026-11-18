@@ -103,6 +103,7 @@ class VideoOutput:
         with self.controller.lock:
             self.controller.jobs.clear()
             self.controller.last_sent.clear()
+            self.controller.set_streaming(False)
         for proxy in self.proxies:
             proxy.restore_scene()
 
@@ -181,6 +182,7 @@ class VideoOutput:
                 self.ready = True
                 self.handoff = False
                 self.warmup_until = self.clock() + 2
+                self.controller.set_streaming(True)
             latest = self.lease.latest()
             if latest is None:
                 self.release()
@@ -234,6 +236,8 @@ class VideoOutput:
                 )
             self.frames_sent += 1
             self.last_result = "streaming"
+            # Send the Govee frame now instead of on the next adapter tick.
+            self.render()
             return True
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             self.ready = False
@@ -290,9 +294,13 @@ class VideoOutput:
             self.relay.recover()
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             self.cleanup_pending = True
+        wake = getattr(self.lease, "wake", None)
         while not stop.is_set():
+            if wake is not None:
+                wake.clear()
             self.process_once()
-            stop.wait(0.05)
+            # A new frame wakes the worker at once; the timeout keeps grace handling.
+            (wake or stop).wait(0.05)
         for attempt in range(3):
             try:
                 self.release()
