@@ -434,6 +434,38 @@ class LiveAdapterTests(unittest.TestCase):
         # Sync starts again well inside the one-minute DreamView timeout.
         self.assertEqual(start(4, 2, 60)[:2], [None, [[60, 0, 0]] * 7])
 
+    def test_stream_brightness_is_sent_again_when_the_lamp_reports_another(self):
+        selected = targets()
+        selected[0].update(segment_count=7)
+        controller = adapter.GoveeController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        sequence = iter(range(1, 100))
+
+        def tick(at, brightness):
+            self.now = at
+            status = {"onOff": 1} if brightness is None else {"onOff": 1, "brightness": brightness}
+            controller.update_statuses({LEFT: (status, at)})
+            controller.submit(command(sequence=next(sequence), transitiontime=0,
+                                      state={**state, "segments": [[int(at * 10) % 200, 0, 0]]}))
+            self.sent.clear()
+            controller.render()
+            return [data["value"] for device, name, data in self.sent
+                    if device == LEFT and name == "brightness"]
+
+        controller.set_streaming(True)
+        sent = tick(0, 54)
+        self.assertEqual(len(sent), 1)
+        # Another writer (the scene output at a Sync start) leaves the lamp at 54.
+        self.assertEqual(tick(0.5, 54), [])
+        self.assertEqual(tick(1.1, 54), sent)
+        # Once the lamp reports the sent brightness, it is not repeated.
+        self.assertEqual(tick(2.5, sent[0]), [])
+        self.assertEqual(tick(4, sent[0]), [])
+        # A status without a brightness reading is no reason to repeat it.
+        self.assertEqual(tick(6, None), [])
+
     def test_stream_start_ignores_a_scene_slot_and_scene_waits_for_dreamview_off(self):
         from govee_segments import razer_colors
 

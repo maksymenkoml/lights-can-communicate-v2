@@ -230,9 +230,9 @@ class GoveeController:
         self.razer_frame = {}
         # Side -> time its status first went missing or off, while it still is.
         self.status_lost = {}
-        # Brightness last sent while streaming. Video output re-sends every frame
-        # (last_sent is cleared each tick), but an unchanged brightness must not
-        # take a frame slot.
+        # Side -> (brightness, time) last sent while streaming. Video output
+        # re-sends every frame (last_sent is cleared each tick), but an unchanged
+        # brightness must not take a frame slot.
         self.stream_brightness = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
@@ -491,13 +491,24 @@ class GoveeController:
                 else:
                     commands = lan.govee_commands(target)
                 for name, data in commands:
-                    changed = (
-                        (self.stream_brightness.get(side) if stream else old.get("brightness"))
-                        != target["brightness"]
-                        if name == "brightness"
-                        else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
-                        != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
-                    )
+                    if name == "brightness" and stream:
+                        sent = self.stream_brightness.get(side)
+                        # Another writer, such as the scene output at a Sync start,
+                        # can leave the lamp at its own brightness; the fresh status
+                        # shows it, so the stream brightness is sent again.
+                        changed = (
+                            sent is None or sent[0] != target["brightness"]
+                            or (type(status.get("brightness")) is int
+                                and status["brightness"] != target["brightness"]
+                                and now - sent[1] >= 1)
+                        )
+                    else:
+                        changed = (
+                            old.get("brightness") != target["brightness"]
+                            if name == "brightness"
+                            else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
+                            != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
+                        )
                     if changed or refresh:
                         updates.append((name, data))
                 mode = None
@@ -535,7 +546,7 @@ class GoveeController:
                     if success and stream and name == "razer":
                         self.razer_frame[side] = now
                     if success and stream and name == "brightness":
-                        self.stream_brightness[side] = data["value"]
+                        self.stream_brightness[side] = (data["value"], now)
                     self.commands_sent += int(success)
                     if not success:
                         self.rejected_sends[side] += 1
