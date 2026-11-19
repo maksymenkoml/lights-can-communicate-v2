@@ -13,6 +13,7 @@ RUNTIME_MODULES = (
     "desk_layout",
     "entertainment_stream",
     "govee_segments",
+    "govee_calibration",
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "govee_transport",

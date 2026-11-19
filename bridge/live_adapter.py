@@ -19,6 +19,7 @@ if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
+from govee_calibration import GoveeCalibration  # noqa: E402
 from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
 from govee_transport import GoveeTransport  # noqa: E402
 from homekit_power import (  # noqa: E402
@@ -893,7 +894,11 @@ def main(argv=None, service_info=None):
     power_owner = power_token = homekit = None
     power_requests = None
     preview = OutputPreviewStore()
-    sender = lan.send_to_target
+    # Per-lamp calibration converts commands to device values on the way out and
+    # statuses back to logical values; an invalid profile refuses to start.
+    calibration = GoveeCalibration(config["targets"])
+    sender = calibration.wrap(lan.send_to_target)
+    power_sender = calibration.wrap(lan.send_power_to_target)
     if args.power_owner_token_file:
         power_token = args.power_owner_token_file.read_text().strip()
         if (not 32 <= len(power_token) <= 128
@@ -903,13 +908,13 @@ def main(argv=None, service_info=None):
         if args.power_authority == "homekit":
             idle = {}
             power_owner = homekit = HomeKitPower(
-                config["targets"], state_dir / "homekit-power.json", lan.send_power_to_target,
+                config["targets"], state_dir / "homekit-power.json", power_sender,
                 observe=lambda: controller.power_observations(),
                 idle=lambda side: idle["check"](side), names=layout_store.names)
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])
-            power_owner.attach_power(lan.send_power_to_target,
+            power_owner.attach_power(power_sender,
                                      observe=lambda: controller.power_observations())
             power_requests = PowerRequests(
                 power_owner, observe=lambda: controller.power_observations())
@@ -1010,6 +1015,7 @@ def main(argv=None, service_info=None):
     video_stop = threading.Event()
 
     def publish_statuses(statuses):
+        statuses = calibration.decode(statuses)
         controller.update_statuses(statuses)
         if video is not None:
             video.controller.update_statuses(statuses)

@@ -88,6 +88,19 @@ on and `B1 00` off, and `B0 01 <count> <rgb...>` is a gradient frame.
 - A new frame wakes the gateway outbox and the adapter video worker at once.
   The adapter sends the Govee frame right after it arrives.
 
+## Per-lamp calibration
+
+Two H6076 lamps can render the same command differently. A target profile may
+carry `color_gains` (red, green, blue; each above 0 and at most 1) and
+`brightness_exponent` (above 0 and at most 1; the lamp gets
+`100 * (b / 100) ** exponent`). Gains keep a colour's peak channel. The adapter
+applies them to DreamView frames, ptReal segments, `colorwc` RGB and brightness
+just before the transport, and converts statuses back, so the controllers, Sync
+health and Light Studio keep logical values. A lamp without these fields is
+unchanged. On 2026-11-19 the owner matched the left lamp to the right one with
+`[0.9, 1, 0.9]` and `0.487` (left 60 looked like right 35, left 33 like right
+10); see `docs/design/2026-11-19-govee-device-calibration.md`.
+
 Live on the Mac with the PS5 through the Sync Box: ~50 frames/s reached the
 adapter and ~20 frames per lamp per second reached each Govee light, with no
 rejected sends or missed status. The owner confirmed that the Govee lights now
