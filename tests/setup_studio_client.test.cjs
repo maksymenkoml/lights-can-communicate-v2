@@ -157,7 +157,7 @@ function canonical(layout){
  // What the page sends: version 5 with both configurations' zones and fade switches.
  const result=structuredClone(layout);result.version=5;
  result.syncZone??=null;result.sceneZone??=null;result.syncFalloff??=true;result.sceneFalloff??=false;
- for(const row of result.devices){if(row.enabled!==false)delete row.enabled;if(row.syncRole!=='own')delete row.syncRole;row.orientation??='horizontal';}
+ for(const row of result.devices){if(row.enabled!==false)delete row.enabled;if(row.syncRole!=='own')delete row.syncRole;row.orientation??='horizontal';row.sceneScale??=row.scale;}
  return result;
 }
 const discovered=(overrides={})=>({id:'device-'+'a'.repeat(32),provider:'govee',name:'Third <lamp>',model:'H6076',shape:'floor',zones:7,supported:true,online:true,selectable:true,ambiguous:false,layout_id:null,height_cm:136,width_cm:null,...overrides});
@@ -355,7 +355,7 @@ test('placing a found lamp adds a configuration-only device row with its canonic
  assert.ok(!app.$('#app').classList.contains('placing'));
  await app.advance(300);
  const row=app.posts.at(-1).body.devices.at(-1);
- assert.deepEqual(row,{id:discovered().id,scale:80,positionCm:{x:200,height:60},orientation:'horizontal',shape:'floor',name:'Third <lamp>',model:'H6076',zones:7});
+ assert.deepEqual(row,{id:discovered().id,scale:80,sceneScale:80,positionCm:{x:200,height:60},orientation:'horizontal',shape:'floor',name:'Third <lamp>',model:'H6076',zones:7});
  const placed=app.lamp(discovered().id);
  assert.equal(placed.querySelector('[data-sync-power]').getAttribute('opacity'),'0','not connected rows stay neutral');
  await app.click(app.$('#list-toggle'));
@@ -374,7 +374,7 @@ test('removing asks inline, keeps the place, and Found returns the lamp',async()
  await app.click(panel.querySelector('[data-remove="play-center"]'));
  await app.click(panel.querySelector('[data-remove-ok="play-center"]'));
  await app.advance(300);
- assert.deepEqual(app.posts.at(-1).body.devices[4],{id:'play-center',scale:50,positionCm:{x:100,height:40},orientation:'horizontal',enabled:false});
+ assert.deepEqual(app.posts.at(-1).body.devices[4],{id:'play-center',scale:50,sceneScale:50,positionCm:{x:100,height:40},orientation:'horizontal',enabled:false});
  assert.equal(app.lamp('play-center'),null);assert.equal(app.$('#count').textContent,'5');
  await app.click(app.$('#list-toggle'));
  await app.click(app.$('#lamp-panel').querySelector('[data-restore="play-center"]'));
@@ -644,6 +644,24 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
  assert.equal(app.posts.at(-1).body.syncFalloff,false);
  assert.deepEqual(gains(),Array(7).fill(1),'without the fade every zone keeps full brightness');
  assert.equal(left().sceneScale,40);
+});
+
+test('the correction without Sync is the lamp\'s own value, never the Sync one',async()=>{
+ const remote=saved();remote.devices.find(r=>r.id==='play-left').scale=70;
+ for(const r of remote.devices)delete r.sceneScale;
+ const app=await harness({layout:remote});
+ const lamp=id=>json(app,'lamps.find(l=>l.id==="'+id+'")');
+ assert.equal(lamp('play-left').sceneScale,70,'a row without it starts from a copy of the Sync correction');
+ await app.click(app.$('#sync-tool'));
+ app.run('select("play-left")');app.run('applyLabelEdit("corr",30)');await app.advance(300);
+ const row=app.posts.at(-1).body.devices.find(r=>r.id==='play-left');
+ assert.equal(row.scale,30);assert.equal(row.sceneScale,70,'a Sync correction change keeps the one without Sync');
+ await app.click(app.$('#sync-tool'));
+ assert.equal(app.run('corr(lamps.find(l=>l.id==="play-left"))'),70);
+ await app.click(app.$('#list-toggle'));
+ await app.click(app.$('#lamp-panel').querySelector('[data-place]'));
+ app.dispatch(app.stage,'pointerdown',{clientX:500+100*3.3,clientY:600});await app.settle();
+ const added=lamp(discovered().id);assert.equal(added.sceneScale,added.scale,'a new lamp starts with equal corrections');
 });
 
 test('a drawn lamp that is not connected shows a broken-link badge where problems show',async()=>{

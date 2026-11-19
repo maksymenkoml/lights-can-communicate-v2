@@ -444,8 +444,10 @@ floor; the table has dimensions only and cannot move off the floor.
 
 Light Studio edits two independent configurations. With Sync uses `scale`,
 `syncZone` and `syncFalloff` (default on). Without Sync (scenes from the Hue app)
-uses row `sceneScale` (default `scale`), `sceneZone` (default automatic) and
-`sceneFalloff` (default off). A fade that is off gives every gain 1 and places
+uses row `sceneScale`, `sceneZone` (default automatic) and `sceneFalloff`
+(default off). `sceneScale` is the row's own value and never follows `scale`: a
+row without it gets a copy of `scale` when it is validated, so every read and
+write carries it (issue #44). A fade that is off gives every gain 1 and places
 Govee segment samples at their centres. The scene controller and the Hue scene
 proxies multiply the scene correction by the scene fade: per Govee segment (bottom
 to top), the strip's mean anchor gain and one gain per Play. Hue dimming never goes

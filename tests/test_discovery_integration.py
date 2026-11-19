@@ -39,7 +39,8 @@ class DiscoveryIntegrationTests(unittest.TestCase):
             saved = validate_layout(value)
         except ValueError as error:
             self.fail("Valid identity-bound placement was rejected: " + str(error))
-        self.assertEqual(saved["devices"][-1], added)
+        # A row without a without-Sync correction gets a copy of the Sync one.
+        self.assertEqual(saved["devices"][-1], {**added, "sceneScale": added["scale"]})
         self.assertEqual(positions(saved), existing_positions)
         for change in [
             {"id": "device-injected"},

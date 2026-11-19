@@ -63,8 +63,9 @@ no control characters), stored only when given: it is the lamp's name in Light
 Studio, on the virtual Hue bridge, in HomeKit and on the physical Hue light
 (see `core/README.md`, "Lamp names"). A row without `name` renames nothing; an
 invalid name refuses the whole write. Version 5 adds
-the second, without-Sync (scene) configuration: row `sceneScale` (0-100, default
-`scale`), top-level `sceneZone` (same format as `syncZone`, missing or null is
+the second, without-Sync (scene) configuration: row `sceneScale` (0-100; a row
+without it gets a copy of `scale` once, after which the two change
+independently), top-level `sceneZone` (same format as `syncZone`, missing or null is
 Auto) and the booleans `syncFalloff` (default true) and `sceneFalloff` (default
 false). The defaults are not stored. A fade that is off gives every gain 1 and
 samples Govee segments at their centres. Scene output includes every present

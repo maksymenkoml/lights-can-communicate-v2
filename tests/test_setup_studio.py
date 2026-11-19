@@ -191,7 +191,8 @@ class StudioTests(unittest.TestCase):
                 self.assertEqual(request("/api/layout"), initial)
             state["devices"] = [catalog_device()]
             saved = request("/api/layout", data, **{"If-Match": initial["revision"]})
-            self.assertEqual(saved["layout"]["devices"][-1], placement())
+            expected = {**placement(), "sceneScale": placement()["scale"]}
+            self.assertEqual(saved["layout"]["devices"][-1], expected)
             state = None
             data["devices"][-1]["scale"] = 35
             edited = request("/api/layout", data, **{"If-Match": saved["revision"]})
