@@ -163,9 +163,11 @@ def native_target(status, fallback):
     return result
 
 
-# DreamView frames per second while Sync streams. Both selected H6076 answered
-# every status poll at ~27 frames/s and started to miss them above ~38.
-STREAM_FRAMES_PER_SECOND = 25
+# DreamView frames per second while Sync streams. Both selected H6076 drop
+# status replies as the frame rate rises: at 25 frames/s each missed several
+# polls in a row about every 3 s, and at 12 frames/s no more often than
+# without frames (bridge/evidence/dreamview-status-gaps.json).
+STREAM_FRAMES_PER_SECOND = 12
 # The lamp leaves DreamView after about a minute without frames. Switching the
 # mode on while it is already on blanks the lamp for a moment, which shows as a
 # blink, so the mode is sent only when the lamp may have left it: at stream
@@ -229,6 +231,10 @@ class GoveeController:
         self.razer_frame = {}
         # Side -> time its status first went missing or off, while it still is.
         self.status_lost = {}
+        # Device key -> (last identity-verified status, time). Kept through a
+        # missed reply so status readers can tell a short miss from a loss;
+        # output still requires a fresh verified status.
+        self.verified = {}
         # Brightness last sent while streaming. Video output re-sends every frame
         # (last_sent is cleared each tick), but an unchanged brightness must not
         # take a frame slot.
@@ -267,6 +273,8 @@ class GoveeController:
             for key, value in statuses.items():
                 if key in self.ids and value[0] is not None:
                     self.statuses[key] = value
+                    if value[0].get("identity_verified", True) is not False:
+                        self.verified[key] = value
 
     def power_observations(self):
         with self.lock:
@@ -580,6 +588,13 @@ class GoveeController:
                         "status_age": (
                             self.clock() - self.statuses[lan.device_key(item)][1]
                             if lan.device_key(item) in self.statuses
+                            else None
+                        ),
+                        "verified_native": copy.deepcopy(
+                            self.verified.get(lan.device_key(item), (None, 0))[0]),
+                        "verified_age": (
+                            self.clock() - self.verified[lan.device_key(item)][1]
+                            if lan.device_key(item) in self.verified
                             else None
                         ),
                     }

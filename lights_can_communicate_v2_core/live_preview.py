@@ -19,10 +19,31 @@ HUE_ROLES = {
 LAMP_IDS = ("govee-left", "govee-right", *HUE_ROLES.values())
 ROLE_LAMPS = {'left':'govee-left', 'right':'govee-right', **HUE_ROLES}
 SOURCES = ("scene-output", "sync-output")
+GOVEE_FRESH_SECONDS = 0.75
+# A Govee lamp under DreamView misses a few status replies in a row now and
+# then; its last verified reading stands this long (as in bridge/sync_health.py).
+GOVEE_HOLD_SECONDS = 2
 
 
 def _number(value, low, high):
     return type(value) in (int, float) and low <= value <= high and math.isfinite(value)
+
+
+def _govee_reading(item):
+    """Return a fresh verified Govee status, else a recently verified one."""
+    for native, age, limit in (
+        (item.get("native"), item.get("status_age"), GOVEE_FRESH_SECONDS),
+        (item.get("verified_native"), item.get("verified_age"), GOVEE_HOLD_SECONDS),
+    ):
+        if (
+            isinstance(native, dict)
+            and native.get("identity_verified") is True
+            and _number(age, 0, limit)
+            and type(native.get("onOff")) is int
+            and native["onOff"] in (0, 1)
+        ):
+            return native
+    return None
 
 
 def _rgb(value, maximum=255):
@@ -287,15 +308,8 @@ def build_preview(adapter_status, output_snapshot):
     for lamp in LAMP_IDS:
         brightness = None
         if lamp.startswith("govee-"):
-            item = govee.get(lamp.removeprefix("govee-"), {})
-            native = item.get("native")
-            native = native if isinstance(native, dict) else {}
-            fresh = (
-                native.get("identity_verified") is True
-                and _number(item.get("status_age"), 0, 0.75)
-                and type(native.get("onOff")) is int
-                and native["onOff"] in (0, 1)
-            )
+            native = _govee_reading(govee.get(lamp.removeprefix("govee-"), {}))
+            fresh = native is not None
             on = bool(native["onOff"]) if fresh else None
             brightness = native.get("brightness") if fresh else None
         else:

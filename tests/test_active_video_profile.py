@@ -44,7 +44,13 @@ class ActiveVideoProfileTests(unittest.TestCase):
         )
 
     def frame(self, sequence=1, black=False):
-        self.now += 0.2
+        # Longer than the first DreamView burst (mode, frame and brightness) takes
+        # at the default 12 frames/s, so every frame finds a free slot.
+        self.now += 0.3
+        # Both lamps keep answering status polls between frames.
+        self.controller.update_statuses(
+            {key: ({"onOff": 1, "brightness": 65}, self.now) for key in (LEFT, RIGHT)}
+        )
         rows = [[i, 0, 0, 0] for i in range(18 if GRADIENT_MODE else 14)]
         if not black:
             rows[0] = [0, 65535, 0, 0]

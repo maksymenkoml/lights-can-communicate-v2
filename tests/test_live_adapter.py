@@ -299,8 +299,11 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual(frames[0], None)
         self.assertEqual(frames[1], [[120, 0, 0]] * 7)
         self.assertNotIn("ptReal", [name for _, name, _ in self.sent])
-        # 25 frames/s, not the 2/s ptReal budget: the next frame goes 0.12 s later.
-        for sequence, (now, red) in enumerate(((0.12, 60), (0.24, 30)), start=2):
+        # 12 frames/s, not the 2/s ptReal budget. The first burst carried the mode,
+        # a frame and the brightness, so the next frame goes 3/12 s later, then
+        # every 1/12 s.
+        self.assertEqual(adapter.STREAM_FRAMES_PER_SECOND, 12)
+        for sequence, (now, red) in enumerate(((0.25, 60), (0.34, 30)), start=2):
             self.sent.clear()
             self.now = now
             controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
@@ -312,23 +315,23 @@ class LiveAdapterTests(unittest.TestCase):
         # Video output clears last_sent every tick; an unchanged brightness is not
         # re-sent, so every slot carries a color frame.
         self.sent.clear()
-        self.now = 0.36
+        self.now = 0.42
         controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
         controller.last_sent.clear()
         controller.render()
         self.assertEqual([name for _, name, _ in self.sent], ["razer"])
-        # Render ticks every 30 ms are late for most 40 ms slots; the cadence still
-        # holds 25 frames/s instead of falling to one frame per 60 ms.
+        # Render ticks every 30 ms are late for most 83 ms slots; the cadence still
+        # holds 12 frames/s instead of falling to one frame per 90 ms.
         sent = 0
         for tick in range(1, 51):
-            self.now = 0.36 + tick * 0.03
+            self.now = 0.42 + tick * 0.03
             controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
             controller.last_sent.clear()
             before = len(self.sent)
             controller.render()
             sent += len(self.sent) > before
-        self.assertGreaterEqual(sent, 36)
-        self.assertLessEqual(sent, 38)
+        self.assertGreaterEqual(sent, 17)
+        self.assertLessEqual(sent, 19)
         # While frames flow the mode is not sent again: re-sending it blinks the lamp.
         self.sent.clear()
         self.now = 11
@@ -453,6 +456,36 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual([name for side, name, _ in self.sent if side == "left"][:2],
                          ["razer", "ptReal"])
         self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
+    def test_snapshot_keeps_the_last_verified_reading_through_a_status_miss(self):
+        def row():
+            return next(item for item in self.controller.snapshot()["targets"]
+                        if item["side"] == "left")
+
+        self.now = 0.1
+        self.assertEqual(row()["verified_native"]["onOff"], 1)
+        self.assertAlmostEqual(row()["verified_age"], 0.1)
+        unseen = adapter.GoveeController(targets(), sender=self.send, clock=lambda: self.now)
+        unseen.update_statuses({RIGHT: ({"onOff": 0, "identity_verified": False}, self.now)})
+        for item in unseen.snapshot()["targets"]:
+            self.assertIsNone(item["verified_native"])
+            self.assertIsNone(item["verified_age"])
+        # A missed reply publishes an unverified placeholder; the verified reading stays.
+        self.now = 0.9
+        self.controller.update_statuses(
+            {LEFT: ({"onOff": 0, "identity_verified": False}, self.now)})
+        self.assertIs(row()["native"]["identity_verified"], False)
+        self.assertEqual(row()["verified_native"]["onOff"], 1)
+        self.assertAlmostEqual(row()["verified_age"], 0.9)
+        # A verified Off replaces it at once.
+        self.now = 1.0
+        self.controller.update_statuses(
+            {LEFT: ({"onOff": 0, "identity_verified": True}, self.now)})
+        self.assertEqual(row()["verified_native"]["onOff"], 0)
+        self.assertAlmostEqual(row()["verified_age"], 0)
+        # The held reading is a copy: changing it does not change the controller.
+        row()["verified_native"]["onOff"] = 1
+        self.assertEqual(row()["verified_native"]["onOff"], 0)
 
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
