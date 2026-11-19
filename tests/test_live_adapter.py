@@ -468,6 +468,39 @@ class LiveAdapterTests(unittest.TestCase):
         # A status without a brightness reading is no reason to repeat it.
         self.assertEqual(tick(6, None), [])
 
+    def test_a_stream_brightness_change_repeats_the_current_frame(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7)
+        controller = adapter.GoveeController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+
+        def tick(at, sequence, bri):
+            self.now = at
+            controller.update_statuses({LEFT: ({"onOff": 1}, at)})
+            controller.submit(command(sequence=sequence, transitiontime=0,
+                                      state={**state, "bri": bri}))
+            self.sent.clear()
+            controller.render()
+            return [(name, razer_colors(data) if name == "razer" else data["value"])
+                    for device, name, data in self.sent if device == LEFT]
+
+        controller.set_streaming(True)
+        first = tick(0, 1, 254)
+        # Stream start: the mode, the brightness, then the frame that shows both.
+        self.assertEqual(first, [("razer", None), ("brightness", 65),
+                                 ("razer", [[120, 0, 0]] * 7)])
+        # A still picture: the frame is unchanged, so nothing is sent.
+        self.assertEqual(tick(1, 2, 254), [])
+        # In DreamView the lamp shows a new brightness only with the next frame,
+        # so the current frame follows the brightness.
+        changed = tick(2, 3, 127)
+        self.assertEqual([name for name, _ in changed], ["brightness", "razer"])
+        self.assertEqual(changed[1][1], [[120, 0, 0]] * 7)
+
     def test_stream_start_ignores_a_scene_slot_and_scene_waits_for_dreamview_off(self):
         from govee_segments import razer_colors
 
@@ -541,7 +574,7 @@ class LiveAdapterTests(unittest.TestCase):
 
         controller.set_streaming(True)
         self.assertEqual([name for name, _ in tick(0, {"onOff": 1}, 120)],
-                         ["razer", "razer", "brightness"])
+                         ["razer", "brightness", "razer"])
         # Status replies go missing for 0.9 s: frames keep flowing, brightness waits.
         missing = {"onOff": 0, "identity_verified": False,
                    "lan_diagnostic": {"reason": "native_status_missing"}}
