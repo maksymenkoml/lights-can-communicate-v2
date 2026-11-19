@@ -2,6 +2,9 @@
 
 Decided by the owner on 2026-11-19.
 
+The Light Studio side of the calibration mode (the card, the page and the scene)
+was redesigned the same day: see `2026-11-19-light-studio-lamp-card.md`.
+
 ## Intent
 
 The two H6076 floor lamps render the same command differently from each other

@@ -19,8 +19,26 @@ from live_adapter import GoveeController, handler_for  # noqa: E402
 from test_govee_calibration import FakeStore  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 
-REQUEST = {"lamp": "govee-left", "reference": "play-left", "level": "bright",
-           "calibration": {"warmth": 83, "tint": -33, "lowLight": 74}}
+REQUEST = {"lamp": "govee-left", "reference": "play-left", "level": "bright", "view": "scene",
+           "correction": 100, "calibration": {"warmth": 83, "tint": -33, "lowLight": 74}}
+RIGHT_REQUEST = {"lamp": "govee-right", "reference": "play-right", "level": "bright",
+                 "view": "scene", "correction": 40,
+                 "calibration": {"warmth": 0, "tint": 0, "lowLight": 0}}
+HUE_REQUEST = {"lamp": "play-center", "reference": "govee-left", "level": "bright",
+               "view": "sync", "correction": 60}
+
+
+class FakeCorrections:
+    """Saved corrections per role: Sync ``scale`` and ``sceneScale`` (0-1)."""
+
+    def __init__(self, sync=None, scene=None):
+        self.sync, self.scene = sync or {}, scene or {}
+
+    def scale(self, role, fallback):
+        return self.sync.get(role, fallback)
+
+    def scene_scale(self, role, fallback):
+        return self.scene.get(role, fallback)
 
 
 class FakeClient:
@@ -138,7 +156,7 @@ class CalibrationSessionTests(SessionFixture):
                 if reason == "expired":
                     self.now += LEASE_SECONDS + 0.1
                 self.session.tick()
-                self.assertEqual(self.session.snapshot(), {"active": False, "side": None,
+                self.assertEqual(self.session.snapshot(), {"active": False, "lamp": None,
                                                            "reference": None,
                                                            "last_end": reason})
                 self.now += 0.1
@@ -165,6 +183,46 @@ class CalibrationSessionTests(SessionFixture):
                     {"lamp": "govee-left"}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.session.update(bad)
+
+    def test_each_lamp_shows_its_correction_for_the_edited_configuration(self):
+        self.controller.layout_store = FakeCorrections(scene={"hue_right": 0.7})
+        self.session.update(dict(RIGHT_REQUEST))
+        self.assertEqual(self.govee("right")[-1], ("brightness", {"value": 40}),
+                         "the candidate correction, unsaved")
+        self.assertEqual(self.proxies["hue_right"].client.writes[-1]["dimming"],
+                         {"brightness": 70}, "the reference's saved correction")
+        self.session.update({**RIGHT_REQUEST, "correction": 0})
+        self.assertEqual(self.govee("right")[-1], ("brightness", {"value": 1}),
+                         "a lit lamp never looks off")
+        self.controller.layout_store = FakeCorrections(scene={"hue_right": 0})
+        self.session.update({**RIGHT_REQUEST, "level": "dim"})
+        self.assertEqual(self.proxies["hue_right"].client.writes[-1]["dimming"],
+                         {"brightness": 0.5})
+
+    def test_a_hue_lamp_is_calibrated_against_a_govee_reference(self):
+        self.controller.layout_store = FakeCorrections(sync={"left": 0.35})
+        self.assertEqual(self.session.update(dict(HUE_REQUEST)), {"active": True})
+        write = self.proxies["hue_center"].client.writes[-1]
+        self.assertIn("xy", write["color"])
+        self.assertEqual(write["dimming"], {"brightness": 60})
+        left = self.govee("left")
+        self.assertNotEqual(left[-2][1]["color"], {"r": 0, "g": 0, "b": 0})
+        self.assertEqual(self.govee("right")[-1], ("brightness", {"value": 1}))
+        for role in ("strip", "hue_left", "hue_right"):
+            self.assertEqual(self.proxies[role].client.writes,
+                             [{"dimming": {"brightness": DARK_HUE_DIMMING}}])
+        self.assertEqual(self.session.snapshot()["lamp"], "hue_center")
+        self.assertTrue(self.session.end())
+
+    def test_requests_are_checked_per_lamp(self):
+        for bad in ({**HUE_REQUEST, "calibration": {"warmth": 0}},
+                    {k: v for k, v in REQUEST.items() if k != "calibration"},
+                    {**REQUEST, "view": "night"}, {**REQUEST, "correction": 101},
+                    {**REQUEST, "correction": True}, {**REQUEST, "correction": 50.5},
+                    {**HUE_REQUEST, "lamp": "lamp-x"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.session.update(bad)
+        self.assertEqual(self.sent, [])
 
     def test_a_lamp_that_is_off_stays_untouched(self):
         self.proxies["strip"].on = False
