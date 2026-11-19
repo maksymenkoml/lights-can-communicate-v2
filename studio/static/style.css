@@ -110,8 +110,6 @@ h1,h2,p{margin:0}
 .obj-chip text{fill:var(--text);font-weight:600}
 .obj-chip .chip-status{fill:var(--muted);font-weight:400}
 .chip-btn{cursor:pointer}
-.chip-btn circle{fill:transparent}
-.chip-btn:hover circle,.chip-btn.open circle{fill:var(--soft)}
 .chip-btn path{fill:none;stroke:var(--muted);stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .chip-btn .dot{fill:var(--muted);stroke:none}
 .chip-btn:hover path{stroke:var(--accent)}.chip-btn:hover .dot{fill:var(--accent)}
@@ -126,8 +124,6 @@ h1,h2,p{margin:0}
 .tag.editable{pointer-events:all;cursor:text}
 .tag.editable:hover .tag-hit{fill:var(--accent);fill-opacity:.12}
 .tag.editable:hover .tag-text{fill:var(--accent)}
-.rail{stroke:var(--tag-text);stroke-opacity:.28;stroke-width:2;stroke-linecap:round;vector-effect:non-scaling-stroke}
-.rail-fill{stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .handle .knob{stroke-width:1.6}
 .lamp,.lamp:focus,.desk-group:focus,.monitor-group:focus{outline:none}
 
@@ -165,10 +161,6 @@ path.lens-off{fill:none;stroke:#05080c;stroke-linecap:round;stroke-linejoin:roun
 .object-menu{position:absolute;z-index:9;padding:5px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);color:var(--text)}
 .object-menu svg{width:15px;height:15px;flex:none}
 .object-menu svg path{fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
-.object-menu .mi{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 10px;text-align:left;color:var(--text);font-size:12px}
-.object-menu .mi svg{color:var(--muted)}
-.object-menu .mi:hover:not(:disabled){background:var(--soft)}
-.object-menu .mi:disabled{opacity:.4;cursor:default}
 
 
 .object-menu.card{width:260px;padding:12px}
@@ -180,15 +172,6 @@ path.lens-off{fill:none;stroke:#05080c;stroke-linecap:round;stroke-linejoin:roun
 .card .card-alert i{width:7px;height:7px;margin-top:4px;border-radius:50%;background:var(--h-color);flex:none}
 .card .card-alert b{display:block;font-weight:600;color:var(--text)}
 .card .card-alert span{color:var(--muted)}
-.card .card-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.card .card-actions button{height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:var(--canvas);color:var(--text)}
-.card .card-actions button svg{width:17px;height:17px;color:var(--muted)}
-.card .card-actions button:hover:not(:disabled){background:var(--soft);color:var(--accent)}
-.card .card-actions button:hover:not(:disabled) svg{color:var(--accent)}
-.card .card-actions button:disabled{opacity:.4;cursor:default}
-.card .mi.danger{margin-top:8px;justify-content:center}
-.chip-btn circle.dot{fill:var(--muted)}
-.chip-btn:hover circle.dot,.chip-btn.open circle.dot{fill:var(--accent)}
 .card .card-name[readonly]{cursor:default}.card .card-name[readonly]:hover{border-color:transparent}.card .card-name[readonly]:focus{border-color:transparent;background:none}
 
 /* Palette and type scale */
@@ -200,7 +183,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .room,.draft-status{font-size:13px}
 .list-toggle,.sync-word,.list-word{font-size:13px}
 .object-menu,.toast,.ui-tooltip{font-size:13px}
-.placement-hint,.card .card-sub,.card .card-alert,.card .card-actions button{font-size:12px}
+.placement-hint,.card .card-sub,.card .card-alert{font-size:12px}
 .card .card-name{font-size:15.5px}
 .ui-tooltip{line-height:1.45}
 .obj-chip text{font-size:12.5px}
@@ -208,7 +191,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 
 /* Radii: panels 8, controls 5, pills 3 */
 .toolbar,.list-toggle,.history,.object-menu,.toast{border-radius:var(--r-panel)}
-.tool,.toolbar .scene-toggle,.history button,.placement-hint,.object-menu .mi,.card .card-actions button,.card .card-name,.card .card-alert,.ui-tooltip,.dim-input{border-radius:var(--r-ctl)}
+.tool,.toolbar .scene-toggle,.history button,.placement-hint,.card .card-name,.card .card-alert,.ui-tooltip,.dim-input{border-radius:var(--r-ctl)}
 .switch,.switch i{border-radius:3px}
 .obj-chip>rect{rx:5px;ry:5px;stroke:#0e223533}
 .lamp .outline,.furniture-select{rx:4px;ry:4px}
@@ -219,8 +202,6 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .draft-status,.draft-status[data-state]{color:var(--muted)}
 :focus-visible{outline-offset:2px}
 .ui-tooltip{background:#0e2235;border-color:#0e2235;color:#f3f7fa;box-shadow:0 6px 18px #0e223533}
-.object-menu .mi.danger,.object-menu .mi.danger svg{color:var(--bad)}
-.object-menu .mi.danger:hover{background:color-mix(in srgb,var(--bad) 9%,transparent)}
 .health-badge text{font-size:10px}
 
 /* The light snapshot used by the scene transition must match the live light scene */
@@ -232,7 +213,6 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:14px;font-feature-s
 .app.dark-scene #stage .obj-chip>rect,.app .scene-snapshot.snapshot-dark .obj-chip>rect{fill:#1a2a3c;stroke:#2f465c}
 .app.dark-scene #stage .obj-chip text,.app .scene-snapshot.snapshot-dark .obj-chip text{fill:#e6eef5}
 .app.dark-scene #stage .obj-chip .chip-status,.app .scene-snapshot.snapshot-dark .obj-chip .chip-status{fill:#a3b5c7}
-.app.dark-scene #stage .chip-btn:hover circle,.app .scene-snapshot.snapshot-dark .chip-btn:hover circle,.app.dark-scene #stage .chip-btn.open circle,.app .scene-snapshot.snapshot-dark .chip-btn.open circle{fill:#5cc6cd22}
 .app.dark-scene #stage .handle:hover .glyph,.app .scene-snapshot.snapshot-dark .handle:hover .glyph,.app.dark-scene #stage .handle.active .glyph,.app .scene-snapshot.snapshot-dark .handle.active .glyph{stroke:#0f1c2a}
 
 /* Light scene in half-tone: glow reads as light */
@@ -334,11 +314,110 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .card .seg button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:500;box-shadow:0 1px 2px #0e223522}
 .card .seg button:disabled{cursor:default}
 
-.app.dark-scene #stage .chip-btn circle.dot{fill:#a3b5c7}
-.app.dark-scene #stage .chip-btn.open circle.dot,.app.dark-scene #stage .chip-btn:hover circle.dot{fill:#5cc6cd}
 .app.placing #hover-tag{display:none}
 .desk-group .furniture-select{display:none}
 /* Blink: the drawing flashes twice with the real lamp. */
 @keyframes lamp-blink{0%,40%,80%{opacity:1}20%,60%{opacity:.15}}
 .lamp.blinking [data-beam]{animation:lamp-blink .9s ease-in-out}
 @media (prefers-reduced-motion:reduce){.lamp.blinking [data-beam]{animation:none}}
+/* Chips: one shape for every object; a lamp chip is one button with a chevron. */
+.obj-chip .chip-main{cursor:pointer}
+.obj-chip .chip-hit{fill:transparent}
+.obj-chip .chip-main:hover .chip-hit,.obj-chip .chip-main.open .chip-hit{fill:var(--soft)}
+.obj-chip .chip-main.open~rect,.obj-chip:has(.chip-main.open)>rect{stroke:var(--accent)}
+.obj-chip .chev path{fill:none;stroke:var(--muted);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;transform-box:fill-box;transform-origin:center;transition:transform .2s ease}
+.obj-chip .chip-main:hover .chev path,.obj-chip .chip-main.open .chev path{stroke:var(--accent)}
+.obj-chip .chip-main.open .chev path{transform:rotate(180deg)}
+.obj-chip .chip-sep{stroke:var(--line);vector-effect:non-scaling-stroke}
+.obj-chip .chip-btn rect{fill:transparent}
+.obj-chip .chip-btn:hover rect{fill:var(--soft)}
+.app.dark-scene #stage .obj-chip .chip-main:hover .chip-hit,.app.dark-scene #stage .obj-chip .chip-main.open .chip-hit,.app.dark-scene #stage .obj-chip .chip-btn:hover rect{fill:#5cc6cd22}
+.app.dark-scene #stage .obj-chip .chip-sep{stroke:#2f465c}
+
+/* Lamp card: a list of equal rows; Calibrate slides in as the second page. */
+#object-menu.card{width:280px;padding:0;overflow:hidden;transition:height .28s ease,left .28s ease}
+#object-menu .card-pages{display:flex;width:200%;align-items:flex-start;transition:transform .28s ease}
+#object-menu .card-pages.at-cal{transform:translateX(-50%)}
+#object-menu .card-page{width:50%;flex:none;min-width:0}
+#object-menu .card-head{padding:12px 14px 4px}
+#object-menu .card-sub{margin-bottom:6px}
+#object-menu .card-alert{margin:4px 0 8px}
+#object-menu .card-field{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:40px;padding:0 14px;border-top:1px solid var(--line);font-size:13px;white-space:nowrap;color:var(--text)}
+#object-menu .card-field.disabled{opacity:.45}
+#object-menu .card-list{display:grid;padding:4px 6px;border-top:1px solid var(--line)}
+#object-menu .card-list.card-end{padding-bottom:6px}
+#object-menu .card-row{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 8px;border-radius:var(--r-ctl);color:var(--text);font-size:13px;text-align:left}
+#object-menu .card-row svg{width:15px;height:15px;flex:none;color:var(--muted)}
+#object-menu .card-row span{flex:1}
+#object-menu .card-row em{font-style:normal;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+#object-menu .card-row:hover:not(:disabled){background:var(--soft)}
+#object-menu .card-row:hover:not(:disabled) svg:first-child{color:var(--accent)}
+#object-menu .card-row:disabled{opacity:.45;cursor:default}
+#object-menu .card-row.danger,#object-menu .card-row.danger svg{color:var(--bad)}
+#object-menu .card-row.danger:hover{background:color-mix(in srgb,var(--bad) 9%,transparent)}
+#object-menu .card-confirm{margin:2px}
+#object-menu .card-back{display:flex;align-items:center;gap:6px;padding:10px 14px 8px 8px}
+#object-menu .card-back button{width:28px;height:28px;display:grid;place-items:center;border-radius:var(--r-ctl);color:var(--muted)}
+#object-menu .card-back button:hover{background:var(--soft);color:var(--accent)}
+#object-menu .card-back svg{width:14px;height:14px}
+#object-menu .card-back b{font-weight:600;font-size:14px}
+#object-menu .card-back .card-sub{margin:0}
+#object-menu .card-select{position:relative;display:flex;align-items:center}
+#object-menu .card-select select{appearance:none;font:inherit;font-size:12px;color:var(--text);background:var(--canvas);border:0;border-radius:var(--r-ctl);height:28px;padding:0 26px 0 9px;cursor:pointer;max-width:160px}
+#object-menu .card-select svg{position:absolute;right:8px;width:11px;height:11px;color:var(--muted);pointer-events:none}
+#object-menu .card-sliders{display:grid;gap:14px;padding:10px 14px 4px;border-top:1px solid var(--line)}
+#object-menu .card-slider{display:grid;gap:3px}
+#object-menu .card-slider-top{display:flex;justify-content:space-between;font-size:13px;color:var(--text)}
+#object-menu .card-slider-top i{font-style:normal;font-size:12px;color:var(--muted);margin-left:4px}
+#object-menu .card-slider-top output{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+#object-menu .card-ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+#object-menu .card-note{margin:0;font-size:12px;color:var(--muted)}
+#object-menu input[type=range]{appearance:none;width:100%;height:18px;margin:2px 0;background:transparent;cursor:pointer}
+#object-menu input[type=range]::-webkit-slider-runnable-track{height:2px;border-radius:1px;background:linear-gradient(to right,var(--accent) var(--p),var(--line) var(--p))}
+#object-menu input[type=range]::-moz-range-track{height:2px;border-radius:1px;background:linear-gradient(to right,var(--accent) var(--p),var(--line) var(--p))}
+#object-menu input[type=range]::-webkit-slider-thumb{appearance:none;width:11px;height:11px;margin-top:-4.5px;border-radius:50%;background:var(--surface);border:1.6px solid var(--accent)}
+#object-menu input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--surface);border:1.6px solid var(--accent)}
+#object-menu input[type=range]:hover::-webkit-slider-thumb,#object-menu input[type=range]:active::-webkit-slider-thumb{background:var(--accent)}
+#object-menu input[type=range]:focus-visible{outline:2px solid var(--soft);outline-offset:2px}
+#object-menu .card-foot{display:flex;align-items:center;gap:6px;padding:12px 14px 14px}
+#object-menu .card-gap{flex:1}
+#object-menu .card-foot button{height:32px;padding:0 16px;border-radius:var(--r-ctl);background:var(--canvas);color:var(--text);font-size:13px}
+#object-menu .card-foot button:hover:not(:disabled){background:var(--soft);color:var(--accent)}
+#object-menu .card-foot .primary,#object-menu .card-foot .primary:hover{background:var(--accent);color:var(--surface)}
+#object-menu .card-foot .card-reset{display:flex;align-items:center;gap:6px;padding:0 10px 0 8px;background:none;color:var(--muted)}
+#object-menu .card-foot .card-reset svg{width:14px;height:14px}
+#object-menu .card-foot .card-reset:disabled{opacity:.4;cursor:default}
+
+/* Calibrating: the usual selection dim, the lamp's chip stays, the reference is lit. */
+.calibrating #stage .handles>*:not(.obj-chip),.calibrating #stage #sync-visibility,.calibrating #stage #sync-links,.calibrating #stage .desk-axis,.calibrating #stage .axis{display:none}
+.calibrating #stage .lamp.cal-keep{opacity:1!important}
+.calibrating #stage .cal-keep [data-sync-power],.calibrating #stage [data-wash-for].cal-keep,.calibrating #stage [data-wash-for].cal-keep>g{opacity:1!important}
+.calibrating #stage .cal-keep linearGradient stop{stop-color:#ffe6c4!important;stop-opacity:1!important}
+.calibrating #stage .cal-keep [data-beam],.calibrating #stage [data-wash-for].cal-keep{--beam:#ffe6c4!important}
+.calibrating #stage,.calibrating .toolbar,.calibrating .list-control,.calibrating .history{pointer-events:none}
+.calibrating .toolbar,.calibrating .list-control,.calibrating .history{opacity:.35}
+
+#object-menu .card-select select:focus{outline:none}
+#object-menu .card-select select:focus-visible{box-shadow:0 0 0 2px var(--soft)}
+#object-menu .card-back button:focus{outline:none}
+#object-menu .card-back button:focus-visible{box-shadow:0 0 0 2px var(--soft)}
+
+/* Motion: the card grows from its chip side, pages cross-fade as they slide, actions answer. */
+@keyframes card-in{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes card-out{to{opacity:0;transform:translateY(-4px) scale(.98)}}
+#object-menu.card.opening{animation:card-in .18s cubic-bezier(.2,.8,.2,1) both}
+#object-menu.card.closing{animation:card-out .14s ease-in both;pointer-events:none}
+#object-menu .card-page{transition:opacity .28s ease}
+#object-menu .card-pages.at-cal>.card-page:first-child,#object-menu .card-pages:not(.at-cal)>.card-page:last-child{opacity:0}
+@keyframes row-pulse{50%{transform:scale(1.35)}}
+#object-menu .card-row.pulsing>svg:first-child{color:var(--accent);animation:row-pulse .5s ease-in-out 2}
+@keyframes value-flash{0%,35%{color:var(--accent)}}
+#object-menu .card-row em.flash{animation:value-flash .9s ease}
+#object-menu .card-confirm{animation:card-in .16s ease both}
+@keyframes tag-in{from{opacity:0}}
+#cal-ref-tag{animation:tag-in .3s ease both}
+#object-menu .card-slider output{transition:color .2s}
+@media (prefers-reduced-motion:reduce){
+ #object-menu.card.opening,#object-menu.card.closing,#object-menu .card-row.pulsing>svg:first-child,#object-menu .card-row em.flash,#object-menu .card-confirm,#cal-ref-tag{animation:none}
+ #object-menu.card,#object-menu .card-pages,#object-menu .card-page,.obj-chip .chev path{transition:none}
+}

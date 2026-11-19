@@ -35,13 +35,20 @@ PREVIEW_FIELDS = {
     "enabled",
     "syncRole",
     "sceneScale",
+    "calibration",
 }
 # Version 4 adds the optional row field ``syncRole``. Version 5 adds the second
 # (scene) configuration: row ``sceneScale`` and top-level ``sceneZone``,
 # ``syncFalloff`` and ``sceneFalloff``. Stored version 3 and 4 files load and are
-# returned as version 5; writes must use LAYOUT_VERSION.
-LAYOUT_VERSION = 5
-LAYOUT_VERSIONS = (3, 4, LAYOUT_VERSION)
+# returned as version 5; writes must use LAYOUT_VERSION. Version 6 adds the
+# optional Govee row field ``calibration`` (see govee_calibration.py); older
+# files load as version 6 without it.
+LAYOUT_VERSION = 6
+LAYOUT_VERSIONS = (3, 4, 5, LAYOUT_VERSION)
+# Calibration controls of a Govee role row: name -> (lowest, highest). Zero is
+# neutral; an all-zero calibration is not stored.
+CALIBRATION_RANGES = {"warmth": (-100, 100), "tint": (-100, 100), "lowLight": (0, 100)}
+CALIBRATION_ROWS = ("govee-left", "govee-right")
 # Fade switches are stored only when they differ from these defaults.
 FALLOFF_DEFAULTS = {"syncFalloff": True, "sceneFalloff": False}
 # "off" switches a role lamp off for each Sync session (see sync_off.py); only the
@@ -76,6 +83,19 @@ def layout_event(resource):
     }
 
 
+def calibration_values(value):
+    """Validate a row calibration; missing controls are zero."""
+    if not isinstance(value, dict) or set(value) - set(CALIBRATION_RANGES):
+        raise ValueError("Invalid calibration")
+    result = {}
+    for name, (low, high) in CALIBRATION_RANGES.items():
+        item = value.get(name, 0)
+        if type(item) is not int or not low <= item <= high:
+            raise ValueError("Invalid calibration " + name)
+        result[name] = item
+    return result
+
+
 def number(value, low, high):
     if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
         raise ValueError("Invalid layout number")
@@ -88,7 +108,7 @@ def validate_layout(value):
     version = value.get("version") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) - allowed or type(version) is not int
             or version not in LAYOUT_VERSIONS):
-        raise ValueError("Expected a version-three, version-four or version-five desk layout")
+        raise ValueError("Expected a desk layout of version three to six")
     if value.get("gridStepCm", 5) != 5:
         raise ValueError("Desk placement requires a five-centimeter grid")
     desk = value.get("desk")
@@ -151,6 +171,12 @@ def validate_layout(value):
             raise ValueError("Invalid Sync role")
         if sync_role != "sync":
             device["syncRole"] = sync_role
+        if "calibration" in row:
+            if key not in CALIBRATION_ROWS:
+                raise ValueError("Only a Govee lamp takes a calibration")
+            values = calibration_values(row["calibration"])
+            if any(values.values()):
+                device["calibration"] = values
         # The without-Sync correction is the row's own value. A row without it
         # (older files and clients) gets a copy of the Sync correction, which is
         # what scenes used before; it then changes independently.
@@ -320,6 +346,14 @@ class LayoutStore:
                 if ROLES.get(device["id"]) == role:
                     return device["sceneScale"] / 100
         return fallback
+
+    def calibration(self, side):
+        """Return the calibration of the Govee lamp on ``side`` (zero if none)."""
+        data = self.snapshot()
+        for device in (data or {}).get("devices", []):
+            if ROLES.get(device["id"]) == side and device["id"] in CALIBRATION_ROWS:
+                return dict(device.get("calibration") or calibration_values({}))
+        return calibration_values({})
 
     def _member(self, role, fallback, test):
         data = self.snapshot()

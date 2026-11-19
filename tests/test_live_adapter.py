@@ -468,6 +468,40 @@ class LiveAdapterTests(unittest.TestCase):
         # A status without a brightness reading is no reason to repeat it.
         self.assertEqual(tick(6, None), [])
 
+    def test_a_calibrated_lamp_streams_device_values_without_repeating_them(self):
+        from govee_calibration import GoveeCalibration
+        from govee_segments import razer_colors
+        from test_govee_calibration import LEFT_MATCH, FakeStore
+
+        selected = targets()
+        selected[0].update(segment_count=7)
+        calibration = GoveeCalibration(selected, FakeStore(left=LEFT_MATCH))
+        controller = adapter.GoveeController(
+            selected, sender=calibration.wrap(self.send), clock=lambda: self.now,
+            wall_clock=lambda: 1000)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[255, 235, 207]]}
+        lamp = {"onOff": 1}
+
+        def tick(at, sequence):
+            self.now = at
+            controller.update_statuses(calibration.decode({LEFT: (dict(lamp), at)}))
+            controller.submit(command(sequence=sequence, transitiontime=0, state=state))
+            self.sent.clear()
+            controller.render()
+            return [(name, razer_colors(data) if name == "razer" else data["value"])
+                    for device, name, data in self.sent if device == LEFT]
+
+        controller.set_streaming(True)
+        first = tick(0, 1)
+        logical = controller.snapshot()["targets"][0]["target"]["brightness"]
+        brightness = [value for name, value in first if name == "brightness"]
+        self.assertEqual(brightness, [round(100 * (logical / 100) ** 0.482)])
+        self.assertEqual(first[-1], ("razer", [[249, 255, 202]] * 7))
+        # The lamp reports the device level; it reads back as the logical one.
+        lamp["brightness"] = brightness[0]
+        self.assertEqual(tick(2, 2), [])
+        self.assertEqual(tick(4, 3), [])
+
     def test_a_stream_brightness_change_repeats_the_current_frame(self):
         from govee_segments import razer_colors
 

@@ -154,8 +154,8 @@ function saved(){return {version:3,gridStepCm:5,room:'Office',desk:{width:160,he
  ['play-left',70,40,100],['play-center',100,40,50],['play-right',130,40,100]
 ].map(([id,x,height,scale])=>({id,scale,positionCm:{x,height},orientation:'horizontal'}))};}
 function canonical(layout){
- // What the page sends: version 5 with both configurations' zones and fade switches.
- const result=structuredClone(layout);result.version=5;
+ // What the page sends: version 6 with both configurations' zones and fade switches.
+ const result=structuredClone(layout);result.version=6;
  result.syncZone??=null;result.sceneZone??=null;result.syncFalloff??=true;result.sceneFalloff??=false;
  for(const row of result.devices){if(row.enabled!==false)delete row.enabled;if(row.syncRole!=='own')delete row.syncRole;row.orientation??='horizontal';row.sceneScale??=row.scale;}
  return result;
@@ -167,7 +167,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -185,6 +185,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),live=live
   fetch:async(url,options={})=>{
    if(url==='/api/live'){requests.live.push(now);const value=typeof live==='function'?live(requests.live.length):live;if(value instanceof Error)throw value;return response(200,await value)}
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
+   if(url.startsWith('/api/calibration')){assert.ok(calibrate,'unexpected calibration');const result=await calibrate(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
    if(options.method!=='POST'){requests.layout++;if(layoutGet)return layoutGet(server);return response(200,{layout:server.layout,revision:server.layout?server.revision:null})}
@@ -247,13 +248,13 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
-test('edits autosave once after 300 ms with If-Match and version 5, undo saves too',async()=>{
+test('edits autosave once after 300 ms with If-Match and version 6, undo saves too',async()=>{
  const app=await harness();
  app.lamp('play-left').focus();await app.press(app.lamp('play-left'),'ArrowRight');
  assert.equal(app.$('#draft-status').dataset.state,'pending');
  await app.advance(299);assert.equal(app.posts.length,0);
  await app.advance(1);assert.equal(app.posts.length,1);
- assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,5);
+ assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,6);
  assert.deepEqual(app.posts[0].body.devices[3].positionCm,{x:75,height:40});
  assert.equal(app.$('#draft-status').dataset.state,'saved');
  // Rapid edits coalesce into one request.
@@ -623,7 +624,10 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
  const app=await harness();
  const left=()=>json(app,'lamps.find(l=>l.id==="govee-left")');
  assert.equal(app.run('view()'),'scene');
- app.run('select("govee-left")');app.run('applyLabelEdit("corr",40)');await app.advance(300);
+ app.run('select("govee-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));
+ const bri=app.$('#object-menu [data-cal="correction"]');bri.value='40';app.dispatch(bri,'input');
+ await app.click(app.$('#object-menu [data-menu="cal-save"]'));await app.advance(300);
  let body=app.posts.at(-1).body,row=body.devices.find(r=>r.id==='govee-left');
  assert.equal(row.sceneScale,40,'the room view edits the correction without Sync');assert.equal(row.scale,65,'the Sync correction stays');
  assert.equal(body.syncFalloff,true);assert.equal(body.sceneFalloff,false,'the fade without Sync is off by default');
@@ -646,6 +650,139 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
  assert.equal(left().sceneScale,40);
 });
 
+async function openCard(app){app.dispatch(app.stage.querySelector('[data-chip-action="more"]'),'pointerdown');await app.settle()}
+const SYNC_IDLE={sync:{state:'idle',reason:'no_source',blockers:[]}};
+
+test('a lamp chip is one button that opens the card, and the scene has no correction rail',async()=>{
+ const app=await harness();
+ app.run('select("govee-left")');await app.settle();
+ const chip=()=>app.stage.querySelector('.chip-main');
+ assert.equal(chip().getAttribute('aria-expanded'),'false');
+ assert.equal(app.stage.querySelector('[data-handle="scale"]'),null,'no correction rail');
+ assert.equal(app.stage.querySelector('[data-edit="corr"]'),null,'no correction label');
+ app.dispatch(chip(),'pointerdown');await app.settle();
+ const menu=app.$('#object-menu');assert.equal(menu.hidden,false);
+ assert.ok(menu.classList.contains('opening'),'the card grows in');
+ assert.equal(chip().getAttribute('aria-expanded'),'true');
+ assert.equal(menu.querySelector('[data-menu="reset"]'),null,'Reset correction moved to the Calibrate page');
+ assert.deepEqual([...menu.querySelectorAll('.card-row')].map(b=>b.dataset.menu),['blink','calibrate','remove']);
+ app.dispatch(chip(),'pointerdown');await app.settle();
+ assert.ok(menu.classList.contains('closing'),'the card fades out first');
+ await app.advance(200);assert.equal(menu.hidden,true,'the chip closes the card too');
+ app.dispatch(app.lamp('govee-left'),'dblclick');await app.advance(20);
+ assert.equal(menu.hidden,false,'a double click on the lamp opens its card');
+});
+
+test('calibrating a Govee lamp compares it with a reference and saves only on Save',async()=>{
+ const calls=[];
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:(url,body)=>{calls.push([url,body]);return {status:200,body:{active:url==='/api/calibration'}}}});
+ app.run('select("govee-left")');await openCard(app);
+ const row=app.$('#object-menu [data-menu="calibrate"]');
+ assert.equal(row.querySelector('em').textContent,'65%','the row shows the correction');
+ await app.click(row);
+ assert.deepEqual(calls[0],['/api/calibration',{lamp:'govee-left',reference:'play-left',level:'bright',view:'scene',correction:65,calibration:{warmth:0,tint:0,lowLight:0}}],'the nearest Hue Play is the reference');
+ await app.advance(20);
+ assert.ok(app.$('#object-menu .card-pages').classList.contains('at-cal'),'the card slides to the Calibrate page');
+ assert.ok(app.$('#app').classList.contains('calibrating'));
+ assert.ok(app.lamp('govee-left').classList.contains('cal-keep')&&app.lamp('play-left').classList.contains('cal-keep'));
+ assert.ok(!app.lamp('govee-right').classList.contains('cal-keep'));
+ assert.ok(app.stage.querySelector('#cal-ref-tag'),'the reference is labelled');
+ const set=async(key,v)=>{const s=app.$('#object-menu [data-cal="'+key+'"]');s.value=String(v);app.dispatch(s,'input');await app.settle()};
+ await set('warmth',40);await set('correction',50);
+ assert.deepEqual(calls.at(-1)[1],{...calls[0][1],correction:50,calibration:{warmth:40,tint:0,lowLight:0}},'a slider shows on the lamp at once');
+ assert.equal(app.posts.length,0,'nothing is saved while the sliders move');
+ await app.advance(2000);assert.equal(calls.at(-1)[0],'/api/calibration','the session is renewed');
+ await app.click(app.$('#object-menu [data-menu="cal-level-dim"]'));assert.equal(calls.at(-1)[1].level,'dim');
+ await app.click(app.$('#object-menu [data-menu="cal-save"]'));
+ assert.equal(calls.at(-1)[0],'/api/calibration/end');
+ assert.ok(!app.$('#app').classList.contains('calibrating'));
+ assert.ok(!app.$('#object-menu .card-pages').classList.contains('at-cal'),'back on the first page');
+ assert.equal(app.$('#object-menu').hidden,false,'the card stays open');
+ await app.advance(300);
+ const saved=app.posts.at(-1).body.devices.find(r=>r.id==='govee-left');
+ assert.deepEqual(saved.calibration,{warmth:40,tint:0,lowLight:0});assert.equal(saved.sceneScale,50);
+ assert.equal(app.$('#object-menu [data-menu="calibrate"] em').textContent,'50% · color');
+ const count=calls.length;await app.advance(5000);assert.equal(calls.length,count,'no renewal after the session');
+});
+
+test('a Hue lamp calibrates its brightness only; Reset and Esc save nothing',async()=>{
+ const calls=[];
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:(url,body)=>{calls.push([url,body]);return {status:200,body:{active:true}}}});
+ app.run('select("play-center")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ assert.equal(calls[0][1].calibration,undefined,'no colour for a Hue lamp');
+ assert.equal(app.$('#object-menu [data-cal="warmth"]'),null);
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.settle();
+ assert.equal(calls.at(-1)[1].correction,30);
+ await app.click(app.$('#object-menu [data-menu="cal-reset"]'));
+ assert.equal(calls.at(-1)[1].correction,100,'the reset shows on the lamp at once');
+ await app.advance(100);const mid=+app.$('#object-menu [data-cal="correction"]').value;
+ assert.ok(mid>30&&mid<100,'the slider glides to its reset value');
+ await app.advance(300);
+ assert.equal(app.$('#object-menu [data-cal="correction"]').value,'100','Reset is unsaved: brightness back to 100%');
+ assert.equal(app.$('#object-menu [data-menu="cal-reset"]').disabled,true);
+ await app.press(app.$('#object-menu'),'Escape');
+ assert.equal(calls.at(-1)[0],'/api/calibration/end');
+ assert.equal(app.$('#object-menu').hidden,false,'Esc leaves the page, the card stays');
+ await app.advance(300);assert.equal(app.posts.length,0);
+});
+
+test('during Sync the brightness changes the running Sync and Cancel restores it',async()=>{
+ const app=await harness({calibrate:()=>assert.fail('no test light during Sync')});
+ await app.click(app.$('#sync-tool'));
+ app.run('select("govee-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ assert.equal(app.$('#object-menu select.cal-ref'),null,'no Compare with during Sync');
+ assert.equal(app.$('#object-menu .card-note').textContent,'Turn Sync off to calibrate color');
+ assert.match(app.$('#object-menu .card-slider-top').textContent,/with Sync/);
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.advance(300);
+ assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='govee-left').scale,30,'saved at once');
+ await app.click(app.$('#object-menu [data-menu="cal-cancel"]'));await app.advance(300);
+ assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='govee-left').scale,65,'Cancel restores it');
+});
+
+test('ending a test waits for the update still on its way',async()=>{
+ const order=[];let release;
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:(url,body)=>{
+  order.push(url+(body.correction!==undefined?':'+body.correction:''));
+  if(body.correction===40)return new Promise(done=>{release=()=>done({status:200,body:{active:true}})});
+  return {status:200,body:{active:url==='/api/calibration'}};
+ }});
+ app.run('select("govee-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='40';app.dispatch(s,'input');await app.settle();
+ await app.click(app.$('#object-menu [data-menu="cal-cancel"]'));
+ assert.deepEqual(order,['/api/calibration:65','/api/calibration:40'],'the end waits');
+ release();await app.settle();
+ assert.deepEqual(order,['/api/calibration:65','/api/calibration:40','/api/calibration/end']);
+});
+
+test('Reset during Sync keeps the colour calibration it does not show',async()=>{
+ const remote=saved();remote.devices.find(r=>r.id==='govee-left').calibration={warmth:50,tint:-10,lowLight:20};
+ const app=await harness({layout:remote,calibrate:()=>assert.fail('no test light during Sync')});
+ await app.click(app.$('#sync-tool'));
+ app.run('select("govee-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.advance(300);
+ await app.click(app.$('#object-menu [data-menu="cal-reset"]'));await app.advance(400);
+ await app.click(app.$('#object-menu [data-menu="cal-save"]'));await app.advance(300);
+ const row=app.posts.at(-1).body.devices.find(r=>r.id==='govee-left');
+ assert.equal(row.scale,100);assert.deepEqual(row.calibration,{warmth:50,tint:-10,lowLight:20});
+});
+
+test('a test stops when Sync starts',async()=>{
+ let answer={status:200,body:{active:true}};
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:()=>answer});
+ app.run('select("govee-right")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ assert.ok(app.$('#app').classList.contains('calibrating'));
+ const before=app.posts.length;answer={status:409,body:{active:false,reason:'sync active'}};
+ await app.advance(2000);
+ assert.ok(!app.$('#app').classList.contains('calibrating'));
+ assert.equal(app.$('#toast').textContent,'Calibration stopped: Sync started');
+ await app.advance(300);assert.equal(app.posts.length,before,'nothing was saved');
+});
+
 test('the correction without Sync is the lamp\'s own value, never the Sync one',async()=>{
  const remote=saved();remote.devices.find(r=>r.id==='play-left').scale=70;
  for(const r of remote.devices)delete r.sceneScale;
@@ -653,7 +790,10 @@ test('the correction without Sync is the lamp\'s own value, never the Sync one',
  const lamp=id=>json(app,'lamps.find(l=>l.id==="'+id+'")');
  assert.equal(lamp('play-left').sceneScale,70,'a row without it starts from a copy of the Sync correction');
  await app.click(app.$('#sync-tool'));
- app.run('select("play-left")');app.run('applyLabelEdit("corr",30)');await app.advance(300);
+ app.run('select("play-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));
+ const bri=app.$('#object-menu [data-cal="correction"]');bri.value='30';app.dispatch(bri,'input');
+ await app.click(app.$('#object-menu [data-menu="cal-save"]'));await app.advance(300);
  const row=app.posts.at(-1).body.devices.find(r=>r.id==='play-left');
  assert.equal(row.scale,30);assert.equal(row.sceneScale,70,'a Sync correction change keeps the one without Sync');
  await app.click(app.$('#sync-tool'));
