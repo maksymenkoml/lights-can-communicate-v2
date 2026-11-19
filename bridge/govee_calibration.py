@@ -1,17 +1,17 @@
 """Per-lamp Govee calibration at the transport boundary.
 
-Two H6076 lamps can render the same command differently: one may dim lower
-levels more and show a weaker green (see
-``docs/design/2026-11-19-govee-device-calibration.md``). A target profile may
-carry ``color_gains`` (red, green, blue; each 0 < gain <= 1) and
-``brightness_exponent`` (0 < exponent <= 1; sent brightness is
-``100 * (b / 100) ** exponent``). Everything above the transport keeps logical
-values: commands are converted on the way out and statuses on the way back.
+Two H6076 lamps can render the same command differently from each other and
+from the Hue lamps (see ``docs/design/2026-11-19-govee-device-calibration.md``).
+The owner sets a Govee lamp's calibration in Light Studio: the layout row's
+``calibration`` holds the slider positions ``warmth``, ``tint`` and
+``lowLight``. ``curve()`` turns them into channel gains and a brightness
+exponent (sent brightness is ``100 * (b / 100) ** exponent``). Everything above
+the transport keeps logical values: commands are converted on the way out and
+statuses on the way back. A calibration session may override a side's values.
 """
 
 import base64
 import copy
-import math
 import threading
 from functools import reduce
 from operator import xor
@@ -21,22 +21,27 @@ from govee_segments import razer_colors, razer_data
 import lights_can_communicate_v2 as lan
 
 
-def _gains(value):
-    if value is None:
-        return None
-    if (not isinstance(value, list) or len(value) != 3
-            or any(type(gain) not in (int, float) or not math.isfinite(gain)
-                   or not 0 < gain <= 1 for gain in value)):
-        raise ValueError("Invalid Govee color_gains")
-    return tuple(float(gain) for gain in value)
-
-
-def _exponent(value):
-    if value is None:
-        return None
-    if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= 1:
-        raise ValueError("Invalid Govee brightness_exponent")
-    return float(value)
+def curve(values):
+    """Return (gains or None, exponent or None) for a row calibration."""
+    w = values.get("warmth", 0) / 100
+    t = values.get("tint", 0) / 100
+    low = values.get("lowLight", 0) / 100
+    red = green = blue = 1.0
+    if w > 0:  # warmer: less blue, a little less green
+        blue *= 1 - 0.6 * w
+        green *= 1 - 0.18 * w
+    elif w < 0:  # cooler: less red, a little less green
+        red *= 1 + 0.6 * w
+        green *= 1 + 0.18 * w
+    if t < 0:  # greener: less red and blue
+        red *= 1 + 0.3 * t
+        blue *= 1 + 0.3 * t
+    elif t > 0:  # pinker: less green
+        green *= 1 - 0.3 * t
+    peak = max(red, green, blue)
+    gains = tuple(value / peak for value in (red, green, blue))
+    return (None if gains == (1.0, 1.0, 1.0) else gains,
+            None if low == 0 else 1 - 0.7 * low)
 
 
 def _scaled(color, gains):
@@ -66,8 +71,8 @@ def _ptreal(data, gains):
 
 
 class _Lamp:
-    def __init__(self, gains, exponent):
-        self.gains, self.exponent = gains, exponent
+    def __init__(self):
+        self.gains = self.exponent = None
         # Logical value -> device value last sent. Several logical values can
         # reach the lamp as one device value; the one sent here reads back.
         self.brightness = None
@@ -122,20 +127,46 @@ class _Lamp:
 
 
 class GoveeCalibration:
-    """Validates the target profiles; wraps the sender and decodes statuses."""
+    """Wraps the Govee sender and decodes statuses with each lamp's calibration."""
 
-    def __init__(self, targets):
+    def __init__(self, targets, layout_store=None):
         self.lock = threading.Lock()
-        self.lamps = {}
+        self.layout_store = layout_store
+        self.sides, self.lamps, self.overrides = {}, {}, {}
         for item in targets:
-            gains = _gains(item.get("color_gains"))
-            exponent = _exponent(item.get("brightness_exponent"))
-            if gains is not None or exponent is not None:
-                self.lamps[lan.device_key(item)] = _Lamp(gains, exponent)
+            if "color_gains" in item or "brightness_exponent" in item:
+                raise ValueError("Govee calibration belongs in the Light Studio layout, "
+                                 "not in the target profile")
+            key = lan.device_key(item)
+            self.sides[key] = item.get("side")
+            self.lamps[key] = _Lamp()
+
+    def override(self, side, values):
+        """Use ``values`` for ``side`` instead of the layout (None ends it)."""
+        with self.lock:
+            if values is None:
+                self.overrides.pop(side, None)
+            else:
+                self.overrides[side] = dict(values)
+
+    def _current(self, key):
+        """The lamp with its present gains and exponent, or None if neutral."""
+        lamp = self.lamps.get(key)
+        if lamp is None:
+            return None
+        side = self.sides[key]
+        values = self.overrides.get(side)
+        if values is None and self.layout_store is not None:
+            values = self.layout_store.calibration(side)
+        lamp.gains, lamp.exponent = curve(values or {})
+        if lamp.gains is None and lamp.exponent is None and lamp.brightness is None:
+            return None
+        return lamp
 
     def wrap(self, sender):
         def send(device, command, data):
-            lamp = self.lamps.get(lan.device_key(device)) if isinstance(data, dict) else None
+            with self.lock:
+                lamp = self._current(lan.device_key(device)) if isinstance(data, dict) else None
             if lamp is None:
                 return sender(device, command, data)
             sent, memory = lamp.encode(command, data)
@@ -149,12 +180,12 @@ class GoveeCalibration:
 
     def decode(self, statuses):
         """Return the statuses with calibrated lamps in logical values."""
-        if not self.lamps:
-            return statuses
         result = dict(statuses)
         with self.lock:
             for key, value in statuses.items():
-                lamp = self.lamps.get(key)
-                if lamp is not None and isinstance(value[0], dict):
+                if key not in self.lamps or not isinstance(value[0], dict):
+                    continue
+                lamp = self._current(key)
+                if lamp is not None:
                     result[key] = (lamp.decode(value[0]), *value[1:])
         return result

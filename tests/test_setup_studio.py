@@ -21,7 +21,7 @@ def layout():
     """A layout in the current format: older versions are refused on write."""
     from test_desk_layout import layout as stored
 
-    return stored() | {"version": 5}
+    return stored() | {"version": 6}
 
 
 def catalog_device(**changes):
@@ -269,7 +269,7 @@ class StudioTests(unittest.TestCase):
             path.write_text(json.dumps(older))
             old_revision = LayoutStore.digest(older)
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 5)
+            self.assertEqual(store.snapshot()["version"], 6)
             self.assertNotEqual(store.revision(), old_revision)
 
     def test_status_projection_excludes_keys_unselected_devices_and_raw_commands(self):

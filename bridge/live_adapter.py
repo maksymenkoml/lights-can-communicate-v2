@@ -896,7 +896,7 @@ def main(argv=None, service_info=None):
     preview = OutputPreviewStore()
     # Per-lamp calibration converts commands to device values on the way out and
     # statuses back to logical values; an invalid profile refuses to start.
-    calibration = GoveeCalibration(config["targets"])
+    calibration = GoveeCalibration(config["targets"], layout_store)
     sender = calibration.wrap(lan.send_to_target)
     power_sender = calibration.wrap(lan.send_power_to_target)
     if args.power_owner_token_file:

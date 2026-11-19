@@ -73,7 +73,7 @@ class LayoutOffTests(unittest.TestCase):
                 result = validate_layout(with_roles(**{key: "off"}))
                 row = next(item for item in result["devices"] if item["id"] == key)
                 self.assertEqual(row["syncRole"], "off")
-                self.assertEqual(result["version"], 5)
+                self.assertEqual(result["version"], 6)
                 self.assertEqual(validate_layout(copy.deepcopy(result)), result)
         for identity, extra in (
             ("virtual-lamp1", {"shape": "floor", "name": "Spare"}),

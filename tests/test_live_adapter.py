@@ -471,11 +471,11 @@ class LiveAdapterTests(unittest.TestCase):
     def test_a_calibrated_lamp_streams_device_values_without_repeating_them(self):
         from govee_calibration import GoveeCalibration
         from govee_segments import razer_colors
+        from test_govee_calibration import LEFT_MATCH, FakeStore
 
         selected = targets()
-        selected[0].update(segment_count=7, color_gains=[0.9, 1, 0.9],
-                           brightness_exponent=0.487)
-        calibration = GoveeCalibration(selected)
+        selected[0].update(segment_count=7)
+        calibration = GoveeCalibration(selected, FakeStore(left=LEFT_MATCH))
         controller = adapter.GoveeController(
             selected, sender=calibration.wrap(self.send), clock=lambda: self.now,
             wall_clock=lambda: 1000)
@@ -495,7 +495,7 @@ class LiveAdapterTests(unittest.TestCase):
         first = tick(0, 1)
         logical = controller.snapshot()["targets"][0]["target"]["brightness"]
         brightness = [value for name, value in first if name == "brightness"]
-        self.assertEqual(brightness, [round(100 * (logical / 100) ** 0.487)])
+        self.assertEqual(brightness, [round(100 * (logical / 100) ** 0.482)])
         self.assertEqual(first[-1], ("razer", [[249, 255, 202]] * 7))
         # The lamp reports the device level; it reads back as the logical one.
         lamp["brightness"] = brightness[0]

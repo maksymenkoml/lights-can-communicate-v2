@@ -154,8 +154,8 @@ function saved(){return {version:3,gridStepCm:5,room:'Office',desk:{width:160,he
  ['play-left',70,40,100],['play-center',100,40,50],['play-right',130,40,100]
 ].map(([id,x,height,scale])=>({id,scale,positionCm:{x,height},orientation:'horizontal'}))};}
 function canonical(layout){
- // What the page sends: version 5 with both configurations' zones and fade switches.
- const result=structuredClone(layout);result.version=5;
+ // What the page sends: version 6 with both configurations' zones and fade switches.
+ const result=structuredClone(layout);result.version=6;
  result.syncZone??=null;result.sceneZone??=null;result.syncFalloff??=true;result.sceneFalloff??=false;
  for(const row of result.devices){if(row.enabled!==false)delete row.enabled;if(row.syncRole!=='own')delete row.syncRole;row.orientation??='horizontal';}
  return result;
@@ -247,13 +247,13 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
-test('edits autosave once after 300 ms with If-Match and version 5, undo saves too',async()=>{
+test('edits autosave once after 300 ms with If-Match and version 6, undo saves too',async()=>{
  const app=await harness();
  app.lamp('play-left').focus();await app.press(app.lamp('play-left'),'ArrowRight');
  assert.equal(app.$('#draft-status').dataset.state,'pending');
  await app.advance(299);assert.equal(app.posts.length,0);
  await app.advance(1);assert.equal(app.posts.length,1);
- assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,5);
+ assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,6);
  assert.deepEqual(app.posts[0].body.devices[3].positionCm,{x:75,height:40});
  assert.equal(app.$('#draft-status').dataset.state,'saved');
  // Rapid edits coalesce into one request.

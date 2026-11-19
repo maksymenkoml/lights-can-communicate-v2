@@ -57,7 +57,7 @@ class LayoutTests(unittest.TestCase):
         self.assertNotIn("name", rows["hue-monitor"])
         result = validate_layout(named(**{"hue-monitor": None}))
         self.assertTrue(all("name" not in row for row in result["devices"]))
-        self.assertEqual(result["version"], 5)
+        self.assertEqual(result["version"], 6)
 
     def test_role_names_are_bounded_printable_text(self):
         for role, name in (("govee-left", ""), ("govee-left", "   "), ("govee-left", "x" * 36),
@@ -188,13 +188,13 @@ class LayoutTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_layout(data)
 
-    def test_older_versions_load_and_always_return_version_five(self):
-        for version in (3, 4, 5):
+    def test_older_versions_load_and_always_return_the_current_version(self):
+        for version in (3, 4, 5, 6):
             data = layout()
             data["version"] = version
             with self.subTest(version=version):
-                self.assertEqual(validate_layout(data)["version"], 5)
-        for version in (2, 6, "4", 4.0, True, None):
+                self.assertEqual(validate_layout(data)["version"], 6)
+        for version in (2, 7, "4", 4.0, True, None):
             data = layout()
             data["version"] = version
             with self.subTest(version=version), self.assertRaises(ValueError):
@@ -205,9 +205,9 @@ class LayoutTests(unittest.TestCase):
             path = Path(folder) / "layout.json"
             path.write_text(json.dumps(layout()))
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 5)
+            self.assertEqual(store.snapshot()["version"], 6)
             store.save(store.snapshot())
-            self.assertEqual(json.loads(path.read_text())["version"], 5)
+            self.assertEqual(json.loads(path.read_text())["version"], 6)
 
     def test_atomic_persistence_and_invalid_file_keep_last_good_configuration(self):
         with TemporaryDirectory(prefix="tmp_desk_layout_") as folder:
