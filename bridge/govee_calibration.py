@@ -11,7 +11,6 @@ statuses on the way back. A calibration session may override a side's values.
 """
 
 import base64
-import copy
 import threading
 from functools import reduce
 from operator import xor
@@ -104,7 +103,8 @@ class _Lamp:
         return data, None
 
     def decode(self, status):
-        result = copy.deepcopy(status)
+        # Only top-level fields change; the colour is replaced, never modified.
+        result = dict(status)
         value = status.get("brightness")
         if self.exponent is not None and type(value) is int:
             if self.brightness is not None and self.brightness[1] == value:

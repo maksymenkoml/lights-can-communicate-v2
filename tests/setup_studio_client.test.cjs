@@ -741,6 +741,35 @@ test('during Sync the brightness changes the running Sync and Cancel restores it
  assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='govee-left').scale,65,'Cancel restores it');
 });
 
+test('ending a test waits for the update still on its way',async()=>{
+ const order=[];let release;
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:(url,body)=>{
+  order.push(url+(body.correction!==undefined?':'+body.correction:''));
+  if(body.correction===40)return new Promise(done=>{release=()=>done({status:200,body:{active:true}})});
+  return {status:200,body:{active:url==='/api/calibration'}};
+ }});
+ app.run('select("govee-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='40';app.dispatch(s,'input');await app.settle();
+ await app.click(app.$('#object-menu [data-menu="cal-cancel"]'));
+ assert.deepEqual(order,['/api/calibration:65','/api/calibration:40'],'the end waits');
+ release();await app.settle();
+ assert.deepEqual(order,['/api/calibration:65','/api/calibration:40','/api/calibration/end']);
+});
+
+test('Reset during Sync keeps the colour calibration it does not show',async()=>{
+ const remote=saved();remote.devices.find(r=>r.id==='govee-left').calibration={warmth:50,tint:-10,lowLight:20};
+ const app=await harness({layout:remote,calibrate:()=>assert.fail('no test light during Sync')});
+ await app.click(app.$('#sync-tool'));
+ app.run('select("govee-left")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.advance(300);
+ await app.click(app.$('#object-menu [data-menu="cal-reset"]'));await app.advance(400);
+ await app.click(app.$('#object-menu [data-menu="cal-save"]'));await app.advance(300);
+ const row=app.posts.at(-1).body.devices.find(r=>r.id==='govee-left');
+ assert.equal(row.scale,100);assert.deepEqual(row.calibration,{warmth:50,tint:-10,lowLight:20});
+});
+
 test('a test stops when Sync starts',async()=>{
  let answer={status:200,body:{active:true}};
  const app=await harness({live:liveOk(SYNC_IDLE),calibrate:()=>answer});

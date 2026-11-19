@@ -123,7 +123,8 @@ class CalibrationSession:
     # -- requests -----------------------------------------------------------
     def update(self, payload):
         """Start or renew the session; apply the outputs when anything changed."""
-        if not isinstance(payload, dict) or payload.get("lamp") not in ROLES:
+        if (not isinstance(payload, dict) or not isinstance(payload.get("lamp"), str)
+                or payload["lamp"] not in ROLES):
             raise ValueError("Invalid calibration request")
         lamp = payload["lamp"]
         govee = lamp in CALIBRATION_ROWS
@@ -131,7 +132,7 @@ class CalibrationSession:
         if set(payload) != (keys | {"calibration"} if govee else keys):
             raise ValueError("Invalid calibration request")
         reference, level, view = payload["reference"], payload["level"], payload["view"]
-        if reference not in ROLES or reference == lamp:
+        if not isinstance(reference, str) or reference not in ROLES or reference == lamp:
             raise ValueError("Invalid reference lamp")
         if level not in LEVELS or view not in VIEWS:
             raise ValueError("Invalid test level")

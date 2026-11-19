@@ -899,7 +899,7 @@ function menuAction(id){
  if(!cal)return false;
  if(id==='cal-back'||id==='cal-cancel'){closeCalibrate(false);return true}
  if(id==='cal-save'){closeCalibrate(true);return true}
- if(id==='cal-reset'){cal.correction=100;cal.values=calibrationOf({});animateCalSliders();calApplyLive();sendCalibration();return true}
+ if(id==='cal-reset'){cal.correction=100;if(colorShown(cal))cal.values=calibrationOf({});animateCalSliders();calApplyLive();sendCalibration();return true}
  if(id.startsWith('cal-level-')){cal.level=id.slice(10);menu.querySelectorAll('[data-menu^="cal-level-"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.menu===id));sendCalibration();return true}
  return false;
 }
@@ -913,7 +913,7 @@ function menuAction(id){
 const CAL_REFUSED={'sync active':'Turn Sync off to calibrate','lamp off':'The lamp is off','reference off':'The reference lamp is off','busy':'Another lamp is being calibrated','writer closed':'The lamp is still turning on','paused':'Light output is paused'};
 const CAL_STOPPED={'sync active':'Calibration stopped: Sync started','lamp off':'Calibration stopped: the lamp is off','reference off':'Calibration stopped: the reference lamp is off'};
 const CAL_SLIDERS=[['warmth','Warmth','Cooler','Warmer'],['tint','Tint','Greener','Pinker'],['lowLight','Low light','Darker','Brighter']];
-let cal=null,calTimer=null,calSending=false,calQueued=false;
+let cal=null,calTimer=null,calSending=false,calQueued=false,calLine=Promise.resolve();
 const liveLampOff=id=>liveSnapshot?.lamps?.[id]?.on===false;
 const calReferences=id=>lamps.filter(l=>isRole(l.id)&&l.id!==id&&l.enabled!==false);
 const isGoveeRole=l=>/^govee-/.test(l.id);
@@ -923,19 +923,23 @@ function defaultReference(l){
 }
 function calMode(l){return !isRole(l.id)||l.unbound?'plain':liveState()==='active'?'live':'test'}
 const calBody=c=>({lamp:c.lamp,reference:c.reference,level:c.level,view:c.view,correction:c.correction,...(/^govee-/.test(c.lamp)?{calibration:{...c.values}}:{})});
-const calChanged=c=>calibrated(c.values)||c.correction!==100;
+const colorShown=c=>c.mode==='test'&&/^govee-/.test(c.lamp);
+const calChanged=c=>colorShown(c)&&calibrated(c.values)||c.correction!==100;
 async function calPost(path,body){
  try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:path.endsWith('/end')});return {status:r.status,body:await r.json().catch(()=>({}))}}
  catch{return {status:0,body:{}}}
 }
+// Session requests go out one after another: an end never overtakes an update that
+// would otherwise start the session again after it ended.
+function calSend(path,body){const sent=calLine.then(()=>calPost(path,body));calLine=sent.catch(()=>{});return sent}
 async function openCalibrate(l){
  if(cal)return;
  const v=view(),next={lamp:l.id,mode:calMode(l),view:v,level:'bright',reference:null,correction:corr(l,v),start:corr(l,v),values:calibrationOf(l.calibration),before:snapshot()};
  if(next.mode==='test'){
   next.reference=defaultReference(l);if(!next.reference){tell('No reference lamp is on');return}
-  const r=await calPost('/api/calibration',calBody(next));
+  const r=await calSend('/api/calibration',calBody(next));
   if(r.status!==200){tell(r.status===409?CAL_REFUSED[r.body.reason]||'Calibration is not possible now':'Calibration failed: the adapter is not responding');return}
-  if(cal||!menuOpen||selected!==l.id){if(!cal)calPost('/api/calibration/end',{});return}
+  if(cal||!menuOpen||selected!==l.id){if(!cal)calSend('/api/calibration/end',{});return}
  }
  cal=next;
  if(cal.mode==='test')renewCalibration();
@@ -949,9 +953,9 @@ function closeCalibrate(save,message){
  if(!cal)return;
  const c=cal,l=lamps.find(x=>x.id===c.lamp);
  clearTimeout(calTimer);calTimer=null;calQueued=false;cal=null;
- if(c.mode==='test')calPost('/api/calibration/end',{});
+ if(c.mode==='test')calSend('/api/calibration/end',{});
  if(l){
-  if(save){if(corr(l,c.view)!==c.correction)setCorr(l,c.correction,c.view);if(isGoveeRole(l))l.calibration={...c.values}}
+  if(save){if(corr(l,c.view)!==c.correction)setCorr(l,c.correction,c.view);if(colorShown(c))l.calibration={...c.values}}
   else if(c.mode==='live'&&corr(l,c.view)!==c.start)setCorr(l,c.start,c.view);
   recordChange(c.before);
  }
@@ -966,7 +970,7 @@ function closeCalibrate(save,message){
 function renewCalibration(){clearTimeout(calTimer);calTimer=setTimeout(()=>{if(cal?.mode!=='test')return;sendCalibration();renewCalibration()},2000)}
 async function sendCalibration(){
  if(cal?.mode!=='test')return;if(calSending){calQueued=true;return}
- calSending=true;const sent=cal,r=await calPost('/api/calibration',calBody(cal));calSending=false;
+ calSending=true;const sent=cal,r=await calSend('/api/calibration',calBody(cal));calSending=false;
  if(cal!==sent)return;
  if(r.status===409){closeCalibrate(false,CAL_STOPPED[r.body.reason]||'Calibration stopped');return}
  if(r.status!==200){closeCalibrate(false,'Calibration stopped: the adapter is not responding');return}

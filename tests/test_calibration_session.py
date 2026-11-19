@@ -219,7 +219,8 @@ class CalibrationSessionTests(SessionFixture):
                     {k: v for k, v in REQUEST.items() if k != "calibration"},
                     {**REQUEST, "view": "night"}, {**REQUEST, "correction": 101},
                     {**REQUEST, "correction": True}, {**REQUEST, "correction": 50.5},
-                    {**HUE_REQUEST, "lamp": "lamp-x"}):
+                    {**HUE_REQUEST, "lamp": "lamp-x"}, {**HUE_REQUEST, "lamp": []},
+                    {**HUE_REQUEST, "reference": {}}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.session.update(bad)
         self.assertEqual(self.sent, [])
