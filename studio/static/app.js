@@ -218,7 +218,7 @@ function autoZonePoints(){
 // Two configurations: the Sync view edits the Sync one, the room view the one without Sync.
 const view=()=>mode==='sync'?'sync':'scene';
 const corr=(l,c=view())=>c==='sync'?l.scale:l.sceneScale??l.scale;
-function setCorr(l,v){if(view()==='sync')l.scale=v;else l.sceneScale=v}
+function setCorr(l,v,c=view()){if(c==='sync')l.scale=v;else l.sceneScale=v}
 function zonePoints(c=view()){const z=environment.zones[c];return z?z.map(p=>({x:p.u*environment.width/2,h:environment.height+p.h})):autoZonePoints()}
 function zoneConfig(points){return {version:1,points:points.map(p=>({u:p.x/(environment.width/2),h:p.h-environment.height}))}}
 function zoneIntersections(P,x){
@@ -282,9 +282,9 @@ const plusIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strok
 const chipIcons={
  fade:'<path d="M-4.6 -1.5H4.6M-3.6 1.5H3.6M-2.2 4.4H2.2"/><path d="M-4.6 -4.4H4.6"/>',
  calibrate:'<circle r="4.6" style="fill:none;stroke:currentColor"/><path d="M0 -4.6A4.6 4.6 0 0 1 0 4.6Z" style="fill:currentColor;stroke:none"/>',
+ next:'<path d="M-1.5 -3.5 2 0 -1.5 3.5"/>',back:'<path d="M1.5 -3.5 -2 0 1.5 3.5"/>',down:'<path d="M-3 -1.4 0 1.6 3 -1.4"/>',
  auto:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
  rotate:'<path d="M-3.4 -2.6A4.2 4.2 0 1 1 -3.8 1.9M-3.4 -2.6V-5.8M-3.4 -2.6H-0.2"/>',
- more:'<circle class="dot" cx="-4" cy="0" r="1.1"/><circle class="dot" cx="0" cy="0" r="1.1"/><circle class="dot" cx="4" cy="0" r="1.1"/>',
  blink:'<path d="M2 0A2 2 0 1 1 -2 0A2 2 0 1 1 2 0M0 -5.6V-4M0 4V5.6M-5.6 0H-4M4 0H5.6M-4 -4l1.1 1.1M2.9 2.9 4 4M4 -4 2.9 -2.9M-2.9 2.9-4 4"/>',
  reset:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
  remove:'<path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/>'
@@ -298,11 +298,17 @@ function lampFrame(l){
  if(l.form==='strip'){const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;return {x,y,left:x-w-24,right:x+w+24,top:y-h-24,bottom:y+h+6,ref:y}}
  return l.vertical?{x,y,left:x-23,right:x+23,top:y-55,bottom:y+55,ref:y}:{x,y,left:x-55,right:x+55,top:y-23,bottom:y+23,ref:y};
 }
-function correctionTrack(l){const f=lampFrame(l);return l.form==='floor'?{tx:f.right+14,top:f.top+22,len:100}:{tx:f.right+14,top:f.top+18,len:56}}
+// Every object chip has one shape. A lamp chip is one button (name, status, chevron) that
+// opens the lamp card; other actions (rotate, fade) sit after a divider.
 function chipSvg(centerX,bottom,title,status,actions){
- const tw=title.length*6.6+18,sw=status?status.length*5.9+8:0,bw=22,w=tw+sw+actions.length*bw+(actions.length?2:0),x=centerX-w/2;
- let out='<g class="obj-chip" transform="translate('+x+' '+(bottom-22)+')"><rect width="'+w+'" height="22" rx="11"/><text x="10" y="14.8">'+esc(title)+(status?'<tspan class="chip-status" dx="7">'+esc(status)+'</tspan>':'')+'</text>';
- actions.forEach((a,i)=>{const cx=tw+sw+i*bw+bw/2-2;out+='<g class="chip-btn'+(a.id==='more'&&menuOpen?' open':'')+'" data-chip-action="'+a.id+'" data-tooltip="'+a.label+'" aria-label="'+a.label+'"><circle cx="'+cx+'" cy="11" r="9.5"/><g transform="translate('+cx+' 11)">'+chipIcons[a.id]+'</g></g>'});
+ const more=actions.some(a=>a.id==='more'),rest=actions.filter(a=>a.id!=='more'),bw=24;
+ const main=title.length*6.6+(more?14:18)+(status?status.length*5.9+8:0)+(more?20:0),w=main+(rest.length?7+rest.length*bw:0),x=centerX-w/2;
+ let out='<g class="obj-chip" transform="translate('+x+' '+(bottom-24)+')"><rect width="'+w+'" height="24" rx="5"/>';
+ if(more)out+='<g class="chip-main'+(menuOpen?' open':'')+'" data-chip-action="more" role="button" aria-label="Lamp settings" aria-expanded="'+menuOpen+'"><rect class="chip-hit" x="1" y="1" width="'+(main-2)+'" height="22" rx="4"/>';
+ out+='<text x="10" y="15.8">'+esc(title)+(status?'<tspan class="chip-status" dx="7">'+esc(status)+'</tspan>':'')+'</text>';
+ if(more)out+='<g class="chev" transform="translate('+(main-13)+' 12)"><path d="M-3.2 -1.4 0 1.6 3.2 -1.4"/></g></g>';
+ if(rest.length)out+='<line class="chip-sep" x1="'+(main+3)+'" x2="'+(main+3)+'" y1="5" y2="19"/>';
+ rest.forEach((a,i)=>{const cx=main+7+i*bw+bw/2;out+='<g class="chip-btn" data-chip-action="'+a.id+'" data-tooltip="'+a.label+'" aria-label="'+a.label+'"><rect x="'+(cx-11)+'" y="1" width="22" height="22" rx="4"/><g transform="translate('+cx+' 12)">'+chipIcons[a.id]+'</g></g>'});
  return out+'</g>';
 }
 function editAttrs(edit,value){return edit?' data-edit="'+edit+'" data-value="'+value+'" data-tooltip="Type an exact value"':''}
@@ -356,9 +362,6 @@ function handlesSvg(geo){
    m.push({axis:'v',x:f.left-12,y1:740,y2:f.ref,text:l.h+' cm',edit:'h',value:l.h,leader:f.left});
    m.push({axis:'h',x1:cx,x2:f.x,y:758,text:signed(l.x-s.x),edit:'x',value:l.x-s.x});
   }
-  const t=correctionTrack(l),c=corr(l),ky=t.top+t.len*(1-c/100);
-  knobs+='<line class="rail" x1="'+t.tx+'" y1="'+t.top+'" x2="'+t.tx+'" y2="'+(t.top+t.len)+'"/><line class="rail-fill" x1="'+t.tx+'" y1="'+ky+'" x2="'+t.tx+'" y2="'+(t.top+t.len)+'"/>'+knob('scale',t.tx,ky,'ns-resize','Brightness correction');
-  extra+=tagSvg(t.tx,t.top+t.len+16,c+'%','corr',c);
   const actions=(l.shape==='bar'?[{id:'rotate',label:'Rotate 90°'}]:[]).concat([{id:'more',label:'Lamp settings'}]);
   chip=chipSvg(f.x,f.top-6,l.name,chipStatus(l),actions);
  }
@@ -538,8 +541,8 @@ function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monito
 let focusState=new Map(),skipClick=false,menuOpen=false;
 function focusKey(n){return n.dataset.lamp||n.dataset.washFor||n.dataset.select}
 function applyFocus(){
- const on=!!selected&&drag?.handle!=='scale';
- const keep=new Set([selected]);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
+ const on=!!selected;
+ const keep=new Set([selected]);if(cal?.mode==='test')keep.add(cal.reference);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
  const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group');
  nodes.forEach(n=>{
   const key=focusKey(n),want=on&&!keep.has(key)?.22:1,was=focusState.has(key)?focusState.get(key):want;
@@ -701,7 +704,6 @@ function startLabelEdit(node){
  input.addEventListener('blur',()=>finish(true));
 }
 function applyLabelEdit(edit,v){
- if(edit==='corr'){const l=lamps.find(l=>l.id===selected);if(!l)return;const before=snapshot();setCorr(l,clamp(Math.round(v),0,100));recordChange(before);renderScene();renderHistory();return}
  if(edit==='gap'){changeField('h',v+monitorHalfCm()+environment.height);return}
  changeField(edit,v);
 }
@@ -724,7 +726,7 @@ function dragHandle(kind,p){
  if(kind==='desk-w')environment.width=clamp(Math.round(Math.abs(p.x-500)*2/3.3/5)*5,80,240);
  else if(kind==='desk-h'){const prev=environment.height;environment.height=clamp(Math.round((740-p.y)/3.3/5)*5,50,120);if(environment.height!==prev){s.h+=environment.height-prev;clampFixture(s)}}
  else if(kind==='mon-size'){const cx=500+s.x*3.3,cy=740-s.h*3.3,wcm=Math.max(Math.abs(p.x-cx)*2,Math.abs(p.y-cy)*2*16/9)/3.3;environment.inches=clamp(Math.round(wcm/2.54*Math.hypot(16,9)/16),19,55);clampFixture(s)}
- else if(kind==='scale'&&l){const t=correctionTrack(l);setCorr(l,clamp(Math.round((t.top+t.len-p.y)/t.len*20)*5,0,100))}
+
  if(snapshot()===before)return;
  drag.moved=true;renderScene();renderInspector();renderHistory();
 }
@@ -806,18 +808,18 @@ function setMode(m){
 // ---------------------------------------------------------- lamp card --
 function zonesText(n){return n+' '+(n===1?'zone':'zones')}
 function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
-function closeObjectMenu(){if(!menuOpen)return;menuOpen=false;$('#object-menu').hidden=true;$('#stage').querySelector('[data-chip-action="more"]')?.classList.remove('open')}
+function closeObjectMenu(){if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;$('#object-menu').hidden=true;const c=$('#stage').querySelector('[data-chip-action="more"]');c?.classList.remove('open');c?.setAttribute('aria-expanded','false')}
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
+function calSummary(l){return corr(l)+'%'+(/^govee-/.test(l.id)&&calibrated(l.calibration)?' · color':'')}
 function cardMenu(l){
- const c=corr(l),b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
- return '<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
+ const b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
+ return '<div class="card-head"><input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
-  +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')
-  +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div></div>'
-  +'<div class="card-actions"><button data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'Blink</button>'
-  +'<button data-menu="reset" title="Reset correction to 100%"'+(c===100?' disabled':'')+'>'+iconSvg('reset')+(c===100?'Correction 100%':c+'% → 100%')+'</button></div>'
-  +(/^govee-/.test(l.id)?'<button class="mi" data-menu="calibrate"'+(canCalibrate(l)?'':' aria-disabled="true" data-tooltip="Turn Sync off to calibrate"')+'>'+iconSvg('calibrate')+'Calibrate color</button>':'')
-  +'<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';
+  +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
+  +'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>'
+  +'<div class="card-list"><button class="card-row" data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'<span>Blink</span></button>'
+  +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button></div>'
+  +'<div class="card-list card-end"><button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button></div>';
 }
 // The card sits beside the selected object, never over it, and does not follow the chip width.
 function selectionRect(){
@@ -825,24 +827,31 @@ function selectionRect(){
  const rs=nodes.map(n=>n.getBoundingClientRect()).filter(r=>r.width||r.height);if(!rs.length)return null;
  return {left:Math.min(...rs.map(r=>r.left)),right:Math.max(...rs.map(r=>r.right)),top:Math.min(...rs.map(r=>r.top)),bottom:Math.max(...rs.map(r=>r.bottom))};
 }
+// The card opens toward the nearer screen edge, where it covers less of the scene, and
+// takes the other side when it does not fit there. While calibrating it leaves the side
+// where the reference lamp is.
 function placeMenu(menu,anchorRect){
- const a=$('#app').getBoundingClientRect(),sel=selectionRect();
- if(!sel){let left=anchorRect.left+anchorRect.width/2-a.left-menu.offsetWidth/2;left=Math.max(12,Math.min(a.width-menu.offsetWidth-12,left));menu.style.left=left+'px';menu.style.top=(anchorRect.bottom-a.top+8)+'px';return}
- const w=menu.offsetWidth,h=menu.offsetHeight,gap=12,pad=12;
- const top=Math.max(pad,Math.min(a.height-h-pad,anchorRect.bottom-a.top+8));
- const right=sel.right-a.left+gap,left=sel.left-a.left-gap-w;
- let x;
- if(right+w<=a.width-pad)x=right;
- else if(left>=pad)x=left;
- else x=Math.max(pad,Math.min(a.width-w-pad,anchorRect.left-a.left));
- menu.style.left=x+'px';menu.style.top=top+'px';
+ const a=$('#app').getBoundingClientRect(),base=selectionRect(),pad=12,gap=12,w=menu.offsetWidth,h=menu.offsetHeight;
+ menu.style.top=Math.max(pad,Math.min(a.height-h-pad,anchorRect.bottom-a.top+8))+'px';
+ const sel=base?{left:Math.min(base.left,anchorRect.left),right:Math.max(base.right,anchorRect.right)}:null;
+ if(!sel){menu.style.left=Math.max(pad,Math.min(a.width-w-pad,anchorRect.left+anchorRect.width/2-a.left-w/2))+'px';return}
+ const mid=(sel.left+sel.right)/2,right=sel.right-a.left+gap,left=sel.left-a.left-gap-w,fits={left:left>=pad,right:right+w<=a.width-pad};
+ let side=mid-a.left<a.width/2?'left':'right';
+ const ref=cal?.mode==='test'?$('#stage').querySelector('[data-lamp="'+cal.reference+'"]')?.getBoundingClientRect():null;
+ if(ref&&(ref.left+ref.width/2<mid?'left':'right')===side)side=side==='left'?'right':'left';
+ if(!fits[side])side=side==='left'?'right':'left';
+ menu.style.left=(fits[side]?side==='left'?left:right:Math.max(pad,Math.min(a.width-w-pad,left)))+'px';
+}
+function placeOpenMenu(){
+ if(!menuOpen)return;const chip=$('#stage').querySelector('.chip-main')?.closest('.obj-chip');
+ if(chip)placeMenu($('#object-menu'),chip.getBoundingClientRect());
 }
 function openObjectMenu(anchor){
  const l=lamps.find(l=>l.id===selected);if(!l)return;
  if(menuOpen){closeObjectMenu();return}
- menuOpen=true;anchor.classList.add('open');
+ menuOpen=true;anchor.classList.add('open');anchor.setAttribute('aria-expanded','true');
  const menu=$('#object-menu');menu.className='object-menu card';
- menu.innerHTML=cardMenu(l);menu.hidden=false;
+ menu.innerHTML='<div class="card-pages"><div class="card-page">'+cardMenu(l)+'</div><div class="card-page"></div></div>';menu.hidden=false;menu.style.height='';
  placeMenu(menu,anchor.closest('.obj-chip').getBoundingClientRect());
  const name=menu.querySelector('.card-name');
  if(name&&!name.readOnly){name.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();renameLamp(l.id,name.value);name.blur()}else if(e.key==='Escape'){name.value=l.name;closeObjectMenu()}});name.addEventListener('change',()=>renameLamp(l.id,name.value))}
@@ -853,11 +862,7 @@ function refreshCard(){requestAnimationFrame(()=>{closeObjectMenu();const b=$('#
 function renameLamp(id,value){
  const l=lamps.find(l=>l.id===id),v=String(value).trim().slice(0,l?nameLimit(l.id):0);if(!l||!(virtualDevice(l.id)||isRole(l.id))||!v||v===l.name)return;
  const before=snapshot();l.name=v;if(isRole(l.id))l.named=true;recordChange(before);renderScene();renderList();renderHistory();
- if(menuOpen){const chip=$('#stage').querySelector('.obj-chip');if(chip)placeMenu($('#object-menu'),chip.getBoundingClientRect())}
-}
-function resetCorrection(){
- const l=lamps.find(l=>l.id===selected);if(!l||corr(l)===100)return;
- const before=snapshot();setCorr(l,100);recordChange(before);renderScene();renderHistory();tell('Correction reset to 100%');
+ placeOpenMenu();
 }
 // Blink asks the adapter to flash the real lamp once; the drawing blinks too, so the owner sees which lamp was asked.
 const BLINK_REFUSED={'lamp off':'The lamp is off','writer closed':'The lamp is still turning on','sync active':'The lamp is syncing','busy':'The lamp is already blinking','paused':'Light output is paused','brightness unknown':'The lamp has not reported its brightness yet'};
@@ -876,104 +881,146 @@ function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
- if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';return true}
+ if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
- if(id==='reset'){closeObjectMenu();resetCorrection();return true}
  if(id==='blink'){if(!l.unbound)blinkLamp(l);return true}
- if(id==='calibrate'){if(!canCalibrate(l)){tell('Turn Sync off to calibrate');return true}closeObjectMenu();startCalibration(l);return true}
+ if(id==='calibrate'){openCalibrate(l);return true}
+ if(!cal)return false;
+ if(id==='cal-back'||id==='cal-cancel'){closeCalibrate(false);return true}
+ if(id==='cal-save'){closeCalibrate(true);return true}
+ if(id==='cal-reset'){cal.correction=100;cal.values=calibrationOf({});calApplyLive();paintCalPage();sendCalibration();return true}
+ if(id.startsWith('cal-level-')){cal.level=id.slice(10);menu.querySelectorAll('[data-menu^="cal-level-"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.menu===id));sendCalibration();return true}
  return false;
 }
 
 // ---------------------------------------------------------- calibration --
-// A Govee lamp and a reference lamp show the same test white while the owner moves the
-// sliders; the adapter applies the unsaved values at once and needs a renewal every 2 s.
+// "Calibrate" slides the lamp card to its second page. With the test ('test'), the lamp
+// and a reference show the same test white through an adapter session that Light Studio
+// renews every 2 s; the unsaved values apply at once. During Sync ('live') only the
+// brightness changes, on the running Sync. A lamp the adapter does not drive ('plain')
+// edits its brightness alone.
 const CAL_REFUSED={'sync active':'Turn Sync off to calibrate','lamp off':'The lamp is off','reference off':'The reference lamp is off','busy':'Another lamp is being calibrated','writer closed':'The lamp is still turning on','paused':'Light output is paused'};
 const CAL_STOPPED={'sync active':'Calibration stopped: Sync started','lamp off':'Calibration stopped: the lamp is off','reference off':'Calibration stopped: the reference lamp is off'};
-const CAL_SLIDERS=[['warmth','Warmth','Cooler','Warmer'],['tint','Tint','Greener','Pinker'],['lowLight','Low light','Darker','Brighter','Check it on Dim']];
+const CAL_SLIDERS=[['warmth','Warmth','Cooler','Warmer'],['tint','Tint','Greener','Pinker'],['lowLight','Low light','Darker','Brighter']];
 let cal=null,calTimer=null,calSending=false,calQueued=false;
-const canCalibrate=l=>/^govee-/.test(l.id)&&liveState()!=='active';
 const liveLampOff=id=>liveSnapshot?.lamps?.[id]?.on===false;
 const calReferences=id=>lamps.filter(l=>isRole(l.id)&&l.id!==id&&l.enabled!==false);
+const isGoveeRole=l=>/^govee-/.test(l.id);
 function defaultReference(l){
  const on=calReferences(l.id).filter(r=>!liveLampOff(r.id)),plays=on.filter(r=>/^play-/.test(r.id));
  return (plays.length?plays:on).sort((a,b)=>Math.abs(a.x-l.x)-Math.abs(b.x-l.x))[0]?.id||null;
 }
-const calBody=c=>({lamp:c.lamp,reference:c.reference,level:c.level,calibration:{...c.values}});
+function calMode(l){return !isRole(l.id)||l.unbound?'plain':liveState()==='active'?'live':'test'}
+const calBody=c=>({lamp:c.lamp,reference:c.reference,level:c.level,view:c.view,correction:c.correction,...(/^govee-/.test(c.lamp)?{calibration:{...c.values}}:{})});
+const calChanged=c=>calibrated(c.values)||c.correction!==100;
 async function calPost(path,body){
  try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:path.endsWith('/end')});return {status:r.status,body:await r.json().catch(()=>({}))}}
  catch{return {status:0,body:{}}}
 }
-async function startCalibration(l){
+async function openCalibrate(l){
  if(cal)return;
- const reference=defaultReference(l);if(!reference){tell('No reference lamp is on');return}
- const next={lamp:l.id,reference,level:'bright',values:calibrationOf(l.calibration)};
- const r=await calPost('/api/calibration',calBody(next));
- if(r.status!==200){tell(r.status===409?CAL_REFUSED[r.body.reason]||'Calibration is not possible now':'Calibration failed: the adapter is not responding');return}
- cal=next;selected=l.id;renewCalibration();render();
- $('#cal-card')?.querySelector('input')?.focus();
+ const v=view(),next={lamp:l.id,mode:calMode(l),view:v,level:'bright',reference:null,correction:corr(l,v),start:corr(l,v),values:calibrationOf(l.calibration),before:snapshot()};
+ if(next.mode==='test'){
+  next.reference=defaultReference(l);if(!next.reference){tell('No reference lamp is on');return}
+  const r=await calPost('/api/calibration',calBody(next));
+  if(r.status!==200){tell(r.status===409?CAL_REFUSED[r.body.reason]||'Calibration is not possible now':'Calibration failed: the adapter is not responding');return}
+  if(cal||!menuOpen||selected!==l.id){if(!cal)calPost('/api/calibration/end',{});return}
+ }
+ cal=next;
+ if(cal.mode==='test')renewCalibration();
+ const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');if(!pages)return;
+ const [main,page]=pages.children;page.innerHTML=calPageHtml(l);
+ menu.style.height=main.offsetHeight+'px';
+ requestAnimationFrame(()=>{pages.classList.add('at-cal');menu.style.height=page.offsetHeight+'px';page.querySelector('[data-menu="cal-back"]')?.focus?.({preventScroll:true})});
+ render();
 }
+function closeCalibrate(save,message){
+ if(!cal)return;
+ const c=cal,l=lamps.find(x=>x.id===c.lamp);
+ clearTimeout(calTimer);calTimer=null;calQueued=false;cal=null;
+ if(c.mode==='test')calPost('/api/calibration/end',{});
+ if(l){
+  if(save){if(corr(l,c.view)!==c.correction)setCorr(l,c.correction,c.view);if(isGoveeRole(l))l.calibration={...c.values}}
+  else if(c.mode==='live'&&corr(l,c.view)!==c.start)setCorr(l,c.start,c.view);
+  recordChange(c.before);
+ }
+ const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');
+ if(menuOpen&&pages&&l){
+  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum)sum.textContent=calSummary(l);pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';
+  setTimeout(()=>{if(!cal){page.innerHTML='';menu.style.height=''}},300);
+ }
+ render();
+ if(message)tell(message);else if(save)tell('Calibration saved');
+}
+function renewCalibration(){clearTimeout(calTimer);calTimer=setTimeout(()=>{if(cal?.mode!=='test')return;sendCalibration();renewCalibration()},2000)}
 async function sendCalibration(){
- if(!cal)return;if(calSending){calQueued=true;return}
+ if(cal?.mode!=='test')return;if(calSending){calQueued=true;return}
  calSending=true;const sent=cal,r=await calPost('/api/calibration',calBody(cal));calSending=false;
  if(cal!==sent)return;
- if(r.status===409){stopCalibration(CAL_STOPPED[r.body.reason]||'Calibration stopped');return}
- if(r.status!==200){stopCalibration('Calibration stopped: the adapter is not responding');return}
+ if(r.status===409){closeCalibrate(false,CAL_STOPPED[r.body.reason]||'Calibration stopped');return}
+ if(r.status!==200){closeCalibrate(false,'Calibration stopped: the adapter is not responding');return}
  if(calQueued){calQueued=false;sendCalibration()}
 }
-function renewCalibration(){clearTimeout(calTimer);calTimer=setTimeout(()=>{if(!cal)return;sendCalibration();renewCalibration()},2000)}
-function stopCalibration(message){clearTimeout(calTimer);calTimer=null;cal=null;calQueued=false;$('#cal-card')?.remove();render();if(message)tell(message)}
-function finishCalibration(keep){
- if(!cal)return;
- const l=lamps.find(x=>x.id===cal.lamp),values={...cal.values};
- calPost('/api/calibration/end',{});
- if(keep&&l){remember();l.calibration=values;stopCalibration('Calibration saved')}else stopCalibration();
+// During Sync the brightness shows on the running Sync: each change is saved at once.
+function calApplyLive(){
+ if(cal?.mode!=='live')return;const l=lamps.find(x=>x.id===cal.lamp);if(!l)return;
+ setCorr(l,cal.correction,cal.view);renderScene();persistIfChanged();
 }
-function calCardHtml(){
- const l=lamps.find(x=>x.id===cal.lamp);
- const refs=calReferences(cal.lamp).map(r=>'<option value="'+r.id+'"'+(r.id===cal.reference?' selected':'')+(liveLampOff(r.id)?' disabled':'')+'>'+esc(r.name)+(liveLampOff(r.id)?' (off)':'')+'</option>').join('');
- return '<div class="cal-title">Calibrate '+esc(l?.name||'')+'</div>'
-  +'<div class="cal-sub">Make it look like the reference. Other lamps are off.</div>'
-  +'<label class="cal-row">Reference<select class="cal-ref" aria-label="Reference lamp">'+refs+'</select></label>'
-  +'<div class="cal-row">Test light<div class="seg" role="group">'+[['bright','Bright'],['dim','Dim']].map(([v,t])=>'<button type="button" data-cal-level="'+v+'" aria-pressed="'+(cal.level===v)+'">'+t+'</button>').join('')+'</div></div>'
-  +CAL_SLIDERS.map(([k,label,lo,hi,hint])=>{const [min,max]=CALIBRATION[k];return '<label class="cal-slider"><span class="cal-label">'+label+'</span><input type="range" min="'+min+'" max="'+max+'" step="1" value="'+cal.values[k]+'" data-cal="'+k+'" aria-label="'+label+'"><span class="cal-ends"><span>'+lo+'</span><span>'+hi+'</span></span>'+(hint?'<span class="cal-hint">'+hint+'</span>':'')+'</label>'}).join('')
-  +'<div class="cal-actions"><button type="button" data-cal-act="cancel">Cancel</button><button type="button" class="primary" data-cal-act="save">Save</button></div>';
+function calSlider(key,label,min,max,value,text,sub,ends){
+ return '<label class="card-slider"><span class="card-slider-top"><span>'+label+(sub?' <i>'+sub+'</i>':'')+'</span><output>'+text+'</output></span>'
+  +'<input type="range" min="'+min+'" max="'+max+'" step="1" value="'+value+'" data-cal="'+key+'" aria-label="'+label+'" style="--p:'+((value-min)/(max-min)*100)+'%">'
+  +(ends?'<span class="card-ends"><span>'+ends[0]+'</span><span>'+ends[1]+'</span></span>':'')+'</label>';
 }
-function placeCalCard(card){
- const a=$('#app').getBoundingClientRect(),box=id=>$('#stage').querySelector('[data-lamp="'+id+'"] .outline')?.getBoundingClientRect();
- const r=box(cal.lamp),ref=box(cal.reference);if(!r)return;
- // Beside the lamp, on the side away from the reference, so both stay in view.
- const left=r.left-a.left-16-card.offsetWidth,right=r.right-a.left+16;
- let x=ref&&ref.left>r.left?left:right;
- if(x<12||x+card.offsetWidth>a.width-12)x=x===left?right:left;
- card.style.left=Math.max(12,Math.min(a.width-card.offsetWidth-12,x))+'px';
- card.style.top=Math.max(80,Math.min(a.height-card.offsetHeight-12,r.top-a.top))+'px';
+const calText=(k,v)=>k==='correction'?v+'%':k==='lowLight'?String(v):(v>0?'+':v<0?'−':'')+Math.abs(v);
+function calPageHtml(l){
+ const c=cal;let html='<div class="card-back"><button data-menu="cal-back" aria-label="Back">'+iconSvg('back')+'</button><div><b>Calibrate</b><div class="card-sub">'+esc(l.name)+'</div></div></div>';
+ if(c.mode==='test'){
+  const refs=calReferences(l.id).map(r=>'<option value="'+r.id+'"'+(r.id===c.reference?' selected':'')+(liveLampOff(r.id)?' disabled':'')+'>'+esc(r.name)+(liveLampOff(r.id)?' (off)':'')+'</option>').join('');
+  html+='<label class="card-field"><span>Compare with</span><span class="card-select"><select class="cal-ref" aria-label="Compare with">'+refs+'</select>'+iconSvg('down')+'</span></label>'
+   +'<div class="card-field"><span>Test light</span>'+seg('cal-level-',[['bright','Bright'],['dim','Dim']],c.level)+'</div>';
+ }
+ html+='<div class="card-sliders">'+calSlider('correction','Brightness',0,100,c.correction,calText('correction',c.correction),c.view==='sync'?'with Sync':'without Sync');
+ if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="card-note">Turn Sync off to calibrate color</p>':'';
+ return html+'</div><div class="card-foot"><button class="card-reset" data-menu="cal-reset"'+(calChanged(c)?'':' disabled')+'>'+iconSvg('reset')+'Reset</button><span class="card-gap"></span><button data-menu="cal-cancel">Cancel</button><button class="primary" data-menu="cal-save">Save</button></div>';
 }
+function paintCalPage(){
+ const l=cal&&lamps.find(x=>x.id===cal.lamp),page=$('#object-menu').querySelector('.card-pages')?.children[1];if(!l||!page)return;
+ page.innerHTML=calPageHtml(l);
+}
+// The scene shows only the lamp and its reference, both lit with the test white.
 function paintCalibration(){
- const app=$('#app'),stage=$('#stage');app.classList.toggle('calibrating',!!cal);
- app.querySelectorAll('.cal-tag,.cal-link').forEach(n=>n.remove());
- const keep=id=>!!cal&&(id===cal.lamp||id===cal.reference);
+ const app=$('#app'),stage=$('#stage'),test=cal?.mode==='test';
+ app.classList.toggle('calibrating',test);
+ stage.querySelector('#cal-ref-tag')?.remove();
+ const keep=id=>test&&(id===cal.lamp||id===cal.reference);
  stage.querySelectorAll('.lamp[data-lamp]').forEach(n=>n.classList.toggle('cal-keep',keep(n.dataset.lamp)));
  stage.querySelectorAll('[data-wash-for]').forEach(n=>n.classList.toggle('cal-keep',keep(n.dataset.washFor)));
- if(!cal){$('#cal-card')?.remove();return}
- let card=$('#cal-card');
- if(!card){card=document.createElement('div');card.id='cal-card';card.className='cal-card';card.setAttribute('role','dialog');card.setAttribute('aria-label','Calibrate color');card.innerHTML=calCardHtml();app.append(card)}
- placeCalCard(card);
- const a=app.getBoundingClientRect(),box=id=>stage.querySelector('[data-lamp="'+id+'"] .outline')?.getBoundingClientRect();
- const lr=box(cal.lamp),rr=box(cal.reference);if(!lr||!rr)return;
- for(const [r,t] of [[lr,'Calibrating'],[rr,'Reference']]){const tag=document.createElement('div');tag.className='cal-tag';tag.textContent=t;tag.style.left=(r.left+r.width/2-a.left)+'px';tag.style.top=(r.top-a.top-10)+'px';app.append(tag)}
- const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('class','cal-link');svg.setAttribute('aria-hidden','true');
- svg.innerHTML='<line x1="'+(lr.left+lr.width/2-a.left)+'" y1="'+(lr.top+lr.height*.35-a.top)+'" x2="'+(rr.left+rr.width/2-a.left)+'" y2="'+(rr.top+rr.height/2-a.top)+'"/>';app.append(svg);
+ const r=test&&lamps.find(x=>x.id===cal.reference);
+ if(r){const f=lampFrame(r),g=document.createElementNS('http://www.w3.org/2000/svg','g');g.id='cal-ref-tag';g.setAttribute('pointer-events','none');g.innerHTML=tagSvg(f.x,f.top-12,'Compared with','',0);stage.append(g)}
+ if(menuOpen)requestAnimationFrame(placeOpenMenu);
 }
-$('#app').addEventListener('input',e=>{const s=e.target.closest('#cal-card [data-cal]');if(!s||!cal)return;cal.values[s.dataset.cal]=Math.round(+s.value);sendCalibration()});
-$('#app').addEventListener('change',e=>{if(!cal||!e.target.matches('#cal-card .cal-ref'))return;cal.reference=e.target.value;paintCalibration();sendCalibration()});
-$('#app').addEventListener('click',e=>{
- if(!cal)return;const card=e.target.closest('#cal-card');if(!card)return;
- const lv=e.target.closest('[data-cal-level]');if(lv){cal.level=lv.dataset.calLevel;card.querySelectorAll('[data-cal-level]').forEach(b=>b.setAttribute('aria-pressed',b===lv));sendCalibration();return}
- const act=e.target.closest('[data-cal-act]');if(act)finishCalibration(act.dataset.calAct==='save');
+const cardMenuNode=$('#object-menu');
+cardMenuNode.addEventListener('input',e=>{
+ const s=e.target.closest('[data-cal]');if(!s||!cal)return;
+ const k=s.dataset.cal,v=Math.round(+s.value);
+ if(k==='correction')cal.correction=v;else cal.values[k]=v;
+ const [lo,hi]=k==='correction'?[0,100]:CALIBRATION[k];
+ s.style.setProperty('--p',((v-lo)/(hi-lo)*100)+'%');
+ const out=s.closest('.card-slider')?.querySelector('output');if(out)out.textContent=calText(k,v);
+ const reset=cardMenuNode.querySelector('[data-menu="cal-reset"]');if(reset)reset.disabled=!calChanged(cal);
+ if(cal.mode==='test')sendCalibration();else calApplyLive();
 });
-window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cal){e.preventDefault();e.stopImmediatePropagation();finishCalibration(false)}},true);
-window.addEventListener('resize',()=>{if(cal)paintCalibration()});
-window.addEventListener('pagehide',()=>{if(cal)calPost('/api/calibration/end',{})});
+cardMenuNode.addEventListener('change',e=>{if(!cal||!e.target.matches('.cal-ref'))return;cal.reference=e.target.value;render();sendCalibration()});
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cal){e.preventDefault();e.stopImmediatePropagation();closeCalibrate(false)}},true);
+window.addEventListener('pagehide',()=>{if(cal?.mode==='test')calPost('/api/calibration/end',{})});
+// A resized scene moves the object; the card follows it.
+window.addEventListener('resize',placeOpenMenu);
+if(typeof ResizeObserver==='function')new ResizeObserver(placeOpenMenu).observe($('#stage'));
+// A double click on a lamp opens its card.
+$('#stage').addEventListener('dblclick',e=>{
+ const node=e.target.closest('[data-lamp]');if(!node||cal||menuOpen)return;
+ requestAnimationFrame(()=>{const chip=$('#stage').querySelector('[data-chip-action="more"]');if(chip&&selected===node.dataset.lamp&&!menuOpen)openObjectMenu(chip)});
+});
 
 // ---------------------------------------------------------- lamp panel --
 let panelKind=null,confirmRemove=null,pendingDevice=null;
@@ -1323,7 +1370,7 @@ stage.addEventListener('pointerdown',e=>{
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}
  closeObjectMenu();
  const grip=e.target.closest('[data-handle]');
- if(grip){e.preventDefault();skipClick=true;drag={handle:grip.dataset.handle,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);if(drag.handle==='scale')applyFocus();return}
+ if(grip){e.preventDefault();skipClick=true;drag={handle:grip.dataset.handle,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);return}
  const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"]');
  if(!node){if(e.target.closest('[data-select]'))return;deselect();return}
  selected=node.dataset.select==='monitor'?'monitor':node.dataset.lamp;

@@ -23,17 +23,19 @@ files and credentials are never served. The page makes no external requests.
   layout is saved. Bottom panels: Lamps (left), Sync status, the Sync switch and
   the light/dark scene (centre), undo/redo (right).
 - Select an object to edit it in place: name chip above, height on the left,
-  offset from the screen centre at the floor, resize knobs on its edges and the
-  brightness correction rail on the right of lamps. Click a dimension to type an
-  exact value. Positions snap to 5 cm. Every edit, including undo, saves after
+  offset from the screen centre at the floor and resize knobs on its edges.
+  Click a dimension to type an exact value. Positions snap to 5 cm. Every edit, including undo, saves after
   300 ms; there is no Save button.
 - The Sync switch chooses which settings are shown; it does not start or stop
   Sync. In the Sync view a selected lamp shows a ray from each lit zone to its
   sample point on the screen, a selected monitor shows the rays of every lit
   lamp, and the falloff zone below the desk has six corner knobs, Auto and reset.
-- The lamp card (from "⋯" on the chip) shows the lamp, its Sync blocker with a
-  hint, "During Sync: Sync / Own light", Reset correction and Remove. Removal
-  always asks inline; removed lamps return through "Found".
+- A lamp's chip is one button ("Govee Left ⌄"); it, or a double click on the
+  lamp, opens the lamp card beside the lamp, on the side of the nearer screen
+  edge. The card shows the lamp, its Sync blocker with a hint, "During Sync:
+  Sync / Own light / Off", Blink, "Calibrate ›" with the brightness correction
+  of the current view, and Remove. Removal always asks inline; removed lamps
+  return through "Found".
 - The light/dark switch previews the room at night. It and the Sync view are
   browser preferences and are not part of the layout.
 
@@ -76,20 +78,33 @@ calibration is not stored). Versions 3-5 load as version 6, so their revision
 changes and pages opened before the upgrade must refetch. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
 
-## Colour calibration
+## Calibrate
 
-"Calibrate color" in a Govee lamp's card matches the lamp to a reference lamp
-(default: the nearest Hue Play). A card beside the lamp holds the reference,
-a Bright/Dim test level and the Warmth, Tint and Low light sliders. While it is
-open, `POST /api/calibration` with `{"lamp", "reference", "level",
-"calibration"}` asks the adapter to show the same test white on both lamps and a
-dark colour on the others; a slider change is sent at once and the request is
-renewed every 2 s. Save writes the values to the layout; Cancel, Esc, Save and a
-closed page send `POST /api/calibration/end`, and the adapter also ends a
-session that is not renewed within 5 s. Calibration needs Sync off ("Turn Sync
-off to calibrate"); when Sync starts, the card closes with "Calibration stopped:
-Sync started". Power never changes. See
-`docs/design/2026-11-19-govee-device-calibration.md`.
+"Calibrate ›" slides the lamp card to its Calibrate page. Brightness is the
+correction (0-100 %) of the configuration the Sync switch shows ("with Sync" or
+"without Sync"); a Govee lamp also has Warmth, Tint and Low light. Reset sets
+colour to zero and brightness to 100 % (unsaved); Save stores the values in the
+layout; back, Cancel and Esc discard them.
+
+- **With the test** (a role lamp while Sync is not running): the page adds
+  "Compare with" (other role lamps, default the nearest lit Hue Play, off lamps
+  disabled) and Test light Bright/Dim. `POST /api/calibration` with `{"lamp",
+  "reference", "level", "view", "correction"}` plus `"calibration"` for a Govee
+  lamp asks the adapter to show the test white on the lamp (candidate values)
+  and on the reference (its saved correction) and to darken the others; a
+  change is sent at once and the request is renewed every 2 s. Leaving the page
+  or closing Light Studio sends `POST /api/calibration/end`; the adapter also
+  ends a session that is not renewed within 5 s. The scene dims everything but
+  the two lamps and labels the reference "Compared with". When Sync starts,
+  the page closes with "Calibration stopped: Sync started". Power never
+  changes.
+- **During Sync**: no test; the brightness slider changes the running Sync at
+  once (each change is saved) and leaving without Save restores it. Colour
+  shows "Turn Sync off to calibrate color".
+- **A lamp the adapter does not drive** (found or not connected): brightness
+  only, saved on Save.
+
+See `docs/design/2026-11-19-light-studio-lamp-card.md`.
 
 ## Blink
 
