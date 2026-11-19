@@ -482,7 +482,8 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual([name for name, _ in tick(0, {"onOff": 1}, 120)],
                          ["razer", "razer", "brightness"])
         # Status replies go missing for 0.9 s: frames keep flowing, brightness waits.
-        missing = {"onOff": 0, "identity_verified": False}
+        missing = {"onOff": 0, "identity_verified": False,
+                   "lan_diagnostic": {"reason": "native_status_missing"}}
         self.assertEqual(tick(0.5, missing, 90, bri=128), [("razer", [[90, 0, 0]] * 7)])
         self.assertEqual(tick(1.4, missing, 60, bri=128), [("razer", [[60, 0, 0]] * 7)])
         self.assertEqual(controller.skipped_state["left"], 0)
@@ -495,6 +496,10 @@ class LiveAdapterTests(unittest.TestCase):
         # A verified Off stops frames at once.
         tick(3.5, {"onOff": 1}, 20)
         self.assertEqual(tick(3.7, {"onOff": 0, "identity_verified": True}, 10), [])
+        # So does a lost identity.
+        tick(3.8, {"onOff": 1}, 20)
+        self.assertEqual(tick(3.9, {"onOff": 0, "identity_verified": False, "lan_diagnostic": {
+            "reason": "identity_missing_or_ambiguous"}}, 15), [])
         # Scene output never rides out a miss.
         controller.set_streaming(False)
         tick(4.0, {"onOff": 1}, 10)
@@ -516,7 +521,8 @@ class LiveAdapterTests(unittest.TestCase):
         # A missed reply publishes an unverified placeholder; the verified reading stays.
         self.now = 0.9
         self.controller.update_statuses(
-            {LEFT: ({"onOff": 0, "identity_verified": False}, self.now)})
+            {LEFT: ({"onOff": 0, "identity_verified": False,
+                     "lan_diagnostic": {"reason": "native_status_missing"}}, self.now)})
         self.assertIs(row()["native"]["identity_verified"], False)
         self.assertEqual(row()["verified_native"]["onOff"], 1)
         self.assertAlmostEqual(row()["verified_age"], 0.9)
@@ -529,6 +535,16 @@ class LiveAdapterTests(unittest.TestCase):
         # The held reading is a copy: changing it does not change the controller.
         row()["verified_native"]["onOff"] = 1
         self.assertEqual(row()["verified_native"]["onOff"], 0)
+        # A lost identity or a transport failure is not a missed reply: nothing is held.
+        for lost in ({"reason": "identity_missing_or_ambiguous"}, {"reason": "identity_blocked"},
+                     None):
+            self.controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+            placeholder = {"onOff": 0, "identity_verified": False}
+            if lost is not None:
+                placeholder["lan_diagnostic"] = lost
+            self.controller.update_statuses({LEFT: (placeholder, self.now)})
+            self.assertIsNone(row()["verified_native"])
+            self.assertIsNone(row()["verified_age"])
 
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))

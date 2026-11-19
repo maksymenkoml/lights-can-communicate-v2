@@ -282,6 +282,11 @@ class GoveeController:
                     self.statuses[key] = value
                     if value[0].get("identity_verified", True) is not False:
                         self.verified[key] = value
+                    elif (value[0].get("lan_diagnostic") or {}).get(
+                            "reason") != "native_status_missing":
+                        # Only a missed status reply is held; a lost identity or
+                        # a transport failure ends the held reading at once.
+                        self.verified.pop(key, None)
 
     def power_observations(self):
         with self.lock:
