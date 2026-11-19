@@ -9,6 +9,13 @@ import lights_can_communicate_v2 as lan
 
 
 class GoveeTransport:
+    # A scan proves which device answers at an address. The older H6076 answers
+    # only about half of the scans, so a proof is held this long; another
+    # device's scan at that address still withdraws the route at once.
+    IDENTITY_SECONDS = 5
+    # Control needs a native status sample at most this old.
+    STATUS_SECONDS = 0.75
+
     def __init__(self, targets, publisher, remember=None, discovery=None):
         self.targets, self.publisher, self.remember = targets, publisher, remember
         self.discovery = discovery
@@ -55,9 +62,11 @@ class GoveeTransport:
 
     def reconcile(self, now):
         self.observed = {
-            pair: seen for pair, seen in self.observed.items() if 0 <= now - seen <= 0.75
+            pair: seen for pair, seen in self.observed.items()
+            if 0 <= now - seen <= self.IDENTITY_SECONDS
         }
-        self.blocked = {ip: seen for ip, seen in self.blocked.items() if 0 <= now - seen <= 0.75}
+        self.blocked = {ip: seen for ip, seen in self.blocked.items()
+                        if 0 <= now - seen <= self.IDENTITY_SECONDS}
         records = [{"device": key, "ip": ip} for key, ip in self.observed]
         routes = lan.resolve_govee_targets(self.targets, records)
         updates = {}
@@ -71,11 +80,14 @@ class GoveeTransport:
                     ip is not None
                     and ip not in self.blocked
                     and native is not None
-                    and 0 <= now - seen <= 0.75
+                    and 0 <= now - seen <= self.STATUS_SECONDS
                 )
                 if not valid:
-                    lan.VERIFIED_GOVEE.pop(key, None)
-                    lan.IDENTIFIED_GOVEE.pop(key, None)
+                    if ip is None or ip in self.blocked or native is None:
+                        lan.VERIFIED_GOVEE.pop(key, None)
+                        lan.IDENTIFIED_GOVEE.pop(key, None)
+                    # Otherwise only the status is late: the bindings keep their
+                    # old proof time, which the senders check against their limits.
                     hinted_native, hinted_seen = self.native.get(device["ip"], (None, None))
                     updates[key] = (
                         {
@@ -104,8 +116,8 @@ class GoveeTransport:
                         now,
                     )
                     continue
-                identity_seen = self.observed[(key, ip)]
-                proof_seen = min(identity_seen, seen)
+                # The identity is held; the proof is as fresh as the status sample.
+                proof_seen = seen
                 lan.GOVEE_ROUTES[key] = ip
                 lan.IDENTIFIED_GOVEE[key] = (ip, proof_seen)
                 if native["onOff"] == 1:
@@ -141,7 +153,7 @@ class GoveeTransport:
                         [
                             {"device": key, "ip": address}
                             for (key, address), seen in self.observed.items()
-                            if 0 <= now - seen <= 0.75
+                            if 0 <= now - seen <= self.IDENTITY_SECONDS
                         ],
                     )
                     for device in self.targets:

@@ -13,6 +13,9 @@ from stream_diagnostics import _REASONS, _STATES
 GOVEE_ROLES = ("left", "right")
 HUE_ROLES = ("strip", "hue_left", "hue_center", "hue_right")
 GOVEE_FRESH_SECONDS = 0.75
+# Under DreamView a Govee lamp misses a few status replies in a row now and
+# then. Within this time its last verified reading still stands.
+GOVEE_HOLD_SECONDS = 2
 HUE_FRESH_SECONDS = 2
 FRAME_FRESH_SECONDS = 0.5
 MAX_EVENTS = 64
@@ -56,6 +59,19 @@ def _govee_rows(status):
     return rows
 
 
+def govee_reading(row):
+    """Return a Govee row's fresh verified status, else a recently verified one."""
+    native = _mapping(row.get("native"))
+    if native.get("identity_verified") is True and _fresh(row.get("status_age"),
+                                                          GOVEE_FRESH_SECONDS):
+        return native
+    held = _mapping(row.get("verified_native"))
+    if held.get("identity_verified") is True and _fresh(row.get("verified_age"),
+                                                        GOVEE_HOLD_SECONDS):
+        return held
+    return None
+
+
 def _hue_rows(status):
     rows = {"strip": _mapping(status.get("hue_strip"))} if "hue_strip" in status else {}
     play = _mapping(status.get("hue_play"))
@@ -86,9 +102,8 @@ def _blockers(status, video):
         elif owner.get("requested_on") is True and owner.get("color_allowed") is False:
             blockers.append({"role": role, "code": "color_fenced"})
         if role in govee:
-            native = _mapping(govee[role].get("native"))
-            if (native.get("identity_verified") is not True
-                    or not _fresh(govee[role].get("status_age"), GOVEE_FRESH_SECONDS)):
+            native = govee_reading(govee[role])
+            if native is None:
                 blockers.append({"role": role, "code": "native_stale"})
             elif native.get("onOff") == 0 and type(native.get("onOff")) is int:
                 blockers.append({"role": role, "code": "native_off"})

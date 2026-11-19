@@ -93,6 +93,12 @@ class GoveeTransportTests(unittest.TestCase):
     def message(self, cmd, data, ip, now):
         self.transport.handle({"msg": {"cmd": cmd, "data": data}}, ip, now)
 
+    def controls(self, now, command="colorwc"):
+        """Whether a command to the left lamp would be sent at ``now``."""
+        with patch.object(lan, "govee_send", lambda *args: None), \
+                patch.object(lan.time, "monotonic", return_value=now):
+            return lan.send_to_target(self.targets[0], command, {})
+
     def test_status_alone_never_authorizes_control(self):
         self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10)
         self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
@@ -100,7 +106,7 @@ class GoveeTransportTests(unittest.TestCase):
     def test_fresh_identity_and_native_on_authorize_only_pinned_id(self):
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
         self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)
-        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 10))
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 10.02))
         self.message("scan", {"device": THIRD}, "192.168.10.99", 10.03)
         self.assertNotIn(THIRD, lan.VERIFIED_GOVEE)
 
@@ -109,7 +115,7 @@ class GoveeTransportTests(unittest.TestCase):
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
         self.message("devStatus", {"onOff": 0}, "192.168.10.50", 10.02)
         self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
-        self.assertEqual(lan.IDENTIFIED_GOVEE[LEFT], ("192.168.10.50", 10))
+        self.assertEqual(lan.IDENTIFIED_GOVEE[LEFT], ("192.168.10.50", 10.02))
         device = self.targets[0]
         with patch.object(lan, "govee_send", lambda ip, name, data: sent.append((ip, name))), \
                 patch.object(lan.time, "monotonic", return_value=10.3):
@@ -147,11 +153,18 @@ class GoveeTransportTests(unittest.TestCase):
         # Another device answers at that address: the route is withdrawn.
         self.message("scan", {"device": THIRD}, "192.168.10.50", 10.1)
         self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
+        # The contradiction is held as long as an identity: still withdrawn.
         self.message("scan", {"device": LEFT}, "192.168.10.50", 11)
         self.message("devStatus", {"onOff": 0}, "192.168.10.50", 11.02)
+        self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 15.2)
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 15.22)
         self.assertIn(LEFT, lan.IDENTIFIED_GOVEE)
-        # No fresh identity after 0.75 s: withdrawn as well.
-        self.transport.reconcile(12)
+        # A fresh status keeps the route while the identity is held.
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 20.1)
+        self.assertIn(LEFT, lan.IDENTIFIED_GOVEE)
+        # No identity for longer than the hold: withdrawn as well.
+        self.transport.reconcile(20.21)
         self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
 
     def test_scan_refresh_does_not_manufacture_a_new_native_power_sample(self):
@@ -180,7 +193,7 @@ class GoveeTransportTests(unittest.TestCase):
         self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
         self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.04)
         self.transport.reconcile(10.8)
-        self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+        self.assertFalse(self.controls(10.8))
 
     def test_ip_change_keeps_identity_and_never_reuses_old_address(self):
         self.message("scan", {"device": LEFT}, "192.168.10.80", 10)
@@ -190,12 +203,57 @@ class GoveeTransportTests(unittest.TestCase):
         self.message("scan", {"device": THIRD}, "192.168.10.50", 10.03)
         self.assertEqual(lan.VERIFIED_GOVEE[LEFT][0], "192.168.10.80")
 
-    def test_power_refresh_does_not_extend_old_identity_confirmation(self):
+    def test_identity_is_held_through_missed_scans_but_status_must_be_fresh(self):
+        # The older H6076 answers about half of the scans; its devStatus replies
+        # keep coming. A proven identity is held for IDENTITY_SECONDS.
+        self.assertEqual(GoveeTransport.IDENTITY_SECONDS, 5)
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
-        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.6)
-        self.assertEqual(lan.VERIFIED_GOVEE[LEFT][1], 10)
-        self.transport.reconcile(10.76)
+        for now in (10.2, 11, 12.5):
+            self.message("devStatus", {"onOff": 1}, "192.168.10.50", now)
+            self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", now))
+        # The proof time is the status sample: a missed status still refuses color.
+        self.transport.reconcile(13.3)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 12.5))
+        self.assertFalse(self.controls(13.3))
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 14.9)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 14.9))
+        # A fresh status does not extend the identity beyond the hold.
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 15.01)
         self.assertNotIn(LEFT, lan.VERIFIED_GOVEE)
+        self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
+        # A new scan proves it again.
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 15.1)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 15.01))
+
+    def test_dreamview_frames_ride_out_a_short_status_miss_and_nothing_else_does(self):
+        sent = []
+        device = self.targets[0]
+
+        def attempt(now, command="razer"):
+            with patch.object(lan, "govee_send", lambda ip, name, data: sent.append(name)), \
+                    patch.object(lan.time, "monotonic", return_value=now):
+                return lan.send_to_target(device, command, {})
+
+        self.assertEqual(lan.STREAM_HOLD_SECONDS, 1.5)
+        self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.02)
+        # Status replies go missing: the binding stays with its old proof time.
+        self.transport.reconcile(11)
+        self.assertEqual(lan.VERIFIED_GOVEE[LEFT], ("192.168.10.50", 10.02))
+        self.assertTrue(attempt(11.5))
+        self.assertFalse(attempt(11.5, "colorwc"))
+        self.assertFalse(attempt(11.5, "brightness"))
+        self.assertFalse(attempt(11.53))
+        self.assertEqual(sent, ["razer"])
+        # A verified Off stops frames at once.
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 12)
+        self.assertTrue(attempt(12.1))
+        self.message("devStatus", {"onOff": 0}, "192.168.10.50", 12.2)
+        self.assertFalse(attempt(12.3))
+        # So does a lost identity.
+        self.message("devStatus", {"onOff": 1}, "192.168.10.50", 12.4)
+        self.message("scan", {"device": THIRD}, "192.168.10.50", 12.5)
+        self.assertFalse(attempt(12.6))
 
     def test_explicit_off_revokes_before_deferred_batch_publish(self):
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)

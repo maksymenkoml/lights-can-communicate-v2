@@ -123,6 +123,38 @@ class DeriveTests(unittest.TestCase):
         self.assertIn({"role": "left", "code": "native_stale"},
                       sync_health.derive(unverified)["blockers"])
 
+    def test_short_govee_status_miss_keeps_the_last_verified_reading(self):
+        def missed(verified_age, on=1):
+            data = status()
+            data["targets"][1].update(
+                status_age=0.05,
+                native={"identity_verified": False, "onOff": 0},
+                verified_native={"identity_verified": True, "onOff": on, "brightness": 40},
+                verified_age=verified_age)
+            return sync_health.derive(data)["blockers"]
+
+        # Under DreamView a lamp misses a few replies in a row now and then.
+        self.assertEqual(missed(1.6), [])
+        self.assertEqual(missed(1.6, on=0), [{"role": "right", "code": "native_off"}])
+        # A lasting loss is reported.
+        self.assertEqual(missed(2.01), [{"role": "right", "code": "native_stale"}])
+        for age in (None, -1, float("nan"), True, "1"):
+            self.assertEqual(missed(age), [{"role": "right", "code": "native_stale"}])
+        # Only a verified reading is held.
+        data = status()
+        data["targets"][1].update(
+            status_age=0.9, verified_native={"identity_verified": False, "onOff": 1},
+            verified_age=0.9)
+        self.assertEqual(sync_health.derive(data)["blockers"],
+                         [{"role": "right", "code": "native_stale"}])
+        # A fresh verified reading wins over an older held one.
+        data = status()
+        data["targets"][1].update(
+            native={"identity_verified": True, "onOff": 0},
+            verified_native={"identity_verified": True, "onOff": 1}, verified_age=0.1)
+        self.assertEqual(sync_health.derive(data)["blockers"],
+                         [{"role": "right", "code": "native_off"}])
+
     def test_foreign_native_stream_only_when_not_owned(self):
         data = status(native_owned=False)
         data["hue_strip"]["native_mode"] = "streaming"
