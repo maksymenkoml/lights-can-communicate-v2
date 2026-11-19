@@ -169,9 +169,10 @@ def native_target(status, fallback):
 STREAM_FRAMES_PER_SECOND = 30
 # The lamp leaves DreamView after about a minute without frames. Switching the
 # mode on while it is already on blanks the lamp for a moment, which shows as a
-# blink, so the mode is sent only when the lamp may have left it: at stream
-# start, after a frame gap close to that timeout, after a verified Off and after
-# a status loss long enough for a power cycle. Short status misses keep it.
+# blink, so the mode is sent only when the lamp may have left it: at every
+# stream start, after a frame gap close to that timeout, after a verified Off
+# and after a status loss long enough for a power cycle. Short status misses
+# keep it.
 RAZER_IDLE_SECONDS = 45
 RAZER_LOST_SECONDS = 5
 
@@ -234,9 +235,9 @@ class GoveeController:
         # missed reply so status readers can tell a short miss from a loss;
         # output still requires a fresh verified status.
         self.verified = {}
-        # Brightness last sent while streaming. Video output re-sends every frame
-        # (last_sent is cleared each tick), but an unchanged brightness must not
-        # take a frame slot.
+        # Side -> (brightness, time) last sent while streaming. Video output
+        # re-sends every frame (last_sent is cleared each tick), but an unchanged
+        # brightness must not take a frame slot.
         self.stream_brightness = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
@@ -266,6 +267,11 @@ class GoveeController:
                 self.stream_brightness.clear()
                 # A ptReal slot can lie seconds ahead; it must not hold the stream.
                 self.next_send.clear()
+                if self.streaming:
+                    # Between streams the scene output can take a lamp out of
+                    # DreamView, and the lamp does not report the mode, so every
+                    # stream start switches it on again.
+                    self.razer_frame.clear()
 
     def stream_held(self, side, now):
         """True while a streaming lamp's last verified On is recent enough for frames."""
@@ -513,13 +519,24 @@ class GoveeController:
                 else:
                     commands = lan.govee_commands(target)
                 for name, data in commands:
-                    changed = (
-                        (self.stream_brightness.get(side) if stream else old.get("brightness"))
-                        != target["brightness"]
-                        if name == "brightness"
-                        else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
-                        != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
-                    )
+                    if name == "brightness" and stream:
+                        sent = self.stream_brightness.get(side)
+                        # Another writer, such as the scene output at a Sync start,
+                        # can leave the lamp at its own brightness; the fresh status
+                        # shows it, so the stream brightness is sent again.
+                        changed = (
+                            sent is None or sent[0] != target["brightness"]
+                            or (type(status.get("brightness")) is int
+                                and status["brightness"] != target["brightness"]
+                                and now - sent[1] >= 1)
+                        )
+                    else:
+                        changed = (
+                            old.get("brightness") != target["brightness"]
+                            if name == "brightness"
+                            else (old.get("rgb"), old.get("kelvin"), old.get("segments"))
+                            != (target.get("rgb"), target.get("kelvin"), target.get("segments"))
+                        )
                     if changed or refresh:
                         updates.append((name, data))
                 mode = None
@@ -561,7 +578,7 @@ class GoveeController:
                     if success and stream and name == "razer":
                         self.razer_frame[side] = now
                     if success and stream and name == "brightness":
-                        self.stream_brightness[side] = data["value"]
+                        self.stream_brightness[side] = (data["value"], now)
                     self.commands_sent += int(success)
                     if not success:
                         self.rejected_sends[side] += 1
