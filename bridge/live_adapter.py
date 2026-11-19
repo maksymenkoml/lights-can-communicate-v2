@@ -168,9 +168,10 @@ def native_target(status, fallback):
 STREAM_FRAMES_PER_SECOND = 25
 # The lamp leaves DreamView after about a minute without frames. Switching the
 # mode on while it is already on blanks the lamp for a moment, which shows as a
-# blink, so the mode is sent only when the lamp may have left it: at stream
-# start, after a frame gap close to that timeout, after a verified Off and after
-# a status loss long enough for a power cycle. Short status misses keep it.
+# blink, so the mode is sent only when the lamp may have left it: at every
+# stream start, after a frame gap close to that timeout, after a verified Off
+# and after a status loss long enough for a power cycle. Short status misses
+# keep it.
 RAZER_IDLE_SECONDS = 45
 RAZER_LOST_SECONDS = 5
 
@@ -261,6 +262,11 @@ class GoveeController:
                 self.stream_brightness.clear()
                 # A ptReal slot can lie seconds ahead; it must not hold the stream.
                 self.next_send.clear()
+                if self.streaming:
+                    # Between streams the scene output can take a lamp out of
+                    # DreamView, and the lamp does not report the mode, so every
+                    # stream start switches it on again.
+                    self.razer_frame.clear()
 
     def update_statuses(self, statuses):
         with self.lock:
