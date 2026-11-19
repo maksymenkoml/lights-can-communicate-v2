@@ -1,0 +1,225 @@
+{
+  "date": "2026-11-18",
+  "issue": 43,
+  "boundary": "Two H6076 on the owner's Wi-Fi, one evening, Mac runtime. Local measurements, not vendor limits.",
+  "dreamview_frames_on_an_off_lamp": {
+    "method": "Each lamp was switched off over LAN, then got the DreamView mode and 125 white frames at 25 frames/s; devStatus was read before, during and after.",
+    "result": "Both lamps reported onOff 0 throughout and switched on normally afterwards. DreamView packets do not switch an off lamp on."
+  },
+  "worst_case_frames": {
+    "method": "Adapter stopped. A probe owned UDP 4002, polled scan and devStatus every 0.2 s like the adapter and sent a new color in every DreamView frame to both lamps.",
+    "cases": [
+      {
+        "frames_per_second": 25.0,
+        "duration_seconds": 120.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 0.2,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 97,
+            "longest_status_silence_seconds": 0.61,
+            "scan_replies_percent": 100,
+            "status_gaps_per_minute_with_identity_hold": 0.0
+          },
+          "right": {
+            "status_replies_percent": 90,
+            "longest_status_silence_seconds": 1.03,
+            "scan_replies_percent": 55,
+            "status_gaps_per_minute_with_identity_hold": 0.5
+          }
+        }
+      },
+      {
+        "frames_per_second": 30.0,
+        "duration_seconds": 120.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 0.2,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 86,
+            "longest_status_silence_seconds": 0.82,
+            "scan_replies_percent": 99,
+            "status_gaps_per_minute_with_identity_hold": 1.0
+          },
+          "right": {
+            "status_replies_percent": 85,
+            "longest_status_silence_seconds": 0.8,
+            "scan_replies_percent": 55,
+            "status_gaps_per_minute_with_identity_hold": 1.0
+          }
+        }
+      },
+      {
+        "frames_per_second": 35.0,
+        "duration_seconds": 120.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 0.2,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 77,
+            "longest_status_silence_seconds": 1.11,
+            "scan_replies_percent": 99,
+            "status_gaps_per_minute_with_identity_hold": 6.1
+          },
+          "right": {
+            "status_replies_percent": 84,
+            "longest_status_silence_seconds": 0.87,
+            "scan_replies_percent": 54,
+            "status_gaps_per_minute_with_identity_hold": 0.5
+          }
+        }
+      },
+      {
+        "frames_per_second": 0,
+        "duration_seconds": 45.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 0.2,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 100,
+            "longest_status_silence_seconds": 0.68,
+            "scan_replies_percent": 99,
+            "status_gaps_per_minute_with_identity_hold": 0.0
+          },
+          "right": {
+            "status_replies_percent": 100,
+            "longest_status_silence_seconds": 0.34,
+            "scan_replies_percent": 53,
+            "status_gaps_per_minute_with_identity_hold": 0.0
+          }
+        }
+      },
+      {
+        "frames_per_second": 25.0,
+        "duration_seconds": 45.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 0.2,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 96,
+            "longest_status_silence_seconds": 0.5,
+            "scan_replies_percent": 99,
+            "status_gaps_per_minute_with_identity_hold": 0.0
+          },
+          "right": {
+            "status_replies_percent": 90,
+            "longest_status_silence_seconds": 0.84,
+            "scan_replies_percent": 57,
+            "status_gaps_per_minute_with_identity_hold": 1.4
+          }
+        }
+      },
+      {
+        "frames_per_second": 25.0,
+        "duration_seconds": 45.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 1.0,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 97,
+            "longest_status_silence_seconds": 0.63,
+            "scan_replies_percent": 100,
+            "status_gaps_per_minute_with_identity_hold": 0.0
+          },
+          "right": {
+            "status_replies_percent": 97,
+            "longest_status_silence_seconds": 0.42,
+            "scan_replies_percent": 91,
+            "status_gaps_per_minute_with_identity_hold": 1.4
+          }
+        }
+      },
+      {
+        "frames_per_second": 30.0,
+        "duration_seconds": 45.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 1.0,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 94,
+            "longest_status_silence_seconds": 0.53,
+            "scan_replies_percent": 96,
+            "status_gaps_per_minute_with_identity_hold": 0.0
+          },
+          "right": {
+            "status_replies_percent": 92,
+            "longest_status_silence_seconds": 0.58,
+            "scan_replies_percent": 84,
+            "status_gaps_per_minute_with_identity_hold": 1.4
+          }
+        }
+      },
+      {
+        "frames_per_second": 40.0,
+        "duration_seconds": 45.0,
+        "status_poll_seconds": 0.2,
+        "scan_poll_seconds": 1.0,
+        "lamps": {
+          "left": {
+            "status_replies_percent": 67,
+            "longest_status_silence_seconds": 1.44,
+            "scan_replies_percent": 100,
+            "status_gaps_per_minute_with_identity_hold": 8.2
+          },
+          "right": {
+            "status_replies_percent": 79,
+            "longest_status_silence_seconds": 0.8,
+            "scan_replies_percent": 56,
+            "status_gaps_per_minute_with_identity_hold": 5.5
+          }
+        }
+      }
+    ]
+  },
+  "live_sync_with_video": {
+    "method": "PS5 video through the Sync Box, adapter /status sampled at 20 Hz. Rates set through max_stream_frames_per_second. The adapter repeats no unchanged frame, so the lamps got 10-19 frames/s on this content.",
+    "before_identity_hold": {
+      "release": "studio.15, 25 frames/s",
+      "duration_seconds": 90,
+      "right_gaps_per_minute": 4.0,
+      "left_gaps_per_minute": 0.0,
+      "cause": "identity_missing_or_ambiguous: the right lamp answers about 55% of scans"
+    },
+    "identity_hold_rate_sweep_60s": [
+      {
+        "cap": 25,
+        "left_gaps_per_minute": 0,
+        "right_gaps_per_minute": 0
+      },
+      {
+        "cap": 30,
+        "left_gaps_per_minute": 0,
+        "right_gaps_per_minute": 0
+      },
+      {
+        "cap": 35,
+        "left_gaps_per_minute": 0,
+        "right_gaps_per_minute": 1
+      },
+      {
+        "cap": 40,
+        "left_gaps_per_minute": 0,
+        "right_gaps_per_minute": 6
+      },
+      {
+        "cap": 50,
+        "left_gaps_per_minute": 3,
+        "right_gaps_per_minute": 7
+      }
+    ],
+    "final": {
+      "release": "studio.18: 30 frames/s, identity hold 5 s, frame hold 1.5 s",
+      "duration_seconds": 180,
+      "left": {
+        "status_gaps": 0,
+        "skipped_frames": 0
+      },
+      "right": {
+        "status_gaps": 1,
+        "longest_gap_seconds": 0.21,
+        "skipped_frames": 0
+      }
+    }
+  },
+  "note": "Earlier measurements on 2026-11-18 that streamed frames next to a running scene animation overstated the loss at 25 frames/s and are not used."
+}

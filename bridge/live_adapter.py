@@ -163,9 +163,10 @@ def native_target(status, fallback):
     return result
 
 
-# DreamView frames per second while Sync streams. Both selected H6076 answered
-# every status poll at ~27 frames/s and started to miss them above ~38.
-STREAM_FRAMES_PER_SECOND = 25
+# DreamView frames per second while Sync streams. With a new color in every
+# frame both selected H6076 answered most status polls up to 30 frames/s; at 35
+# the left one lost a quarter of them (bridge/evidence/dreamview-status-gaps.json).
+STREAM_FRAMES_PER_SECOND = 30
 # The lamp leaves DreamView after about a minute without frames. Switching the
 # mode on while it is already on blanks the lamp for a moment, which shows as a
 # blink, so the mode is sent only when the lamp may have left it: at every
@@ -230,6 +231,10 @@ class GoveeController:
         self.razer_frame = {}
         # Side -> time its status first went missing or off, while it still is.
         self.status_lost = {}
+        # Device key -> (last identity-verified status, time). Kept through a
+        # missed reply so status readers can tell a short miss from a loss;
+        # output still requires a fresh verified status.
+        self.verified = {}
         # Side -> (brightness, time) last sent while streaming. Video output
         # re-sends every frame (last_sent is cleared each tick), but an unchanged
         # brightness must not take a frame slot.
@@ -268,11 +273,26 @@ class GoveeController:
                     # stream start switches it on again.
                     self.razer_frame.clear()
 
+    def stream_held(self, side, now):
+        """True while a streaming lamp's last verified On is recent enough for frames."""
+        if not self.streaming or side not in self.razer:
+            return False
+        native, seen = self.verified.get(lan.device_key(self.by_side[side]), (None, None))
+        return (native is not None and native.get("onOff") == 1
+                and 0 <= now - seen <= lan.STREAM_HOLD_SECONDS)
+
     def update_statuses(self, statuses):
         with self.lock:
             for key, value in statuses.items():
                 if key in self.ids and value[0] is not None:
                     self.statuses[key] = value
+                    if value[0].get("identity_verified", True) is not False:
+                        self.verified[key] = value
+                    elif (value[0].get("lan_diagnostic") or {}).get(
+                            "reason") != "native_status_missing":
+                        # Only a missed status reply is held; a lost identity or
+                        # a transport failure ends the held reading at once.
+                        self.verified.pop(key, None)
 
     def power_observations(self):
         with self.lock:
@@ -443,6 +463,7 @@ class GoveeController:
                             self.skipped_state[side] += 1
                         continue
                 status, seen = self.statuses.get(lan.device_key(device), (None, float("-inf")))
+                held = False
                 if not status or status.get("onOff") != 1 or not 0 <= now - seen <= 0.75:
                     lost = self.status_lost.setdefault(side, now)
                     verified_off = (
@@ -453,11 +474,14 @@ class GoveeController:
                     if verified_off or now - lost >= RAZER_LOST_SECONDS:
                         # An Off or a power cycle ends DreamView on the lamp.
                         self.razer_frame.pop(side, None)
-                    self.last_sent.pop(side, None)
-                    if side in self.jobs:
-                        self.skipped_state[side] += 1
-                    continue
-                self.status_lost.pop(side, None)
+                    held = not verified_off and self.stream_held(side, now)
+                    if not held:
+                        self.last_sent.pop(side, None)
+                        if side in self.jobs:
+                            self.skipped_state[side] += 1
+                        continue
+                else:
+                    self.status_lost.pop(side, None)
                 if not self.streaming and side in self.razer:
                     # The lamp ignores other color commands while DreamView is on,
                     # so leave it even when no scene target is waiting yet.
@@ -478,6 +502,10 @@ class GoveeController:
                 refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
                 updates = []
                 stream = self.streaming and "segments" in target
+                if held and not stream:
+                    self.last_sent.pop(side, None)
+                    self.skipped_state[side] += 1
+                    continue
                 if stream:
                     commands = [
                         ("razer", razer_data(target["segments"])),
@@ -528,6 +556,10 @@ class GoveeController:
                     gradient_rate = self.gradient_packet_rates[side]
                     if "segments" in target and gradient_rate is not None:
                         rate = min(rate, gradient_rate) if rate is not None else gradient_rate
+                if held:
+                    # Only DreamView packets ride out a status miss; a brightness
+                    # change waits for a fresh status.
+                    updates = [update for update in updates if update[0] == "razer"]
                 if (
                     updates
                     and rate is not None
@@ -597,6 +629,13 @@ class GoveeController:
                         "status_age": (
                             self.clock() - self.statuses[lan.device_key(item)][1]
                             if lan.device_key(item) in self.statuses
+                            else None
+                        ),
+                        "verified_native": copy.deepcopy(
+                            self.verified.get(lan.device_key(item), (None, 0))[0]),
+                        "verified_age": (
+                            self.clock() - self.verified[lan.device_key(item)][1]
+                            if lan.device_key(item) in self.verified
                             else None
                         ),
                     }

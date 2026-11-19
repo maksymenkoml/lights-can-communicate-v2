@@ -299,7 +299,9 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual(frames[0], None)
         self.assertEqual(frames[1], [[120, 0, 0]] * 7)
         self.assertNotIn("ptReal", [name for _, name, _ in self.sent])
-        # 25 frames/s, not the 2/s ptReal budget: the next frame goes 0.12 s later.
+        # 30 frames/s, not the 2/s ptReal budget: after the first burst (mode,
+        # frame and brightness) the next frame goes 0.1 s later.
+        self.assertEqual(adapter.STREAM_FRAMES_PER_SECOND, 30)
         for sequence, (now, red) in enumerate(((0.12, 60), (0.24, 30)), start=2):
             self.sent.clear()
             self.now = now
@@ -317,8 +319,8 @@ class LiveAdapterTests(unittest.TestCase):
         controller.last_sent.clear()
         controller.render()
         self.assertEqual([name for _, name, _ in self.sent], ["razer"])
-        # Render ticks every 30 ms are late for most 40 ms slots; the cadence still
-        # holds 25 frames/s instead of falling to one frame per 60 ms.
+        # Render ticks every 30 ms are late for most 33 ms slots; the cadence still
+        # holds 30 frames/s instead of falling to one frame per 60 ms.
         sent = 0
         for tick in range(1, 51):
             self.now = 0.36 + tick * 0.03
@@ -327,8 +329,8 @@ class LiveAdapterTests(unittest.TestCase):
             before = len(self.sent)
             controller.render()
             sent += len(self.sent) > before
-        self.assertGreaterEqual(sent, 36)
-        self.assertLessEqual(sent, 38)
+        self.assertGreaterEqual(sent, 44)
+        self.assertLessEqual(sent, 46)
         # While frames flow the mode is not sent again: re-sending it blinks the lamp.
         self.sent.clear()
         self.now = 11
@@ -514,6 +516,96 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual([name for side, name, _ in self.sent if side == "left"][:2],
                          ["razer", "ptReal"])
         self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
+    def test_dreamview_frames_continue_through_a_short_status_miss(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7)
+        controller = adapter.GoveeController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        sequence = iter(range(1, 100))
+
+        def tick(at, status, red, bri=254):
+            self.now = at
+            if status is not None:
+                controller.update_statuses({LEFT: (status, at)})
+            controller.submit(command(sequence=next(sequence), transitiontime=0,
+                                      state={**state, "bri": bri, "segments": [[red, 0, 0]]}))
+            self.sent.clear()
+            controller.render()
+            return [(name, razer_colors(data) if name == "razer" else data)
+                    for device, name, data in self.sent if device == LEFT]
+
+        controller.set_streaming(True)
+        self.assertEqual([name for name, _ in tick(0, {"onOff": 1}, 120)],
+                         ["razer", "razer", "brightness"])
+        # Status replies go missing for 0.9 s: frames keep flowing, brightness waits.
+        missing = {"onOff": 0, "identity_verified": False,
+                   "lan_diagnostic": {"reason": "native_status_missing"}}
+        self.assertEqual(tick(0.5, missing, 90, bri=128), [("razer", [[90, 0, 0]] * 7)])
+        self.assertEqual(tick(1.4, missing, 60, bri=128), [("razer", [[60, 0, 0]] * 7)])
+        self.assertEqual(controller.skipped_state["left"], 0)
+        # The status returns: the held brightness change goes out.
+        self.assertIn("brightness", [name for name, _ in tick(1.5, {"onOff": 1}, 50, bri=128)])
+        # A miss longer than the hold stops output.
+        tick(2.0, missing, 40)
+        self.assertEqual(tick(3.01, missing, 30), [])
+        self.assertGreater(controller.skipped_state["left"], 0)
+        # A verified Off stops frames at once.
+        tick(3.5, {"onOff": 1}, 20)
+        self.assertEqual(tick(3.7, {"onOff": 0, "identity_verified": True}, 10), [])
+        # So does a lost identity.
+        tick(3.8, {"onOff": 1}, 20)
+        self.assertEqual(tick(3.9, {"onOff": 0, "identity_verified": False, "lan_diagnostic": {
+            "reason": "identity_missing_or_ambiguous"}}, 15), [])
+        # Scene output never rides out a miss.
+        controller.set_streaming(False)
+        tick(4.0, {"onOff": 1}, 10)
+        self.assertEqual(tick(4.5, missing, 5), [])
+
+    def test_snapshot_keeps_the_last_verified_reading_through_a_status_miss(self):
+        def row():
+            return next(item for item in self.controller.snapshot()["targets"]
+                        if item["side"] == "left")
+
+        self.now = 0.1
+        self.assertEqual(row()["verified_native"]["onOff"], 1)
+        self.assertAlmostEqual(row()["verified_age"], 0.1)
+        unseen = adapter.GoveeController(targets(), sender=self.send, clock=lambda: self.now)
+        unseen.update_statuses({RIGHT: ({"onOff": 0, "identity_verified": False}, self.now)})
+        for item in unseen.snapshot()["targets"]:
+            self.assertIsNone(item["verified_native"])
+            self.assertIsNone(item["verified_age"])
+        # A missed reply publishes an unverified placeholder; the verified reading stays.
+        self.now = 0.9
+        self.controller.update_statuses(
+            {LEFT: ({"onOff": 0, "identity_verified": False,
+                     "lan_diagnostic": {"reason": "native_status_missing"}}, self.now)})
+        self.assertIs(row()["native"]["identity_verified"], False)
+        self.assertEqual(row()["verified_native"]["onOff"], 1)
+        self.assertAlmostEqual(row()["verified_age"], 0.9)
+        # A verified Off replaces it at once.
+        self.now = 1.0
+        self.controller.update_statuses(
+            {LEFT: ({"onOff": 0, "identity_verified": True}, self.now)})
+        self.assertEqual(row()["verified_native"]["onOff"], 0)
+        self.assertAlmostEqual(row()["verified_age"], 0)
+        # The held reading is a copy: changing it does not change the controller.
+        row()["verified_native"]["onOff"] = 1
+        self.assertEqual(row()["verified_native"]["onOff"], 0)
+        # A lost identity or a transport failure is not a missed reply: nothing is held.
+        for lost in ({"reason": "identity_missing_or_ambiguous"}, {"reason": "identity_blocked"},
+                     None):
+            self.controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+            placeholder = {"onOff": 0, "identity_verified": False}
+            if lost is not None:
+                placeholder["lan_diagnostic"] = lost
+            self.controller.update_statuses({LEFT: (placeholder, self.now)})
+            self.assertIsNone(row()["verified_native"])
+            self.assertIsNone(row()["verified_age"])
 
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))

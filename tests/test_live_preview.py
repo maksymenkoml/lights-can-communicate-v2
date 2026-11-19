@@ -286,6 +286,29 @@ class PreviewTests(unittest.TestCase):
         status["hue_strip"]["native_mode"] = "normal"
         self.assertEqual(build_preview(status, self.store.snapshot())["mode"], "scene")
 
+    def test_short_govee_status_miss_keeps_the_glow_until_the_loss_lasts(self):
+        self.send(self.device, "ptReal", segment_data([(255, 0, 0)] * 7))
+        self.send(self.device, "brightness", {"value": 65})
+
+        def missed(verified_age, on=1, verified=True):
+            status = metadata()
+            status["targets"][0].update(
+                status_age=0.05,
+                native={"identity_verified": False, "onOff": 0},
+                verified_native={"identity_verified": verified, "onOff": on, "brightness": 65},
+                verified_age=verified_age)
+            return self.lamp(status)
+
+        held = missed(1.6)
+        self.assertEqual((held["online"], held["on"], held["stale"]), (True, True, False))
+        self.assertEqual(held["colors"], self.lamp()["colors"])
+        self.assertTrue(held["colors"])
+        off = missed(1.6, on=0)
+        self.assertEqual((off["on"], off["colors"]), (False, []))
+        for lost in (missed(2.01), missed(None), missed(float("nan")), missed(1.6, verified=False)):
+            self.assertEqual((lost["online"], lost["on"], lost["stale"]), (None, None, True))
+            self.assertEqual(lost["colors"], [])
+
     def test_malformed_ages_and_untrusted_ready_flags_fail_closed(self):
         for age in (10**1000, -1, True, "secret", None):
             status = metadata()
