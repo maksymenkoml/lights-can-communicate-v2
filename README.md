@@ -1,23 +1,24 @@
-# Lights Can Communicate v2 prototype
+# Lights Can Communicate v2
 
-The current six-light virtual Hue pilot is documented in
-[experiments/hue-bridge](experiments/hue-bridge/README.md). Its first distributable
-adapter component is documented in [core/README.md](core/README.md). The commands
-below describe the original palette-following experiment.
+Lights Can Communicate v2 presents Govee and Philips Hue desk lamps to the official
+Hue app and a Hue Sync Box as one virtual Hue bridge. The bridge is documented in
+[bridge](bridge/README.md). The packaged adapter, its configuration and its
+release format are documented in [core/README.md](core/README.md). The commands
+below describe the original palette CLI, `lights_can_communicate_v2.py`.
 
 Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
-This is a local experiment, not a background service.
+The palette CLI runs in the foreground; it is not a background service.
 
 ## Light Studio
 
-[Light Studio](experiments/setup-studio/README.md) is the local UI for the desk
+[Light Studio](studio/README.md) is the local UI for the desk
 lights. It places lamps on a 5 cm grid and keeps two configurations: one for
 Sync and one for scenes without Sync. Each configuration has its own brightness
 corrections and fade zone. A lamp card can blink the lamp, rename a desk lamp,
 and choose whether the lamp follows Sync, keeps its own light or switches off
-during Sync. Its frontend is in `experiments/setup-studio/static/` and its
-local server is `experiments/setup-studio/server.py`.
+during Sync. Its frontend is in `studio/static/` and its
+local server is `studio/server.py`.
 
 ![Light Studio in the Sync view: a colour-wheel demo picture on the monitor and the colours that Sync would send to the two Govee floor lamps and the monitor strip](docs/images/light-studio.png)
 
@@ -162,12 +163,12 @@ Measured command pacing and its limits are recorded in `archive/smoothing/`.
   The local animation is an approximation using those stored palette colors;
   it cannot reproduce the live Hue phase or eliminate phase drift.
 - Govee gets one color per controller at a time. Segment effects and exact dynamic
-  scene reproduction are outside this experiment.
+  scene reproduction are outside the palette CLI.
 - RGB conversion is an approximation; different LEDs, walls, and brightness
   mean a visual match may need later calibration.
 - No automatic startup, cloud control, UI, changes to the Hue light, or changes
   to Homebridge/HomeKit/Matter configuration. Concurrent Homebridge color or
-  brightness automations can overwrite the prototype and vice versa; use one
+  brightness automations can overwrite the palette CLI and vice versa; use one
   source for palette and brightness while testing. A power-off racing with a color write
   still needs physical verification on the actual lamps.
 - Pairing and discovered addresses live in ignored `.lighting.json`, written
@@ -184,7 +185,7 @@ git config core.hooksPath .githooks
 
 The pre-push hook runs cached Ruff offline and unit tests. Run the Ruff command
 above once to populate the cache. `uv` is only needed for development;
-it is not needed to run the prototype.
+it is not needed to run the palette CLI.
 
 Protocol references: [Govee LAN API](https://app-h5.govee.com/user-manual/wlan-guide),
 [Hue API V2](https://developers.meethue.com/new-hue-api/).

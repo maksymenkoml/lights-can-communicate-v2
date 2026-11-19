@@ -1,6 +1,6 @@
 # Local recovery checks
 
-The pilot is still a local experiment. These results distinguish actual transport
+These results distinguish actual transport
 tests, simulated native I/O, and owner/physical acceptance.
 
 ## Automated faults
@@ -14,7 +14,7 @@ PROBE_GOVEE_GRADIENT=true python3 -B -m unittest discover -s tests -p test_recei
 
 `test_receiver_recovery.py` uses actual OpenSSL DTLS and loopback HTTP, synthetic
 credentials and ephemeral endpoints. It never contacts the live adapter or Hue
-Bridge. The same sixteen tests passed inside the pinned pilot Docker image with
+Bridge. The same sixteen tests passed inside the pinned bridge Docker image with
 `--network none`, read-only source mounts, no published ports and no state or
 credential mounts, for both fourteen- and eighteen-channel modes.
 
@@ -77,8 +77,8 @@ For local bridge code reloads, preserve the existing private state and use:
 docker compose -p lights-can-communicate-v2-hue-probe up -d --force-recreate --no-deps --pull never bridge
 ```
 
-Run this from `experiments/hue-bridge`. Preserve the selected opt-in profile in
-its private `.env`; this pilot uses `PROBE_GOVEE_GRADIENT=true`. A plain container
+Run this from `bridge`. Preserve the selected opt-in profile in
+its private `.env`; this desk uses `PROBE_GOVEE_GRADIENT=true`. A plain container
 restart did not repair the observed stale publication. Do not restart the shared
 Docker daemon or grant the bridge access to its control socket for this workaround.
 Automatic repair of the external Docker port proxy is not implemented.
@@ -127,7 +127,7 @@ later Off came from the away automation; its power intent must be preserved. See
 `evidence/renewed-sync-attempt.json`.
 
 
-## Restart recovery activated on the local pilot
+## Restart recovery activated on the local installation
 
 The configured Linux receiver now keeps an idle, drop-only UDP socket bound
 before and between OpenSSL sessions. This removes the unbound-port condition
@@ -145,7 +145,7 @@ authoritative. Startup hold skips replay and serving while keeping idle UDP
 bound. Scene Stop, accepted manual changes and static recall cancel affected intent;
 a rejected API change does not. Missing state preserves previous startup behavior.
 
-The activated pilot restored six dynamic lights after a cold recreation. All six
+The activated installation restored six dynamic lights after a cold recreation. All six
 fixtures were already On and stayed On at each captured checkpoint; no explicit
 power command was sent. This is live On-state preservation, not a live all-Off
 replay claim. Isolated fixtures cover all-Off replay, a partial manual override,

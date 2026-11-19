@@ -8,14 +8,14 @@ from pathlib import Path
 
 from . import __version__
 
-PILOT_MODULES = (
+RUNTIME_MODULES = (
     "live_adapter",
     "desk_layout",
     "entertainment_stream",
     "govee_segments",
     "hue_entertainment_relay",
     "hue_strip_proxy",
-    "pilot_transport",
+    "govee_transport",
     "homekit_power",
     "power_history",
     "power_owner",
@@ -49,7 +49,7 @@ def build(output):
     root = Path(__file__).resolve().parents[1]
     paths = {"lights_can_communicate_v2.py": root / "lights_can_communicate_v2.py"}
     paths.update(
-        {name + ".py": root / "experiments/hue-bridge" / (name + ".py") for name in PILOT_MODULES}
+        {name + ".py": root / "bridge" / (name + ".py") for name in RUNTIME_MODULES}
     )
     paths.update(
         {
@@ -58,7 +58,7 @@ def build(output):
             for name in CORE_MODULES
         }
     )
-    paths.update({name: root / "experiments/setup-studio" / source
+    paths.update({name: root / "studio" / source
                   for name, source in SETUP_FILES.items()})
     files = {}
     for name, path in paths.items():

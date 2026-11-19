@@ -10,10 +10,10 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import positions, validate_layout  # noqa: E402
-from live_adapter import PilotController, handler_for  # noqa: E402
-from pilot_transport import PilotTransport  # noqa: E402
+from govee_transport import GoveeTransport  # noqa: E402
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from test_desk_layout import layout  # noqa: E402
 from test_live_adapter import LEFT, targets  # noqa: E402
 
@@ -65,7 +65,7 @@ class DiscoveryIntegrationTests(unittest.TestCase):
                 }
 
         sent = []
-        controller = PilotController(targets(), sender=lambda *args: sent.append(args))
+        controller = GoveeController(targets(), sender=lambda *args: sent.append(args))
         try:
             handler = handler_for(controller, "private-adapter-key", catalog=Catalog())
         except TypeError as error:
@@ -102,7 +102,7 @@ class DiscoveryIntegrationTests(unittest.TestCase):
                 observations.append((data["device"], peer_ip))
 
         try:
-            transport = PilotTransport(targets(), lambda _: None, discovery=Catalog())
+            transport = GoveeTransport(targets(), lambda _: None, discovery=Catalog())
         except TypeError as error:
             self.fail("The existing sole listener has no discovery observer: " + str(error))
         with patch.object(lan, "govee_send", side_effect=AssertionError("Discovery sent control")):
@@ -139,7 +139,7 @@ class DiscoveryIntegrationTests(unittest.TestCase):
             def wait(self, timeout):
                 self.stopped = True
 
-        transport = PilotTransport(targets(), published.append, discovery=Catalog())
+        transport = GoveeTransport(targets(), published.append, discovery=Catalog())
         with patch.object(transport, "receive_loop", side_effect=OSError("Socket unavailable")):
             transport.run(Stop())
         self.assertEqual(states, [("govee", "unavailable")])
@@ -153,7 +153,7 @@ class DiscoveryIntegrationTests(unittest.TestCase):
 
         published = []
         try:
-            transport = PilotTransport(targets(), published.append, discovery=BrokenCatalog())
+            transport = GoveeTransport(targets(), published.append, discovery=BrokenCatalog())
         except TypeError as error:
             self.fail("Discovery observer isolation is missing: " + str(error))
         transport.handle({"msg": {"cmd": "devStatus", "data": {"onOff": 1}}}, "192.168.10.50", 100)

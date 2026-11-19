@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import test_receiver_udp_guard as guarded  # noqa: E402
 from test_receiver_recovery import wait_for  # noqa: E402
 

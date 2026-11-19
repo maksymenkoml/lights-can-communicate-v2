@@ -9,11 +9,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'experiments/hue-bridge'))
+sys.path.insert(0, str(ROOT / 'bridge'))
 
 
 def bootstrap_functions(*names):
-    source = ROOT / 'experiments/hue-bridge/bootstrap.py'
+    source = ROOT / 'bridge/bootstrap.py'
     tree = ast.parse(source.read_text())
     selected = [node for node in ast.walk(tree)
                 if isinstance(node, ast.FunctionDef) and node.name in names]

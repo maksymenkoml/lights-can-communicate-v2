@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 
 from hue_entertainment_relay import HueEntertainmentRelay
 from test_hue_entertainment_relay import FakeConnection

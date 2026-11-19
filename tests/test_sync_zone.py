@@ -6,7 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from sync_zone import default_zone, validate_zone, vertical_bounds, zone_points  # noqa: E402
 
 

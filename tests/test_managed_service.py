@@ -143,7 +143,7 @@ class ManagedServiceTests(unittest.TestCase):
                              digest)
         for name in services.GATEWAY_MODULES:
             self.assertEqual((self.release / "gateway" / (name + ".py")).read_bytes(),
-                             (ROOT / "experiments/hue-bridge" / (name + ".py")).read_bytes())
+                             (ROOT / "bridge" / (name + ".py")).read_bytes())
         plugin = self.manifest["compatibility"]["plugin"]["file"]
         self.assertEqual(set(files), {services.ARCHIVE, plugin, *(
             f"gateway/{name}.py" for name in services.GATEWAY_MODULES)})
@@ -157,7 +157,7 @@ class ManagedServiceTests(unittest.TestCase):
         self.assertEqual((existing / "keep").read_text(), "peer")
 
     def test_development_compose_mounts_the_same_gateway_modules(self):
-        text = (ROOT / "experiments/hue-bridge/compose.yaml").read_text()
+        text = (ROOT / "bridge/compose.yaml").read_text()
         mounted = re.findall(r"\./(\w+)\.py:/probe/\1\.py:ro", text)
         self.assertEqual(sorted(mounted), sorted(services.GATEWAY_MODULES))
 
@@ -237,7 +237,7 @@ class ManagedServiceTests(unittest.TestCase):
                         process.kill()
                         self.fail("Packaged setup did not start: " + process.communicate()[1])
                     time.sleep(0.1)
-            source = ROOT / "experiments/setup-studio/static"
+            source = ROOT / "studio/static"
             self.assertEqual(index, (source / "index.html").read_bytes())
             for path, name, kind in (
                     ("/app.js", "app.js", "text/javascript; charset=utf-8"),
@@ -252,7 +252,7 @@ class ManagedServiceTests(unittest.TestCase):
                     opener.open(url + path, timeout=1)
                 caught.exception.close()
                 self.assertEqual(caught.exception.code, 404)
-            with opener.open(url + "/api/pilot", timeout=2) as response:
+            with opener.open(url + "/api/live", timeout=2) as response:
                 self.assertFalse(json.load(response)["connected"])
             process.send_signal(signal.SIGTERM)
             self.assertEqual(process.wait(timeout=5), 0)

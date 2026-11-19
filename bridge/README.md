@@ -1,19 +1,19 @@
-# Hue app compatibility probe
+# Virtual Hue bridge
 
-Disposable reference experiment for the planned custom Homebridge plugin.
+The virtual Hue bridge that the official Hue app and the Hue Sync Box pair with.
 The default mode uses a pinned diyHue runtime with two simulated color lamps.
-An explicit live-pilot mode can forward these two slots to our host adapter.
+An explicit live mode can forward these two slots to our host adapter.
 This is not the final Homebridge plugin. Upstream physical `set_light`
 drivers remain blocked. Our separate adapter uses the pinned Govee allowlist.
 
 **Owner resume, 2026-11-13:** the owner explicitly resumed hardware testing.
-The sleep hold was released and the selected two-lamp pilot was restarted.
+The sleep hold was released and the selected two-lamp live output was restarted.
 The hold mechanism remains available for later pauses. Do not remove a future
 `state/live-output-hold` without explicit owner permission.
 
-See [LIVE_PILOT.md](LIVE_PILOT.md) for scope, implementation, and evidence limits.
+See [LIVE_ADAPTER.md](LIVE_ADAPTER.md) for scope, implementation, and evidence limits.
 
-**Desk expansion:** an opt-in six-light pilot now adds the genuine monitor
+**Desk expansion:** an opt-in six-light mode now adds the genuine monitor
 strip and the owner's three confirmed Hue Play lamps through a host-side,
 color-only proxy. The separate `Vapor wave DESK` scene aligns palette edges
 and center; Govee retain 0.65 brightness calibration. Static native readback
@@ -21,12 +21,11 @@ is recorded in `evidence/live-desk-static.json`. The owner confirmed smooth
 six-light Play, intended colors, Stop, and Center calibration. A live Sync
 priority check observed paused writes during streaming and resumed commands
 after Sync stopped. The owner also confirmed visual return and continued
-animation. Sync Box reliability remains a separate investigation. This remains
-a local reference experiment.
+animation. Sync Box reliability remains a separate investigation.
 
-See [ENTERTAINMENT_PILOT.md](ENTERTAINMENT_PILOT.md) for actual Sync Box video relay, PS5 menu/game/Stop acceptance, right-lamp pacing, and remaining hardware coverage limits. [FEATURES.md](FEATURES.md) separates verified pilot features from Homebridge work.
+See [ENTERTAINMENT.md](ENTERTAINMENT.md) for actual Sync Box video relay, PS5 menu/game/Stop acceptance, right-lamp pacing, and remaining hardware coverage limits. [FEATURES.md](FEATURES.md) separates verified features from Homebridge work.
 
-**Live desk layout:** the [setup studio](../setup-studio/README.md) now saves
+**Live desk layout:** the [setup studio](../studio/README.md) now saves
 the owner's six-role layout into the private shared state. Positions relative
 to the monitor update the eighteen-channel source area; each Govee retains
 three Signe anchors over seven physical zones. A controlled live Sync Box
@@ -72,7 +71,7 @@ the genuine bridge was not modified. Bridge identity remains separate.
 
 This demonstrates the tested request paths, not complete Hue API parity.
 Declared version metadata must remain consistent with implemented features.
-Online version scraping is disabled to keep the experiment reproducible.
+Online version scraping is disabled to keep the bridge reproducible.
 
 ## Runtime
 

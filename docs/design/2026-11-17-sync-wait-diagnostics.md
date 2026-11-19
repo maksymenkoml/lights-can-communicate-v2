@@ -33,7 +33,7 @@ identifiers.
 
 ## Design
 
-- `experiments/hue-bridge/sync_health.py` (pure, standard library):
+- `bridge/sync_health.py` (pure, standard library):
   - `derive(status)` reads an adapter `/status` dictionary and returns
     `{"version": 1, "state", "reason", "detail", "frames", "output",
     "blockers"}`. `state`/`reason` come from the latest classified video
@@ -61,7 +61,7 @@ identifiers.
 The first export carried only the current power-owner state, so a Sync stall
 could not be lined up with an Off, a lapsed owner heartbeat or a Sync hold.
 
-- `experiments/hue-bridge/power_history.py` keeps a bounded (64) list of gate
+- `bridge/power_history.py` keeps a bounded (64) list of gate
   changes per authority: `timestamp` (wall clock, the stream journal's format),
   `role`, `cause`, `requested_on`, `color_allowed`, `sync_hold`. An unchanged
   gate is not recorded, so heartbeats do not fill the list.

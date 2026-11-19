@@ -2,10 +2,10 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_stream import native_colors  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
-from live_adapter import PilotController  # noqa: E402
+from live_adapter import GoveeController  # noqa: E402
 from test_hue_strip_proxy import FakeHue  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, command, targets  # noqa: E402
 from test_native_profile import PLAY_IDS  # noqa: E402
@@ -24,7 +24,7 @@ class CalibrationTests(unittest.TestCase):
         scales = Scales()
         scales.values["left"] = 0.4
         now = [0]
-        controller = PilotController(
+        controller = GoveeController(
             targets(),
             sender=lambda *args: True,
             clock=lambda: now[0],
@@ -42,7 +42,7 @@ class CalibrationTests(unittest.TestCase):
     def test_govee_scale_changes_without_new_color_and_off_stays_blocked(self):
         scales = Scales()
         sent = []
-        controller = PilotController(
+        controller = GoveeController(
             targets(),
             sender=lambda dev, name, data: sent.append((name, data)) or True,
             clock=lambda: 0,

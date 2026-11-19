@@ -7,8 +7,8 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'experiments/hue-bridge'))
-from live_adapter import PilotController, handler_for  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from stream_http import StreamHttpSender  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 
@@ -17,7 +17,7 @@ class StreamHttpTests(unittest.TestCase):
     def setUp(self):
         self.messages = []
         self.connections = 0
-        self.controller = PilotController(targets(), sender=lambda *_: True)
+        self.controller = GoveeController(targets(), sender=lambda *_: True)
 
         class Video:
             def submit(_, message):

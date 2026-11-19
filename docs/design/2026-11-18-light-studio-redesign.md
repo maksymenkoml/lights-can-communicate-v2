@@ -5,7 +5,7 @@
 The owner found the current Light Studio outdated and clumsy, both in look and
 in use. A standalone prototype was iterated with the owner element by element
 (2026-11-16 to 2026-11-18). This document fixes the agreed design and the plan
-to port it into `experiments/setup-studio/`.
+to port it into `studio/`.
 
 Backward compatibility of `desk-layout.json` and of the setup server API is not
 required (owner decision, 2026-11-17). Existing files are migrated on load.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PowerOwnerClient } from '../experiments/homebridge-power/owner-client.mjs';
+import { PowerOwnerClient } from '../homebridge-power/owner-client.mjs';
 
 const RIGHT = 'D4:A5:D2:21:C0:46:4F:55';
 

@@ -211,14 +211,14 @@ class SetupLiveStatusTests(unittest.TestCase):
         with TemporaryDirectory(prefix="tmp_setup_live_source_") as directory:
             handler = studio.handler_for(
                 Path(directory) / "missing-token",
-                pilot_fetch=lambda: data,
+                live_fetch=lambda: data,
                 source_fetch=lambda: calls.append("source") or False,
             )
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
             thread = threading.Thread(target=server.serve_forever)
             thread.start()
             try:
-                url = f"http://127.0.0.1:{server.server_port}/api/pilot"
+                url = f"http://127.0.0.1:{server.server_port}/api/live"
                 with urllib.request.urlopen(url) as response:
                     self.assertEqual(json.load(response)["sync"]["state"], "active")
                 self.assertEqual(calls, [])
@@ -244,7 +244,7 @@ class SetupLiveStatusTests(unittest.TestCase):
                 handler = studio.handler_for(
                     root / "credentials/missing",
                     state / "desk-layout.json",
-                    pilot_fetch=lambda: calls.append("pilot"),
+                    live_fetch=lambda: calls.append("live"),
                     source_fetch=lambda: calls.append("source"),
                 )
             except TypeError as error:
@@ -254,7 +254,7 @@ class SetupLiveStatusTests(unittest.TestCase):
             thread.start()
             try:
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{server.server_port}/api/pilot"
+                    f"http://127.0.0.1:{server.server_port}/api/live"
                 ) as r:
                     data = json.load(r)
                 self.assertEqual(data["mode"], "paused")

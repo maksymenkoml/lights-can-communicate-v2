@@ -1,11 +1,11 @@
-"""Pilot test names are replaced on start; owner-chosen names are kept."""
+"""Legacy test names are replaced on start; owner-chosen names are kept."""
 
 import sys
 import types
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_names import AREA_NAME, BRIDGE_NAME, ROOM_NAME, rename_legacy  # noqa: E402
 
 
@@ -14,7 +14,7 @@ def resource(name):
 
 
 class HueNameTests(unittest.TestCase):
-    def test_exact_pilot_names_are_replaced_and_identities_kept(self):
+    def test_exact_legacy_test_names_are_replaced_and_identities_kept(self):
         config = {
             "config": {"name": "Lights Can Communicate v2 Probe"},
             "lights": {"1": resource("Govee Left TEST"), "4": resource("Hue Play Center PROXY"),

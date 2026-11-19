@@ -8,8 +8,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
-import live_adapter as pilot  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+import live_adapter as adapter  # noqa: E402
 from entertainment_stream import VideoLease  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 
@@ -98,16 +98,16 @@ class AdapterLifecycleTests(unittest.TestCase):
             ]
             try:
                 with (
-                    patch.object(pilot, "ThreadingHTTPServer", Server),
-                    patch.object(pilot, "PinnedHueClient", lambda *a, **kw: object()),
-                    patch.object(pilot, "HueStripProxy", Proxy),
-                    patch.object(pilot, "HueEntertainmentRelay", lambda *a, **kw: object()),
-                    patch.object(pilot, "HueDiscoveryReader", Discovery),
-                    patch.object(pilot, "VideoOutput", Video),
-                    patch.object(pilot, "PilotTransport", interrupted_transport),
+                    patch.object(adapter, "ThreadingHTTPServer", Server),
+                    patch.object(adapter, "PinnedHueClient", lambda *a, **kw: object()),
+                    patch.object(adapter, "HueStripProxy", Proxy),
+                    patch.object(adapter, "HueEntertainmentRelay", lambda *a, **kw: object()),
+                    patch.object(adapter, "HueDiscoveryReader", Discovery),
+                    patch.object(adapter, "VideoOutput", Video),
+                    patch.object(adapter, "GoveeTransport", interrupted_transport),
                 ):
                     try:
-                        pilot.main(args)
+                        adapter.main(args)
                     except KeyboardInterrupt:
                         pass
                 self.assertTrue(events[0].closed, "Startup interrupt leaked the HTTP socket")

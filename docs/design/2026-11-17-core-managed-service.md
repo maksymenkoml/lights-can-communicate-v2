@@ -102,5 +102,5 @@ as its configuration directory, as today. Logs go to `state_dir/logs`.
 
 - Positional command with `adapter` as default instead of a breaking rename.
 - Compose output as JSON to stay within the standard library.
-- The legacy `experiments/hue-bridge/compose.yaml` stays for development; a
+- The legacy `bridge/compose.yaml` stays for development; a
   test keeps its module list equal to `GATEWAY_MODULES`.

@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
-const STATIC=path.join(__dirname,'../experiments/setup-studio/static');
+const STATIC=path.join(__dirname,'../studio/static');
 const code=fs.readFileSync(path.join(STATIC,'app.js'),'utf8');
 const page=fs.readFileSync(path.join(STATIC,'index.html'),'utf8');
 const SVG_NS='http://www.w3.org/2000/svg';
@@ -161,18 +161,18 @@ function canonical(layout){
  return result;
 }
 const discovered=(overrides={})=>({id:'device-'+'a'.repeat(32),provider:'govee',name:'Third <lamp>',model:'H6076',shape:'floor',zones:7,supported:true,online:true,selectable:true,ambiguous:false,layout_id:null,height_cm:136,width_cm:null,...overrides});
-const pilotOk=(overrides={})=>({version:1,connected:true,mode:'sync',sync:{state:'active',reason:'frames_received',blockers:[]},lamps:{},...overrides});
+const liveOk=(overrides={})=>({version:1,connected:true,mode:'sync',sync:{state:'active',reason:'frames_received',blockers:[]},lamps:{},...overrides});
 const lit=(colors,extra={})=>({online:true,on:true,brightness:80,colors,source:'sync-output',stale:false,included:true,...extra});
 const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),pilot=pilotOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
  const server={layout:layout&&canonical(layout),revision};
- const posts=[],requests={layout:0,discovery:[],pilot:[]};
+ const posts=[],requests={layout:0,discovery:[],live:[]};
  const context={structuredClone,AbortController,console,
   setTimeout:clock.setTimeout,clearTimeout:clock.clearTimeout,
   requestAnimationFrame:fn=>clock.setTimeout(()=>fn(now),16),
@@ -183,7 +183,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),pilot=pil
   DOMPoint:class{constructor(x,y){this.x=x;this.y=y}matrixTransform(){return this}},
   listeners:[],addEventListener(type,fn,options){this.listeners.push({type,fn,capture:options===true||!!options?.capture})},
   fetch:async(url,options={})=>{
-   if(url==='/api/pilot'){requests.pilot.push(now);const value=typeof pilot==='function'?pilot(requests.pilot.length):pilot;if(value instanceof Error)throw value;return response(200,await value)}
+   if(url==='/api/live'){requests.live.push(now);const value=typeof live==='function'?live(requests.live.length):live;if(value instanceof Error)throw value;return response(200,await value)}
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
@@ -346,7 +346,7 @@ test('valid saved positions far from the desk load unchanged and widen the room'
 });
 
 test('placing a found lamp adds a configuration-only device row with its canonical fields',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[255,0,0]])}})});
+ const app=await harness({live:liveOk({lamps:{'govee-left':lit([[255,0,0]])}})});
  await app.click(app.$('#list-toggle'));
  await app.click(app.$('#lamp-panel').querySelector('[data-place]'));
  assert.equal(app.$('#lamp-panel').hidden,true);assert.ok(app.$('#app').classList.contains('placing'));
@@ -434,23 +434,23 @@ test('Own light is shown in Sync view and device rows cannot change their Sync r
  await app.advance(1000);assert.equal(app.posts.length,0);
 });
 
-test('pilot polling: 50 ms after each answer, 1000 ms deadline, 1500 ms freshness, paused while hidden',async()=>{
+test('live polling: 50 ms after each answer, 1000 ms deadline, 1500 ms freshness, paused while hidden',async()=>{
  let hang=false;
- const app=await harness({pilot:()=>hang?new Promise(()=>{}):pilotOk()});
- assert.deepEqual(app.requests.pilot,[0]);
- await app.advance(49);assert.equal(app.requests.pilot.length,1);
- await app.advance(1);assert.deepEqual(app.requests.pilot,[0,50]);
- await app.advance(100);assert.deepEqual(app.requests.pilot,[0,50,100,150]);
- hang=true;await app.advance(50);assert.equal(app.requests.pilot.at(-1),200);
+ const app=await harness({live:()=>hang?new Promise(()=>{}):liveOk()});
+ assert.deepEqual(app.requests.live,[0]);
+ await app.advance(49);assert.equal(app.requests.live.length,1);
+ await app.advance(1);assert.deepEqual(app.requests.live,[0,50]);
+ await app.advance(100);assert.deepEqual(app.requests.live,[0,50,100,150]);
+ hang=true;await app.advance(50);assert.equal(app.requests.live.at(-1),200);
  assert.equal(app.$('#sync-status span').textContent,'Syncing');
- await app.advance(999);assert.equal(app.requests.pilot.length,5);
+ await app.advance(999);assert.equal(app.requests.live.length,5);
  await app.advance(1);assert.equal(app.$('#sync-status span').textContent,'Sync status unknown');
- await app.advance(50);assert.equal(app.requests.pilot.at(-1),1250);
- await app.visible(false);const count=app.requests.pilot.length;
- await app.advance(5000);assert.equal(app.requests.pilot.length,count);
- hang=false;await app.visible(true);assert.equal(app.requests.pilot.length,count+1);
+ await app.advance(50);assert.equal(app.requests.live.at(-1),1250);
+ await app.visible(false);const count=app.requests.live.length;
+ await app.advance(5000);assert.equal(app.requests.live.length,count);
+ hang=false;await app.visible(true);assert.equal(app.requests.live.length,count+1);
  assert.equal(app.$('#sync-status span').textContent,'Syncing');
- const hiddenStart=await harness({hidden:true});await hiddenStart.advance(3000);assert.equal(hiddenStart.requests.pilot.length,0);
+ const hiddenStart=await harness({hidden:true});await hiddenStart.advance(3000);assert.equal(hiddenStart.requests.live.length,0);
 });
 
 test('a fresh answer expires after 1500 ms even when the next poll is delayed',async()=>{
@@ -460,7 +460,7 @@ test('a fresh answer expires after 1500 ms even when the next poll is delayed',a
  for(const [id,timer] of app.timers)if(timer.delay===50)app.timers.delete(id);
  await app.advance(1499);assert.equal(app.$('#sync-status span').textContent,'Syncing');
  await app.advance(1);assert.equal(app.$('#sync-status span').textContent,'Sync status unknown');
- assert.equal(app.requests.pilot.length,1);
+ assert.equal(app.requests.live.length,1);
 });
 
 test('Sync states map to short labels and unknown reasons stay readable',async()=>{
@@ -477,33 +477,33 @@ test('Sync states map to short labels and unknown reasons stay readable',async()
   [undefined,'Sync status unknown','unknown']
  ];
  for(const [sync,label,level] of cases){
-  const app=await harness({pilot:pilotOk({sync})});
+  const app=await harness({live:liveOk({sync})});
   assert.equal(app.$('#sync-status span').textContent,label,JSON.stringify(sync));
   assert.equal(app.$('#sync-status').dataset.level,level);
  }
- const paused=await harness({pilot:{version:1,connected:false,mode:'paused',sync:{state:'paused'},lamps:{}}});
+ const paused=await harness({live:{version:1,connected:false,mode:'paused',sync:{state:'paused'},lamps:{}}});
  assert.equal(paused.$('#sync-status span').textContent,'Not syncing');
- const disconnected=await harness({pilot:{version:1,connected:false,mode:'unknown',sync:{state:'unknown'},lamps:{}}});
+ const disconnected=await harness({live:{version:1,connected:false,mode:'unknown',sync:{state:'unknown'},lamps:{}}});
  assert.equal(disconnected.$('#sync-status span').textContent,'Sync status unknown');
 });
 
 test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>{
- const app=await harness({pilot:pilotOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
  assert.equal(app.$('#sync-status span').textContent,'Govee Left off in HomeKit');
  const badge=app.lamp('govee-left').querySelector('[data-badge]');
  assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Off in HomeKit');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
  await app.click(app.$('#sync-status'));assert.equal(app.run('selected'),'govee-left');
- const many=await harness({pilot:pilotOk({sync:{state:'active',blockers:[{role:'hue_left',code:'native_stale'},{role:'strip',code:'color_fenced'},{role:'nobody',code:'x'},{role:'right',code:'future_code'}]}})});
+ const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'hue_left',code:'native_stale'},{role:'strip',code:'color_fenced'},{role:'nobody',code:'x'},{role:'right',code:'future_code'}]}})});
  assert.equal(many.$('#sync-status span').textContent,'3 lamps not lit');
  assert.equal(many.lamp('govee-right').querySelector('[data-badge]').dataset.tooltip,'Not ready');
 });
 
 test('live colours repaint existing nodes without rebuilding the room or saving',async()=>{
- let answer=pilotOk({lamps:{'play-left':lit([[255,0,0]]),'govee-left':lit([[0,0,255],[0,0,255],[0,0,255],[0,255,0],[0,255,0],[0,255,0],[255,255,255]]),
+ let answer=liveOk({lamps:{'play-left':lit([[255,0,0]]),'govee-left':lit([[0,0,255],[0,0,255],[0,0,255],[0,255,0],[0,255,0],[0,255,0],[255,255,255]]),
   'hue-monitor':lit(Array.from({length:9},(_,i)=>[i*20,0,0])),'play-center':lit([[9,9,9]],{on:false}),'play-right':lit([[9,9,9]],{stale:true}),'govee-right':lit(Array(7).fill([1,2,3]),{included:false})}});
- const unverified=pilotOk({lamps:{'play-left':lit([[255,0,0]],{source:'unknown'})}});
- const app=await harness({pilot:()=>answer});
+ const unverified=liveOk({lamps:{'play-left':lit([[255,0,0]],{source:'unknown'})}});
+ const app=await harness({live:()=>answer});
  await app.click(app.$('#sync-tool'));
  const writes=app.stage.writes,node=app.lamp('play-left');
  assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0000');
@@ -512,7 +512,7 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  assert.equal(floorStops[0],'#ffffff');assert.equal(floorStops.at(-1),'#0000ff','zones run bottom to top');
  for(const id of ['play-center','play-right','govee-right'])assert.equal(app.lamp(id).querySelector('[data-sync-power]').getAttribute('opacity'),'0',id);
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'0','the live picture carries no demo label');
- answer=pilotOk({lamps:{'play-left':lit([[0,128,0]])}});
+ answer=liveOk({lamps:{'play-left':lit([[0,128,0]])}});
  await app.advance(200);
  assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00');
  assert.equal(app.stage.querySelector('[data-wash-for="play-left"]').style.getPropertyValue('--beam'),'#00ff00');
@@ -520,7 +520,7 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'1','without strip colours the screen shows the labelled demo picture');
  assert.equal(app.stage.writes,writes,'the stage markup was not rebuilt');
  assert.equal(app.lamp('play-left'),node);
- answer=pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[0,128,0]],{source:'scene-output'})}});
+ answer=liveOk({sync:{state:'off'},lamps:{'play-left':lit([[0,128,0]],{source:'scene-output'})}});
  await app.advance(200);
  assert.equal(app.$('#sync-status span').textContent,'Not syncing');
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),app.run('opacityText(lampLevel(demoColors(lamps.find(l=>l.id==="play-left"))))'),'the Sync view previews the demo picture instead of the scene');
@@ -532,7 +532,7 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
 
 test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  const hues=['#ff0000','#00ff00','#0000ff','#ffff00','#00ffff','#ff00ff','#ffffff'];
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]]),'hue-monitor':lit(Array(9).fill([9,9,9]))}})});
+ const app=await harness({live:liveOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]]),'hue-monitor':lit(Array(9).fill([9,9,9]))}})});
  await app.click(app.$('#sync-tool'));
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
@@ -543,7 +543,7 @@ test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
 });
 
 test('the view without Sync shows only the lamps own light, even while Sync runs',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'})}})});
+ const app=await harness({live:liveOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'})}})});
  assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0','Sync colours stay off the scene');
  assert.equal(app.lamp('play-right').querySelector('[data-sync-power]').getAttribute('opacity'),'1','own light stays visible');
  await app.click(app.$('#sync-tool'));
@@ -551,7 +551,7 @@ test('the view without Sync shows only the lamps own light, even while Sync runs
 });
 
 test('without running Sync the Sync view previews the demo picture on the screen and every Sync lamp',async()=>{
- const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'}),'play-left':lit([[0,255,0]],{source:'scene-output',on:false})}})});
+ const app=await harness({live:liveOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'}),'play-left':lit([[0,255,0]],{source:'scene-output',on:false})}})});
  assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00','the view without Sync shows the scene');
  await app.click(app.$('#sync-tool'));
  assert.equal(app.stage.querySelector('#screen-demo-image').getAttribute('opacity'),'1');
@@ -582,7 +582,7 @@ test('without running Sync the Sync view previews the demo picture on the screen
 
 test('the monitor strip glows left to right in its side and top colours',async()=>{
  const colors=[[255,0,0],[255,0,0],[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,0,128],[0,0,128],[0,0,128]];
- const app=await harness({pilot:pilotOk({lamps:{'hue-monitor':lit(colors,{source:'scene-output'})}})});
+ const app=await harness({live:liveOk({lamps:{'hue-monitor':lit(colors,{source:'scene-output'})}})});
  const stops=()=>[...app.lamp('hue-monitor').querySelectorAll('stop')].map(s=>s.getAttribute('stop-color')+'/'+s.getAttribute('stop-opacity'));
  assert.deepEqual(stops(),['#ff0000/1','#00ff00/1','#0000ff/1','#ffff00/1','#0000ff/0.708']);
  assert.equal(app.lamp('hue-monitor').querySelector('linearGradient').getAttribute('gradientUnits'),'userSpaceOnUse');
@@ -590,12 +590,12 @@ test('the monitor strip glows left to right in its side and top colours',async()
 });
 
 test('a lamp wash takes its hue from the emitted colours weighted by brightness',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[255,0,0],[0,0,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]],{source:'scene-output'})}})});
+ const app=await harness({live:liveOk({lamps:{'govee-left':lit([[255,0,0],[0,0,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]],{source:'scene-output'})}})});
  assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0001','a nearly-off blue zone does not turn the red lamp purple');
 });
 
 test('dim zones glow faintly in their hue and black zones emit no light',async()=>{
- const app=await harness({pilot:pilotOk({lamps:{'govee-left':lit([[0,0,0],[0,0,0],[0,0,0],[64,32,0],[255,128,0],[0,0,0],[0,0,0]],{source:'scene-output'}),'play-left':lit([[0,0,64]],{source:'scene-output'})}})});
+ const app=await harness({live:liveOk({lamps:{'govee-left':lit([[0,0,0],[0,0,0],[0,0,0],[64,32,0],[255,128,0],[0,0,0],[0,0,0]],{source:'scene-output'}),'play-left':lit([[0,0,64]],{source:'scene-output'})}})});
  const floor=app.lamp('govee-left'),stops=[...floor.querySelectorAll('stop')];
  // Stops run top to bottom in pairs; zone 4 (index 3 from the bottom) is dim, zone 5 bright.
  const zone=i=>stops[2*(6-i)];
@@ -701,7 +701,7 @@ test('a stale save merges the second configuration field by field',async()=>{
 });
 
 test('an unlit lens or zone shows black under the light',async()=>{
- const app=await harness({pilot:pilotOk({sync:{state:'off'},lamps:{'play-left':lit([[255,0,0]],{source:'scene-output',on:false})}})});
+ const app=await harness({live:liveOk({sync:{state:'off'},lamps:{'play-left':lit([[255,0,0]],{source:'scene-output',on:false})}})});
  const node=app.lamp('play-left'),off=node.querySelector('.lens-off');
  assert.ok(off,'a black lens is drawn');
  let inside=false;for(let n=off.parentNode;n&&n!==node;n=n.parentNode)if(n.getAttribute?.('data-sync-power')!=null)inside=true;

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from test_native_profile import AREA as NATIVE_AREA_ID  # noqa: E402
 from test_native_profile import PLAY_IDS, STRIP_ID, profile_data  # noqa: E402

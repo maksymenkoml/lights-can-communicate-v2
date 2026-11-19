@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from bridge_output import PlayGuard, desk_palette_index  # noqa: E402
 from scene_play_intent import MAX_STATE_BYTES, ScenePlayIntent, install_scene_play_intent  # noqa: E402
 

@@ -9,8 +9,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
-from live_adapter import PilotController, handler_for  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 
 
@@ -31,7 +31,7 @@ class Proxy:
 class NativePowerRouteTests(unittest.TestCase):
     def setUp(self):
         self.strip, self.left = Proxy(), Proxy()
-        handler = handler_for(PilotController(targets()), "adapter-key", hue_proxy=self.strip,
+        handler = handler_for(GoveeController(targets()), "adapter-key", hue_proxy=self.strip,
                               hue_play_proxies={"hue_left": self.left})
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.worker = threading.Thread(target=self.server.serve_forever)

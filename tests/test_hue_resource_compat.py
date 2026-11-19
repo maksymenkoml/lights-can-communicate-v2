@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_resource_compat import (  # noqa: E402
     canonical_collection,
     canonical_light,

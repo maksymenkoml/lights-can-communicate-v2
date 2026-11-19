@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from entertainment_receiver import EntertainmentReceiver  # noqa: E402
 from entertainment_stream import AREA_ID, CHANNELS, GROUP_ID, encode_frame  # noqa: E402
 from hue_entertainment_relay import DtlsConnection  # noqa: E402

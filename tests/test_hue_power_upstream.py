@@ -119,7 +119,7 @@ class HuePowerUpstreamTests(unittest.TestCase):
         start = DRIVER.index("def fixture_request(g):")
         end = DRIVER.index("def signal_main(g):")
         driver = DRIVER[:start] + POWER_FIXTURE + "\n\n" + DRIVER[end:]
-        source = Path(__file__).resolve().parents[1] / "experiments/hue-bridge/bootstrap.py"
+        source = Path(__file__).resolve().parents[1] / "bridge/bootstrap.py"
         with tempfile.TemporaryDirectory(prefix="tmp_hue_power_upstream_") as folder:
             path = Path(folder) / "tmp_power_driver.py"
             path.write_text(driver)

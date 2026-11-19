@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small local Hue -> Govee palette experiment. Python standard library only."""
+"""Original local Hue -> Govee palette CLI. Python standard library only."""
 
 import argparse
 import ipaddress

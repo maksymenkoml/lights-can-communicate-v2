@@ -2,7 +2,7 @@
 
 Homebridge platform `LightsCanCommunicateV2` for the two desk Govee H6076 lamps.
 It replaces the version-specific overlay of `@homebridge-plugins/homebridge-govee`
-(see `../experiments/homebridge-power`). Design:
+(see `../homebridge-power`). Design:
 `../docs/design/2026-11-17-homebridge-lights-can-communicate-v2.md`.
 
 ## How it works

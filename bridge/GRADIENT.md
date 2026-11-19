@@ -1,12 +1,12 @@
-# Govee Signe gradient pilot
+# Govee Signe gradient mode
 
-This is an explicit extension of the six-light Mac pilot. It does not deploy
+This is an explicit extension of the six-light desk setup. It does not deploy
 to NAS or replace Apple Home/Homebridge accessories.
 
 ## Mode and topology
 
 Set `PROBE_GOVEE_GRADIENT=true` on both the bridge container and host adapter.
-With it unset, the original 14-channel, whole-color pilot remains the default.
+With it unset, the original 14-channel, whole-color mode remains the default.
 The two existing virtual Govee retain their names, Hue IDs and room membership.
 Their advertised profile becomes `915005987201` (Signe gradient floor), with
 three scene gradient points and three Entertainment segments per lamp.
@@ -111,11 +111,11 @@ whole-lamp color in `finally` if fresh-on verification still permits it.
 `--hold` keeps the pattern until interruption (maximum ten minutes),
 `--reverse` reverses zone order and `--batch-only` sends one datagram.
 Other fixture power isolation is a separate owner-authorized test action,
-never an implicit behavior of this probe or the running pilot.
+never an implicit behavior of this probe or the running adapter.
 
 
 A later confirmed-power test uses a Left 4-datagram/s zonal profile with the
-existing Right 2/s profile. This is a device-specific pilot setting, not a vendor
+existing Right 2/s profile. This is a device-specific setting, not a vendor
 limit. The owner subsequently reported that Left works as expected during Play;
 no optical timing measurement is implied. Native coverage and three bounded Off
 cases improved compared with the uncapped Left control; see

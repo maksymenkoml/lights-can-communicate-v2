@@ -1,4 +1,4 @@
-"""Single-owner, continuous Govee identity/status receiver for the live pilot."""
+"""Single-owner, continuous Govee identity/status receiver for the live adapter."""
 
 import json
 import select
@@ -8,7 +8,7 @@ import time
 import lights_can_communicate_v2 as lan
 
 
-class PilotTransport:
+class GoveeTransport:
     def __init__(self, targets, publisher, remember=None, discovery=None):
         self.targets, self.publisher, self.remember = targets, publisher, remember
         self.discovery = discovery

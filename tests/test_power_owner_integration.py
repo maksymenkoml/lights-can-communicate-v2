@@ -11,8 +11,8 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'experiments/hue-bridge'))
-from live_adapter import PilotController, handler_for  # noqa: E402
+sys.path.insert(0, str(ROOT / 'bridge'))
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 
@@ -32,7 +32,7 @@ class OwnerIntegrationTests(unittest.TestCase):
                 physical[device['device']] = 1
             return True
 
-        controller = PilotController(devices, sender=gate.wrap(firmware))
+        controller = GoveeController(devices, sender=gate.wrap(firmware))
         for side in ('left', 'right'):
             controller.submit({'side': side, 'session': 'fixture', 'sequence': 1,
                                'issued_at': time.time(), 'transitiontime': 0,
@@ -89,7 +89,7 @@ class OwnerIntegrationTests(unittest.TestCase):
             sent.append((device['device'], command))
             return True
 
-        controller = PilotController(devices, sender=gate.wrap(firmware),
+        controller = GoveeController(devices, sender=gate.wrap(firmware),
                                      clock=lambda: 10, wall_clock=lambda: 1000)
         controller.update_statuses({key: ({'onOff': 1, 'brightness': 65}, 10)
                                     for key in (LEFT, RIGHT)})

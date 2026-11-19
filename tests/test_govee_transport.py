@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-from live_adapter import PilotController  # noqa: E402
-from pilot_transport import PilotTransport  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+from govee_transport import GoveeTransport  # noqa: E402
+from live_adapter import GoveeController  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 
 import lights_can_communicate_v2 as lan  # noqa: E402
@@ -18,7 +18,7 @@ RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
 THIRD = "CC:CC:CC:CC:CC:CC:CC:CC"
 
 
-class PilotTransportTests(unittest.TestCase):
+class GoveeTransportTests(unittest.TestCase):
     def test_new_candidate_ip_gets_read_only_status_before_control_is_authorized(self):
         now = [10.0]
         stop = threading.Event()
@@ -64,10 +64,10 @@ class PilotTransportTests(unittest.TestCase):
 
         sock = FakeSocket()
         with (
-            patch("pilot_transport.socket.socket", return_value=sock),
-            patch("pilot_transport.time.monotonic", side_effect=lambda: now[0]),
+            patch("govee_transport.socket.socket", return_value=sock),
+            patch("govee_transport.time.monotonic", side_effect=lambda: now[0]),
             patch(
-                "pilot_transport.select.select",
+                "govee_transport.select.select",
                 side_effect=lambda *args: ([sock], [], []) if queue else ([], [], []),
             ),
         ):
@@ -86,7 +86,7 @@ class PilotTransportTests(unittest.TestCase):
             {"device": RIGHT, "side": "right", "ip": "192.168.10.51"},
         ]
         self.updates = []
-        self.transport = PilotTransport(
+        self.transport = GoveeTransport(
             self.targets, publisher=lambda value: self.updates.append(value)
         )
 
@@ -155,7 +155,7 @@ class PilotTransportTests(unittest.TestCase):
         self.assertNotIn(LEFT, lan.IDENTIFIED_GOVEE)
 
     def test_scan_refresh_does_not_manufacture_a_new_native_power_sample(self):
-        controller = PilotController(self.targets, clock=lambda: 10.18)
+        controller = GoveeController(self.targets, clock=lambda: 10.18)
         self.transport.publisher = controller.update_statuses
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
         self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.01)
@@ -219,8 +219,8 @@ class PilotTransportTests(unittest.TestCase):
         sent = []
         for item in self.targets:
             item["brightness_scale"] = 0.65
-        controller = PilotController(self.targets, clock=lambda: now[0], wall_clock=lambda: 1000)
-        transport = PilotTransport(controller.targets, controller.update_statuses)
+        controller = GoveeController(self.targets, clock=lambda: now[0], wall_clock=lambda: 1000)
+        transport = GoveeTransport(controller.targets, controller.update_statuses)
         with (
             patch.object(lan.time, "monotonic", side_effect=lambda: now[0]),
             patch.object(

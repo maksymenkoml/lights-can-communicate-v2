@@ -11,7 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 spec = importlib.util.spec_from_file_location(
-    "setup_studio", Path(__file__).resolve().parents[1] / "experiments/setup-studio/server.py"
+    "setup_studio", Path(__file__).resolve().parents[1] / "studio/server.py"
 )
 studio = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(studio)
@@ -326,13 +326,13 @@ class StudioTests(unittest.TestCase):
                 for path in (
                     "/.lighting-stream.json",
                     "/server.py",
-                    "/../hue-bridge/state/adapter-token",
+                    "/../bridge/state/adapter-token",
                 ):
                     with self.assertRaises(urllib.error.HTTPError) as err:
                         opener.open(base + path)
                     self.assertEqual(err.exception.code, 404)
                     err.exception.close()
-                with opener.open(base + "/api/pilot") as response:
+                with opener.open(base + "/api/live") as response:
                     self.assertFalse(json.load(response)["connected"])
                 request = urllib.request.Request(base + "/command", method="POST", data=b"{}")
                 with self.assertRaises(urllib.error.HTTPError) as err:

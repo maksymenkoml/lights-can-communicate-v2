@@ -3,7 +3,7 @@
  *
  * Layout edits autosave to /api/layout with If-Match revisions; a 409 refetches
  * and merges field by field. A browser draft keeps offline edits for retry.
- * /api/pilot telemetry only repaints existing SVG attributes: it never rebuilds
+ * /api/live telemetry only repaints existing SVG attributes: it never rebuilds
  * the layout and never saves. /api/discovery is polled only while the Lamps
  * panel is open. */
 
@@ -22,12 +22,12 @@ function readJson(key){try{return JSON.parse(store.get(key))}catch{return null}}
 const KEY='light-studio-grid-v3',VIEW_KEY='light-studio-view-v1',DARK_KEY='light-studio-dark-scene-v1';
 const SAVE_DELAY_MS=300,RETRY_MS=3000,DISCOVERY_POLL_MS=3000;
 // About 20 updates a second: Sync frames arrive at 15-25 Hz and a loopback answer takes a few ms.
-const PILOT_POLL_MS=50,PILOT_DEADLINE_MS=1000,PILOT_FRESH_MS=1500;
+const LIVE_POLL_MS=50,LIVE_DEADLINE_MS=1000,LIVE_FRESH_MS=1500;
 const STEP=5,MAX_ROWS=12,DESK_CENTER=100,FLOOR_ANCHOR=60;
 const MONITOR='hue-monitor';
 // Adapter roles of the six enrolled lamps (desk_layout.ROLES).
 const ROLES={'govee-left':'left','govee-right':'right','hue-monitor':'strip','play-left':'hue_left','play-center':'hue_center','play-right':'hue_right'};
-// Prototype coordinates: x is cm from the desk centre; h is the bottom of a floor
+// Seed coordinates: x is cm from the desk centre; h is the bottom of a floor
 // lamp and the centre of other lamps. Layout x has the desk centre at 100 cm and a
 // floor lamp's height is its bottom + 60 cm (desk_layout.minimum_anchor_height).
 const SEED=[
@@ -117,8 +117,8 @@ function redo(){if(!future.length)return;past.push(snapshot());restore(future.po
 function tell(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),1800)}
 
 // ------------------------------------------------------------ live data --
-let pilot=null,pilotAt=-Infinity,pilotRequest=null,pilotGeneration=0,pilotTimer,pilotWatchdog,lastStatusKey='';
-function pilotFresh(){return !!pilot&&!document.hidden&&performance.now()-pilotAt<PILOT_FRESH_MS}
+let liveSnapshot=null,liveAt=-Infinity,liveRequest=null,liveGeneration=0,liveTimer,liveWatchdog,lastStatusKey='';
+function liveFresh(){return !!liveSnapshot&&!document.hidden&&performance.now()-liveAt<LIVE_FRESH_MS}
 const validRgb=c=>Array.isArray(c)&&c.length===3&&c.every(v=>Number.isInteger(v)&&v>=0&&v<=255);
 function rgbHex(rgb){return '#'+rgb.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('')}
 // Zone colours to draw (Govee bottom-to-top, strip nine anchors, Play one), or null when unlit.
@@ -126,8 +126,8 @@ function rgbHex(rgb){return '#'+rgb.map(v=>Math.round(clamp(v,0,255)).toString(1
 function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
 // What the lamp emits now, as the adapter reports it.
 function emittedColors(l){
- if(l.unbound||l.enabled===false||!isRole(l.id)||!pilotFresh()||lampBlocker(l))return null;
- const row=pilot.lamps&&typeof pilot.lamps==='object'?pilot.lamps[l.id]:null;
+ if(l.unbound||l.enabled===false||!isRole(l.id)||!liveFresh()||lampBlocker(l))return null;
+ const row=liveSnapshot.lamps&&typeof liveSnapshot.lamps==='object'?liveSnapshot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
  // The view without Sync shows the lamps' own light only, even while Sync runs.
  if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;
@@ -150,10 +150,10 @@ function beamColor(colors){
 function zoneStop(c,level){const z=light(c);return {color:rgbHex(z.rgb),opacity:level>0?opacityText(clamp(z.level/level)):'0'}}
 function lampDark(l){return !liveColors(l)}
 // With the demo picture every Sync lamp shows where it samples; with a live picture only lit lamps do.
-function pilotState(){
- if(!pilotFresh())return 'unknown';
- const state=pilot.sync&&typeof pilot.sync==='object'?pilot.sync.state:undefined;
- if(pilot.connected!==true&&state!=='paused')return 'unknown';
+function liveState(){
+ if(!liveFresh())return 'unknown';
+ const state=liveSnapshot.sync&&typeof liveSnapshot.sync==='object'?liveSnapshot.sync.state:undefined;
+ if(liveSnapshot.connected!==true&&state!=='paused')return 'unknown';
  return ['active','waiting','foreign','off','paused'].includes(state)?state:'unknown';
 }
 const LAMP_ROLE=ROLES;
@@ -164,14 +164,14 @@ const blockerHint=b=>BLOCKER_HINT[b.code]||'The adapter reports a problem with t
 const capital=t=>t[0].toUpperCase()+t.slice(1);
 function lampBlocker(l){
  const role=LAMP_ROLE[l.id];
- if(!role||l.unbound||!pilotFresh())return null;
- const list=pilot.sync&&Array.isArray(pilot.sync.blockers)?pilot.sync.blockers:[];
+ if(!role||l.unbound||!liveFresh())return null;
+ const list=liveSnapshot.sync&&Array.isArray(liveSnapshot.sync.blockers)?liveSnapshot.sync.blockers:[];
  return list.find(b=>b&&typeof b==='object'&&b.role===role&&typeof b.code==='string')||null;
 }
 // Waiting reasons with a clearer label; any other reason keeps "Waiting for frames".
 const WAIT_LABEL={native_unavailable:'Hue not responding',starting:'Starting Sync'};
 function globalHealth(){
- const state=pilotState(),reason=pilotFresh()&&pilot.sync?pilot.sync.reason:undefined;
+ const state=liveState(),reason=liveFresh()&&liveSnapshot.sync?liveSnapshot.sync.reason:undefined;
  if(state==='active')return {level:'ok',short:'running',label:'Syncing',detail:'Lamps take color from the screen'};
  if(state==='off'||state==='paused')return {level:'idle',short:'not syncing',label:'Not syncing',detail:'Lamps keep their own light'};
  if(state==='foreign'||state==='waiting'&&reason==='native_foreign')return {level:'bad',short:'busy',label:'Hue busy',detail:'Close the other Hue app'};
@@ -446,10 +446,10 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
 // The monitor picture in the Sync view: a soft gradient of the strip's emitted colours
 // while Sync runs; otherwise a fixed radial demo picture that the lamps preview.
 function liveScreenStops(){
- const colors=pilotState()==='active'?emittedColors(strip()):null;
+ const colors=liveState()==='active'?emittedColors(strip()):null;
  return colors&&colors.length>=9?stripStops(colors).map(rgbHex):null;
 }
-const syncPreview=()=>mode==='sync'&&pilotState()!=='active';
+const syncPreview=()=>mode==='sync'&&liveState()!=='active';
 const screenDemo=()=>mode==='sync'&&!liveScreenStops();
 const screenStops=()=>liveScreenStops()||Array(5).fill(SCREEN_DARK);
 const SCREEN_DARK='#1d222b',DEMO_WEDGES=90;
@@ -1102,38 +1102,38 @@ async function connectLayout(){
  }
 }
 
-// ------------------------------------------------------------- pilot poll --
-function expirePilot(){pilot=null;pilotAt=-Infinity;paintLive()}
-function watchPilot(){
- clearTimeout(pilotWatchdog);
+// -------------------------------------------------------------- live poll --
+function expireLive(){liveSnapshot=null;liveAt=-Infinity;paintLive()}
+function watchLive(){
+ clearTimeout(liveWatchdog);
  if(document.hidden)return;
  paintLive();
- const remaining=PILOT_FRESH_MS-(performance.now()-pilotAt);
- if(remaining>0)pilotWatchdog=setTimeout(watchPilot,remaining);
+ const remaining=LIVE_FRESH_MS-(performance.now()-liveAt);
+ if(remaining>0)liveWatchdog=setTimeout(watchLive,remaining);
 }
-async function refreshPilot(){
- if(document.hidden||pilotRequest)return;
- const generation=++pilotGeneration,controller=new AbortController();
+async function refreshLive(){
+ if(document.hidden||liveRequest)return;
+ const generation=++liveGeneration,controller=new AbortController();
  let rejectCancelled;
  const cancelled=new Promise((_,reject)=>{rejectCancelled=reject;});
- const request={controller,cancel:()=>{controller.abort();rejectCancelled(new Error('pilot cancelled'));}};
- pilotRequest=request;
- const deadline=setTimeout(request.cancel,PILOT_DEADLINE_MS);
+ const request={controller,cancel:()=>{controller.abort();rejectCancelled(new Error('live status cancelled'));}};
+ liveRequest=request;
+ const deadline=setTimeout(request.cancel,LIVE_DEADLINE_MS);
  try{
-  const snapshot=await Promise.race([fetch('/api/pilot',{signal:controller.signal,cache:'no-store'}).then(async response=>{if(!response.ok)throw new Error('pilot unavailable');return response.json();}),cancelled]);
-  if(generation!==pilotGeneration||document.hidden)return;
-  pilot=snapshot&&typeof snapshot==='object'?snapshot:null;pilotAt=performance.now();watchPilot();
- }catch{if(generation===pilotGeneration)expirePilot();}
+  const snapshot=await Promise.race([fetch('/api/live',{signal:controller.signal,cache:'no-store'}).then(async response=>{if(!response.ok)throw new Error('live status unavailable');return response.json();}),cancelled]);
+  if(generation!==liveGeneration||document.hidden)return;
+  liveSnapshot=snapshot&&typeof snapshot==='object'?snapshot:null;liveAt=performance.now();watchLive();
+ }catch{if(generation===liveGeneration)expireLive();}
  finally{
   clearTimeout(deadline);
-  if(pilotRequest===request)pilotRequest=null;
-  if(generation===pilotGeneration&&!document.hidden)pilotTimer=setTimeout(refreshPilot,PILOT_POLL_MS);
+  if(liveRequest===request)liveRequest=null;
+  if(generation===liveGeneration&&!document.hidden)liveTimer=setTimeout(refreshLive,LIVE_POLL_MS);
  }
 }
 document.addEventListener('visibilitychange',()=>{
- ++pilotGeneration;clearTimeout(pilotTimer);clearTimeout(pilotWatchdog);
- pilotRequest?.cancel();pilotRequest=null;expirePilot();
- if(!document.hidden){watchPilot();refreshPilot();}
+ ++liveGeneration;clearTimeout(liveTimer);clearTimeout(liveWatchdog);
+ liveRequest?.cancel();liveRequest=null;expireLive();
+ if(!document.hidden){watchLive();refreshLive();}
 });
 
 // ----------------------------------------------------------------- hover --
@@ -1311,4 +1311,4 @@ window.addEventListener('blur',hideTooltip);window.addEventListener('resize',hid
 // ----------------------------------------------------------------- start --
 applyDarkScene();applyMode(mode);render();annotateTooltips();
 connectLayout();
-if(!document.hidden){watchPilot();refreshPilot();}
+if(!document.hidden){watchLive();refreshLive();}

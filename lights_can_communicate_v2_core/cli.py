@@ -50,13 +50,13 @@ def prepare(config):
     except NativeProfileError:
         raise ConfigError("Invalid native Hue profile") from None
     os.environ["PROBE_GOVEE_GRADIENT"] = "true" if config.gradient else "false"
-    # Source mode explicitly adds only our known pilot module directory. In an
+    # Source mode explicitly adds only the known bridge module directory. In an
     # archive all runtime modules already live in the archive's import root.
     from pathlib import Path
 
-    pilot = Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"
+    bridge_dir = Path(__file__).resolve().parents[1] / "bridge"
     if Path(__file__).is_file():
-        sys.path.insert(0, str(pilot))
+        sys.path.insert(0, str(bridge_dir))
     import live_adapter
 
     import lights_can_communicate_v2 as lan
@@ -67,7 +67,7 @@ def prepare(config):
     data = read_json(config.targets_file, "target configuration")
     try:
         targets = data["targets"]
-        live_adapter.PilotController(targets)
+        live_adapter.GoveeController(targets)
         for target in targets:
             lan.local_ip(target["ip"])
             lan.parse_brightness_scale(target.get("brightness_scale", 1))
@@ -133,7 +133,7 @@ def _setup_module():
         import importlib.util
         from pathlib import Path
 
-        source = Path(__file__).resolve().parents[1] / "experiments/setup-studio/server.py"
+        source = Path(__file__).resolve().parents[1] / "studio/server.py"
         spec = importlib.util.spec_from_file_location("setup_studio", source)
         setup_studio = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(setup_studio)

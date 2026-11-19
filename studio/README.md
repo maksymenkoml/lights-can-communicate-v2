@@ -8,7 +8,7 @@ the desk layout that Sync uses. The design is described in
 Run from the repository root:
 
 ```sh
-python3 -B experiments/setup-studio/server.py
+python3 -B studio/server.py
 ```
 
 Open `http://127.0.0.1:19881` yourself; the server never opens a browser. The
@@ -98,7 +98,7 @@ Unsupported, Ambiguous).
 
 ## Live colours and Sync status
 
-The page polls `/api/pilot` 50 ms after each answer (about 20 updates a second,
+The page polls `/api/live` 50 ms after each answer (about 20 updates a second,
 close to the Sync frame rate), with a 1000 ms request
 deadline and an independent 1500 ms freshness guard; hidden pages stop polling.
 Each enrolled lamp is painted from its emitted zone colours (Govee seven zones

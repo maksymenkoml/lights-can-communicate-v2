@@ -7,8 +7,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
-from live_adapter import PilotController, handler_for  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 
@@ -108,7 +108,7 @@ class PowerOwnerTests(unittest.TestCase):
             sent.append((device["device"], command))
             return True
 
-        controller = PilotController(devices, sender=self.gate.wrap(firmware),
+        controller = GoveeController(devices, sender=self.gate.wrap(firmware),
                                      clock=lambda: self.now, wall_clock=lambda: self.wall)
         controller.update_statuses({key: ({"onOff": 1, "brightness": 65}, self.now)
                                     for key in (LEFT, RIGHT)})
@@ -125,7 +125,7 @@ class PowerOwnerTests(unittest.TestCase):
         self.assertFalse(any(device == RIGHT for device, _ in sent))
 
     def test_http_owner_key_cannot_write_color_and_adapter_key_cannot_grant_power(self):
-        controller = PilotController(targets())
+        controller = GoveeController(targets())
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(
             controller, "adapter-secret", power_owner=self.gate, power_token="owner-secret"))
         worker = threading.Thread(target=server.serve_forever)
@@ -165,7 +165,7 @@ class PowerOwnerTests(unittest.TestCase):
             worker.join(2)
 
     def test_power_readback_requires_fresh_identity_proof_and_has_no_device_routes(self):
-        controller = PilotController(targets(), clock=lambda: 10)
+        controller = GoveeController(targets(), clock=lambda: 10)
         controller.update_statuses({
             LEFT: ({"onOff": 0, "identity_verified": True, "native_sample": 9.95}, 9.9),
             RIGHT: ({"onOff": 1, "identity_verified": True, "native_sample": 9.9}, 9.8),
@@ -210,7 +210,7 @@ class PowerOwnerTests(unittest.TestCase):
 
     def test_reusing_adapter_credential_for_power_authority_is_rejected(self):
         with self.assertRaises(ValueError):
-            handler_for(PilotController(targets()), 'same-secret',
+            handler_for(GoveeController(targets()), 'same-secret',
                         power_owner=self.gate, power_token='same-secret')
 
     def test_rapid_off_on_reapplies_zones_even_when_renderer_missed_off_interval(self):
@@ -218,7 +218,7 @@ class PowerOwnerTests(unittest.TestCase):
         for device in devices:
             device['segment_count'] = 7
         colors = []
-        controller = PilotController(
+        controller = GoveeController(
             devices, sender=self.gate.wrap(
                 lambda _device, command, _data: colors.append(command) or True),
             clock=lambda: self.now, wall_clock=lambda: self.wall, power_owner=self.gate)

@@ -10,8 +10,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
-import live_adapter as pilot  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+import live_adapter as adapter  # noqa: E402
 
 LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
@@ -36,7 +36,7 @@ def command(sequence=1, xy=(0.7, 0.299), **values):
     }
 
 
-class PilotTests(unittest.TestCase):
+class LiveAdapterTests(unittest.TestCase):
     def test_http_routes_each_confirmed_hue_play_role_and_rejects_unknown_role(self):
         from hue_strip_proxy import HueStripProxy
         from test_hue_strip_proxy import FakeHue
@@ -54,7 +54,7 @@ class PilotTests(unittest.TestCase):
         lease = VideoLease(wall_clock=lambda: 1000)
         server = ThreadingHTTPServer(
             ("127.0.0.1", 0),
-            pilot.handler_for(
+            adapter.handler_for(
                 self.controller, "test", hue_play_proxies=proxies, video_output=lease
             ),
         )
@@ -100,7 +100,7 @@ class PilotTests(unittest.TestCase):
             worker.join()
 
     def test_owner_hold_prevents_adapter_start_before_any_network_setup(self):
-        with TemporaryDirectory(prefix="tmp_pilot_hold_") as directory:
+        with TemporaryDirectory(prefix="tmp_adapter_hold_") as directory:
             folder = Path(directory)
             (folder / "live-output-hold").write_text("Owner is sleeping")
             with (
@@ -116,12 +116,12 @@ class PilotTests(unittest.TestCase):
                 ),
                 self.assertRaisesRegex(SystemExit, "hold"),
             ):
-                pilot.main()
+                adapter.main()
 
     def setUp(self):
         self.now = 0.0
         self.sent = []
-        self.controller = pilot.PilotController(
+        self.controller = adapter.GoveeController(
             targets(), sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000.0
         )
         self.controller.update_statuses(
@@ -152,7 +152,7 @@ class PilotTests(unittest.TestCase):
         return True
 
     def test_brightness_mapping_keeps_calibration_and_color(self):
-        target = pilot.normalize_state(command()["state"], 0.65)
+        target = adapter.normalize_state(command()["state"], 0.65)
         self.assertEqual(target["brightness"], 65)
         self.assertEqual(target["rgb"], (255, 0, 0))
 
@@ -164,8 +164,8 @@ class PilotTests(unittest.TestCase):
             "segments": [[120, 0, 0], [0, 120, 0], [0, 0, 120]],
         }
         with self.assertRaises(ValueError):
-            pilot.normalize_state(state, 0.65)
-        target = pilot.normalize_state(state, 0.65, segment_count=7)
+            adapter.normalize_state(state, 0.65)
+        target = adapter.normalize_state(state, 0.65, segment_count=7)
         self.assertEqual(target["brightness"], 65)
         self.assertEqual(len(target["segments"]), 7)
         self.assertEqual(target["segments"][0], (120, 0, 0))
@@ -175,9 +175,9 @@ class PilotTests(unittest.TestCase):
     def test_gradient_transitions_interpolate_every_zone(self):
         first = {"on": True, "brightness": 65, "rgb": (120, 0, 0)}
         last = {"on": True, "brightness": 65, "segments": [(0, 0, 120)] * 7}
-        middle = pilot.blend(first, last, 0.5)
+        middle = adapter.blend(first, last, 0.5)
         self.assertEqual(middle["segments"], [(60, 0, 60)] * 7)
-        self.assertEqual(pilot.blend(first, last, 1), last)
+        self.assertEqual(adapter.blend(first, last, 1), last)
 
     def test_scene_gradient_validates_points_and_respects_explicit_single_color(self):
         state = {
@@ -192,14 +192,14 @@ class PilotTests(unittest.TestCase):
                 ]
             },
         }
-        target = pilot.normalize_state(state, 0.65, segment_count=7)
+        target = adapter.normalize_state(state, 0.65, segment_count=7)
         self.assertEqual(target["brightness"], 32)
         self.assertEqual(target["segments"][0], (255, 0, 0))
         self.assertEqual(target["segments"][-1], (0, 0, 255))
         for points in (None, [], [None], [True], [{"color": {"xy": {"x": 1, "y": 1}}}]):
             with self.subTest(points=points), self.assertRaises(ValueError):
-                pilot.normalize_state({**state, "gradient": {"points": points}}, 0.65, 7)
-        single = pilot.normalize_state(
+                adapter.normalize_state({**state, "gradient": {"points": points}}, 0.65, 7)
+        single = adapter.normalize_state(
             {**state, "_color_kind": "xy", "xy": [0.7, 0.299]}, 0.65, segment_count=7
         )
         self.assertEqual(single["rgb"], (255, 0, 0))
@@ -209,7 +209,7 @@ class PilotTests(unittest.TestCase):
         selected = targets()
         selected[0]["segment_count"] = 7
         selected[0]["max_commands_per_second"] = 10
-        controller = pilot.PilotController(
+        controller = adapter.GoveeController(
             selected,
             sender=self.send,
             clock=lambda: self.now,
@@ -249,7 +249,7 @@ class PilotTests(unittest.TestCase):
         selected[0].update(
             segment_count=7, max_commands_per_second=10, max_gradient_packets_per_second=2
         )
-        controller = pilot.PilotController(
+        controller = adapter.GoveeController(
             selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
         )
         controller.update_statuses(self.controller.statuses)
@@ -270,7 +270,7 @@ class PilotTests(unittest.TestCase):
 
         self.sent.clear()
         self.now = 0
-        legacy = pilot.PilotController(
+        legacy = adapter.GoveeController(
             selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
         )
         legacy.update_statuses(self.controller.statuses)
@@ -287,7 +287,7 @@ class PilotTests(unittest.TestCase):
 
         selected = targets()
         selected[0].update(segment_count=7, max_gradient_packets_per_second=2)
-        controller = pilot.PilotController(
+        controller = adapter.GoveeController(
             selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
         )
         controller.update_statuses(self.controller.statuses)
@@ -351,7 +351,7 @@ class PilotTests(unittest.TestCase):
 
         selected = targets()
         selected[0].update(segment_count=7)
-        controller = pilot.PilotController(
+        controller = adapter.GoveeController(
             selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
         )
         controller.set_streaming(True)
@@ -416,7 +416,7 @@ class PilotTests(unittest.TestCase):
             self.sent.append((device["side"], name, data))
             return results.pop(0) if results else True
 
-        controller = pilot.PilotController(
+        controller = adapter.GoveeController(
             selected, sender=send, clock=lambda: self.now, wall_clock=lambda: 1000
         )
         controller.update_statuses(self.controller.statuses)
@@ -510,7 +510,7 @@ class PilotTests(unittest.TestCase):
         calibrated = targets()
         calibrated[0]["max_commands_per_second"] = 10
         sent = []
-        controller = pilot.PilotController(
+        controller = adapter.GoveeController(
             calibrated,
             sender=lambda device, cmd, data: sent.append((self.now, cmd)) or True,
             clock=lambda: self.now,
@@ -533,7 +533,7 @@ class PilotTests(unittest.TestCase):
             values = targets()
             values[0]["max_commands_per_second"] = limit
             with self.assertRaises(ValueError):
-                pilot.PilotController(values)
+                adapter.GoveeController(values)
 
     def test_packet_budget_survives_flapping_power_and_shared_pause(self):
         for mode in ("power", "pause"):
@@ -541,7 +541,7 @@ class PilotTests(unittest.TestCase):
                 configured = targets()
                 configured[0]["max_commands_per_second"] = 10
                 sent = []
-                controller = pilot.PilotController(
+                controller = adapter.GoveeController(
                     configured,
                     sender=lambda device, cmd, data: sent.append((self.now, cmd)) or True,
                     clock=lambda: self.now,
@@ -611,7 +611,7 @@ class PilotTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.controller.submit(command(transitiontime=value))
         with self.assertRaises(ValueError):
-            pilot.PilotController(
+            adapter.GoveeController(
                 targets()
                 + [{"side": "third", "device": "CC:CC:CC:CC:CC:CC:CC:CC", "ip": "192.168.10.99"}]
             )

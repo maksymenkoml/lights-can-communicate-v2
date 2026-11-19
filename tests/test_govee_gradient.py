@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-FOLDER = Path(__file__).resolve().parents[1] / "experiments/hue-bridge"
+FOLDER = Path(__file__).resolve().parents[1] / "bridge"
 sys.path.insert(0, str(FOLDER))
 from gradient_profile import configure_signe, validate_gradient  # noqa: E402
 

@@ -14,13 +14,13 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LayoutStore, composed, validate_layout  # noqa: E402
 from entertainment_stream import VideoLease  # noqa: E402
 from homekit_power import HomeKitPower  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
-from live_adapter import PilotController, handler_for  # noqa: E402
+from live_adapter import GoveeController, handler_for  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from sync_off import STATE_FILE, SyncOffSession  # noqa: E402
 from test_composition_output import envelope  # noqa: E402
@@ -484,7 +484,7 @@ class FenceTests(unittest.TestCase):
             store = LayoutStore(Path(folder) / "desk-layout.json")
             store.save(with_roles(**{"hue-monitor": "off"}))
             now = [10]
-            controller = PilotController(targets(), sender=lambda *args: True,
+            controller = GoveeController(targets(), sender=lambda *args: True,
                                          clock=lambda: now[0], wall_clock=lambda: 1000,
                                          layout_store=store)
             proxies = []
@@ -522,7 +522,7 @@ class IdentifyFixture(unittest.TestCase):
     def setUp(self):
         self.now = 10
         self.sent = []
-        self.controller = PilotController(
+        self.controller = GoveeController(
             targets(), sender=lambda device, name, data: self.sent.append(
                 ("scene", device["side"], name, data["value"] if name == "brightness" else None))
             or True, clock=lambda: self.now, wall_clock=lambda: 1000)
@@ -740,7 +740,7 @@ class IdentifyRouteTests(IdentifyFixture):
 
 spec = importlib.util.spec_from_file_location(
     "setup_studio_identify",
-    Path(__file__).resolve().parents[1] / "experiments/setup-studio/server.py")
+    Path(__file__).resolve().parents[1] / "studio/server.py")
 studio = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(studio)
 

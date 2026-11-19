@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from govee_segments import interpolate, segment_data  # noqa: E402
 
 import lights_can_communicate_v2 as lan  # noqa: E402
@@ -37,7 +37,7 @@ def main():
     with socket.socket() as sock:
         sock.settimeout(0.2)
         if sock.connect_ex(("127.0.0.1", 19880)) == 0:
-            raise SystemExit("Stop the pilot adapter before this isolated probe")
+            raise SystemExit("Stop the live adapter before this isolated probe")
     device = next(item for item in targets if item["side"] == args.side)
     status = fresh_on(device, targets)
     if status is None or status.get("onOff") != 1:

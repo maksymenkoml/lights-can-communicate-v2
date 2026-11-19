@@ -10,7 +10,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "hue-bridge"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import sync_health  # noqa: E402
 
 PRIVATE = ("PRIVATE_DEVICE", "PRIVATE_RESOURCE", "192.168.", "TOKEN")
@@ -220,11 +220,11 @@ class ExportTests(unittest.TestCase):
 
 class AdapterEndpointTests(unittest.TestCase):
     def test_diagnostics_route_is_authorized_and_sanitized(self):
-        from live_adapter import PilotController, handler_for
+        from live_adapter import GoveeController, handler_for
         from power_owner import PowerOwner
         from test_live_adapter import LEFT, targets
 
-        controller = PilotController(targets(), clock=lambda: 10)
+        controller = GoveeController(targets(), clock=lambda: 10)
         controller.update_statuses({LEFT: ({"onOff": 0, "identity_verified": True,
                                             "native_sample": 9.95}, 9.9)})
         gate = PowerOwner(targets())
