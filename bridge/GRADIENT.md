@@ -64,20 +64,25 @@ and the lamp blends them. Frame layout follows the OpenRGB Govee LAN controller:
 `BB 00 <size> <command> <data> <xor>`, base64 in `pt`. `B1 01` turns streaming
 on and `B1 00` off, and `B0 01 <count> <rgb...>` is a gradient frame.
 
-- Rate: 12 frames/s per lamp by default (`max_stream_frames_per_second`). It
-  replaces the ptReal budget only while streaming. Both selected H6076 drop
-  status replies as the frame rate rises. At 25 frames/s each lamp missed
-  several polls in a row about 19-21 times a minute, for up to 1.3 s; at 15
-  frames/s 4-7 times; at 12 frames/s 3-4 times, as often as without frames.
-  Constant frames do not help. See `evidence/dreamview-status-gaps.json`.
+- Rate: 30 frames/s per lamp by default (`max_stream_frames_per_second`). It
+  replaces the ptReal budget only while streaming, and an unchanged frame is
+  not repeated. With a new color in every frame both selected H6076 answered
+  most status polls at 30 frames/s; at 35 the left one lost a quarter of
+  them. See `evidence/dreamview-status-gaps.json`.
 - The mode is sent at stream start, after a frame gap close to the lamp's
   one-minute timeout, after a verified Off and after a long status loss. It is
   switched off before any scene color, because the lamp ignores other color
   commands while it is on.
-- A missed status reply still pauses output to that lamp: a color is sent only
-  after a verified On younger than 0.75 s. Light Studio and the Sync health
-  report keep the last verified reading for 2 s, so a short miss shows no
-  warning and a longer loss shows "not responding".
+- The right lamp answers only about half of the `scan` requests. A scan
+  proves which device answers at an address, so the adapter holds that proof
+  for 5 s; another device's scan at the address withdraws the route at once.
+  Control still needs a native status at most 0.75 s old.
+- A DreamView packet cannot switch an off lamp on, so frames continue for up
+  to 1.5 s after the last verified On while status replies are missing. A
+  verified Off stops them at once, and a brightness change waits for a fresh
+  status. Light Studio and the Sync health report keep the last verified
+  reading for 2 s, so a short miss shows no warning and a longer loss shows
+  "not responding".
 - Brightness is sent only when it changes. The frame cadence holds when a
   render tick comes slightly late.
 - A new frame wakes the gateway outbox and the adapter video worker at once.

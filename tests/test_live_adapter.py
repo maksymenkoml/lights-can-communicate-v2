@@ -299,11 +299,10 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual(frames[0], None)
         self.assertEqual(frames[1], [[120, 0, 0]] * 7)
         self.assertNotIn("ptReal", [name for _, name, _ in self.sent])
-        # 12 frames/s, not the 2/s ptReal budget. The first burst carried the mode,
-        # a frame and the brightness, so the next frame goes 3/12 s later, then
-        # every 1/12 s.
-        self.assertEqual(adapter.STREAM_FRAMES_PER_SECOND, 12)
-        for sequence, (now, red) in enumerate(((0.25, 60), (0.34, 30)), start=2):
+        # 30 frames/s, not the 2/s ptReal budget: after the first burst (mode,
+        # frame and brightness) the next frame goes 0.1 s later.
+        self.assertEqual(adapter.STREAM_FRAMES_PER_SECOND, 30)
+        for sequence, (now, red) in enumerate(((0.12, 60), (0.24, 30)), start=2):
             self.sent.clear()
             self.now = now
             controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
@@ -315,23 +314,23 @@ class LiveAdapterTests(unittest.TestCase):
         # Video output clears last_sent every tick; an unchanged brightness is not
         # re-sent, so every slot carries a color frame.
         self.sent.clear()
-        self.now = 0.42
+        self.now = 0.36
         controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
         controller.last_sent.clear()
         controller.render()
         self.assertEqual([name for _, name, _ in self.sent], ["razer"])
-        # Render ticks every 30 ms are late for most 83 ms slots; the cadence still
-        # holds 12 frames/s instead of falling to one frame per 90 ms.
+        # Render ticks every 30 ms are late for most 33 ms slots; the cadence still
+        # holds 30 frames/s instead of falling to one frame per 60 ms.
         sent = 0
         for tick in range(1, 51):
-            self.now = 0.42 + tick * 0.03
+            self.now = 0.36 + tick * 0.03
             controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
             controller.last_sent.clear()
             before = len(self.sent)
             controller.render()
             sent += len(self.sent) > before
-        self.assertGreaterEqual(sent, 17)
-        self.assertLessEqual(sent, 19)
+        self.assertGreaterEqual(sent, 44)
+        self.assertLessEqual(sent, 46)
         # While frames flow the mode is not sent again: re-sending it blinks the lamp.
         self.sent.clear()
         self.now = 11
@@ -456,6 +455,50 @@ class LiveAdapterTests(unittest.TestCase):
         self.assertEqual([name for side, name, _ in self.sent if side == "left"][:2],
                          ["razer", "ptReal"])
         self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+
+    def test_dreamview_frames_continue_through_a_short_status_miss(self):
+        from govee_segments import razer_colors
+
+        selected = targets()
+        selected[0].update(segment_count=7)
+        controller = adapter.GoveeController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        sequence = iter(range(1, 100))
+
+        def tick(at, status, red, bri=254):
+            self.now = at
+            if status is not None:
+                controller.update_statuses({LEFT: (status, at)})
+            controller.submit(command(sequence=next(sequence), transitiontime=0,
+                                      state={**state, "bri": bri, "segments": [[red, 0, 0]]}))
+            self.sent.clear()
+            controller.render()
+            return [(name, razer_colors(data) if name == "razer" else data)
+                    for device, name, data in self.sent if device == LEFT]
+
+        controller.set_streaming(True)
+        self.assertEqual([name for name, _ in tick(0, {"onOff": 1}, 120)],
+                         ["razer", "razer", "brightness"])
+        # Status replies go missing for 0.9 s: frames keep flowing, brightness waits.
+        missing = {"onOff": 0, "identity_verified": False}
+        self.assertEqual(tick(0.5, missing, 90, bri=128), [("razer", [[90, 0, 0]] * 7)])
+        self.assertEqual(tick(1.4, missing, 60, bri=128), [("razer", [[60, 0, 0]] * 7)])
+        self.assertEqual(controller.skipped_state["left"], 0)
+        # The status returns: the held brightness change goes out.
+        self.assertIn("brightness", [name for name, _ in tick(1.5, {"onOff": 1}, 50, bri=128)])
+        # A miss longer than the hold stops output.
+        tick(2.0, missing, 40)
+        self.assertEqual(tick(3.01, missing, 30), [])
+        self.assertGreater(controller.skipped_state["left"], 0)
+        # A verified Off stops frames at once.
+        tick(3.5, {"onOff": 1}, 20)
+        self.assertEqual(tick(3.7, {"onOff": 0, "identity_verified": True}, 10), [])
+        # Scene output never rides out a miss.
+        controller.set_streaming(False)
+        tick(4.0, {"onOff": 1}, 10)
+        self.assertEqual(tick(4.5, missing, 5), [])
 
     def test_snapshot_keeps_the_last_verified_reading_through_a_status_miss(self):
         def row():

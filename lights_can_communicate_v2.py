@@ -257,11 +257,20 @@ def verified_status(device, timeout=0.15, targets=None):
     return status
 
 
+# A DreamView packet cannot switch an off H6076 on (both lamps stayed off
+# under 5 s of frames, 2026-11-18). A stream frame may therefore use a
+# verified-On binding this long through a short status miss; every other
+# command needs a status at most 0.75 s old. A verified Off or a lost identity
+# removes the binding at once.
+STREAM_HOLD_SECONDS = 1.5
+
+
 def send_to_target(device, command, data):
     key = device_key(device)
+    limit = STREAM_HOLD_SECONDS if command == "razer" else 0.75
     with GOVEE_ROUTE_LOCK:
         binding = VERIFIED_GOVEE.get(key)
-        if binding is None or not 0 <= time.monotonic() - binding[1] <= 0.75:
+        if binding is None or not 0 <= time.monotonic() - binding[1] <= limit:
             return False
         govee_send(binding[0], command, data)
     return True
