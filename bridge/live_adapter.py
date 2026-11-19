@@ -17,6 +17,7 @@ from pathlib import Path
 
 if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from calibration_session import CalibrationRefused, CalibrationSession  # noqa: E402
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_calibration import GoveeCalibration  # noqa: E402
@@ -654,7 +655,8 @@ class GoveeController:
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
-                power_requests=None, homekit=None, identify=None, sync_off=None):
+                power_requests=None, homekit=None, identify=None, sync_off=None,
+                calibration=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -734,6 +736,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 result["service"] = dict(service_info)
             if sync_off is not None:
                 result["sync_off"] = sync_off.snapshot()
+            if calibration is not None:
+                result["calibration"] = calibration.snapshot()
             if preview is not None:
                 try:
                     output_snapshot = preview.snapshot()
@@ -759,10 +763,11 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             elif not self.authorized():
                 return self.respond(403, {"error": "unauthorized"})
             if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
-                                 "/native-power", "/identify",
-                                 "/homekit") or (
+                                 "/native-power", "/identify", "/calibration",
+                                 "/calibration/end", "/homekit") or (
                 self.path == "/stream" and video_output is None
-            ) or (self.path == "/identify" and identify is None):
+            ) or (self.path == "/identify" and identify is None) or (
+                self.path.startswith("/calibration") and calibration is None):
                 return self.respond(404, {"error": "not found"})
             try:
                 size = int(self.headers.get("Content-Length", "0"))
@@ -813,6 +818,16 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     except IdentifyFailed:
                         return self.respond(503, {"accepted": False})
                     return self.respond(200, {"accepted": True})
+                elif self.path == "/calibration":
+                    try:
+                        return self.respond(200, calibration.update(payload))
+                    except CalibrationRefused as refused:
+                        return self.respond(409, {"active": False, "reason": refused.reason})
+                elif self.path == "/calibration/end":
+                    if payload != {}:
+                        raise ValueError("Invalid calibration end request")
+                    calibration.end("ended")
+                    return self.respond(200, {"active": False})
                 elif self.path == "/native-power":
                     roles = payload.get("roles") if isinstance(payload, dict) else None
                     if (not isinstance(roles, dict) or not roles
@@ -968,6 +983,15 @@ def main(argv=None, service_info=None):
     controller.sender = identify.wrap(controller.sender)
     if video is not None:
         video.controller.sender = identify.wrap(video.controller.sender)
+    # Light Studio's colour calibration holds the lamps it shows the test white on.
+    calibration_session = CalibrationSession(controller, calibration, hue_proxies,
+                                             video=video, power_owner=power_owner)
+    calibration_session.sender = sender
+    controller.sender = calibration_session.wrap(controller.sender)
+    if video is not None:
+        video.controller.sender = calibration_session.wrap(video.controller.sender)
+    for proxy in hue_proxies.values():
+        proxy.write_gate = calibration_session.hold_native(proxy.write_gate)
     sync_off = SyncOffSession(
         layout_store, (lambda: video.active()) if video is not None else (lambda: False),
         state_dir / SYNC_OFF_FILE, govee=power_owner, native=hue_proxies,
@@ -1009,6 +1033,7 @@ def main(argv=None, service_info=None):
             homekit=homekit,
             identify=identify,
             sync_off=sync_off,
+            calibration=calibration_session,
         ),
     )
     video_thread = http_thread = None
@@ -1038,6 +1063,8 @@ def main(argv=None, service_info=None):
             video_thread.start()
         threading.Thread(target=sync_off.run, args=(stop,), daemon=True,
                          name="adapter-sync-off").start()
+        threading.Thread(target=calibration_session.run, args=(stop,), daemon=True,
+                         name="adapter-calibration").start()
         transport = GoveeTransport(
             controller.targets,
             publish_statuses,

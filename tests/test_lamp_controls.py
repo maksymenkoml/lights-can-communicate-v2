@@ -827,5 +827,75 @@ class StudioIdentifyTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+
+class StudioCalibrationTests(unittest.TestCase):
+    def setUp(self):
+        temp = TemporaryDirectory(prefix="tmp_studio_calibration_")
+        self.addCleanup(temp.cleanup)
+        self.folder = Path(temp.name)
+        self.calls = []
+        self.answer = (200, {"active": True})
+
+        def post(route, body):
+            self.calls.append((route, body))
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler_for(
+            self.folder / "missing-token", self.folder / "desk-layout.json",
+            calibration_post=post))
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        self.base = "http://127.0.0.1:" + str(server.server_port)
+
+        def close():
+            server.shutdown()
+            server.server_close()
+            worker.join(2)
+
+        self.addCleanup(close)
+
+    def post(self, path, body, **headers):
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        request = urllib.request.Request(
+            self.base + path, data=data, method="POST",
+            headers={"Content-Type": "application/json", "Origin": self.base, **headers})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(request, timeout=5) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as response:
+            with response:
+                return response.code, json.load(response)
+
+    def test_requests_reach_the_adapter_and_answers_are_projected(self):
+        start = {"lamp": "govee-left", "reference": "play-left", "level": "bright",
+                 "calibration": {"warmth": 10, "tint": 0, "lowLight": 0}}
+        self.assertEqual(self.post("/api/calibration", start), (200, {"active": True}))
+        self.answer = (200, {"active": False})
+        self.assertEqual(self.post("/api/calibration/end", {}), (200, {"active": False}))
+        self.assertEqual(self.calls, [("/calibration", start), ("/calibration/end", {})])
+        self.answer = (409, {"active": False, "reason": "sync active"})
+        self.assertEqual(self.post("/api/calibration", start),
+                         (409, {"active": False, "reason": "sync active"}))
+        self.answer = (409, {"reason": "<detail>"})
+        self.assertEqual(self.post("/api/calibration", start)[1]["reason"], "refused")
+        self.answer = (400, {"error": "x"})
+        self.assertEqual(self.post("/api/calibration", start)[0], 400)
+        self.answer = OSError("adapter down")
+        self.assertEqual(self.post("/api/calibration", start),
+                         (503, {"active": False, "reason": "adapter unavailable"}))
+
+    def test_protections(self):
+        self.assertEqual(self.post("/api/calibration", [])[0], 400)
+        self.assertEqual(self.post("/api/calibration", b"{")[0], 400)
+        self.assertEqual(self.post("/api/calibration", {}, Origin="http://evil.example")[0], 403)
+        (self.folder / "live-output-hold").write_text("")
+        self.assertEqual(self.post("/api/calibration/end", {}),
+                         (409, {"active": False, "reason": "paused"}))
+        self.assertEqual(self.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,11 @@ DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
 # Adapter refusal reasons passed through to the UI; anything else is "refused".
 IDENTIFY_REASONS = ("lamp off", "writer closed", "sync active", "busy", "unavailable",
                     "brightness unknown", "paused")
+# Calibration refusals passed through to the UI; anything else is "refused".
+CALIBRATION_REASONS = ("sync active", "lamp off", "reference off", "busy", "writer closed",
+                       "paused")
+CALIBRATION_ROUTES = {"/api/calibration": "/calibration",
+                      "/api/calibration/end": "/calibration/end"}
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
 DISCOVERY_FIELDS = (
     "id", "provider", "name", "model", "shape", "zones", "supported", "online",
@@ -315,7 +320,7 @@ def _post_local_json(url, body, timeout, headers):
 
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
-                bridge_url="http://127.0.0.1", identify_post=None):
+                bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
 
     def default_source_fetch():
@@ -387,6 +392,31 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                          "reason": reason if reason in IDENTIFY_REASONS else "refused"}
         return 503, {"accepted": False, "reason": "adapter unavailable"}
 
+    def calibrate(route, body):
+        """Forward a calibration request to the adapter; return (status, public body)."""
+        if (store.path.parent / "live-output-hold").exists():
+            return 409, {"active": False, "reason": "paused"}
+        try:
+            if calibration_post is not None:
+                status, answer = calibration_post(route, body)
+            else:
+                token = token_file.read_text().strip()
+                status, answer = _post_local_json(adapter_url + route, body, 2,
+                                                  {"X-Adapter-Token": token})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return 503, {"active": False, "reason": "adapter unavailable"}
+        if status == 200 and isinstance(answer, dict):
+            return 200, {"active": answer.get("active") is True}
+        if status == 409:
+            reason = answer.get("reason") if isinstance(answer, dict) else None
+            return 409, {"active": False,
+                         "reason": reason if reason in CALIBRATION_REASONS else "refused"}
+        if status == 400:
+            return 400, {"error": "invalid calibration request"}
+        return 503, {"active": False, "reason": "adapter unavailable"}
+
     def validate_bindings(data):
         if not isinstance(data, dict) or not isinstance(data.get("devices"), list):
             raise ValueError("Expected layout devices")
@@ -451,7 +481,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ("/api/layout", "/api/identify"):
+            if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
@@ -459,6 +489,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.respond(415, {"error": "JSON required"})
             if path == "/api/identify":
                 return self.identify()
+            if path in CALIBRATION_ROUTES:
+                return self.calibrate(CALIBRATION_ROUTES[path])
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 16384:
@@ -507,6 +539,18 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 # Only the six role lamps can blink; discovered lamps come later.
                 return self.respond(404, {"error": "unknown lamp"})
             return self.respond(*identify(role))
+
+        def calibrate(self, route):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 1024:
+                    return self.respond(413, {"error": "calibration payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if not isinstance(data, dict):
+                    raise ValueError("Expected a calibration object")
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid calibration request"})
+            return self.respond(*calibrate(route, data))
 
         def local_request(self):
             hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}

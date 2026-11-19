@@ -14,6 +14,7 @@ RUNTIME_MODULES = (
     "entertainment_stream",
     "govee_segments",
     "govee_calibration",
+    "calibration_session",
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "govee_transport",
