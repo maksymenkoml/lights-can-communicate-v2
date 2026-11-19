@@ -560,6 +560,13 @@ class GoveeController:
                     # Only DreamView packets ride out a status miss; a brightness
                     # change waits for a fresh status.
                     updates = [update for update in updates if update[0] == "razer"]
+                if stream and any(name == "brightness" for name, _ in updates):
+                    # In DreamView the lamp shows a new brightness only with the
+                    # next frame, so the current frame follows the brightness;
+                    # otherwise a still picture keeps the old brightness.
+                    frame_data = commands[0][1]
+                    updates = [update for update in updates if update[1] is not frame_data]
+                    updates.append(("razer", frame_data))
                 if (
                     updates
                     and rate is not None
