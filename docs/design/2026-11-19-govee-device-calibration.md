@@ -24,12 +24,20 @@ Right lamp as sent; left lamp adjusted until both looked the same:
 A relative gamma of about 2 applied to the colour channels made the left lamp
 purple, so the colour difference is a channel gain, not a curve.
 
+Both Govee lamps were then cooler than the Hue lamps, which the owner found
+closer to the television. With three Hue Plays showing 255,235,207 as the
+reference, the right lamp matched at 255,200,104: gains `[1, 0.85, 0.5]`. The
+gains multiply, so the live profiles are left `[0.9, 0.85, 0.45]` with exponent
+`0.487` and right `[1, 0.85, 0.5]`. In Sync the owner then saw both Govee match
+the Hue lamps in colour and brightness, with the existing Sync correction 35.
+
 ## Goals
 
 - An optional per-lamp calibration in the target profile (`live-targets.json`):
   `color_gains` (three numbers 0 < g <= 1, red, green, blue) and
   `brightness_exponent` (sent brightness = 100 * (b / 100) ** exponent).
-  Left: `[0.9, 1, 0.9]` and `0.487` (ln 0.6 / ln 0.35). Right: none.
+  The live values are in the measurements above (exponent 0.487 is
+  ln 0.6 / ln 0.35).
 - Colour gains keep the colour's peak channel: the scaled colour is multiplied
   back so its largest channel equals the original largest channel.
 - Applied only at the transport boundary, to everything sent to the lamp:

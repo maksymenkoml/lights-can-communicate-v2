@@ -99,7 +99,11 @@ just before the transport, and converts statuses back, so the controllers, Sync
 health and Light Studio keep logical values. A lamp without these fields is
 unchanged. On 2026-11-19 the owner matched the left lamp to the right one with
 `[0.9, 1, 0.9]` and `0.487` (left 60 looked like right 35, left 33 like right
-10); see `docs/design/2026-11-19-govee-device-calibration.md`.
+10). Both lamps were then cooler than the Hue lamps, which the owner found
+closer to the television; `[1, 0.85, 0.5]` matched the right lamp to a Hue Play
+showing the same colour. The live profiles are the products: left
+`[0.9, 0.85, 0.45]` with `0.487`, right `[1, 0.85, 0.5]`. See
+`docs/design/2026-11-19-govee-device-calibration.md`.
 
 Live on the Mac with the PS5 through the Sync Box: ~50 frames/s reached the
 adapter and ~20 frames per lamp per second reached each Govee light, with no
