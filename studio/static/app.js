@@ -48,7 +48,7 @@ const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
 const SYNC_ROLES=['sync','own','off'];
-function seedLamp(s){return {...clone(s),form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
+function seedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
 function defaults(){
  const environment={width:160,height:85,inches:32,zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
  const lamps=SEED.map(seedLamp);lamps.forEach(l=>clampFixture(l,environment));
@@ -79,7 +79,8 @@ function fromLayout(data){
   lamp.h=lamp.form==='floor'?height-FLOOR_ANCHOR:height;
   lamp.scale=Math.round(finite(row.scale,0,100,lamp.scale));
   if(isRole(row.id)&&typeof row.name==='string'&&row.name.trim()){lamp.name=row.name.trim().slice(0,nameLimit(row.id));lamp.named=true}
-  lamp.sceneScale=typeof row.sceneScale==='number'?Math.round(finite(row.sceneScale,0,100,lamp.scale)):null;
+  // The correction without Sync is the lamp's own value; a row without it starts from the Sync one.
+  lamp.sceneScale=Math.round(finite(row.sceneScale,0,100,lamp.scale));
   lamp.calibration=calibrationOf(row.calibration);
   lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=SYNC_ROLES.includes(row.syncRole)&&(row.syncRole!=='off'||isRole(row.id))?row.syncRole:'sync';
   clampFixture(lamp,environment);return lamp;
@@ -100,7 +101,7 @@ function pack(m={room,environment,lamps}){
  const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
  return {version:6,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
-  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,...(l.sceneScale!=null?{sceneScale:l.sceneScale}:{}),positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
+  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
    ...(l.enabled===false?{enabled:false}:{}),...(/^govee-/.test(l.id)&&calibrated(l.calibration)?{calibration:{...l.calibration}}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
@@ -217,7 +218,7 @@ function autoZonePoints(){
 }
 // Two configurations: the Sync view edits the Sync one, the room view the one without Sync.
 const view=()=>mode==='sync'?'sync':'scene';
-const corr=(l,c=view())=>c==='sync'?l.scale:l.sceneScale??l.scale;
+const corr=(l,c=view())=>c==='sync'?l.scale:l.sceneScale;
 function setCorr(l,v,c=view()){if(c==='sync')l.scale=v;else l.sceneScale=v}
 function zonePoints(c=view()){const z=environment.zones[c];return z?z.map(p=>({x:p.u*environment.width/2,h:environment.height+p.h})):autoZonePoints()}
 function zoneConfig(points){return {version:1,points:points.map(p=>({u:p.x/(environment.width/2),h:p.h-environment.height}))}}
@@ -1175,7 +1176,7 @@ function paintPlacementGhost(position){
 function placeDevice(entry,position){
  if(lamps.length>=MAX_ROWS||lamps.some(l=>l.id===entry.id))return;
  remember();
- const l={id:entry.id,name:entry.name,model:entry.model,shape:entry.shape,form:entry.form,zones:entry.zones,x:position.x,h:position.h,scale:80,vertical:false,enabled:true,syncRole:'sync',unbound:true};
+ const l={id:entry.id,name:entry.name,model:entry.model,shape:entry.shape,form:entry.form,zones:entry.zones,x:position.x,h:position.h,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:'sync',unbound:true};
  clampFixture(l);lamps.push(l);selected=l.id;
  cancelPlacement();render();tell('Added to layout');
 }

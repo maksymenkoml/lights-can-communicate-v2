@@ -64,7 +64,10 @@ class LayoutFieldTests(StoreCase):
                 self.assertEqual(result["version"], 6)
                 for key in ("sceneZone", "syncFalloff", "sceneFalloff"):
                     self.assertNotIn(key, result)
-                self.assertTrue(all("sceneScale" not in item for item in result["devices"]))
+                # The without-Sync correction is the row's own value: a file
+                # without it gets a copy of the Sync correction.
+                self.assertTrue(all(item["sceneScale"] == item["scale"]
+                                    for item in result["devices"]))
 
     def test_new_fields_validate_roundtrip_and_store_only_non_defaults(self):
         data = v5(sceneZone=custom_zone(), syncFalloff=False, sceneFalloff=True)
@@ -90,7 +93,7 @@ class LayoutFieldTests(StoreCase):
             with self.subTest(sceneScale=value), self.assertRaises(ValueError):
                 validate_layout(data)
 
-    def test_scene_scale_falls_back_to_scale_and_membership_ignores_sync_role(self):
+    def test_scene_scale_is_stored_per_row_and_membership_ignores_sync_role(self):
         data = v5()
         row(data, "govee-left")["sceneScale"] = 40
         row(data, "play-left")["syncRole"] = "own"
@@ -100,6 +103,12 @@ class LayoutFieldTests(StoreCase):
         self.assertEqual(self.store.scale("left", 1), 0.65)
         self.assertEqual(self.store.scene_scale("right", 1), 0.65)
         self.assertEqual(self.store.scene_scale("unknown", 0.7), 0.7)
+        # The copy is stored: a later Sync correction change keeps it.
+        saved = self.store.snapshot()
+        row(saved, "govee-right")["scale"] = 20
+        self.save(saved)
+        self.assertEqual(self.store.scale("right", 1), 0.2)
+        self.assertEqual(self.store.scene_scale("right", 1), 0.65)
         self.assertFalse(self.store.enabled("hue_left"))
         self.assertTrue(self.store.present("hue_left"))
         self.assertTrue(self.store.present("play-left"))
