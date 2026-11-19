@@ -151,8 +151,11 @@ def validate_layout(value):
             raise ValueError("Invalid Sync role")
         if sync_role != "sync":
             device["syncRole"] = sync_role
-        if row.get("sceneScale") is not None:
-            device["sceneScale"] = number(row["sceneScale"], 0, 100)
+        # The without-Sync correction is the row's own value. A row without it
+        # (older files and clients) gets a copy of the Sync correction, which is
+        # what scenes used before; it then changes independently.
+        device["sceneScale"] = (number(row["sceneScale"], 0, 100)
+                                if row.get("sceneScale") is not None else device["scale"])
         if key in ROLES and row.get("name") is not None:
             # Missing means "no owner name": nothing is renamed anywhere.
             device["name"] = owner_name(row["name"], key)
@@ -310,12 +313,12 @@ class LayoutStore:
                 if device["id"] in ROLES and "name" in device}
 
     def scene_scale(self, role, fallback):
-        """Return the without-Sync correction: ``sceneScale``, else the Sync ``scale``."""
+        """Return the without-Sync correction (row ``sceneScale``)."""
         data = self.snapshot()
         if data:
             for device in data["devices"]:
                 if ROLES.get(device["id"]) == role:
-                    return device.get("sceneScale", device["scale"]) / 100
+                    return device["sceneScale"] / 100
         return fallback
 
     def _member(self, role, fallback, test):

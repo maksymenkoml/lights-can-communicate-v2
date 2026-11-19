@@ -22,7 +22,8 @@ brightness correction per lamp, its own fade zone below the desk, and its own
 switch that turns the fade on or off. The owner decided this on 2026-11-18.
 
 - With Sync: `scale`, `syncZone`, `syncFalloff` (default on, as before).
-- Without Sync: `sceneScale` (default `scale`), `sceneZone` (default automatic),
+- Without Sync: `sceneScale` (a copy of `scale` when missing, then independent;
+  see `2026-11-18-independent-scene-correction.md`), `sceneZone` (default automatic),
   `sceneFalloff` (default off, so scenes look as before until the owner turns
   it on).
 - Fade off means every gain is 1: zones keep full brightness and Govee
@@ -41,7 +42,8 @@ Version 4 files load as version 5; writes must use version 5.
 
 - Top level: `syncZone` (existing), `sceneZone` (same format, optional),
   `syncFalloff` and `sceneFalloff` (booleans, optional, defaults above).
-- Rows: `sceneScale` 0-100 (optional, default `scale`).
+- Rows: `sceneScale` 0-100 (optional on input; validation stores a copy of
+  `scale` when it is missing).
 - Role rows (lamp controls, below): `syncRole` gains `"off"`; `name` 1-35
   characters, 1-32 for the four Hue roles (the Hue bridge limit).
 
