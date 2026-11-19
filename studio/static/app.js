@@ -281,6 +281,7 @@ const trashIcon='<svg viewBox="-7 -7 14 14" aria-hidden="true"><path d="M-4.4 -3
 const plusIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4v12M4 10h12"/></svg>';
 const chipIcons={
  fade:'<path d="M-4.6 -1.5H4.6M-3.6 1.5H3.6M-2.2 4.4H2.2"/><path d="M-4.6 -4.4H4.6"/>',
+ calibrate:'<circle r="4.6" style="fill:none;stroke:currentColor"/><path d="M0 -4.6A4.6 4.6 0 0 1 0 4.6Z" style="fill:currentColor;stroke:none"/>',
  auto:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
  rotate:'<path d="M-3.4 -2.6A4.2 4.2 0 1 1 -3.8 1.9M-3.4 -2.6V-5.8M-3.4 -2.6H-0.2"/>',
  more:'<circle class="dot" cx="-4" cy="0" r="1.1"/><circle class="dot" cx="0" cy="0" r="1.1"/><circle class="dot" cx="4" cy="0" r="1.1"/>',
@@ -560,7 +561,7 @@ let rayBorn=new Map(),rayGhosts=[];
 function rayElements(root){return root?[...root.querySelectorAll('[data-k]:not(.ray-ghost)')]:[]}
 function renderScene(){
  const before=new Map(rayElements($('#sync-links')).map(n=>[n.dataset.k,n.outerHTML]));
- renderBaseScene();paintStatus();paintTitle();layerWashes();animateRays(before);paintPanel();paintEmptyRoom();
+ renderBaseScene();paintStatus();paintTitle();layerWashes();animateRays(before);paintPanel();paintEmptyRoom();paintCalibration();
 }
 function animateRays(prev){
  const now=performance.now(),links=$('#sync-links'),cur=new Map(rayElements(links).map(n=>[n.dataset.k,n]));
@@ -815,6 +816,7 @@ function cardMenu(l){
   +'<div class="card-set"><div class="set-row'+(l.unbound?' disabled':'')+'">During Sync'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div></div>'
   +'<div class="card-actions"><button data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'Blink</button>'
   +'<button data-menu="reset" title="Reset correction to 100%"'+(c===100?' disabled':'')+'>'+iconSvg('reset')+(c===100?'Correction 100%':c+'% → 100%')+'</button></div>'
+  +(/^govee-/.test(l.id)?'<button class="mi" data-menu="calibrate"'+(canCalibrate(l)?'':' aria-disabled="true" data-tooltip="Turn Sync off to calibrate"')+'>'+iconSvg('calibrate')+'Calibrate color</button>':'')
   +'<button class="mi danger" data-menu="remove">'+iconSvg('remove')+'Remove from layout</button>';
 }
 // The card sits beside the selected object, never over it, and does not follow the chip width.
@@ -878,8 +880,100 @@ function menuAction(id){
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
  if(id==='reset'){closeObjectMenu();resetCorrection();return true}
  if(id==='blink'){if(!l.unbound)blinkLamp(l);return true}
+ if(id==='calibrate'){if(!canCalibrate(l)){tell('Turn Sync off to calibrate');return true}closeObjectMenu();startCalibration(l);return true}
  return false;
 }
+
+// ---------------------------------------------------------- calibration --
+// A Govee lamp and a reference lamp show the same test white while the owner moves the
+// sliders; the adapter applies the unsaved values at once and needs a renewal every 2 s.
+const CAL_REFUSED={'sync active':'Turn Sync off to calibrate','lamp off':'The lamp is off','reference off':'The reference lamp is off','busy':'Another lamp is being calibrated','writer closed':'The lamp is still turning on','paused':'Light output is paused'};
+const CAL_STOPPED={'sync active':'Calibration stopped: Sync started','lamp off':'Calibration stopped: the lamp is off','reference off':'Calibration stopped: the reference lamp is off'};
+const CAL_SLIDERS=[['warmth','Warmth','Cooler','Warmer'],['tint','Tint','Greener','Pinker'],['lowLight','Low light','Darker','Brighter','Check it on Dim']];
+let cal=null,calTimer=null,calSending=false,calQueued=false;
+const canCalibrate=l=>/^govee-/.test(l.id)&&liveState()!=='active';
+const liveLampOff=id=>liveSnapshot?.lamps?.[id]?.on===false;
+const calReferences=id=>lamps.filter(l=>isRole(l.id)&&l.id!==id&&l.enabled!==false);
+function defaultReference(l){
+ const on=calReferences(l.id).filter(r=>!liveLampOff(r.id)),plays=on.filter(r=>/^play-/.test(r.id));
+ return (plays.length?plays:on).sort((a,b)=>Math.abs(a.x-l.x)-Math.abs(b.x-l.x))[0]?.id||null;
+}
+const calBody=c=>({lamp:c.lamp,reference:c.reference,level:c.level,calibration:{...c.values}});
+async function calPost(path,body){
+ try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:path.endsWith('/end')});return {status:r.status,body:await r.json().catch(()=>({}))}}
+ catch{return {status:0,body:{}}}
+}
+async function startCalibration(l){
+ if(cal)return;
+ const reference=defaultReference(l);if(!reference){tell('No reference lamp is on');return}
+ const next={lamp:l.id,reference,level:'bright',values:calibrationOf(l.calibration)};
+ const r=await calPost('/api/calibration',calBody(next));
+ if(r.status!==200){tell(r.status===409?CAL_REFUSED[r.body.reason]||'Calibration is not possible now':'Calibration failed: the adapter is not responding');return}
+ cal=next;selected=l.id;renewCalibration();render();
+ $('#cal-card')?.querySelector('input')?.focus();
+}
+async function sendCalibration(){
+ if(!cal)return;if(calSending){calQueued=true;return}
+ calSending=true;const sent=cal,r=await calPost('/api/calibration',calBody(cal));calSending=false;
+ if(cal!==sent)return;
+ if(r.status===409){stopCalibration(CAL_STOPPED[r.body.reason]||'Calibration stopped');return}
+ if(r.status!==200){stopCalibration('Calibration stopped: the adapter is not responding');return}
+ if(calQueued){calQueued=false;sendCalibration()}
+}
+function renewCalibration(){clearTimeout(calTimer);calTimer=setTimeout(()=>{if(!cal)return;sendCalibration();renewCalibration()},2000)}
+function stopCalibration(message){clearTimeout(calTimer);calTimer=null;cal=null;calQueued=false;$('#cal-card')?.remove();render();if(message)tell(message)}
+function finishCalibration(keep){
+ if(!cal)return;
+ const l=lamps.find(x=>x.id===cal.lamp),values={...cal.values};
+ calPost('/api/calibration/end',{});
+ if(keep&&l){remember();l.calibration=values;stopCalibration('Calibration saved')}else stopCalibration();
+}
+function calCardHtml(){
+ const l=lamps.find(x=>x.id===cal.lamp);
+ const refs=calReferences(cal.lamp).map(r=>'<option value="'+r.id+'"'+(r.id===cal.reference?' selected':'')+(liveLampOff(r.id)?' disabled':'')+'>'+esc(r.name)+(liveLampOff(r.id)?' (off)':'')+'</option>').join('');
+ return '<div class="cal-title">Calibrate '+esc(l?.name||'')+'</div>'
+  +'<div class="cal-sub">Make it look like the reference. Other lamps are off.</div>'
+  +'<label class="cal-row">Reference<select class="cal-ref" aria-label="Reference lamp">'+refs+'</select></label>'
+  +'<div class="cal-row">Test light<div class="seg" role="group">'+[['bright','Bright'],['dim','Dim']].map(([v,t])=>'<button type="button" data-cal-level="'+v+'" aria-pressed="'+(cal.level===v)+'">'+t+'</button>').join('')+'</div></div>'
+  +CAL_SLIDERS.map(([k,label,lo,hi,hint])=>{const [min,max]=CALIBRATION[k];return '<label class="cal-slider"><span class="cal-label">'+label+'</span><input type="range" min="'+min+'" max="'+max+'" step="1" value="'+cal.values[k]+'" data-cal="'+k+'" aria-label="'+label+'"><span class="cal-ends"><span>'+lo+'</span><span>'+hi+'</span></span>'+(hint?'<span class="cal-hint">'+hint+'</span>':'')+'</label>'}).join('')
+  +'<div class="cal-actions"><button type="button" data-cal-act="cancel">Cancel</button><button type="button" class="primary" data-cal-act="save">Save</button></div>';
+}
+function placeCalCard(card){
+ const a=$('#app').getBoundingClientRect(),box=id=>$('#stage').querySelector('[data-lamp="'+id+'"] .outline')?.getBoundingClientRect();
+ const r=box(cal.lamp),ref=box(cal.reference);if(!r)return;
+ // Beside the lamp, on the side away from the reference, so both stay in view.
+ const left=r.left-a.left-16-card.offsetWidth,right=r.right-a.left+16;
+ let x=ref&&ref.left>r.left?left:right;
+ if(x<12||x+card.offsetWidth>a.width-12)x=x===left?right:left;
+ card.style.left=Math.max(12,Math.min(a.width-card.offsetWidth-12,x))+'px';
+ card.style.top=Math.max(80,Math.min(a.height-card.offsetHeight-12,r.top-a.top))+'px';
+}
+function paintCalibration(){
+ const app=$('#app'),stage=$('#stage');app.classList.toggle('calibrating',!!cal);
+ app.querySelectorAll('.cal-tag,.cal-link').forEach(n=>n.remove());
+ const keep=id=>!!cal&&(id===cal.lamp||id===cal.reference);
+ stage.querySelectorAll('.lamp[data-lamp]').forEach(n=>n.classList.toggle('cal-keep',keep(n.dataset.lamp)));
+ stage.querySelectorAll('[data-wash-for]').forEach(n=>n.classList.toggle('cal-keep',keep(n.dataset.washFor)));
+ if(!cal){$('#cal-card')?.remove();return}
+ let card=$('#cal-card');
+ if(!card){card=document.createElement('div');card.id='cal-card';card.className='cal-card';card.setAttribute('role','dialog');card.setAttribute('aria-label','Calibrate color');card.innerHTML=calCardHtml();app.append(card)}
+ placeCalCard(card);
+ const a=app.getBoundingClientRect(),box=id=>stage.querySelector('[data-lamp="'+id+'"] .outline')?.getBoundingClientRect();
+ const lr=box(cal.lamp),rr=box(cal.reference);if(!lr||!rr)return;
+ for(const [r,t] of [[lr,'Calibrating'],[rr,'Reference']]){const tag=document.createElement('div');tag.className='cal-tag';tag.textContent=t;tag.style.left=(r.left+r.width/2-a.left)+'px';tag.style.top=(r.top-a.top-10)+'px';app.append(tag)}
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('class','cal-link');svg.setAttribute('aria-hidden','true');
+ svg.innerHTML='<line x1="'+(lr.left+lr.width/2-a.left)+'" y1="'+(lr.top+lr.height*.35-a.top)+'" x2="'+(rr.left+rr.width/2-a.left)+'" y2="'+(rr.top+rr.height/2-a.top)+'"/>';app.append(svg);
+}
+$('#app').addEventListener('input',e=>{const s=e.target.closest('#cal-card [data-cal]');if(!s||!cal)return;cal.values[s.dataset.cal]=Math.round(+s.value);sendCalibration()});
+$('#app').addEventListener('change',e=>{if(!cal||!e.target.matches('#cal-card .cal-ref'))return;cal.reference=e.target.value;paintCalibration();sendCalibration()});
+$('#app').addEventListener('click',e=>{
+ if(!cal)return;const card=e.target.closest('#cal-card');if(!card)return;
+ const lv=e.target.closest('[data-cal-level]');if(lv){cal.level=lv.dataset.calLevel;card.querySelectorAll('[data-cal-level]').forEach(b=>b.setAttribute('aria-pressed',b===lv));sendCalibration();return}
+ const act=e.target.closest('[data-cal-act]');if(act)finishCalibration(act.dataset.calAct==='save');
+});
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cal){e.preventDefault();e.stopImmediatePropagation();finishCalibration(false)}},true);
+window.addEventListener('resize',()=>{if(cal)paintCalibration()});
+window.addEventListener('pagehide',()=>{if(cal)calPost('/api/calibration/end',{})});
 
 // ---------------------------------------------------------- lamp panel --
 let panelKind=null,confirmRemove=null,pendingDevice=null;

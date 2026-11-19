@@ -167,7 +167,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -185,6 +185,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),live=live
   fetch:async(url,options={})=>{
    if(url==='/api/live'){requests.live.push(now);const value=typeof live==='function'?live(requests.live.length):live;if(value instanceof Error)throw value;return response(200,await value)}
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
+   if(url.startsWith('/api/calibration')){assert.ok(calibrate,'unexpected calibration');const result=await calibrate(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
    if(options.method!=='POST'){requests.layout++;if(layoutGet)return layoutGet(server);return response(200,{layout:server.layout,revision:server.layout?server.revision:null})}
@@ -644,6 +645,49 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
  assert.equal(app.posts.at(-1).body.syncFalloff,false);
  assert.deepEqual(gains(),Array(7).fill(1),'without the fade every zone keeps full brightness');
  assert.equal(left().sceneScale,40);
+});
+
+test('calibrating a Govee lamp shows the test against a reference and saves only on Save',async()=>{
+ const calls=[];
+ const app=await harness({live:liveOk({sync:{state:'idle',reason:'no_source',blockers:[]}}),calibrate:(url,body)=>{calls.push([url,body]);return {status:200,body:{active:url==='/api/calibration'}}}});
+ app.run('select("govee-left")');
+ const item=()=>{app.run('openObjectMenu($("#stage").querySelector(\'[data-chip-action="more"]\')||$("#stage"))');return app.$('#object-menu [data-menu="calibrate"]')};
+ assert.ok(item(),'Govee lamps offer calibration');
+ await app.click(item());
+ assert.deepEqual(calls[0],['/api/calibration',{lamp:'govee-left',reference:'play-left',level:'bright',calibration:{warmth:0,tint:0,lowLight:0}}],'the nearest Hue Play is the reference');
+ assert.ok(app.$('#app').classList.contains('calibrating'));
+ const card=app.$('#cal-card');assert.ok(card);
+ assert.ok(app.lamp('govee-left').classList.contains('cal-keep')&&app.lamp('play-left').classList.contains('cal-keep'));
+ assert.ok(!app.lamp('govee-right').classList.contains('cal-keep'));
+ const warmth=card.querySelector('[data-cal="warmth"]');warmth.value='40';app.dispatch(warmth,'input');await app.settle();
+ assert.deepEqual(calls.at(-1)[1].calibration,{warmth:40,tint:0,lowLight:0},'a slider shows on the lamp at once');
+ assert.equal(app.posts.length,0,'nothing is saved while the sliders move');
+ await app.advance(2000);assert.equal(calls.at(-1)[0],'/api/calibration','the session is renewed');
+ await app.click(card.querySelector('[data-cal-level="dim"]'));assert.equal(calls.at(-1)[1].level,'dim');
+ await app.click(card.querySelector('[data-cal-act="save"]'));
+ assert.equal(calls.at(-1)[0],'/api/calibration/end');
+ assert.ok(!app.$('#app').classList.contains('calibrating'));assert.equal(app.$('#cal-card'),null);
+ await app.advance(300);
+ assert.deepEqual(app.posts.at(-1).body.devices.find(r=>r.id==='govee-left').calibration,{warmth:40,tint:0,lowLight:0});
+ const count=calls.length;await app.advance(5000);assert.equal(calls.length,count,'no renewal after the session');
+});
+
+test('calibration is unavailable during Sync and stops when Sync starts',async()=>{
+ let answer={status:200,body:{active:true}};const calls=[];
+ const app=await harness({calibrate:(url,body)=>{calls.push(url);return answer}});
+ app.run('select("govee-left")');
+ app.run('openObjectMenu($("#stage").querySelector(\'[data-chip-action="more"]\')||$("#stage"))');
+ const item=app.$('#object-menu [data-menu="calibrate"]');
+ assert.equal(item.getAttribute('aria-disabled'),'true');assert.equal(item.dataset.tooltip,'Turn Sync off to calibrate');
+ await app.click(item);assert.equal(calls.length,0);assert.equal(app.$('#toast').textContent,'Turn Sync off to calibrate');
+ app.run('liveSnapshot.sync.state="idle"');
+ app.run('startCalibration(lamps.find(l=>l.id==="govee-right"))');await app.settle();
+ assert.ok(app.$('#cal-card'));
+ const cancelled=app.posts.length;
+ answer={status:409,body:{active:false,reason:'sync active'}};
+ await app.advance(2000);
+ assert.equal(app.$('#cal-card'),null);assert.equal(app.$('#toast').textContent,'Calibration stopped: Sync started');
+ assert.equal(app.posts.length,cancelled,'nothing was saved');
 });
 
 test('a drawn lamp that is not connected shows a broken-link badge where problems show',async()=>{

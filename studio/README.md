@@ -69,10 +69,27 @@ Auto) and the booleans `syncFalloff` (default true) and `sceneFalloff` (default
 false). The defaults are not stored. A fade that is off gives every gain 1 and
 samples Govee segments at their centres. Scene output includes every present
 lamp, own-light ones too. A write that omits `sceneZone` keeps the saved one,
-like `syncZone`; omitted fade switches mean their defaults. Version 3 and 4
-files load as version 5, so their revision changes and pages opened before the
-upgrade must refetch. Writes accept geometry and corrections only: no power,
+like `syncZone`; omitted fade switches mean their defaults. Version 6 adds an
+optional `calibration` on the two Govee rows: `{"warmth": -100..100, "tint":
+-100..100, "lowLight": 0..100}` (integers; missing controls are 0, an all-zero
+calibration is not stored). Versions 3-5 load as version 6, so their revision
+changes and pages opened before the upgrade must refetch. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
+
+## Colour calibration
+
+"Calibrate color" in a Govee lamp's card matches the lamp to a reference lamp
+(default: the nearest Hue Play). A card beside the lamp holds the reference,
+a Bright/Dim test level and the Warmth, Tint and Low light sliders. While it is
+open, `POST /api/calibration` with `{"lamp", "reference", "level",
+"calibration"}` asks the adapter to show the same test white on both lamps and a
+dark colour on the others; a slider change is sent at once and the request is
+renewed every 2 s. Save writes the values to the layout; Cancel, Esc, Save and a
+closed page send `POST /api/calibration/end`, and the adapter also ends a
+session that is not renewed within 5 s. Calibration needs Sync off ("Turn Sync
+off to calibrate"); when Sync starts, the card closes with "Calibration stopped:
+Sync started". Power never changes. See
+`docs/design/2026-11-19-govee-device-calibration.md`.
 
 ## Blink
 

@@ -342,3 +342,33 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 @keyframes lamp-blink{0%,40%,80%{opacity:1}20%,60%{opacity:.15}}
 .lamp.blinking [data-beam]{animation:lamp-blink .9s ease-in-out}
 @media (prefers-reduced-motion:reduce){.lamp.blinking [data-beam]{animation:none}}
+/* Colour calibration of a Govee lamp: the lamp and its reference show the same test white. */
+.calibrating #stage .lamp:not(.cal-keep),.calibrating #stage .desk-group,.calibrating #stage .monitor-group,.calibrating #stage [data-wash-for]:not(.cal-keep){opacity:.16;transition:opacity .3s}
+.calibrating #stage .obj-chip,.calibrating #stage .handles,.calibrating #stage .tag,.calibrating #stage #sync-visibility,.calibrating #stage #sync-links,.calibrating #stage .desk-axis,.calibrating #stage .axis{display:none}
+.calibrating #stage .cal-keep [data-sync-power],.calibrating #stage [data-wash-for].cal-keep{opacity:1!important}
+.calibrating #stage .cal-keep linearGradient stop{stop-color:#ffe6c4!important;stop-opacity:1!important}
+.calibrating #stage .cal-keep [data-beam],.calibrating #stage [data-wash-for].cal-keep{--beam:#ffe6c4!important}
+.calibrating #stage,.calibrating .toolbar,.calibrating .list-control,.calibrating .history{pointer-events:none}
+.calibrating .toolbar,.calibrating .list-control,.calibrating .history{opacity:.35}
+.cal-tag{position:absolute;z-index:8;transform:translate(-50%,-100%);font-size:12px;color:var(--accent);background:var(--surface);border:1px solid var(--line);padding:3px 8px;border-radius:var(--r-ctl,5px);white-space:nowrap;pointer-events:none}
+.cal-link{position:absolute;inset:0;width:100%;height:100%;z-index:7;pointer-events:none}
+.cal-link line{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 5;opacity:.6}
+.cal-card{position:absolute;z-index:10;width:270px;padding:14px;display:grid;gap:12px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:var(--r-panel,8px);color:var(--text);font-size:13px}
+.cal-card select{font:inherit;font-size:12px;color:var(--text);background:var(--canvas);border:0;border-radius:var(--r-ctl,5px);height:28px;padding:0 6px;max-width:150px}
+.cal-title{font-weight:600;font-size:14px}
+.cal-sub{color:var(--muted);font-size:12px;line-height:1.45}
+.cal-row{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}
+.cal-card .seg{display:flex;padding:2px;border-radius:var(--r-ctl,5px);background:var(--canvas)}
+.cal-card .seg button{height:24px;padding:0 10px;border-radius:4px;font-size:12px;color:var(--muted)}
+.cal-card .seg button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:500;box-shadow:0 1px 2px #0e223522}
+.cal-slider{display:grid;gap:3px}
+.cal-label{font-size:12px;color:var(--text)}
+.cal-slider input{width:100%;accent-color:var(--accent);margin:0}
+.cal-ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.cal-hint{font-size:12px;color:var(--muted);font-style:italic}
+.cal-actions{display:flex;justify-content:flex-end;gap:6px}
+.cal-actions button{height:32px;padding:0 14px;border-radius:var(--r-ctl,5px);background:var(--canvas);font-size:12px}
+.cal-actions button:hover{background:var(--soft);color:var(--accent)}
+.cal-actions .primary,.cal-actions .primary:hover{background:var(--accent);color:var(--surface)}
+.object-menu .mi[aria-disabled=true]{opacity:.4;cursor:default}
+.object-menu .mi[aria-disabled=true]:hover{background:none}

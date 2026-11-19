@@ -90,19 +90,19 @@ on and `B1 00` off, and `B0 01 <count> <rgb...>` is a gradient frame.
 
 ## Per-lamp calibration
 
-Two H6076 lamps can render the same command differently. A target profile may
-carry `color_gains` (red, green, blue; each above 0 and at most 1) and
-`brightness_exponent` (above 0 and at most 1; the lamp gets
-`100 * (b / 100) ** exponent`). Gains keep a colour's peak channel. The adapter
-applies them to DreamView frames, ptReal segments, `colorwc` RGB and brightness
-just before the transport, and converts statuses back, so the controllers, Sync
-health and Light Studio keep logical values. A lamp without these fields is
-unchanged. On 2026-11-19 the owner matched the left lamp to the right one with
-`[0.9, 1, 0.9]` and `0.487` (left 60 looked like right 35, left 33 like right
-10). Both lamps were then cooler than the Hue lamps, which the owner found
-closer to the television; `[1, 0.85, 0.5]` matched the right lamp to a Hue Play
-showing the same colour. The live profiles are the products: left
-`[0.9, 0.85, 0.45]` with `0.487`, right `[1, 0.85, 0.5]`. See
+Two H6076 lamps can render the same command differently from each other and
+from the Hue lamps. The owner calibrates a Govee lamp in Light Studio ("Colour
+calibration" in `studio/README.md`); the layout row's `calibration` holds the
+Warmth, Tint and Low light positions. `govee_calibration.curve()` turns them into
+channel gains (which keep a colour's peak channel) and a brightness exponent
+(the lamp gets `100 * (b / 100) ** exponent`). The adapter applies them to
+DreamView frames, ptReal segments, `colorwc` RGB and brightness just before the
+transport, and converts statuses back, so the controllers, Sync health and
+Light Studio keep logical values. A target profile with the older
+`color_gains`/`brightness_exponent` refuses to start. On 2026-11-19 the owner's
+matches were warmth 83 for both lamps (gains `[1, 0.85, 0.5]`, matched to a Hue
+Play) and, for the left lamp, also tint -33 and low light 74 (left 60 looked
+like right 35, left 33 like right 10). See
 `docs/design/2026-11-19-govee-device-calibration.md`.
 
 Live on the Mac with the PS5 through the Sync Box: ~50 frames/s reached the

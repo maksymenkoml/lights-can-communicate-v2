@@ -440,7 +440,7 @@ independent. Source capture channels, identities, power and native membership
 are unchanged. The layout canonicalizer also keeps physical bodies above the
 floor; the table has dimensions only and cannot move off the floor.
 
-## Two configurations (layout version 5)
+## Two configurations (layout version 5, current version 6)
 
 Light Studio edits two independent configurations. With Sync uses `scale`,
 `syncZone` and `syncFalloff` (default on). Without Sync (scenes from the Hue app)
