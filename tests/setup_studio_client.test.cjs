@@ -662,10 +662,13 @@ test('a lamp chip is one button that opens the card, and the scene has no correc
  assert.equal(app.stage.querySelector('[data-edit="corr"]'),null,'no correction label');
  app.dispatch(chip(),'pointerdown');await app.settle();
  const menu=app.$('#object-menu');assert.equal(menu.hidden,false);
+ assert.ok(menu.classList.contains('opening'),'the card grows in');
  assert.equal(chip().getAttribute('aria-expanded'),'true');
  assert.equal(menu.querySelector('[data-menu="reset"]'),null,'Reset correction moved to the Calibrate page');
  assert.deepEqual([...menu.querySelectorAll('.card-row')].map(b=>b.dataset.menu),['blink','calibrate','remove']);
- app.dispatch(chip(),'pointerdown');await app.settle();assert.equal(menu.hidden,true,'the chip closes the card too');
+ app.dispatch(chip(),'pointerdown');await app.settle();
+ assert.ok(menu.classList.contains('closing'),'the card fades out first');
+ await app.advance(200);assert.equal(menu.hidden,true,'the chip closes the card too');
  app.dispatch(app.lamp('govee-left'),'dblclick');await app.advance(20);
  assert.equal(menu.hidden,false,'a double click on the lamp opens its card');
 });
@@ -712,7 +715,12 @@ test('a Hue lamp calibrates its brightness only; Reset and Esc save nothing',asy
  const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.settle();
  assert.equal(calls.at(-1)[1].correction,30);
  await app.click(app.$('#object-menu [data-menu="cal-reset"]'));
+ assert.equal(calls.at(-1)[1].correction,100,'the reset shows on the lamp at once');
+ await app.advance(100);const mid=+app.$('#object-menu [data-cal="correction"]').value;
+ assert.ok(mid>30&&mid<100,'the slider glides to its reset value');
+ await app.advance(300);
  assert.equal(app.$('#object-menu [data-cal="correction"]').value,'100','Reset is unsaved: brightness back to 100%');
+ assert.equal(app.$('#object-menu [data-menu="cal-reset"]').disabled,true);
  await app.press(app.$('#object-menu'),'Escape');
  assert.equal(calls.at(-1)[0],'/api/calibration/end');
  assert.equal(app.$('#object-menu').hidden,false,'Esc leaves the page, the card stays');

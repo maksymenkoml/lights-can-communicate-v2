@@ -401,3 +401,23 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 #object-menu .card-select select:focus-visible{box-shadow:0 0 0 2px var(--soft)}
 #object-menu .card-back button:focus{outline:none}
 #object-menu .card-back button:focus-visible{box-shadow:0 0 0 2px var(--soft)}
+
+/* Motion: the card grows from its chip side, pages cross-fade as they slide, actions answer. */
+@keyframes card-in{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes card-out{to{opacity:0;transform:translateY(-4px) scale(.98)}}
+#object-menu.card.opening{animation:card-in .18s cubic-bezier(.2,.8,.2,1) both}
+#object-menu.card.closing{animation:card-out .14s ease-in both;pointer-events:none}
+#object-menu .card-page{transition:opacity .28s ease}
+#object-menu .card-pages.at-cal>.card-page:first-child,#object-menu .card-pages:not(.at-cal)>.card-page:last-child{opacity:0}
+@keyframes row-pulse{50%{transform:scale(1.35)}}
+#object-menu .card-row.pulsing>svg:first-child{color:var(--accent);animation:row-pulse .5s ease-in-out 2}
+@keyframes value-flash{0%,35%{color:var(--accent)}}
+#object-menu .card-row em.flash{animation:value-flash .9s ease}
+#object-menu .card-confirm{animation:card-in .16s ease both}
+@keyframes tag-in{from{opacity:0}}
+#cal-ref-tag{animation:tag-in .3s ease both}
+#object-menu .card-slider output{transition:color .2s}
+@media (prefers-reduced-motion:reduce){
+ #object-menu.card.opening,#object-menu.card.closing,#object-menu .card-row.pulsing>svg:first-child,#object-menu .card-row em.flash,#object-menu .card-confirm,#cal-ref-tag{animation:none}
+ #object-menu.card,#object-menu .card-pages,#object-menu .card-page,.obj-chip .chev path{transition:none}
+}

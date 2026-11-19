@@ -808,7 +808,17 @@ function setMode(m){
 // ---------------------------------------------------------- lamp card --
 function zonesText(n){return n+' '+(n===1?'zone':'zones')}
 function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
-function closeObjectMenu(){if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;$('#object-menu').hidden=true;const c=$('#stage').querySelector('[data-chip-action="more"]');c?.classList.remove('open');c?.setAttribute('aria-expanded','false')}
+const reduceMotion=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
+let menuHideTimer=null;
+function closeObjectMenu(){
+ if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;
+ const menu=$('#object-menu'),c=$('#stage').querySelector('[data-chip-action="more"]');c?.classList.remove('open');c?.setAttribute('aria-expanded','false');
+ clearTimeout(menuHideTimer);
+ if(reduceMotion()){menu.hidden=true;return}
+ // The card fades toward its chip, then hides.
+ menu.classList.remove('opening');menu.classList.add('closing');
+ menuHideTimer=setTimeout(()=>{if(!menuOpen){menu.hidden=true;menu.classList.remove('closing')}},140);
+}
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
 function calSummary(l){return corr(l)+'%'+(/^govee-/.test(l.id)&&calibrated(l.calibration)?' · color':'')}
 function cardMenu(l){
@@ -841,6 +851,7 @@ function placeMenu(menu,anchorRect){
  if(ref&&(ref.left+ref.width/2<mid?'left':'right')===side)side=side==='left'?'right':'left';
  if(!fits[side])side=side==='left'?'right':'left';
  menu.style.left=(fits[side]?side==='left'?left:right:Math.max(pad,Math.min(a.width-w-pad,left)))+'px';
+ menu.style.transformOrigin=(fits[side]&&side==='left'?'right':'left')+' top';
 }
 function placeOpenMenu(){
  if(!menuOpen)return;const chip=$('#stage').querySelector('.chip-main')?.closest('.obj-chip');
@@ -850,9 +861,9 @@ function openObjectMenu(anchor){
  const l=lamps.find(l=>l.id===selected);if(!l)return;
  if(menuOpen){closeObjectMenu();return}
  menuOpen=true;anchor.classList.add('open');anchor.setAttribute('aria-expanded','true');
- const menu=$('#object-menu');menu.className='object-menu card';
+ const menu=$('#object-menu');clearTimeout(menuHideTimer);menu.className='object-menu card opening';
  menu.innerHTML='<div class="card-pages"><div class="card-page">'+cardMenu(l)+'</div><div class="card-page"></div></div>';menu.hidden=false;menu.style.height='';
- placeMenu(menu,anchor.closest('.obj-chip').getBoundingClientRect());
+ menu.style.transition='none';placeMenu(menu,anchor.closest('.obj-chip').getBoundingClientRect());void menu.offsetWidth;menu.style.transition='';
  const name=menu.querySelector('.card-name');
  if(name&&!name.readOnly){name.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();renameLamp(l.id,name.value);name.blur()}else if(e.key==='Escape'){name.value=l.name;closeObjectMenu()}});name.addEventListener('change',()=>renameLamp(l.id,name.value))}
 }
@@ -883,12 +894,12 @@ function menuAction(id){
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
- if(id==='blink'){if(!l.unbound)blinkLamp(l);return true}
+ if(id==='blink'){if(!l.unbound){const row=menu.querySelector('[data-menu="blink"]');row?.classList.remove('pulsing');void row?.offsetWidth;row?.classList.add('pulsing');setTimeout(()=>row?.classList.remove('pulsing'),1000);blinkLamp(l)}return true}
  if(id==='calibrate'){openCalibrate(l);return true}
  if(!cal)return false;
  if(id==='cal-back'||id==='cal-cancel'){closeCalibrate(false);return true}
  if(id==='cal-save'){closeCalibrate(true);return true}
- if(id==='cal-reset'){cal.correction=100;cal.values=calibrationOf({});calApplyLive();paintCalPage();sendCalibration();return true}
+ if(id==='cal-reset'){cal.correction=100;cal.values=calibrationOf({});animateCalSliders();calApplyLive();sendCalibration();return true}
  if(id.startsWith('cal-level-')){cal.level=id.slice(10);menu.querySelectorAll('[data-menu^="cal-level-"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.menu===id));sendCalibration();return true}
  return false;
 }
@@ -946,7 +957,7 @@ function closeCalibrate(save,message){
  }
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');
  if(menuOpen&&pages&&l){
-  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum)sum.textContent=calSummary(l);pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';
+  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum){if(save&&sum.textContent!==calSummary(l)){sum.classList.remove('flash');void sum.offsetWidth;sum.classList.add('flash')}sum.textContent=calSummary(l)}pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';
   setTimeout(()=>{if(!cal){page.innerHTML='';menu.style.height=''}},300);
  }
  render();
@@ -983,9 +994,22 @@ function calPageHtml(l){
  if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="card-note">Turn Sync off to calibrate color</p>':'';
  return html+'</div><div class="card-foot"><button class="card-reset" data-menu="cal-reset"'+(calChanged(c)?'':' disabled')+'>'+iconSvg('reset')+'Reset</button><span class="card-gap"></span><button data-menu="cal-cancel">Cancel</button><button class="primary" data-menu="cal-save">Save</button></div>';
 }
-function paintCalPage(){
- const l=cal&&lamps.find(x=>x.id===cal.lamp),page=$('#object-menu').querySelector('.card-pages')?.children[1];if(!l||!page)return;
- page.innerHTML=calPageHtml(l);
+function setSliderView(input,k,v){
+ const [lo,hi]=k==='correction'?[0,100]:CALIBRATION[k];
+ input.value=String(v);input.style.setProperty('--p',((v-lo)/(hi-lo)*100)+'%');
+ const out=input.closest('.card-slider')?.querySelector('output');if(out)out.textContent=calText(k,v);
+}
+// Reset glides each slider to its new value instead of jumping.
+function animateCalSliders(){
+ const inputs=[...cardMenuNode.querySelectorAll('[data-cal]')],target=k=>k==='correction'?cal.correction:cal.values[k];
+ const from=inputs.map(i=>+i.value),start=performance.now(),ms=reduceMotion()?0:260;
+ const reset=cardMenuNode.querySelector('[data-menu="cal-reset"]');if(reset)reset.disabled=!calChanged(cal);
+ const step=now=>{
+  const t=ms?Math.min(1,Math.max(0,(now-start)/ms)):1,e=1-Math.pow(1-t,3);
+  inputs.forEach((input,i)=>{const k=input.dataset.cal;setSliderView(input,k,t<1?Math.round(from[i]+(target(k)-from[i])*e):target(k))});
+  if(t<1)requestAnimationFrame(step);
+ };
+ requestAnimationFrame(step);
 }
 // The scene shows only the lamp and its reference, both lit with the test white.
 function paintCalibration(){
@@ -1004,9 +1028,7 @@ cardMenuNode.addEventListener('input',e=>{
  const s=e.target.closest('[data-cal]');if(!s||!cal)return;
  const k=s.dataset.cal,v=Math.round(+s.value);
  if(k==='correction')cal.correction=v;else cal.values[k]=v;
- const [lo,hi]=k==='correction'?[0,100]:CALIBRATION[k];
- s.style.setProperty('--p',((v-lo)/(hi-lo)*100)+'%');
- const out=s.closest('.card-slider')?.querySelector('output');if(out)out.textContent=calText(k,v);
+ setSliderView(s,k,v);
  const reset=cardMenuNode.querySelector('[data-menu="cal-reset"]');if(reset)reset.disabled=!calChanged(cal);
  if(cal.mode==='test')sendCalibration();else calApplyLive();
 });
