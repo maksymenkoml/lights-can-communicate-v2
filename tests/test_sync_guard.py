@@ -76,18 +76,21 @@ class SyncGuardTests(unittest.TestCase):
         self.run_for(5)
         self.assertEqual(self.guard.public(), {}, "frames are back")
 
-    def test_restarts_are_spaced_and_end_after_three(self):
+    def test_restarts_are_spaced_and_end_after_six(self):
         self.stream = "off"
         times = []
-        end = self.clock.now + 600
+        start = self.clock.now
+        end = self.clock.now + 1200
         while self.clock.now < end:
             self.clock.now += 5
             if self.guard.tick():
                 times.append(self.clock.now)
-        self.assertEqual(len(times), 3)
+        self.assertEqual(len(times), 6)
         gaps = [b - a for a, b in zip(times, times[1:])]
         self.assertGreaterEqual(gaps[0], 50 - RESTART_PAUSES[0])
-        self.assertGreater(gaps[1], gaps[0], "the pauses grow")
+        self.assertGreater(gaps[-1], gaps[0], "the pauses grow")
+        self.assertLess(times[-1] - start, 660, "all tries within about ten minutes")
+        self.assertGreater(times[-1] - start, 360, "the last try outlasts the box back-off")
         self.assertEqual(self.guard.public(), {"recovery": "failed"})
 
     def test_the_quiet_time_between_stop_and_start_grows(self):
@@ -95,7 +98,7 @@ class SyncGuardTests(unittest.TestCase):
         pauses = []
         sleep = self.guard.sleep
         self.guard.sleep = lambda seconds: (pauses.append(seconds), sleep(seconds))
-        self.run_for(600)
+        self.run_for(1200)
         self.assertEqual(pauses, list(RESTART_PAUSES))
 
     def test_a_box_that_drops_sync_right_after_a_start_is_started_again(self):
@@ -143,7 +146,7 @@ class SyncGuardTests(unittest.TestCase):
 
     def test_the_owners_start_resets_a_failed_recovery(self):
         self.stream = "off"
-        self.run_for(600)
+        self.run_for(1200)
         self.assertEqual(self.guard.public(), {"recovery": "failed"})
         self.guard.started()
         self.assertEqual(self.guard.public(), {})

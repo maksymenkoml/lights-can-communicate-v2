@@ -190,8 +190,10 @@ with no frames arriving; while the bridge warms up the box also drops a new
 Start. Only a new Start from the box recovers it. The Light Studio server runs a
 guard (`bridge/sync_guard.py`) every 5 s. It sees a bridge restart when the
 bridge probe stops answering or its `frames_received` counter goes back. It
-stops and starts Sync on the box, at most three times with pauses of 0, 30 and
-90 s and 3, 15 and 45 s of quiet between Stop and Start, when:
+stops and starts Sync on the box, up to six times over about ten minutes (Stops
+at about 25, 85, 155, 285, 415 and 575 s), with 3, 15 and then 45 s of quiet between
+Stop and Start (a box whose stream was lost ignored Starts for 4-6 minutes in
+live checks), when:
 
 - Sync stopped up to 60 s before or 30 s after a bridge restart was seen;
 - the box runs Sync and the adapter reports `waiting` or `off` for 20 s;
@@ -210,7 +212,7 @@ then starts Sync.
 It never acts while the adapter is down, another app streams, the output is
 paused or the box is switching, and it never undoes a Stop made while the bridge
 runs undisturbed, here or in the Hue app. The corner shows Restarting Sync… meanwhile and says
-"Sync did not come back. Stop and start it again" when the three tries fail
+"Sync did not come back. Stop and start it again" when the six tries fail
 (`recovery: "restarting" | "failed"` in `GET /api/sync-box`).
 
 The box can take several seconds to answer (up to 10 s for a read, 15 s for

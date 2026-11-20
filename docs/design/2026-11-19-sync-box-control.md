@@ -95,7 +95,7 @@ Forget move behind a click on the status.
 - A redeploy that recreated the bridge while the box streamed left the stream at
   `off/starting`; the box also dropped Starts while the bridge warmed up. The
   owner asked for protection from such restarts: a guard in the Light Studio
-  server restarts Sync on the box (up to three times, growing pauses) and never
+  server restarts Sync on the box (up to six times over about ten minutes) and never
   undoes a Stop. A live reproduction showed the remaining hang: Docker Desktop
   had dropped the host listener for UDP 2100 after the container restart, so no
   datagram reached the bridge. When the host can bind that port while the bridge

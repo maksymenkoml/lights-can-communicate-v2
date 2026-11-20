@@ -20,11 +20,14 @@ from pathlib import Path
 STALL_SECONDS = 20.0
 # A box that drops Sync this soon after a Start gave up; it did not obey a Stop.
 DROP_SECONDS = 30.0
-# Pauses before the first, second and third restart, counted from the stall.
-RETRY_DELAYS = (0.0, 30.0, 90.0)
+# Extra wait before each restart, beyond STALL_SECONDS without frames since the
+# last Start. A box whose stream was lost ignored Starts for 4-6 minutes in live
+# checks (it came back at 232, 295 and 358 s); with the quiet times below the
+# Stops fall at about 25, 85, 155, 285, 415 and 575 s after the stall began.
+RETRY_DELAYS = (0.0, 30.0, 30.0, 60.0, 60.0, 90.0)
 # Quiet time between Stop and Start, per attempt. A box that streamed into a lost
 # port came back in a live check only after about 50 s off; 6 s and 22 s did not.
-RESTART_PAUSES = (3.0, 15.0, 45.0)
+RESTART_PAUSES = (3.0, 15.0, 45.0, 45.0, 45.0, 45.0)
 # Sync that stops up to 60 s after a bridge restart was seen, or up to 30 s before
 # it is seen (the box stops as the bridge goes down; the restart shows once it is
 # back), was stopped by the restart.
@@ -40,7 +43,7 @@ STALLED = ("waiting", "off")
 # datagrams are dropped and no Start can help. Only a container restart while
 # the box is quiet publishes it again.
 STREAM_PORT = 2100
-# Each stall already allows only three attempts; this only stops back-to-back restarts.
+# Each stall already allows only six attempts; this only stops back-to-back restarts.
 REPAIR_INTERVAL = 30.0
 REPAIR_WAIT = 60.0
 # A Start sooner than this after the restarted bridge answers left the box
