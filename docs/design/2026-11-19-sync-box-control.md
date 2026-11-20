@@ -100,7 +100,8 @@ Forget move behind a click on the status.
   had dropped the host listener for UDP 2100 after the container restart, so no
   datagram reached the bridge. When the host can bind that port while the bridge
   answers, the guard restarts the bridge container with Sync stopped before it
-  starts Sync again (at most once per 10 minutes).
+  starts Sync again (at most once a minute; a live
+  check lost the port in two restarts out of two).
 
 ## Left to the builder
 

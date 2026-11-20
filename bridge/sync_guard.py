@@ -38,7 +38,7 @@ STALLED = ("waiting", "off")
 # datagrams are dropped and no Start can help. Only a container restart while
 # the box is quiet publishes it again.
 STREAM_PORT = 2100
-REPAIR_INTERVAL = 600.0
+REPAIR_INTERVAL = 60.0
 REPAIR_WAIT = 60.0
 DOCKER_PATHS = ("/usr/local/bin/docker", "/opt/homebrew/bin/docker",
                 "/Applications/Docker.app/Contents/Resources/bin/docker", "/usr/bin/docker")
