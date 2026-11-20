@@ -308,6 +308,46 @@ snapshots and the current upgrade point are kept. Activation and rollback of
 the live installation still need the owner's approval; these commands never
 publish packages.
 
+### NAS container profile
+
+An optional `container` section in `core.json` selects the NAS profile
+(`docs/design/2026-11-20-nas-container-profile.md`, issue #9):
+
+```json
+"container": {
+  "lan": {"parent": "eth0", "subnet": "192.168.10.0/24",
+          "router": "192.168.10.1", "adapter_ip": "192.168.10.51"},
+  "core_subnet": "172.30.250.0/29",
+  "studio_hosts": ["192.168.10.5", "diskstation.local"]
+}
+```
+
+`stage` then renders one `services/compose.json` and no launchd agents. Docker
+runs the gateway, the adapter and Light Studio from the pinned diyHue image
+with `restart: unless-stopped`:
+- The gateway (`gateway.lan_ip`) and the adapter (`lan.adapter_ip`) get their
+  own LAN addresses on a macvlan network. Hue clients need TCP 80/443 and Govee
+  replies use UDP 4002; the NAS and its Govee plugin hold those ports.
+  Choose both addresses outside the router's DHCP pool. `gateway.mac` stays the
+  bridge identity; Docker derives the interface MAC from the address.
+- All three share the core network (`core_subnet`, gateway `.2`, adapter `.3`,
+  Light Studio `.4`). The NAS host, Homebridge and Light Studio use these
+  addresses; a host cannot reach its own macvlan containers. The adapter
+  listens on its core address only.
+- Light Studio is published on `setup.port` of the NAS and accepts the Host
+  names in `studio_hosts` besides loopback. It has no password yet (#53). Its
+  Sync guard restarts only Sync, never the bridge container.
+- Configured files must lie in the configuration directory or `state_dir`.
+  These and the release are mounted at their host paths.
+- An owner `live-output-hold` keeps the adapter waiting instead of exiting.
+
+The installer commands need Python 3.10 or later. Without it on the NAS, run
+them in the pinned image with the installation mounted at its own path, for
+example `docker run --rm --network host -v BASE:BASE --entrypoint python3 IMAGE
+-I -B ARCHIVE status --base BASE`. Host networking lets the stop check reach
+the core addresses. Start with
+`docker compose -f BASE/current/services/compose.json up -d --force-recreate`.
+
 ## Stream recovery diagnostics
 
 `0.1.0.dev5` reuses the authenticated bridge-to-adapter HTTP connection for

@@ -10,6 +10,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 
 from . import __version__, install, services
 from .config import ConfigError, load_config, read_json
@@ -153,7 +154,10 @@ def _interruptible(run):
         signal.signal(signal.SIGTERM, previous)
 
 
-def _adapter(config, check):
+HOLD_POLL_SECONDS = 5.0
+
+
+def _adapter(config, check, sleep=time.sleep):
     runtime = prepare(config)
     if check:
         print(
@@ -170,10 +174,17 @@ def _adapter(config, check):
             )
         )
         return 0
-    if (config.state_dir / "live-output-hold").exists():
+    hold = config.state_dir / "live-output-hold"
+    if hold.exists():
         # An intentional owner state, not a failure: supervisors must not loop.
         print("Owner live-output hold is active; adapter not started", file=sys.stderr)
-        return 0
+        if config.container is None:
+            return 0
+        # Docker restarts a finished container whatever its exit code, so wait
+        # here until the owner removes the hold; SIGTERM still stops the wait.
+        while hold.exists():
+            sleep(HOLD_POLL_SECONDS)
+        print("Owner live-output hold removed; starting adapter", file=sys.stderr)
     _interruptible(lambda: runtime.main(
         config.arguments(),
         service_info={"name": "lights-can-communicate-v2-adapter", "version": __version__},
@@ -184,11 +195,18 @@ def _adapter(config, check):
 def _setup(config):
     _credential(config.token_file)
     studio = _setup_module()
+    urls = services.endpoints(config)
+    container = config.container
     _interruptible(lambda: studio.serve(
         config.token_file, config.state_dir / "desk-layout.json",
         bind=config.setup.bind, port=config.setup.port,
-        adapter_url=services.local_adapter_url(config),
-        gateway_container=config.gateway.container_name if config.gateway else None,
+        adapter_url=urls["adapter"],
+        bridge_url=urls["bridge"] or "http://127.0.0.1",
+        # Without a published host port to lose, the Sync guard never restarts
+        # the bridge container; it only restarts Sync.
+        gateway_container=(config.gateway.container_name
+                           if config.gateway and container is None else None),
+        hosts=container.studio_hosts if container else (),
     ))
     return 0
 

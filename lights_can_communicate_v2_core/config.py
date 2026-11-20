@@ -15,6 +15,10 @@ _IMAGE = re.compile(r"diyhue/core@sha256:[0-9a-f]{64}\Z")
 _MAC = re.compile(r"[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}\Z")
 _CONTAINER = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 _TIMEZONE = re.compile(r"[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}\Z")
+_INTERFACE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,14}\Z")
+_LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+_HOSTNAME = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(\.{_LABEL})*\Z")
+CORE_SUBNET = "172.30.250.0/29"
 
 
 class ConfigError(ValueError):
@@ -111,13 +115,93 @@ class GatewayConfig:
         }
 
 
-def _setup(value):
+@dataclass(frozen=True)
+class ContainerConfig:
+    """The NAS profile: one compose project on a macvlan LAN and a core network."""
+
+    parent: str
+    subnet: str
+    router: str
+    adapter_ip: str
+    core_subnet: str = CORE_SUBNET
+    studio_hosts: tuple = ()
+
+    def _core(self, offset):
+        return str(ipaddress.IPv4Network(self.core_subnet).network_address + offset)
+
+    @property
+    def gateway_core(self):
+        return self._core(2)
+
+    @property
+    def adapter_core(self):
+        return self._core(3)
+
+    @property
+    def studio_core(self):
+        return self._core(4)
+
+
+def _network(value, label):
+    try:
+        if not isinstance(value, str):
+            raise ConfigError(f"Expected a textual {label}")
+        network = ipaddress.IPv4Network(value)
+    except (ValueError, TypeError) as error:
+        raise ConfigError(f"Invalid {label}") from error
+    if not network.is_private:
+        raise ConfigError(f"{label.capitalize()} must be local")
+    return network
+
+
+def _is_host(network, address):
+    address = ipaddress.IPv4Address(address)
+    return (address in network
+            and address not in (network.network_address, network.broadcast_address))
+
+
+def _container(value):
+    _fields(value, {"lan", "studio_hosts"}, {"core_subnet"}, "container")
+    lan = value["lan"]
+    _fields(lan, {"parent", "subnet", "router", "adapter_ip"}, set(), "container LAN")
+    if not isinstance(lan["parent"], str) or not _INTERFACE.match(lan["parent"]):
+        raise ConfigError("Invalid container LAN parent interface")
+    subnet = _network(lan["subnet"], "container LAN subnet")
+    router = _address(lan["router"], "container LAN router")
+    adapter_ip = _address(lan["adapter_ip"], "container adapter LAN address")
+    for address in (router, adapter_ip):
+        if not _is_host(subnet, address):
+            raise ConfigError("Container LAN addresses must be hosts of its subnet")
+    if adapter_ip == router:
+        raise ConfigError("Container LAN addresses must differ")
+    core = _network(value.get("core_subnet", CORE_SUBNET), "container core subnet")
+    if core.prefixlen > 29 or core.overlaps(subnet):
+        raise ConfigError("Container core subnet must hold four hosts apart from the LAN")
+    names = value["studio_hosts"]
+    if not isinstance(names, list) or not names or len(names) > 8:
+        raise ConfigError("Container studio hosts must be a short non-empty list")
+    studio_hosts = []
+    for name in names:
+        if not isinstance(name, str) or not _HOSTNAME.match(name.lower()):
+            raise ConfigError("Invalid container studio host")
+        if name.lower() not in studio_hosts:
+            studio_hosts.append(name.lower())
+    return ContainerConfig(parent=lan["parent"], subnet=str(subnet), router=router,
+                           adapter_ip=adapter_ip, core_subnet=str(core),
+                           studio_hosts=tuple(studio_hosts))
+
+
+def _setup(value, container=None):
     _fields(value, set(), {"bind", "port"}, "setup")
-    return SetupConfig(bind=_address(value.get("bind", "127.0.0.1"), "setup bind address"),
-                       port=_port(value.get("port", 19881), "setup port"))
+    default = "127.0.0.1" if container is None else "0.0.0.0"
+    bind = _address(value.get("bind", default), "setup bind address")
+    if container is not None and bind != "0.0.0.0":
+        # The studio container has only the core network; Docker publishes its port.
+        raise ConfigError("Container profile serves Light Studio on all interfaces")
+    return SetupConfig(bind=bind, port=_port(value.get("port", 19881), "setup port"))
 
 
-def _gateway(value, adapter_port):
+def _gateway(value, adapter_port, adapter_host="host.docker.internal"):
     flags = ("live_output", "hue_strip", "hue_play", "entertainment", "gradient")
     _fields(value, {"lan_ip", "mac"},
             {"container_name", "image", "adapter_url", "timezone", *flags}, "gateway")
@@ -138,7 +222,7 @@ def _gateway(value, adapter_port):
     timezone = value.get("timezone", "America/Toronto")
     if not isinstance(timezone, str) or not _TIMEZONE.match(timezone):
         raise ConfigError("Invalid gateway timezone")
-    url = value.get("adapter_url", f"http://host.docker.internal:{adapter_port}")
+    url = value.get("adapter_url", f"http://{adapter_host}:{adapter_port}")
     parsed = urlsplit(url) if isinstance(url, str) else None
     if (parsed is None or parsed.scheme != "http" or not parsed.hostname
             or parsed.username or parsed.password or parsed.path not in ("", "/")
@@ -165,6 +249,7 @@ class ServiceConfig:
     power_authority: str = "owner"
     setup: SetupConfig = SetupConfig()
     gateway: GatewayConfig | None = None
+    container: ContainerConfig | None = None
 
     def arguments(self):
         result = [
@@ -196,7 +281,7 @@ class ServiceConfig:
 def load_config(path):
     path = Path(path).resolve()
     data = read_json(path, "service configuration")
-    _fields(data, {"version", "state_dir", "adapter"}, {"setup", "gateway"},
+    _fields(data, {"version", "state_dir", "adapter"}, {"setup", "gateway", "container"},
             "service configuration")
     if type(data["version"]) is not int or data["version"] != 1:
         raise ConfigError("Unsupported service configuration version")
@@ -211,10 +296,26 @@ def load_config(path):
     for field in ("gradient", "hue_play"):
         if type(options.get(field, False)) is not bool:
             raise ConfigError(f"Expected boolean {field}")
+    container = None
+    if "container" in data:
+        if "gateway" not in data:
+            raise ConfigError("Container profile requires a gateway section")
+        container = _container(data["container"])
     port = _port(options.get("port", 19880), "adapter port")
-    bind = _address(options.get("bind", "127.0.0.1"), "adapter bind address")
-    setup = _setup(data.get("setup", {}))
-    gateway = _gateway(data["gateway"], port) if "gateway" in data else None
+    default_bind = "127.0.0.1" if container is None else container.adapter_core
+    bind = _address(options.get("bind", default_bind), "adapter bind address")
+    if container is not None and bind != container.adapter_core:
+        # Homebridge on the NAS host reaches the adapter on the core network only.
+        raise ConfigError("Container profile binds the adapter to its core address")
+    setup = _setup(data.get("setup", {}), container)
+    gateway = None
+    if "gateway" in data:
+        gateway = _gateway(data["gateway"], port,
+                           "host.docker.internal" if container is None else container.adapter_core)
+    if container is not None:
+        if (not _is_host(ipaddress.IPv4Network(container.subnet), gateway.lan_ip)
+                or gateway.lan_ip in (container.router, container.adapter_ip)):
+            raise ConfigError("Gateway LAN address must be a free host of the container LAN")
     if gateway is not None and ipaddress.IPv4Address(bind).is_loopback:
         # A container reaches the host through its network, never its loopback.
         raise ConfigError("Gateway requires an adapter bind reachable from its container")
@@ -225,6 +326,14 @@ def load_config(path):
             for key in optional_paths
         }
     )
+    state_dir = _path(path.parent, data["state_dir"], "state_dir")
+    if container is not None:
+        # Only the configuration directory and state_dir are mounted into containers.
+        for value in resolved.values():
+            if value is not None and not (value.is_relative_to(path.parent)
+                                          or value.is_relative_to(state_dir)):
+                raise ConfigError("Container profile files must be in the configuration "
+                                  "directory or state_dir")
     if resolved["token_file"] == resolved["power_owner_token_file"]:
         raise ConfigError("Adapter and power credentials must be separate")
     if options.get("hue_play", False) and resolved["hue_config_file"] is None:
@@ -236,7 +345,7 @@ def load_config(path):
     if resolved["hue_stream_config_file"] and not options.get("hue_play", False):
         raise ConfigError("Native video requires Hue Play")
     return ServiceConfig(
-        state_dir=_path(path.parent, data["state_dir"], "state_dir"),
+        state_dir=state_dir,
         bind=bind,
         port=port,
         gradient=options.get("gradient", False),
@@ -244,5 +353,6 @@ def load_config(path):
         power_authority=options.get("power_authority", "owner"),
         setup=setup,
         gateway=gateway,
+        container=container,
         **resolved,
     )
