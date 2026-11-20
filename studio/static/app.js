@@ -128,14 +128,16 @@ function liveFresh(){return !!liveSnapshot&&!document.hidden&&performance.now()-
 const validRgb=c=>Array.isArray(c)&&c.length===3&&c.every(v=>Number.isInteger(v)&&v>=0&&v<=255);
 function rgbHex(rgb){return '#'+rgb.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('')}
 // Zone colours to draw (Govee bottom-to-top, strip nine anchors, Play one), or null when unlit.
-// The Sync view without running Sync previews Sync on every Sync lamp from the demo picture.
+// The Sync view without running Sync previews Sync on every Sync lamp from the demo picture;
+// the view without Sync while Sync runs previews the lamps' own light as a demo scene.
 function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
 // What the lamp emits now, as the adapter reports it.
 function emittedColors(l){
  if(l.unbound||l.enabled===false||!isRole(l.id)||!liveFresh()||lampBlocker(l))return null;
  const row=liveSnapshot.lamps&&typeof liveSnapshot.lamps==='object'?liveSnapshot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
- // The view without Sync shows the lamps' own light only, even while Sync runs.
+ // The view without Sync shows the lamps' own light; a lamp that runs Sync shows the demo scene.
+ if(row.source==='sync-output'&&mode!=='sync')return sceneDemoColors(l);
  if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;
  if(!Array.isArray(row.colors)||!row.colors.length||!row.colors.every(validRgb))return null;
  const colors=Array.from({length:l.zones},(_,i)=>row.colors[row.colors.length===1?0:Math.min(i,row.colors.length-1)]);
@@ -483,6 +485,18 @@ function liveScreenStops(){
  return colors&&colors.length>=9?stripStops(colors).map(rgbHex):null;
 }
 const syncPreview=()=>mode==='sync'&&liveState()!=='active';
+const scenePreview=()=>mode!=='sync'&&liveState()==='active'&&activeLamps().some(l=>liveSnapshot.lamps?.[l.id]?.source==='sync-output');
+// A warm white, each lamp at its correction without Sync: what the demo scene shows.
+const SCENE_DEMO=[255,214,170];
+function sceneDemoColors(l){
+ if(!isRole(l.id)||l.unbound||l.enabled===false)return null;
+ const k=corr(l,'scene')/100;if(!(k>0))return null;
+ return Array.from({length:l.zones},()=>SCENE_DEMO.map(v=>Math.round(v*k)));
+}
+// The view without Sync has no picture; while its scene is a demo the screen says so.
+function sceneScreenSvg({cx,cy,mh}){
+ return '<g id="scene-screen" pointer-events="none"><text class="screen-demo" x="'+(cx+mh*.03)+'" y="'+cy+'" font-size="'+(+(mh*.2).toFixed(1))+'" text-anchor="middle" dominant-baseline="central" opacity="'+(scenePreview()?1:0)+'" data-scene-demo>Demo</text></g>';
+}
 const screenDemo=()=>mode==='sync'&&!liveScreenStops();
 const screenStops=()=>liveScreenStops()||Array(5).fill(SCREEN_DARK);
 const SCREEN_DARK='#1d222b',DEMO_WEDGES=90;
@@ -580,7 +594,7 @@ function renderBaseScene(){
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" x="-200%" y="-100%" width="500%" height="300%"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
  out+=syncVisibilitySvg();
- out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):'')+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
+ out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
  $('#stage').innerHTML=out;applyFocus();updateStageViewport();
 }
 const RAY_MS=280;
@@ -674,7 +688,7 @@ function maskWashes(){document.querySelectorAll('#wash-layer [data-wash-for]').f
 function setAttr(node,key,value){if(node&&node.getAttribute(key)!==String(value))node.setAttribute(key,String(value))}
 function setVar(node,key,value){if(node&&node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)}
 function statusKey(){
- return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level,screenDemo(),syncPreview()]);
+ return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level,screenDemo(),syncPreview(),scenePreview()]);
 }
 // Telemetry changes existing SVG attributes only: no layout rebuild, no save.
 function paintLive(){
@@ -693,6 +707,7 @@ function paintLive(){
   if(badge){setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
+ setAttr(stage.querySelector('[data-scene-demo]'),'opacity',scenePreview()?1:0);
  const screen=stage.querySelector('#sync-screen');
  if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops[i]));const demo=screenDemo()?1:0;setAttr(screen.querySelector('[data-screen-demo]'),'opacity',demo);setAttr(screen.querySelector('#screen-demo-image'),'opacity',demo);setAttr(screen.querySelector('#screen-image'),'opacity',1-demo)}
  stage.querySelectorAll('#sync-links [data-k]').forEach(n=>{

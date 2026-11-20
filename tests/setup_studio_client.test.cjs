@@ -544,12 +544,20 @@ test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  assert.equal(app.stage.querySelectorAll('#sync-links .ray').length,rays.length,'the monitor shows every lit lamp');
 });
 
-test('the view without Sync shows only the lamps own light, even while Sync runs',async()=>{
- const app=await harness({live:liveOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'})}})});
- assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0','Sync colours stay off the scene');
- assert.equal(app.lamp('play-right').querySelector('[data-sync-power]').getAttribute('opacity'),'1','own light stays visible');
+test('while Sync runs the view without Sync shows a demo scene instead of the Sync colours',async()=>{
+ const remote=saved();remote.devices.find(r=>r.id==='play-left').sceneScale=50;
+ const app=await harness({layout:remote,live:liveOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'}),'play-center':lit([[0,255,0]],{on:false})}})});
+ const beam=id=>app.lamp(id).querySelector('[data-beam]').style.getPropertyValue('--beam');
+ assert.match(beam('play-left'),/^#ffd[56]a[9a]$/,'a Sync lamp shows the demo warm white, not its Sync red');
+ assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),String(+Math.sqrt(128/255).toFixed(3)),'at its correction without Sync');
+ assert.equal(beam('play-right'),'#0000ff','own light stays as it is');
+ assert.equal(app.lamp('play-center').querySelector('[data-sync-power]').getAttribute('opacity'),'0','a lamp that is off stays dark');
+ assert.equal(app.stage.querySelector('[data-scene-demo]').getAttribute('opacity'),'1','the screen says Demo');
  await app.click(app.$('#sync-tool'));
- assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),'1','the Sync view shows them');
+ assert.equal(beam('play-left'),'#ff0000','the Sync view shows the real Sync colours');
+ await app.click(app.$('#sync-tool'));
+ const off=await harness({live:liveOk({sync:{state:'off',reason:'explicit_stop'},lamps:{'play-right':lit([[0,0,255]],{source:'scene-output'})}})});
+ assert.equal(off.stage.querySelector('[data-scene-demo]').getAttribute('opacity'),'0','without Sync the scene is real');
 });
 
 test('without running Sync the Sync view previews the demo picture on the screen and every Sync lamp',async()=>{

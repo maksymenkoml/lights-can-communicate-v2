@@ -138,7 +138,10 @@ deadline and an independent 1500 ms freshness guard; hidden pages stop polling.
 Each enrolled lamp is painted from its emitted zone colours (Govee seven zones
 bottom to top, the monitor strip nine, Play one). A lamp is drawn unlit when it
 is off, stale, offline, excluded or blocked. In the Sync view the monitor shows a
-soft gradient of the strip's colours while Sync is active. Telemetry only
+soft gradient of the strip's colours while Sync is active. The view without Sync
+never shows Sync colours: while Sync runs, each lamp that runs it shows a demo
+scene instead (a warm white at its correction without Sync) and the screen reads
+Demo, as the Sync view does with its demo picture while Sync is off. Telemetry only
 repaints existing SVG attributes: it never rebuilds the layout and never saves.
 
 The Sync status in the Sync Box corner shows Syncing, Waiting for frames, Hue
