@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
+from sync_guard import SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -423,6 +424,22 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             return 400, {"error": "invalid calibration request"}
         return 503, {"active": False, "reason": "adapter unavailable"}
 
+    def stream_state():
+        sync = live().get("sync")
+        return sync.get("state") if isinstance(sync, dict) else None
+
+    # Restarts Sync on the box when frames stop reaching the adapter (see sync_guard).
+    guard = SyncGuard(box, stream_state)
+
+    def box_status():
+        return {**box.status(), **guard.public()}
+
+    def set_sync(active):
+        code, status = box.set_sync(active)
+        if code == 200:
+            (guard.started if active else guard.stopped)()
+        return code, {**status, **guard.public()}
+
     def validate_bindings(data):
         if not isinstance(data, dict) or not isinstance(data.get("devices"), list):
             raise ValueError("Expected layout devices")
@@ -484,7 +501,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             if path == "/api/live":
                 return self.respond(200, live())
             if path == "/api/sync-box":
-                return self.respond(200, box.status())
+                return self.respond(200, box_status())
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):
@@ -578,7 +595,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 if action == "sync":
                     if set(data) != {"active"} or not isinstance(data["active"], bool):
                         raise ValueError("Expected active")
-                    return self.respond(*box.set_sync(data["active"]))
+                    return self.respond(*set_sync(data["active"]))
                 if data:
                     raise ValueError("Expected an empty object")
                 return self.respond(200, {"find": box.find, "cancel": box.cancel,
@@ -599,20 +616,25 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 self.headers.get("Sec-Fetch-Site") != "cross-site"
             )
 
+    Handler.guard = guard
     return Handler
 
 
 def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
           adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1"):
     """Serve until interrupted; SIGTERM handling belongs to the caller."""
-    server = ThreadingHTTPServer((bind, port), handler_for(
-        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url))
+    handler = handler_for(
+        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url)
+    server = ThreadingHTTPServer((bind, port), handler)
+    stop = threading.Event()
+    threading.Thread(target=handler.guard.run, args=(stop,), daemon=True).start()
     print(f"Setup studio: http://{bind}:{port} (autosaved desk setup)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stop.set()
         server.server_close()
 
 

@@ -211,6 +211,7 @@ function cornerStatus(){
  if(s==='offline')return {level:'bad',label:'Sync Box offline',detail:'The Sync Box does not answer'};
  if(s==='unauthorized')return {level:'bad',label:'Sync Box disconnected',detail:'Its access was removed'};
  if(s==='connecting'||s==='timeout')return {level:'wait',label:'Connecting…',detail:'Connecting the Sync Box'};
+ if(s==='ready'&&box.recovery==='restarting')return {level:'wait',label:'Restarting Sync…',detail:'No frames reached the lamps, so Sync starts again'};
  if(busy===true)return {level:'wait',label:'Starting…',detail:'The Sync Box is starting Sync'};
  if(busy===false)return {level:'wait',label:'Stopping…',detail:'The Sync Box is stopping Sync'};
  if(!box.syncing)return {level:'idle',label:'Sync off',detail:'Lamps keep their own light'};
@@ -1551,12 +1552,13 @@ async function refreshBox(){
 // An action answer is newer than any poll still on its way.
 function applyBox(next){++boxGeneration;if(next&&typeof next.state==='string')setBox(next);scheduleBox()}
 function setBox(next){
- const was=box.state,wasSyncing=box.syncing===true;box=next&&typeof next.state==='string'?next:{state:'unknown'};
+ const was=box.state,wasSyncing=box.syncing===true,wasRecovery=box.recovery;box=next&&typeof next.state==='string'?next:{state:'unknown'};
  // Sync that starts while this page watches gets time for its first frames.
  if(box.syncing===true&&!wasSyncing&&was!=='unknown')markSyncStart();
  if(box.syncing!==true&&box.changing!==true&&boxBusy!==true)syncStartedAt=null;
  // Sync that ends without a Stop from Light Studio (the box gave up, or the Hue app) is news.
- if(wasSyncing&&box.state==='ready'&&box.syncing===false&&boxBusy===null&&box.changing==null)boxSay('Sync stopped on the Sync Box','bad');
+ if(wasSyncing&&box.state==='ready'&&box.syncing===false&&boxBusy===null&&box.changing==null&&!box.recovery&&!wasRecovery)boxSay('Sync stopped on the Sync Box','bad');
+ if(box.recovery==='failed'&&wasRecovery!=='failed')boxSay('Sync did not come back. Stop and start it again','bad');
  if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
  paintBox();
 }

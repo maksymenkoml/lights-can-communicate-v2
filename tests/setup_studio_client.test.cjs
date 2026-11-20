@@ -1131,3 +1131,17 @@ test('Sync that ends without a Stop from here is said in the corner',async()=>{
  assert.equal(said(app),'Sync stopped on the Sync Box','a Stop from here says nothing new');
  await app.advance(4000);assert.equal(said(app),'');
 });
+
+test('the corner shows the guard restarting Sync and says when it gives up',async()=>{
+ const box=fakeBox({...BOX,syncing:true});
+ const app=await harness({live:WAITING,syncBox:box.api});
+ box.status={...BOX,syncing:false,recovery:'restarting'};
+ await app.advance(3000);
+ assert.equal(status(app),'Restarting Sync…');
+ assert.equal(said(app),'','the guard\'s own Stop is not news');
+ box.status={...BOX,syncing:true,recovery:'failed'};
+ await app.advance(3000);
+ assert.equal(said(app),'Sync did not come back. Stop and start it again');
+ await app.advance(20100);
+ assert.equal(status(app)+' | '+action(app),'Waiting for frames | Stop Sync','after the start time');
+});

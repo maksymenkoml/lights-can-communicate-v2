@@ -317,8 +317,9 @@ class StudioSyncBoxRouteTests(unittest.TestCase):
         self.box = FakeBox()
         self.control = SyncBox(folder / "sync-box.json", transport=self.box,
                                find=lambda: [self.box.ip], background=False)
-        server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler_for(
-            folder / "missing-token", folder / "desk-layout.json", sync_box=self.control))
+        self.handler = studio.handler_for(
+            folder / "missing-token", folder / "desk-layout.json", sync_box=self.control)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
         self.base = "http://127.0.0.1:" + str(server.server_port)
@@ -362,6 +363,22 @@ class StudioSyncBoxRouteTests(unittest.TestCase):
         self.assertNotIn(TOKEN, json.dumps(status))
         self.assertNotIn(PIN, json.dumps(status))
         self.assertEqual(self.call("/api/sync-box/forget", {}), (200, {"state": "none"}))
+
+    def test_start_and_stop_tell_the_guard_and_the_page_sees_its_recovery(self):
+        self.box.button = True
+        self.call("/api/sync-box/pair", {"ip": "192.168.10.101"})
+        end = time.monotonic() + 3
+        while self.call("/api/sync-box")[1]["state"] != "ready":
+            self.assertLess(time.monotonic(), end)
+            time.sleep(0.02)
+        guard = self.handler.guard
+        self.call("/api/sync-box/sync", {"active": True})
+        self.assertIsNotNone(guard.started_at, "a Start from Light Studio is the owner's")
+        guard.state = "restarting"
+        self.assertEqual(self.call("/api/sync-box")[1]["recovery"], "restarting")
+        self.call("/api/sync-box/sync", {"active": False})
+        self.assertIsNone(guard.started_at)
+        self.assertNotIn("recovery", self.call("/api/sync-box")[1])
 
     def test_bad_requests_are_refused(self):
         self.assertEqual(self.call("/api/sync-box/pair", {"ip": "8.8.8.8"})[0], 400)

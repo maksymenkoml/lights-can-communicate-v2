@@ -86,6 +86,18 @@ up to 20 s for the first frames; Stopping… ends in Sync off at once; the
 adapter's health speaks only while Sync runs past its start. The box name and
 Forget move behind a click on the status.
 
+### Third revision (owner, 2026-11-19): demo scene, stop message, restart guard
+
+- The view without Sync showed nothing while Sync ran; it now shows a demo scene
+  (warm white at each lamp's correction without Sync) with Demo on the screen,
+  mirroring the Sync view's demo picture while Sync is off.
+- Sync that ends without a Stop from Light Studio is said in the corner.
+- A redeploy that recreated the bridge while the box streamed left the stream at
+  `off/starting`; the box also dropped Starts while the bridge warmed up. The
+  owner asked for protection from such restarts: a guard in the Light Studio
+  server restarts Sync on the box (up to three times, growing pauses) and never
+  undoes a Stop.
+
 ## Left to the builder
 
 Polling cadence, error wording, card animation reuse, test structure.
