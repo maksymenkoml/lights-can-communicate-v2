@@ -930,10 +930,22 @@ test('the toolbar has only the Settings switch; the Sync status is in the corner
  assert.ok(app.$('#sync-box .box-bar #sync-status'));
 });
 
-test('without a box the corner shows the adapter status and Connect',async()=>{
+test('without a box the corner shows Connect, and the adapter status only once Sync is attempted',async()=>{
  const app=await harness();
  assert.equal(status(app),'Syncing');
  assert.equal(action(app),'Connect Sync Box');
+ const idle=await harness({live:liveOk({sync:{state:'off',reason:'explicit_stop'}})});
+ assert.equal(idle.$('#sync-status').hidden,true,'Not syncing next to Connect is not news');
+ assert.equal(action(idle),'Connect Sync Box');
+ const waiting=await harness({live:WAITING});
+ assert.equal(waiting.$('#sync-status').hidden,false);
+});
+
+test('controls in the box card have no tooltips that repeat their words',async()=>{
+ const app=await harness({syncBox:fakeBox().api});
+ await app.click(app.$('#sync-box [data-box="connect"]'));
+ app.run('annotateTooltips()');
+ assert.deepEqual(app.$('#box-card').querySelectorAll('[data-tooltip]').map(n=>n.dataset.tooltip),[]);
 });
 
 test('the card connects the box found on the network in two steps, all inside the corner',async()=>{

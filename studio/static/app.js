@@ -203,7 +203,8 @@ let syncStartedAt=null,syncStartTimer=null;
 function markSyncStart(){syncStartedAt=performance.now();clearTimeout(syncStartTimer);syncStartTimer=setTimeout(paintStatus,SYNC_START_MS+50)}
 function cornerStatus(){
  const st=syncStatus(),s=box.state;
- if(s==='unknown'||s==='none')return st;
+ // Without a box the adapter's view is news only once Sync is attempted (from the Hue app).
+ if(s==='unknown'||s==='none')return st.level==='idle'||st.level==='unknown'?{...st,quiet:true}:st;
  const busy=boxBusy??box.changing??null;
  if(s==='offline')return {level:'bad',label:'Sync Box offline',detail:'The Sync Box does not answer'};
  if(s==='unauthorized')return {level:'bad',label:'Sync Box disconnected',detail:'Its access was removed'};
@@ -217,6 +218,7 @@ function cornerStatus(){
 }
 function paintStatus(){
  const el=$('#sync-status');if(!el)return;const st=cornerStatus(),label='Sync status: '+st.label;
+ if(el.hidden!==!!st.quiet)el.hidden=!!st.quiet;
  if(el.dataset.level!==st.level)el.dataset.level=st.level;
  el.style.setProperty('--s-color',levelColor[st.level]||'var(--unknown)');
  const text=el.querySelector('span');if(text.textContent!==st.label)text.textContent=st.label;
@@ -1359,6 +1361,8 @@ function tooltipLabelText(node){
  if(node.classList.contains('lp-row'))return '';
  if(node.id==='sync-tool')return mode==='sync'?'Settings with Sync':'Settings without Sync';
  if(node.id==='sync-status')return cornerStatus().detail;
+ // Every control in the box card says what it does in its own words.
+ if(node.closest('#box-card'))return '';
  if(node.classList.contains('health-badge'))return node.dataset.tooltip;
  if(node.id==='scene-toggle')return darkScene?'Show the light scene':'Show the dark scene';
  if(node.id==='undo')return node.disabled?'Nothing to undo':'Undo · ⌘Z';

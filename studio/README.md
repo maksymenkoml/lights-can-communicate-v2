@@ -156,7 +156,7 @@ Nothing about Sync is shown at the bottom of the page.
 
 | Situation | Status | Action |
 | --- | --- | --- |
-| No box | the adapter's status (see Live colours and Sync status) | Connect Sync Box |
+| No box | none, or the adapter's status once Sync runs from the Hue app (see Live colours and Sync status) | Connect Sync Box |
 | Sync off | Sync off | Start Sync |
 | Start sent, box not answered yet | Starting… | Start Sync (disabled) |
 | Box runs Sync, first frames not in yet (up to 20 s) | Starting… | Stop Sync |
