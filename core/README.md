@@ -499,7 +499,7 @@ switches it off; at the end it switches the recorded lamps on again.
 It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
 "reason"}` when refused, 503 when a command was not delivered and 400 on bad
 input. It refuses while Sync drives a native Hue role, or a Govee lamp that has
-not received a Sync frame in the last second (`sync active`), while the lamp is
+not received a DreamView frame in the last two seconds (`sync active`), while the lamp is
 off or not freshly observed (`lamp off`), while its color writer is closed
 (`writer closed`), while another blink of the same lamp runs (`busy`) and for an
 unconfigured native role (`unavailable`).
@@ -509,8 +509,9 @@ unconfigured native role (`unavailable`).
   While a blink runs, the scene and Sync writers' commands to that lamp are
   rejected and resent after the blink; other lamps keep rendering. While Sync
   drives the lamp it is in DreamView and ignores a brightness change until the
-  next frame, so the blink is three DreamView frames instead (dark, white, dark,
-  300 ms each) and the next Sync frame restores the picture.
+  next frame, so the blink is two white flashes in DreamView frames instead
+  (white, dark, white, dark, 300 ms each) and the next Sync frame restores the
+  picture.
 - Native Hue: the Hue v2 `{"identify": {"action": "identify"}}` write on the
   pinned light, through its own client method (the color write still refuses
   power and identify).

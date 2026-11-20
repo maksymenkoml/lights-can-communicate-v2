@@ -644,14 +644,13 @@ class IdentifyTests(IdentifyFixture):
         self.identify.sender = lambda device, name, data: frames.append(
             (device["side"], name, razer_colors(data))) or True
         self.assertTrue(self.identify("left"))
-        self.assertEqual(frames, [("left", "razer", [[0, 0, 0]] * 7),
-                                  ("left", "razer", [[255, 255, 255]] * 7),
-                                  ("left", "razer", [[0, 0, 0]] * 7)])
+        self.assertEqual(frames, [("left", "razer", [[255, 255, 255]] * 7),
+                                  ("left", "razer", [[0, 0, 0]] * 7)] * 2)
         self.assertNotIn("left", sync.last_sent, "the next Sync frame restores the picture")
 
     def test_a_syncing_govee_without_recent_frames_cannot_blink(self):
         sync = self.sync_video()
-        sync.razer_frame["left"] = self.now - 2
+        sync.razer_frame["left"] = self.now - 3
         with self.assertRaises(IdentifyRefused) as refused:
             self.identify("left")
         self.assertEqual(refused.exception.reason, "sync active")
@@ -669,7 +668,18 @@ class IdentifyTests(IdentifyFixture):
         self.identify.sleep = pause
         self.identify.sender = lambda device, name, data: True
         self.identify("left")
-        self.assertEqual(held, [False, "right", True] * 3)
+        self.assertEqual(held, [False, "right", True] * 4)
+
+    def test_blinks_in_a_row_keep_dreamview_fresh(self):
+        self.sync_video()
+
+        def pause(seconds):
+            self.now += seconds
+
+        self.identify.sleep = pause
+        self.identify.sender = lambda device, name, data: True
+        for _ in range(4):
+            self.assertTrue(self.identify("left"), "no Sync frame lands between blinks")
 
     def test_failed_dip_still_restores_and_reports_failure(self):
         sent = []

@@ -8,10 +8,12 @@ because a rejected write leaves the controller's target unsent), so they never
 race the dips. Other sides keep rendering.
 
 While Sync drives a Govee lamp, the lamp is in DreamView and ignores a
-brightness change until the next frame, so the blink is three DreamView frames
-instead (dark, white, dark) while Sync frames to that side are held by the same
-fence; the next Sync frame restores the picture. Only while the lamp received a
-Sync frame within the last second.
+brightness change until the next frame, so the blink is two white flashes in
+DreamView frames instead (white, dark, white, dark) while Sync frames to that
+side are held by the same fence; the next Sync frame restores the picture. A
+single 0.3 s flash was easy to miss in a moving Sync picture; the owner saw
+repeated ones. Only while the lamp received a DreamView frame within the last
+two seconds.
 
 Native Hue: the Hue API v2 ``identify`` action on the pinned light, only while
 the light is on and freshly observed. It refuses while Sync drives the role
@@ -33,8 +35,8 @@ IDENTIFY_ROLES = GOVEE_ROLES + NATIVE_ROLES
 DIP_BRIGHTNESS = 10
 STEP_SECONDS = 0.3
 STATUS_SECONDS = 0.75
-# A Sync frame this recent shows the lamp is in DreamView and receiving.
-DREAMVIEW_SECONDS = 1.0
+# A DreamView frame this recent shows the lamp is in DreamView and receiving.
+DREAMVIEW_SECONDS = 2.0
 DARK, WHITE = (0, 0, 0), (255, 255, 255)
 
 
@@ -173,9 +175,14 @@ class Identify:
         count = len(segments)
         delivered = True
         try:
-            for color in (DARK, WHITE, DARK):
+            for color in (WHITE, DARK, WHITE, DARK):
                 frame = razer_data([list(color)] * count)
-                delivered = sender(device, "razer", frame) is True and delivered
+                sent = sender(device, "razer", frame) is True
+                delivered = sent and delivered
+                if sent:
+                    with sync.lock:
+                        # Keeps DreamView fresh for the idle timer and a next blink.
+                        sync.razer_frame[side] = sync.clock()
                 self.sleep(STEP_SECONDS)
         except OSError:
             delivered = False
