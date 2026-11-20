@@ -188,6 +188,7 @@ def _setup(config):
         config.token_file, config.state_dir / "desk-layout.json",
         bind=config.setup.bind, port=config.setup.port,
         adapter_url=services.local_adapter_url(config),
+        gateway_container=config.gateway.container_name if config.gateway else None,
     ))
     return 0
 

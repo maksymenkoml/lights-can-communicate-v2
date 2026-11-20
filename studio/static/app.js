@@ -128,14 +128,16 @@ function liveFresh(){return !!liveSnapshot&&!document.hidden&&performance.now()-
 const validRgb=c=>Array.isArray(c)&&c.length===3&&c.every(v=>Number.isInteger(v)&&v>=0&&v<=255);
 function rgbHex(rgb){return '#'+rgb.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('')}
 // Zone colours to draw (Govee bottom-to-top, strip nine anchors, Play one), or null when unlit.
-// The Sync view without running Sync previews Sync on every Sync lamp from the demo picture.
+// The Sync view without running Sync previews Sync on every Sync lamp from the demo picture;
+// the view without Sync while Sync runs previews the lamps' own light as a demo scene.
 function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
 // What the lamp emits now, as the adapter reports it.
 function emittedColors(l){
  if(l.unbound||l.enabled===false||!isRole(l.id)||!liveFresh()||lampBlocker(l))return null;
  const row=liveSnapshot.lamps&&typeof liveSnapshot.lamps==='object'?liveSnapshot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
- // The view without Sync shows the lamps' own light only, even while Sync runs.
+ // The view without Sync shows the lamps' own light; a lamp that runs Sync shows the demo scene.
+ if(row.source==='sync-output'&&mode!=='sync')return sceneDemoColors(l);
  if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;
  if(!Array.isArray(row.colors)||!row.colors.length||!row.colors.every(validRgb))return null;
  const colors=Array.from({length:l.zones},(_,i)=>row.colors[row.colors.length===1?0:Math.min(i,row.colors.length-1)]);
@@ -194,8 +196,32 @@ function syncStatus(){
  if(p.length){const worst=p.some(l=>blockerLevel(lampBlocker(l))==='bad')?'bad':'wait';return {level:worst,label:p.length===1?p[0].name+' '+blockerText(lampBlocker(p[0])):p.length+' lamps not lit',detail:p.length===1?'Click to show the lamp':p.map(l=>l.name).join(', '),lamp:p[0].id}}
  return {level:'ok',label:'Syncing',detail:'Lamps take color from the screen'};
 }
+// One Sync status in the corner. With a box, the box decides whether Sync is on;
+// the adapter's health speaks only once Sync has had time to start, and never
+// while it starts or after it stopped (the stream winding down is not news).
+const SYNC_START_MS=20000;
+let syncStartedAt=null,syncStartTimer=null;
+// The status may change when the start time ends even if nothing else does.
+function markSyncStart(){syncStartedAt=performance.now();clearTimeout(syncStartTimer);syncStartTimer=setTimeout(paintStatus,SYNC_START_MS+50)}
+function cornerStatus(){
+ const st=syncStatus(),s=box.state;
+ // Without a box the adapter's view is news only once Sync is attempted (from the Hue app).
+ if(s==='unknown'||s==='none')return st.level==='idle'||st.level==='unknown'?{...st,quiet:true}:st;
+ const busy=boxBusy??box.changing??null;
+ if(s==='offline')return {level:'bad',label:'Sync Box offline',detail:'The Sync Box does not answer'};
+ if(s==='unauthorized')return {level:'bad',label:'Sync Box disconnected',detail:'Its access was removed'};
+ if(s==='connecting'||s==='timeout'||s==='failed')return {level:'wait',label:'Connecting…',detail:'Connecting the Sync Box'};
+ if(s==='ready'&&box.recovery==='restarting')return {level:'wait',label:'Restarting Sync…',detail:'No frames reached the lamps, so Sync starts again'};
+ if(busy===true)return {level:'wait',label:'Starting…',detail:'The Sync Box is starting Sync'};
+ if(busy===false)return {level:'wait',label:'Stopping…',detail:'The Sync Box is stopping Sync'};
+ if(!box.syncing)return {level:'idle',label:'Sync off',detail:'Lamps keep their own light'};
+ if(st.level!=='ok'&&syncStartedAt!==null&&performance.now()-syncStartedAt<SYNC_START_MS)return {level:'wait',label:'Starting…',detail:'Waiting for the first frames'};
+ if(st.level==='idle'&&st.label==='Not syncing')return {level:'wait',label:'Waiting for frames',detail:'No image from the monitor'};
+ return st;
+}
 function paintStatus(){
- const el=$('#sync-status');if(!el)return;const st=syncStatus(),label='Sync status: '+st.label;
+ const el=$('#sync-status');if(!el)return;const st=cornerStatus(),label='Sync status: '+st.label;
+ if(el.hidden!==!!st.quiet)el.hidden=!!st.quiet;
  if(el.dataset.level!==st.level)el.dataset.level=st.level;
  el.style.setProperty('--s-color',levelColor[st.level]||'var(--unknown)');
  const text=el.querySelector('span');if(text.textContent!==st.label)text.textContent=st.label;
@@ -460,6 +486,18 @@ function liveScreenStops(){
  return colors&&colors.length>=9?stripStops(colors).map(rgbHex):null;
 }
 const syncPreview=()=>mode==='sync'&&liveState()!=='active';
+const scenePreview=()=>mode!=='sync'&&liveState()==='active'&&activeLamps().some(l=>liveSnapshot.lamps?.[l.id]?.source==='sync-output');
+// A warm white, each lamp at its correction without Sync: what the demo scene shows.
+const SCENE_DEMO=[255,214,170];
+function sceneDemoColors(l){
+ if(!isRole(l.id)||l.unbound||l.enabled===false)return null;
+ const k=corr(l,'scene')/100;if(!(k>0))return null;
+ return Array.from({length:l.zones},()=>SCENE_DEMO.map(v=>Math.round(v*k)));
+}
+// The view without Sync has no picture; while its scene is a demo the screen says so.
+function sceneScreenSvg({cx,cy,mh}){
+ return '<g id="scene-screen" pointer-events="none"><text class="screen-demo" x="'+(cx+mh*.03)+'" y="'+cy+'" font-size="'+(+(mh*.2).toFixed(1))+'" text-anchor="middle" dominant-baseline="central" opacity="'+(scenePreview()?1:0)+'" data-scene-demo>Demo</text></g>';
+}
 const screenDemo=()=>mode==='sync'&&!liveScreenStops();
 const screenStops=()=>liveScreenStops()||Array(5).fill(SCREEN_DARK);
 const SCREEN_DARK='#1d222b',DEMO_WEDGES=90;
@@ -557,7 +595,7 @@ function renderBaseScene(){
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" x="-200%" y="-100%" width="500%" height="300%"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
  out+=syncVisibilitySvg();
- out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):'')+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
+ out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
  $('#stage').innerHTML=out;applyFocus();updateStageViewport();
 }
 const RAY_MS=280;
@@ -651,7 +689,7 @@ function maskWashes(){document.querySelectorAll('#wash-layer [data-wash-for]').f
 function setAttr(node,key,value){if(node&&node.getAttribute(key)!==String(value))node.setAttribute(key,String(value))}
 function setVar(node,key,value){if(node&&node.style.getPropertyValue(key)!==value)node.style.setProperty(key,value)}
 function statusKey(){
- return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level,screenDemo(),syncPreview()]);
+ return JSON.stringify([syncStatus(),lamps.map(l=>[l.id,!!lampBlocker(l)&&blockerText(lampBlocker(l)),lampDark(l)]),globalHealth().level,screenDemo(),syncPreview(),scenePreview()]);
 }
 // Telemetry changes existing SVG attributes only: no layout rebuild, no save.
 function paintLive(){
@@ -670,6 +708,7 @@ function paintLive(){
   if(badge){setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
+ setAttr(stage.querySelector('[data-scene-demo]'),'opacity',scenePreview()?1:0);
  const screen=stage.querySelector('#sync-screen');
  if(screen){const stops=screenStops();screen.querySelectorAll('#screen-colors stop').forEach((s,i)=>setAttr(s,'stop-color',stops[i]));const demo=screenDemo()?1:0;setAttr(screen.querySelector('[data-screen-demo]'),'opacity',demo);setAttr(screen.querySelector('#screen-demo-image'),'opacity',demo);setAttr(screen.querySelector('#screen-image'),'opacity',1-demo)}
  stage.querySelectorAll('#sync-links [data-k]').forEach(n=>{
@@ -1337,7 +1376,9 @@ function tooltipLabelText(node){
  const native=node.getAttribute('title');if(native){node.dataset.originalTitle=native;node.removeAttribute('title')}
  if(node.classList.contains('lp-row'))return '';
  if(node.id==='sync-tool')return mode==='sync'?'Settings with Sync':'Settings without Sync';
- if(node.id==='sync-status')return syncStatus().detail;
+ if(node.id==='sync-status')return cornerStatus().detail;
+ // Every control in the box card says what it does in its own words.
+ if(node.closest('#box-card'))return '';
  if(node.classList.contains('health-badge'))return node.dataset.tooltip;
  if(node.id==='scene-toggle')return darkScene?'Show the light scene':'Show the dark scene';
  if(node.id==='undo')return node.disabled?'Nothing to undo':'Undo · ⌘Z';
@@ -1468,7 +1509,7 @@ $('#scene-toggle').addEventListener('click',toggleDarkScene);
 $('#undo').addEventListener('click',undo);
 $('#redo').addEventListener('click',redo);
 $('#empty-add').addEventListener('click',e=>{e.stopPropagation();openAdd()});
-$('#sync-status').addEventListener('click',()=>{const st=syncStatus();if(st.lamp)select(st.lamp)});
+$('#sync-status').addEventListener('click',()=>{const st=cornerStatus();if(st.lamp)select(st.lamp);else if(['ready','offline','unauthorized'].includes(box.state))boxCard==='info'?closeBoxCard():openBoxCard('info')});
 new MutationObserver(annotateTooltips).observe($('#app'),{subtree:true,childList:true,attributes:true,attributeFilter:['title','aria-label','disabled','aria-pressed','aria-expanded','data-state']});
 document.addEventListener('pointermove',event=>{
  if(event.buttons||drag||pendingDevice){hideTooltip();return}
@@ -1481,7 +1522,160 @@ document.addEventListener('click',hideTooltip,true);
 document.addEventListener('keydown',event=>{if(event.key==='Escape')hideTooltip()});
 window.addEventListener('blur',hideTooltip);window.addEventListener('resize',hideTooltip);document.addEventListener('scroll',hideTooltip,true);
 
+// ---------------------------------------------------------------- Sync Box --
+// The server owns the box and its token. The page sees public states only:
+// none, connecting, timeout, failed, ready, offline, unauthorized (unknown until the first answer).
+// Everything about the box, messages included, happens inside the corner block.
+const BOX_POLL_MS=3000,BOX_FAST_MS=1000,BOX_PAIR_S=30,BOX_RING=119.4,BOX_SAY_MS=4000;
+const boxIcons={
+ box:'<rect x="3" y="7" width="14" height="6.5" rx="1.6"/><path d="M6 10.2h.01M14 10.2h2"/>',
+ link:'<path d="M8.5 11.5l3-3M7 9l-1.8 1.8a2.6 2.6 0 0 0 3.7 3.7L10.7 13M13 11l1.8-1.8a2.6 2.6 0 0 0-3.7-3.7L9.3 7"/>',
+ play:'<path d="M7 5.2v9.6L15 10z" fill="currentColor"/>',
+ stop:'<rect x="6" y="6" width="8" height="8" rx="1.3" fill="currentColor"/>',
+ check:'<path d="m5 10.5 3.2 3L15 6.5"/>',
+ alert:'<circle cx="10" cy="10" r="7"/><path d="M10 6.5v4.2M10 13.4h.01"/>'};
+const boxSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+boxIcons[id]+'</svg>';
+let box={state:'unknown'},boxTimer=null,boxGeneration=0,boxBusy=null,boxCard=null,boxFound=null,boxForget=false,boxHtml='',boxAddress='',boxError='',boxSaid=null,boxSayTimer=null;
+const boxPairing=()=>box.state==='connecting'||box.state==='timeout'||box.state==='failed';
+async function boxPost(action,body={}){
+ try{const r=await fetch('/api/sync-box/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json().catch(()=>({}))}}
+ catch{return {status:0,body:{}}}
+}
+function scheduleBox(){clearTimeout(boxTimer);if(!document.hidden)boxTimer=setTimeout(refreshBox,box.state==='connecting'?BOX_FAST_MS:BOX_POLL_MS)}
+async function refreshBox(){
+ clearTimeout(boxTimer);const generation=++boxGeneration;
+ let next={state:'unknown'};
+ try{const r=await fetch('/api/sync-box',{cache:'no-store'});if(r.ok)next=await r.json()}catch{}
+ if(generation!==boxGeneration)return;
+ setBox(next);scheduleBox();
+}
+// An action answer is newer than any poll still on its way.
+function applyBox(next){++boxGeneration;if(next&&typeof next.state==='string')setBox(next);scheduleBox()}
+function setBox(next){
+ const was=box.state,wasSyncing=box.syncing===true,wasRecovery=box.recovery;box=next&&typeof next.state==='string'?next:{state:'unknown'};
+ // Sync that starts while this page watches gets time for its first frames.
+ if(box.syncing===true&&!wasSyncing&&was!=='unknown')markSyncStart();
+ if(box.syncing!==true&&box.changing!==true&&boxBusy!==true)syncStartedAt=null;
+ // Sync that ends without a Stop from Light Studio (the box gave up, or the Hue app) is news.
+ if(wasSyncing&&box.state==='ready'&&box.syncing===false&&boxBusy===null&&box.changing==null&&!box.recovery&&!wasRecovery)boxSay('Sync stopped on the Sync Box','bad');
+ if(box.recovery==='failed'&&wasRecovery!=='failed')boxSay('Sync did not come back. Stop and start it again','bad');
+ if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
+ paintBox();
+}
+// A short line inside the corner block; it replaces the page toast for the box.
+function boxSay(text,kind='ok'){
+ clearTimeout(boxSayTimer);boxSaid={text,kind};paintBox();
+ boxSayTimer=setTimeout(()=>{boxSaid=null;paintBox()},BOX_SAY_MS);
+}
+function boxAction(action,label,icon,kind=''){return '<button type="button" class="box-action'+(kind?' '+kind:'')+'" data-box="'+action+'">'+boxSvg(icon)+'<span>'+label+'</span></button>'}
+// The one action beside the status; while the box switches, the action it is
+// switching away from stays visible but disabled.
+function boxBar(){
+ const s=box.state;
+ if(s==='none')return boxAction('connect','Connect Sync Box','link','box-connect');
+ if(s==='unauthorized')return boxAction('connect','Reconnect','link','box-connect');
+ if(s!=='ready')return '';
+ const busy=boxBusy??box.changing??null,on=busy===null?box.syncing:!busy;
+ const html=on?boxAction('toggle','Stop Sync','stop','box-stop'):boxAction('toggle','Start Sync','play','box-start');
+ return busy===null?html:html.replace('<button ','<button disabled ');
+}
+function paintBox(){
+ const el=$('#sync-box');if(!el)return;paintStatus();
+ const html=boxBar(),act=el.querySelector('.box-act'),said=el.querySelector('.box-said');
+ el.classList.toggle('open',!!boxCard);
+ if(html!==boxHtml){boxHtml=html;act.innerHTML=html}
+ act.hidden=!html;
+ $('#sync-status').setAttribute('aria-expanded',String(boxCard==='info'));
+ act.querySelector('[data-box="connect"]')?.setAttribute('aria-expanded',String(boxCard==='connect'));
+ const text=boxSaid?boxSvg(boxSaid.kind==='ok'?'check':'alert')+'<span>'+esc(boxSaid.text)+'</span>':'';
+ said.hidden=!text;said.dataset.kind=boxSaid?.kind||'';if(said.innerHTML!==text)said.innerHTML=text;
+ paintBoxCard();
+}
+function boxRing(left){const share=Math.max(0,Math.min(1,left/BOX_PAIR_S));return '<div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div>'}
+function boxStep(n,state,title,body=''){return '<li class="box-step '+state+'"><i>'+(state==='done'?boxSvg('check'):n)+'</i><div><b>'+title+'</b>'+body+'</div></li>'}
+function boxCardHtml(){
+ if(boxCard==='info'){
+  return '<div class="box-info">'+boxSvg('box')+'<div><b>'+esc(box.name||'Sync Box')+'</b><span>'+esc(box.ip||'')+'</span></div></div>'
+   +'<div class="card-list card-end">'+(boxForget
+    ?'<div class="card-confirm"><span>Forget this Sync Box?</span><button data-box="forget-cancel">Cancel</button><button class="danger" data-box="forget-yes">Forget</button></div>'
+    :'<button class="card-row danger" data-box="forget">'+iconSvg('remove')+'<span>Forget Sync Box</span></button>')+'</div>';
+ }
+ const error=boxError?'<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+esc(boxError)+'</span></p>':'';
+ let first,second;
+ if(boxPairing()){
+  first=boxStep(1,'done','Choose your Sync Box','<span>'+esc(box.name+' · '+box.ip)+'</span>');
+  second=box.state==='connecting'
+   ?boxStep(2,'active','Hold the button on the box','<div class="box-hold">'+boxRing(box.remaining??BOX_PAIR_S)+'<span>Press and hold it for about 3 seconds, until its light blinks green.</span></div>')
+   :boxStep(2,'active','Hold the button on the box','<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+(box.state==='failed'?'Light Studio could not save the connection.':'The button was not held in time.')+'</span></p><button class="box-retry" data-box="retry">Try again</button>');
+ }else{
+  const rows=(boxFound||[]).map(b=>'<button class="card-row" data-box-ip="'+esc(b.ip)+'">'+boxSvg('box')+'<span>'+esc(b.name)+'</span><em>'+esc(b.ip)+'</em>'+iconSvg('next')+'</button>').join('');
+  const hint=boxFound===null?'Looking on this network…':boxFound.length?'Found on this network:':'None found. Enter its IP address:';
+  first=boxStep(1,'active','Choose your Sync Box','<span>'+hint+'</span>'+(rows?'<div class="card-list">'+rows+'</div>':'')
+   +'<div class="box-address"><input id="box-ip" type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(boxFound?.length?'Or an IP address':'IP address')+'" aria-label="Sync Box IP address" value="'+esc(boxAddress)+'"><button data-box="address">Connect</button></div>'+error);
+  second=boxStep(2,'todo','Hold the button on the box');
+ }
+ return '<ol class="box-steps">'+first+second+'</ol><div class="card-foot"><span class="card-gap"></span><button data-box="close">Cancel</button></div>';
+}
+function paintBoxCard(){
+ const card=$('#box-card');if(!card)return;
+ if(boxCard==='info'&&!['ready','offline','unauthorized'].includes(box.state)){boxCard=null;boxForget=false}
+ card.hidden=!boxCard;$('#sync-box').classList.toggle('open',!!boxCard);
+ if(!boxCard){if(card.innerHTML)card.innerHTML='';return}
+ const focused=document.activeElement?.id==='box-ip';
+ const html=boxCardHtml();if(card.innerHTML!==html){card.innerHTML=html;if(focused)card.querySelector('#box-ip')?.focus()}
+}
+function openBoxCard(kind){
+ boxCard=kind;boxForget=false;boxError='';
+ if(kind==='connect'&&!boxPairing()){boxFound=null;findBoxes()}
+ paintBox();
+ const card=$('#box-card');card.classList.remove('opening');void card.offsetWidth;card.classList.add('opening');
+ (card.querySelector('#box-ip')||card.querySelector('button'))?.focus();
+}
+function closeBoxCard(cancelPairing=true){
+ if(!boxCard)return;
+ if(cancelPairing&&boxPairing())boxPost('cancel').then(r=>applyBox(r.body));
+ boxCard=null;boxForget=false;boxError='';paintBox();
+}
+async function findBoxes(){
+ const r=await boxPost('find');if(boxCard!=='connect')return;
+ boxFound=r.status===200&&Array.isArray(r.body.boxes)?r.body.boxes:[];paintBox();
+}
+async function pairBox(ip){
+ boxError='';paintBox();
+ const r=await boxPost('pair',{ip});
+ if(r.status===200)return applyBox(r.body);
+ boxError=r.status===400?'Enter an address on this network, like 192.168.1.20.':'No Sync Box answered at '+ip+'.';
+ paintBox();
+}
+function submitAddress(){boxAddress=$('#box-ip').value.trim();if(boxAddress)pairBox(boxAddress)}
+async function toggleSync(){
+ if(box.state!=='ready'||boxBusy!==null)return;
+ const active=!box.syncing;boxBusy=active;if(active)markSyncStart();paintBox();
+ const r=await boxPost('sync',{active});boxBusy=null;
+ applyBox(r.body);
+ if(r.status!==200&&r.body?.state==='ready')boxSay('The Sync Box did not respond','bad');
+}
+function boxClick(e){
+ const ip=e.target.closest('[data-box-ip]');if(ip){pairBox(ip.dataset.boxIp);return}
+ const b=e.target.closest('[data-box]');if(!b||b.disabled)return;
+ const id=b.dataset.box;
+ if(id==='connect')boxCard==='connect'?closeBoxCard():openBoxCard('connect');
+ else if(id==='toggle')toggleSync();
+ else if(id==='close')closeBoxCard();
+ else if(id==='retry')pairBox(box.ip);
+ else if(id==='address')submitAddress();
+ else if(id==='forget'){boxForget=true;paintBox();$('#box-card [data-box="forget-yes"]')?.focus()}
+ else if(id==='forget-cancel'){boxForget=false;paintBox()}
+ else if(id==='forget-yes'){closeBoxCard(false);boxPost('forget').then(r=>{applyBox(r.body);if(r.status===200)boxSay('Sync Box forgotten','ok')})}
+}
+$('#sync-box').addEventListener('click',boxClick);
+$('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .box-error')?.remove()}}});
+$('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
+document.addEventListener('pointerdown',e=>{if(boxCard&&!e.target.closest('#sync-box'))closeBoxCard()},true);
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
+document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
+
 // ----------------------------------------------------------------- start --
 applyDarkScene();applyMode(mode);render();annotateTooltips();
 connectLayout();
-if(!document.hidden){watchLive();refreshLive();}
+if(!document.hidden){watchLive();refreshLive();refreshBox();}

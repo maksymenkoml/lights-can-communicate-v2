@@ -498,7 +498,9 @@ switches it off; at the end it switches the recorded lamps on again.
 "hue_center" | "hue_right"}` and the `X-Adapter-Token` header blinks one lamp.
 It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
 "reason"}` when refused, 503 when a command was not delivered and 400 on bad
-input. It refuses while Sync drives the role (`sync active`), while the lamp is
+input. While Sync drives a lamp it refuses when that lamp's stream has stalled
+(no DreamView frame to a Govee in the last two seconds, no native frame in the
+last second) with `sync active`. It also refuses while the lamp is
 off or not freshly observed (`lamp off`), while its color writer is closed
 (`writer closed`), while another blink of the same lamp runs (`busy`) and for an
 unconfigured native role (`unavailable`).
@@ -506,10 +508,17 @@ unconfigured native role (`unavailable`).
 - Govee: two short dips (to 10 %, or a third of a dim lamp's brightness, 300 ms
   each) through the power-gated color sender, then the exact previous brightness.
   While a blink runs, the scene and Sync writers' commands to that lamp are
-  rejected and resent after the blink; other lamps keep rendering.
+  rejected and resent after the blink; other lamps keep rendering. While Sync
+  drives the lamp it is in DreamView and ignores a brightness change until the
+  next frame, so the blink is two white flashes in DreamView frames instead
+  (white, dark, white, dark, 300 ms each) and the next Sync frame restores the
+  picture.
 - Native Hue: the Hue v2 `{"identify": {"action": "identify"}}` write on the
   pinned light, through its own client method (the color write still refuses
-  power and identify).
+  power and identify). While Sync streams to the light it shows only the
+  Entertainment stream, so the relay shows the same two white flashes (white,
+  dark, white, dark, 300 ms each) on that light's stream channels instead; the
+  next frame shows the Sync colors again, and Stop ends any flash.
 
 Setup Studio forwards `POST /api/identify {"lamp"}` here.
 

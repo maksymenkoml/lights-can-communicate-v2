@@ -20,14 +20,15 @@ files and credentials are never served. The page makes no external requests.
 ## The room
 
 - "Light Studio | Office ✓" in the top-left corner; the check mark means the
-  layout is saved. Bottom panels: Lamps (left), Sync status, the Sync switch and
+  layout is saved. The Sync Box corner is at the top right (see Sync Box); it
+  also shows Sync problems. Bottom panels: Lamps (left), the Settings switch and
   the light/dark scene (centre), undo/redo (right).
 - Select an object to edit it in place: name chip above, height on the left,
   offset from the screen centre at the floor and resize knobs on its edges.
   Click a dimension to type an exact value. Positions snap to 5 cm. Every edit, including undo, saves after
   300 ms; there is no Save button.
-- The Sync switch chooses which settings are shown; it does not start or stop
-  Sync. In the Sync view a selected lamp shows a ray from each lit zone to its
+- The Settings switch chooses which settings are shown, with or without Sync; it
+  does not start or stop Sync (the Sync Box corner does). In the Sync view a selected lamp shows a ray from each lit zone to its
   sample point on the screen, a selected monitor shows the rays of every lit
   lamp, and the falloff zone below the desk has six corner knobs, Auto and reset.
 - A lamp's chip is one button ("Govee Left ⌄"); it, or a double click on the
@@ -82,7 +83,7 @@ physical identifiers or commands.
 ## Calibrate
 
 "Calibrate ›" slides the lamp card to its Calibrate page. Brightness is the
-correction (0-100 %) of the configuration the Sync switch shows ("with Sync" or
+correction (0-100 %) of the configuration the Settings switch shows ("with Sync" or
 "without Sync"); a Govee lamp also has Warmth, Tint and Low light. Reset sets
 colour to zero and brightness to 100 % (unsaved); Save stores the values in the
 layout; back, Cancel and Esc discard them.
@@ -137,13 +138,109 @@ deadline and an independent 1500 ms freshness guard; hidden pages stop polling.
 Each enrolled lamp is painted from its emitted zone colours (Govee seven zones
 bottom to top, the monitor strip nine, Play one). A lamp is drawn unlit when it
 is off, stale, offline, excluded or blocked. In the Sync view the monitor shows a
-soft gradient of the strip's colours while Sync is active. Telemetry only
+soft gradient of the strip's colours while Sync is active. The view without Sync
+never shows Sync colours: while Sync runs, each lamp that runs it shows a demo
+scene instead (a warm white at its correction without Sync) and the screen reads
+Demo, as the Sync view does with its demo picture while Sync is off. Telemetry only
 repaints existing SVG attributes: it never rebuilds the layout and never saves.
 
-The status pill shows Syncing, Waiting for frames, Hue busy, Not syncing, Sync
-status unknown, "<lamp> <reason>" or "N lamps not lit"; unknown reasons fall back
-to these labels. Clicking it selects the lamp with the problem. A local sleep
+The Sync status in the Sync Box corner shows Syncing, Waiting for frames, Hue
+busy, Not syncing, Sync status unknown, "<lamp> <reason>" or "N lamps not lit"
+(with a connected box it follows the table in Sync Box). Unknown reasons fall
+back to these labels. Clicking it selects the lamp with the problem. A local sleep
 hold (`live-output-hold`) reports Not syncing without contacting the adapter.
+
+## Sync Box
+
+The corner at the top right is one block for everything about Sync: one Sync
+status (a dot and its words), one action, short messages ("Connected", "The Sync
+Box did not respond") and, when opened, the connect steps or the box details.
+Nothing about Sync is shown at the bottom of the page.
+
+| Situation | Status | Action |
+| --- | --- | --- |
+| No box | none, or the adapter's status once Sync runs from the Hue app (see Live colours and Sync status) | Connect Sync Box |
+| Sync off | Sync off | Start Sync |
+| Start sent, box not answered yet | Starting… | Start Sync (disabled) |
+| Box runs Sync, first frames not in yet (up to 20 s) | Starting… | Stop Sync |
+| Frames arrive | Syncing (green) | Stop Sync |
+| No frames after 20 s, or a lamp problem | Waiting for frames, "<lamp> <reason>", … | Stop Sync |
+| Stop sent | Stopping…, then Sync off at once | Stop Sync (disabled) |
+| Box silent for 15 s | Sync Box offline | none |
+| Token revoked | Sync Box disconnected | Reconnect |
+
+With a box, the box decides whether Sync is on: the adapter's health is not
+shown while Sync is off, starts or stops (the stream winding down is not news).
+Clicking the status selects the lamp with a problem, otherwise it shows the box
+name, its address and Forget Sync Box. Sync that ends without a Stop from Light
+Studio (the box gave up, or the Hue app stopped it) says "Sync stopped on the
+Sync Box".
+
+Without a box the block offers Connect Sync Box and opens two steps inside it:
+1 Choose your Sync Box (the boxes that answer an mDNS query for `_huesync._tcp`,
+or an IP address; a container without host networking cannot receive multicast)
+and 2 Hold the button on the box (a 30-second countdown while the server asks the
+box for a registration once a second; the owner holds the button until the box's
+light blinks green). Errors appear at their step. Forget Sync Box asks first and
+removes the registration on the box when it answers.
+
+A restart of the bridge container (an update, a crash, Docker) while the box
+streams makes the box stop Sync (`explicit_stop`), or leaves it reporting Sync on
+with no frames arriving; while the bridge warms up the box also drops a new
+Start. Only a new Start from the box recovers it. The Light Studio server runs a
+guard (`bridge/sync_guard.py`) every 5 s. It sees a bridge restart when the
+bridge probe stops answering or its `frames_received` counter goes back. It
+stops and starts Sync on the box, up to six times over about ten minutes (Stops
+at about 25, 85, 155, 285, 415 and 575 s), with 3, 15 and then 45 s of quiet between
+Stop and Start (a box whose stream was lost ignored Starts for 4-6 minutes in
+live checks), when:
+
+- Sync stopped up to 60 s before or 30 s after a bridge restart was seen;
+- the box runs Sync and the adapter reports `waiting` or `off` for 20 s;
+- the box drops Sync within 30 s of a Start from Light Studio.
+
+Docker Desktop can also lose the published stream port (UDP 2100) when the
+bridge container restarts while the box streams: `docker port` still lists it,
+but nothing on the host listens, so the box's datagrams are dropped and no Start
+helps. Before each Start the guard checks whether the host could bind UDP 2100
+while the bridge answers; if so, it restarts the bridge container (named in the
+gateway configuration) while Sync is stopped, at most once per 30 s, waits
+for the port to return, lets the bridge settle for 15 s, keeps the box quiet for
+another 45 s (a box that streamed into the lost port came back only then) and
+then starts Sync.
+
+It never acts while the adapter is down, another app streams, the output is
+paused or the box is switching, and it never undoes a Stop made while the bridge
+runs undisturbed, here or in the Hue app. The corner shows Restarting Sync… meanwhile and says
+"Sync did not come back. Stop and start it again" when the six tries fail
+(`recovery: "restarting" | "failed"` in `GET /api/sync-box`).
+
+The box can take several seconds to answer (up to 10 s for a read, 15 s for
+Start or Stop). Polls answer at once from the last read while a new read runs,
+and a box that answered recently stays as it was until it is silent for 15 s, so
+a slow answer never shows Offline.
+
+Only the Light Studio server talks to the box (`bridge/sync_box.py`). It keeps
+`ip`, `uniqueId`, `name`, `registrationId`, `accessToken` and the SHA-256 of the
+box's self-signed certificate in `sync-box.json` (mode 0600) in the private state
+directory. The certificate is pinned when the box is connected; a device with
+another certificate never receives the token. A box that moves to another
+address is followed when a rediscovered box has the same `uniqueId` and
+certificate (one search at most every 30 s).
+
+Routes (local origin only; answers never contain the token or the certificate):
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `GET /api/sync-box` | | `{"state"}`: `none`, `connecting` (`remaining` s), `timeout`, `failed` (the token could not be saved), `ready` (`syncing`, `changing` while Start or Stop runs), `offline`, `unauthorized`; plus `name`, `ip` |
+| `POST /api/sync-box/find` | `{}` | `{"boxes": [{"ip", "name"}]}` |
+| `POST /api/sync-box/pair` | `{"ip"}` | state; 400 for an address outside the local network, 503 when no Sync Box answers |
+| `POST /api/sync-box/cancel` | `{}` | state |
+| `POST /api/sync-box/sync` | `{"active": bool}` | state; 409 without a box, with a revoked token or while another change runs, 503 offline |
+| `POST /api/sync-box/forget` | `{}` | `{"state": "none"}` |
+
+The page polls the state every 3 s (every second while connecting) and stops
+while hidden.
 
 ## Hardware notes
 

@@ -15,6 +15,8 @@ RUNTIME_MODULES = (
     "govee_segments",
     "govee_calibration",
     "calibration_session",
+    "sync_box",
+    "sync_guard",
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "govee_transport",
