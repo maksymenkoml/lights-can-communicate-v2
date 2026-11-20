@@ -638,7 +638,7 @@ def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
     """Serve until interrupted; SIGTERM handling belongs to the caller."""
     handler = handler_for(
         Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url,
-        gateway_container=gateway_container, hosts=tuple(hosts))
+        gateway_container=gateway_container, hosts=hosts)
     server = ThreadingHTTPServer((bind, port), handler)
     stop = threading.Event()
     threading.Thread(target=handler.guard.run, args=(stop,), daemon=True).start()
