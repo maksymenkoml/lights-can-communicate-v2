@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
+from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -34,6 +35,8 @@ CALIBRATION_REASONS = ("sync active", "lamp off", "reference off", "busy", "writ
                        "paused")
 CALIBRATION_ROUTES = {"/api/calibration": "/calibration",
                       "/api/calibration/end": "/calibration/end"}
+SYNC_BOX_ROUTES = ("/api/sync-box/find", "/api/sync-box/pair", "/api/sync-box/cancel",
+                   "/api/sync-box/sync", "/api/sync-box/forget")
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
 DISCOVERY_FIELDS = (
     "id", "provider", "name", "model", "shape", "zones", "supported", "online",
@@ -320,8 +323,11 @@ def _post_local_json(url, body, timeout, headers):
 
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
-                bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None):
+                bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
+                sync_box=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
+    # The Sync Box token lives with the other private state, never in the layout.
+    box = sync_box or SyncBox(store.path.parent / "sync-box.json")
 
     def default_source_fetch():
         data = _read_local_json(bridge_url + "/probe/status", 0.25)
@@ -477,11 +483,14 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.respond(200, discovery())
             if path == "/api/live":
                 return self.respond(200, live())
+            if path == "/api/sync-box":
+                return self.respond(200, box.status())
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES):
+            if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES,
+                            *SYNC_BOX_ROUTES):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
@@ -491,6 +500,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.identify()
             if path in CALIBRATION_ROUTES:
                 return self.calibrate(CALIBRATION_ROUTES[path])
+            if path in SYNC_BOX_ROUTES:
+                return self.sync_box(path.rsplit("/", 1)[1])
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 16384:
@@ -551,6 +562,33 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             except (ValueError, TypeError):
                 return self.respond(400, {"error": "invalid calibration request"})
             return self.respond(*calibrate(route, data))
+
+        def sync_box(self, action):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 256:
+                    return self.respond(413, {"error": "Sync Box payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if not isinstance(data, dict):
+                    raise ValueError("Expected an object")
+                if action == "pair":
+                    if set(data) != {"ip"}:
+                        raise ValueError("Expected an address")
+                    return self.respond(200, box.pair(data["ip"]))
+                if action == "sync":
+                    if set(data) != {"active"} or not isinstance(data["active"], bool):
+                        raise ValueError("Expected active")
+                    return self.respond(*box.set_sync(data["active"]))
+                if data:
+                    raise ValueError("Expected an empty object")
+                return self.respond(200, {"find": box.find, "cancel": box.cancel,
+                                          "forget": box.forget}[action]())
+            except BoxError:
+                return self.respond(503, {"error": "Sync Box not found"})
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid Sync Box request"})
+            except OSError:
+                return self.respond(503, {"error": "Sync Box unavailable"})
 
         def local_request(self):
             hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}

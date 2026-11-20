@@ -20,14 +20,15 @@ files and credentials are never served. The page makes no external requests.
 ## The room
 
 - "Light Studio | Office ✓" in the top-left corner; the check mark means the
-  layout is saved. Bottom panels: Lamps (left), Sync status, the Sync switch and
-  the light/dark scene (centre), undo/redo (right).
+  layout is saved. The Sync Box corner is at the top right (see Sync Box). Bottom
+  panels: Lamps (left), Sync status, the Settings switch and the light/dark scene
+  (centre), undo/redo (right).
 - Select an object to edit it in place: name chip above, height on the left,
   offset from the screen centre at the floor and resize knobs on its edges.
   Click a dimension to type an exact value. Positions snap to 5 cm. Every edit, including undo, saves after
   300 ms; there is no Save button.
-- The Sync switch chooses which settings are shown; it does not start or stop
-  Sync. In the Sync view a selected lamp shows a ray from each lit zone to its
+- The Settings switch chooses which settings are shown, with or without Sync; it
+  does not start or stop Sync (the Sync Box corner does). In the Sync view a selected lamp shows a ray from each lit zone to its
   sample point on the screen, a selected monitor shows the rays of every lit
   lamp, and the falloff zone below the desk has six corner knobs, Auto and reset.
 - A lamp's chip is one button ("Govee Left ⌄"); it, or a double click on the
@@ -82,7 +83,7 @@ physical identifiers or commands.
 ## Calibrate
 
 "Calibrate ›" slides the lamp card to its Calibrate page. Brightness is the
-correction (0-100 %) of the configuration the Sync switch shows ("with Sync" or
+correction (0-100 %) of the configuration the Settings switch shows ("with Sync" or
 "without Sync"); a Govee lamp also has Warmth, Tint and Low light. Reset sets
 colour to zero and brightness to 100 % (unsaved); Save stores the values in the
 layout; back, Cancel and Esc discard them.
@@ -144,6 +145,41 @@ The status pill shows Syncing, Waiting for frames, Hue busy, Not syncing, Sync
 status unknown, "<lamp> <reason>" or "N lamps not lit"; unknown reasons fall back
 to these labels. Clicking it selects the lamp with the problem. A local sleep
 hold (`live-output-hold`) reports Not syncing without contacting the adapter.
+
+## Sync Box
+
+The corner at the top right starts and stops Hue Sync on a connected HDMI Sync
+Box: its name, a dot (green while Sync runs, red when the box is offline or its
+token was revoked) and Start Sync / Stop Sync. Without a box it offers Connect
+Sync Box; the card lists the boxes that answer an mDNS query for
+`_huesync._tcp` and takes an IP address when none answers (a container without
+host networking cannot receive multicast). After a box is chosen the server asks
+it for a registration once a second for 30 s while the owner holds the button on
+the box until its light blinks green. Clicking the name shows the address and
+Forget Sync Box, which asks first and removes the registration on the box when
+it answers.
+
+Only the Light Studio server talks to the box (`bridge/sync_box.py`). It keeps
+`ip`, `uniqueId`, `name`, `registrationId`, `accessToken` and the SHA-256 of the
+box's self-signed certificate in `sync-box.json` (mode 0600) in the private state
+directory. The certificate is pinned when the box is connected; a device with
+another certificate never receives the token. A box that moves to another
+address is followed when a rediscovered box has the same `uniqueId` and
+certificate (one search at most every 30 s).
+
+Routes (local origin only; answers never contain the token or the certificate):
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `GET /api/sync-box` | | `{"state"}`: `none`, `connecting` (`remaining` s), `timeout`, `ready` (`syncing`), `offline`, `unauthorized`; plus `name`, `ip` |
+| `POST /api/sync-box/find` | `{}` | `{"boxes": [{"ip", "name"}]}` |
+| `POST /api/sync-box/pair` | `{"ip"}` | state; 400 for an address outside the local network, 503 when no Sync Box answers |
+| `POST /api/sync-box/cancel` | `{}` | state |
+| `POST /api/sync-box/sync` | `{"active": bool}` | state; 409 without a box or with a revoked token, 503 offline |
+| `POST /api/sync-box/forget` | `{}` | `{"state": "none"}` |
+
+The page polls the state every 3 s (every second while connecting) and stops
+while hidden.
 
 ## Hardware notes
 

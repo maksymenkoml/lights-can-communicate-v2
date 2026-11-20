@@ -167,12 +167,12 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,syncBox=()=>({state:'none'}),hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
  const server={layout:layout&&canonical(layout),revision};
- const posts=[],requests={layout:0,discovery:[],live:[]};
+ const posts=[],requests={layout:0,discovery:[],live:[],box:[]};
  const context={structuredClone,AbortController,console,
   setTimeout:clock.setTimeout,clearTimeout:clock.clearTimeout,
   requestAnimationFrame:fn=>clock.setTimeout(()=>fn(now),16),
@@ -186,6 +186,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),live=live
    if(url==='/api/live'){requests.live.push(now);const value=typeof live==='function'?live(requests.live.length):live;if(value instanceof Error)throw value;return response(200,await value)}
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
    if(url.startsWith('/api/calibration')){assert.ok(calibrate,'unexpected calibration');const result=await calibrate(url,JSON.parse(options.body));return response(result.status,result.body)}
+   if(url.startsWith('/api/sync-box')){const body=options.body?JSON.parse(options.body):null;requests.box.push({url,body,at:now});const result=await syncBox(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
    if(options.method!=='POST'){requests.layout++;if(layoutGet)return layoutGet(server);return response(200,{layout:server.layout,revision:server.layout?server.revision:null})}
@@ -892,4 +893,153 @@ test('names from discovery are escaped in the room and the panel',async()=>{
  await app.click(app.$('#list-toggle'));
  assert.equal(app.document.querySelectorAll('img').length,0);
  assert.match(app.$('#lamp-panel').textContent,/<img src=x onerror=alert\(1\)>/);
+});
+
+// ---------------------------------------------------------------- Sync Box --
+const BOX={state:'ready',syncing:false,name:'Sync Box 8K',ip:'192.168.10.101'};
+// A fake Light Studio Sync Box API: state moves the way the server moves it.
+function fakeBox(start={state:'none'}){
+ const box={status:structuredClone(start),pressAfter:Infinity,polls:0};
+ box.api=(url,body)=>{
+  if(url==='/api/sync-box'){
+   if(box.status.state==='connecting'&&++box.polls>=box.pressAfter)box.status={...BOX};
+   else if(box.status.state==='connecting')box.status={...box.status,remaining:box.status.remaining-1};
+   return box.status;
+  }
+  if(url==='/api/sync-box/find')return {boxes:[{ip:BOX.ip,name:BOX.name}]};
+  if(url==='/api/sync-box/pair'){if(body.ip==='8.8.8.8')return {status:400,body:{error:'invalid'}};box.status={state:'connecting',remaining:30,name:BOX.name,ip:body.ip};box.polls=0;return box.status}
+  if(url==='/api/sync-box/cancel'){box.status={state:'none'};return box.status}
+  if(url==='/api/sync-box/sync'){if(box.offline)return {status:503,body:{...box.status,state:'offline'}};box.status={...box.status,syncing:body.active};return box.status}
+  if(url==='/api/sync-box/forget'){box.status={state:'none'};return box.status}
+  assert.fail('unexpected '+url);
+ };
+ return box;
+}
+const cornerText=app=>app.$('#sync-box').children.map(n=>n.textContent.trim()).join(' ');
+
+test('the toolbar view switch is Settings: it shows the Sync settings and never starts Sync',async()=>{
+ const app=await harness();
+ assert.equal(app.$('#sync-tool .sync-word').textContent,'Settings');
+ assert.equal(app.$('#sync-tool').getAttribute('aria-label'),'Show the Sync settings');
+});
+
+test('without a box the corner offers Connect, and the card connects the box found on the network',async()=>{
+ const box=fakeBox();box.pressAfter=3;
+ const app=await harness({syncBox:box.api});
+ assert.equal(cornerText(app),'Connect Sync Box');
+ await app.click(app.$('#sync-box [data-box="connect"]'));
+ const card=app.$('#box-card');
+ assert.equal(card.hidden,false);
+ assert.match(card.textContent,/Found on this network/);
+ const row=card.querySelector('[data-box-ip]');assert.match(row.textContent,/Sync Box 8K.*192\.168\.10\.101/);
+ await app.click(row);
+ assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:'192.168.10.101'},at:app.now()});
+ assert.match(card.textContent,/Hold the button on the Sync Box/);
+ assert.equal(card.querySelector('.box-ring b').textContent,'30');
+ assert.equal(cornerText(app),'Sync Box 8K Connecting…');
+ await app.advance(1000);
+ assert.equal(card.querySelector('.box-ring b').textContent,'29','the countdown follows the server');
+ await app.advance(2000);
+ assert.equal(cornerText(app),'Sync Box 8K Start Sync');
+ assert.equal(app.$('#toast').textContent,'Sync Box connected');
+ await app.advance(200);assert.equal(card.hidden,true);
+});
+
+test('Start Sync and Stop Sync switch the box and show what is happening',async()=>{
+ const box=fakeBox(BOX);
+ const app=await harness({syncBox:box.api});
+ assert.equal(cornerText(app),'Sync Box 8K Start Sync');
+ assert.equal(app.$('#sync-box .box-dot').classList.contains('on'),false);
+ await app.click(app.$('#sync-box [data-box="toggle"]'));
+ assert.deepEqual(app.requests.box.at(-1).body,{active:true});
+ assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
+ assert.ok(app.$('#sync-box .box-dot').classList.contains('on'));
+ await app.click(app.$('#sync-box [data-box="toggle"]'));
+ assert.deepEqual(app.requests.box.at(-1).body,{active:false});
+ box.offline=true;
+ await app.click(app.$('#sync-box [data-box="toggle"]'));
+ assert.equal(app.$('#toast').textContent,'The Sync Box did not respond');
+ assert.equal(cornerText(app),'Sync Box 8K Offline');
+});
+
+test('the button shows the change while the box answers and ignores a second click',async()=>{
+ let release;const box=fakeBox(BOX);
+ const app=await harness({syncBox:(url,body)=>url==='/api/sync-box/sync'?new Promise(done=>{release=()=>done(box.api(url,body))}):box.api(url,body)});
+ await app.click(app.$('#sync-box [data-box="toggle"]'));
+ assert.equal(cornerText(app),'Sync Box 8K Starting…');
+ const sent=app.requests.box.length;
+ await app.click(app.$('#sync-box button[disabled]'));
+ assert.equal(app.requests.box.length,sent);
+ release();await app.settle();
+ assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
+});
+
+test('an address can be typed, and a wrong one is explained',async()=>{
+ const box=fakeBox();
+ const app=await harness({syncBox:(url,body)=>url==='/api/sync-box/find'?{boxes:[]}:box.api(url,body)});
+ await app.click(app.$('#sync-box [data-box="connect"]'));
+ const card=app.$('#box-card');
+ assert.match(card.textContent,/None found on this network/);
+ const input=card.querySelector('#box-ip');input.value='8.8.8.8';app.dispatch(input,'input');
+ await app.press(input,'Enter');
+ assert.equal(app.$('#toast').textContent,'Enter a local IP address');
+ input.value=' 192.168.10.101 ';app.dispatch(input,'input');
+ await app.click(card.querySelector('[data-box="address"]'));
+ assert.deepEqual(app.requests.box.at(-1).body,{ip:'192.168.10.101'});
+ assert.match(card.textContent,/Hold the button/);
+});
+
+test('Escape or Cancel while connecting stops asking the box',async()=>{
+ const box=fakeBox();
+ const app=await harness({syncBox:box.api});
+ await app.click(app.$('#sync-box [data-box="connect"]'));
+ await app.click(app.$('#box-card [data-box-ip]'));
+ await app.press(app.$('#box-card'),'Escape');
+ assert.equal(app.requests.box.at(-1).url,'/api/sync-box/cancel');
+ await app.advance(200);
+ assert.equal(app.$('#box-card').hidden,true);
+ assert.equal(cornerText(app),'Connect Sync Box');
+});
+
+test('a missed button press offers Try again',async()=>{
+ const box=fakeBox({state:'timeout',name:BOX.name,ip:BOX.ip});
+ const app=await harness({syncBox:box.api});
+ await app.click(app.$('#sync-box [data-box="info"]'));
+ await app.run('openBoxCard("connect")');await app.settle();
+ assert.match(app.$('#box-card').textContent,/not held in time/);
+ await app.click(app.$('#box-card [data-box="retry"]'));
+ assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:BOX.ip},at:app.now()});
+});
+
+test('Forget asks first, then removes the box',async()=>{
+ const box=fakeBox(BOX);
+ const app=await harness({syncBox:box.api});
+ await app.click(app.$('#sync-box [data-box="info"]'));
+ const card=app.$('#box-card');
+ assert.match(card.textContent,/192\.168\.10\.101 · Not syncing/);
+ await app.click(card.querySelector('[data-box="forget"]'));
+ assert.ok(!app.requests.box.some(r=>r.url==='/api/sync-box/forget'),'nothing is forgotten before the confirmation');
+ await app.click(card.querySelector('[data-box="forget-cancel"]'));
+ await app.click(card.querySelector('[data-box="forget"]'));
+ await app.click(card.querySelector('[data-box="forget-yes"]'));
+ assert.equal(app.requests.box.at(-1).url,'/api/sync-box/forget');
+ assert.equal(cornerText(app),'Connect Sync Box');
+ assert.equal(app.$('#toast').textContent,'Sync Box forgotten');
+});
+
+test('the corner follows the box state and stops asking while the page is hidden',async()=>{
+ const box=fakeBox(BOX);
+ const app=await harness({syncBox:box.api});
+ box.status={...BOX,syncing:true};
+ await app.advance(3000);
+ assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
+ box.status={state:'unauthorized',name:BOX.name,ip:BOX.ip};
+ await app.advance(3000);
+ assert.equal(cornerText(app),'Sync Box 8K Reconnect');
+ await app.visible(false);
+ const asked=app.requests.box.length;
+ await app.advance(10000);
+ assert.equal(app.requests.box.length,asked);
+ await app.visible(true);
+ assert.equal(app.requests.box.length,asked+1);
 });
