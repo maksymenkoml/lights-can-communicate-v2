@@ -7,17 +7,23 @@ writes to that side are rejected by ``wrap()`` (and retried after the blink,
 because a rejected write leaves the controller's target unsent), so they never
 race the dips. Other sides keep rendering.
 
-Native Hue: the Hue API v2 ``identify`` action on the pinned light, only while
-the light is on and freshly observed.
+While Sync drives a Govee lamp, the lamp is in DreamView and ignores a
+brightness change until the next frame, so the blink is three DreamView frames
+instead (dark, white, dark) while Sync frames to that side are held by the same
+fence; the next Sync frame restores the picture. Only while the lamp received a
+Sync frame within the last second.
 
-Both refuse while Sync drives the role (Sync active and the role is in the
-composition).
+Native Hue: the Hue API v2 ``identify`` action on the pinned light, only while
+the light is on and freshly observed. It refuses while Sync drives the role
+(Sync active and the role is in the composition).
 """
 
 import contextlib
 import math
 import threading
 import time
+
+from govee_segments import razer_data
 
 import lights_can_communicate_v2 as lan
 
@@ -27,6 +33,9 @@ IDENTIFY_ROLES = GOVEE_ROLES + NATIVE_ROLES
 DIP_BRIGHTNESS = 10
 STEP_SECONDS = 0.3
 STATUS_SECONDS = 0.75
+# A Sync frame this recent shows the lamp is in DreamView and receiving.
+DREAMVIEW_SECONDS = 1.0
+DARK, WHITE = (0, 0, 0), (255, 255, 255)
 
 
 class IdentifyRefused(RuntimeError):
@@ -88,7 +97,8 @@ class Identify:
     def __call__(self, role):
         if role not in IDENTIFY_ROLES:
             raise ValueError("Unknown identify role")
-        if self.sync_owns(role):
+        syncing = self.sync_owns(role)
+        if syncing and role not in GOVEE_ROLES:
             raise IdentifyRefused("sync active")
         # Taking the side's fence waits for an in-flight controller write to finish.
         with self.fences.get(role) or contextlib.nullcontext():
@@ -97,6 +107,8 @@ class Identify:
                     raise IdentifyRefused("busy")
                 self.busy.add(role)
         try:
+            if syncing:
+                return self._govee_sync(role)
             if role in GOVEE_ROLES:
                 return self._govee(role)
             return self._native(role)
@@ -139,6 +151,39 @@ class Identify:
                 # The next render resends the controller's own target, if any.
                 controller.last_sent.pop(side, None)
         if not (delivered and restored):
+            raise IdentifyFailed("Blink was not delivered")
+        return True
+
+    def _govee_sync(self, side):
+        sync = getattr(self.video, "controller", None)
+        if sync is None or side not in sync.by_side:
+            raise IdentifyRefused("sync active")
+        device = sync.by_side[side]
+        with sync.lock:
+            frame_at = sync.razer_frame.get(side)
+            target = sync.effective_target(side)
+            dreamview = (side in sync.razer and frame_at is not None
+                         and 0 <= sync.clock() - frame_at <= DREAMVIEW_SECONDS)
+        segments = target.get("segments") if isinstance(target, dict) else None
+        if not dreamview or not segments:
+            raise IdentifyRefused("sync active")
+        if self.power_owner is not None and not self.power_owner.allowed(side):
+            raise IdentifyRefused("writer closed")
+        sender = self.sender if self.sender is not None else sync.sender
+        count = len(segments)
+        delivered = True
+        try:
+            for color in (DARK, WHITE, DARK):
+                frame = razer_data([list(color)] * count)
+                delivered = sender(device, "razer", frame) is True and delivered
+                self.sleep(STEP_SECONDS)
+        except OSError:
+            delivered = False
+        finally:
+            with sync.lock:
+                # The next Sync frame is sent in full and restores the picture.
+                sync.last_sent.pop(side, None)
+        if not delivered:
             raise IdentifyFailed("Blink was not delivered")
         return True
 

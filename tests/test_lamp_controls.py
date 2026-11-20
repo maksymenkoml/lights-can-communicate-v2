@@ -17,6 +17,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LayoutStore, composed, validate_layout  # noqa: E402
 from entertainment_stream import VideoLease  # noqa: E402
+from govee_segments import razer_colors  # noqa: E402
 from homekit_power import HomeKitPower  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
@@ -610,21 +611,65 @@ class IdentifyTests(IdentifyFixture):
         with self.assertRaises(ValueError):
             self.identify("govee-left")
 
-    def test_sync_active_refuses_composed_roles_only(self):
+    def sync_video(self, composed=lambda role: role != "right"):
+        sync = GoveeController(targets(), sender=lambda device, name, data: True,
+                               clock=lambda: self.now, wall_clock=lambda: 1000)
+        sync.effective_target = lambda side: {"segments": [[9, 9, 9]] * 7, "brightness": 35}
+        sync.razer["left"] = sync.razer_frame["left"] = self.now
+
         class Video:
+            controller = sync
+
             def active(self):
                 return True
 
         class Layout:
             def enabled(self, role, fallback=True):
-                return role != "right"
+                return composed(role)
 
         self.identify.video, self.identify.layout_store = Video(), Layout()
-        for role in ("left", "strip"):
-            with self.subTest(role=role), self.assertRaises(IdentifyRefused) as refused:
-                self.identify(role)
-            self.assertEqual(refused.exception.reason, "sync active")
+        return sync
+
+    def test_sync_refuses_composed_native_roles_and_spares_the_others(self):
+        self.sync_video()
+        with self.assertRaises(IdentifyRefused) as refused:
+            self.identify("strip")
+        self.assertEqual(refused.exception.reason, "sync active")
         self.assertTrue(self.identify("right"))
+
+    def test_a_syncing_govee_blinks_with_dreamview_frames(self):
+        sync = self.sync_video()
+        sync.last_sent["left"] = {"segments": [[9, 9, 9]] * 7}
+        frames = []
+        self.identify.sender = lambda device, name, data: frames.append(
+            (device["side"], name, razer_colors(data))) or True
+        self.assertTrue(self.identify("left"))
+        self.assertEqual(frames, [("left", "razer", [[0, 0, 0]] * 7),
+                                  ("left", "razer", [[255, 255, 255]] * 7),
+                                  ("left", "razer", [[0, 0, 0]] * 7)])
+        self.assertNotIn("left", sync.last_sent, "the next Sync frame restores the picture")
+
+    def test_a_syncing_govee_without_recent_frames_cannot_blink(self):
+        sync = self.sync_video()
+        sync.razer_frame["left"] = self.now - 2
+        with self.assertRaises(IdentifyRefused) as refused:
+            self.identify("left")
+        self.assertEqual(refused.exception.reason, "sync active")
+
+    def test_sync_frames_to_the_blinking_side_are_held(self):
+        sync = self.sync_video()
+        held = []
+        sync.sender = self.identify.wrap(lambda device, name, data: held.append(
+            device["side"]) or True)
+
+        def pause(seconds):
+            held.append(sync.sender(sync.by_side["left"], "razer", {"pt": ""}))
+            held.append(sync.sender(sync.by_side["right"], "razer", {"pt": ""}))
+
+        self.identify.sleep = pause
+        self.identify.sender = lambda device, name, data: True
+        self.identify("left")
+        self.assertEqual(held, [False, "right", True] * 3)
 
     def test_failed_dip_still_restores_and_reports_failure(self):
         sent = []
