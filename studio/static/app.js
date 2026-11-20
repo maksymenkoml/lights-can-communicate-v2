@@ -194,11 +194,29 @@ function syncStatus(){
  if(p.length){const worst=p.some(l=>blockerLevel(lampBlocker(l))==='bad')?'bad':'wait';return {level:worst,label:p.length===1?p[0].name+' '+blockerText(lampBlocker(p[0])):p.length+' lamps not lit',detail:p.length===1?'Click to show the lamp':p.map(l=>l.name).join(', '),lamp:p[0].id}}
  return {level:'ok',label:'Syncing',detail:'Lamps take color from the screen'};
 }
-// The Sync status lives in the Sync Box corner and speaks only when something is wrong.
-function statusShown(st){return st.level==='wait'||st.level==='bad'||(st.level==='unknown'&&box.state==='ready'&&box.syncing)}
+// One Sync status in the corner. With a box, the box decides whether Sync is on;
+// the adapter's health speaks only once Sync has had time to start, and never
+// while it starts or after it stopped (the stream winding down is not news).
+const SYNC_START_MS=20000;
+let syncStartedAt=null,syncStartTimer=null;
+// The status may change when the start time ends even if nothing else does.
+function markSyncStart(){syncStartedAt=performance.now();clearTimeout(syncStartTimer);syncStartTimer=setTimeout(paintStatus,SYNC_START_MS+50)}
+function cornerStatus(){
+ const st=syncStatus(),s=box.state;
+ if(s==='unknown'||s==='none')return st;
+ const busy=boxBusy??box.changing??null;
+ if(s==='offline')return {level:'bad',label:'Sync Box offline',detail:'The Sync Box does not answer'};
+ if(s==='unauthorized')return {level:'bad',label:'Sync Box disconnected',detail:'Its access was removed'};
+ if(s==='connecting'||s==='timeout')return {level:'wait',label:'Connecting…',detail:'Connecting the Sync Box'};
+ if(busy===true)return {level:'wait',label:'Starting…',detail:'The Sync Box is starting Sync'};
+ if(busy===false)return {level:'wait',label:'Stopping…',detail:'The Sync Box is stopping Sync'};
+ if(!box.syncing)return {level:'idle',label:'Sync off',detail:'Lamps keep their own light'};
+ if(st.level!=='ok'&&syncStartedAt!==null&&performance.now()-syncStartedAt<SYNC_START_MS)return {level:'wait',label:'Starting…',detail:'Waiting for the first frames'};
+ if(st.level==='idle'&&st.label==='Not syncing')return {level:'wait',label:'Waiting for frames',detail:'No image from the monitor'};
+ return st;
+}
 function paintStatus(){
- const el=$('#sync-status');if(!el)return;const st=syncStatus(),label='Sync status: '+st.label;
- const hide=!statusShown(st);if(el.hidden!==hide)el.hidden=hide;
+ const el=$('#sync-status');if(!el)return;const st=cornerStatus(),label='Sync status: '+st.label;
  if(el.dataset.level!==st.level)el.dataset.level=st.level;
  el.style.setProperty('--s-color',levelColor[st.level]||'var(--unknown)');
  const text=el.querySelector('span');if(text.textContent!==st.label)text.textContent=st.label;
@@ -1340,7 +1358,7 @@ function tooltipLabelText(node){
  const native=node.getAttribute('title');if(native){node.dataset.originalTitle=native;node.removeAttribute('title')}
  if(node.classList.contains('lp-row'))return '';
  if(node.id==='sync-tool')return mode==='sync'?'Settings with Sync':'Settings without Sync';
- if(node.id==='sync-status')return syncStatus().detail;
+ if(node.id==='sync-status')return cornerStatus().detail;
  if(node.classList.contains('health-badge'))return node.dataset.tooltip;
  if(node.id==='scene-toggle')return darkScene?'Show the light scene':'Show the dark scene';
  if(node.id==='undo')return node.disabled?'Nothing to undo':'Undo · ⌘Z';
@@ -1471,7 +1489,7 @@ $('#scene-toggle').addEventListener('click',toggleDarkScene);
 $('#undo').addEventListener('click',undo);
 $('#redo').addEventListener('click',redo);
 $('#empty-add').addEventListener('click',e=>{e.stopPropagation();openAdd()});
-$('#sync-status').addEventListener('click',()=>{const st=syncStatus();if(st.lamp)select(st.lamp)});
+$('#sync-status').addEventListener('click',()=>{const st=cornerStatus();if(st.lamp)select(st.lamp);else if(['ready','offline','unauthorized'].includes(box.state))boxCard==='info'?closeBoxCard():openBoxCard('info')});
 new MutationObserver(annotateTooltips).observe($('#app'),{subtree:true,childList:true,attributes:true,attributeFilter:['title','aria-label','disabled','aria-pressed','aria-expanded','data-state']});
 document.addEventListener('pointermove',event=>{
  if(event.buttons||drag||pendingDevice){hideTooltip();return}
@@ -1514,7 +1532,10 @@ async function refreshBox(){
 // An action answer is newer than any poll still on its way.
 function applyBox(next){++boxGeneration;if(next&&typeof next.state==='string')setBox(next);scheduleBox()}
 function setBox(next){
- const was=box.state;box=next&&typeof next.state==='string'?next:{state:'unknown'};
+ const was=box.state,wasSyncing=box.syncing===true;box=next&&typeof next.state==='string'?next:{state:'unknown'};
+ // Sync that starts while this page watches gets time for its first frames.
+ if(box.syncing===true&&!wasSyncing&&was!=='unknown')markSyncStart();
+ if(box.syncing!==true&&box.changing!==true&&boxBusy!==true)syncStartedAt=null;
  if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
  paintBox();
 }
@@ -1524,26 +1545,25 @@ function boxSay(text,kind='ok'){
  boxSayTimer=setTimeout(()=>{boxSaid=null;paintBox()},BOX_SAY_MS);
 }
 function boxAction(action,label,icon,kind=''){return '<button type="button" class="box-action'+(kind?' '+kind:'')+'" data-box="'+action+'">'+boxSvg(icon)+'<span>'+label+'</span></button>'}
+// The one action beside the status; while the box switches, the action it is
+// switching away from stays visible but disabled.
 function boxBar(){
  const s=box.state;
- if(s==='unknown')return '';
  if(s==='none')return boxAction('connect','Connect Sync Box','link','box-connect');
- const live=s==='ready'&&box.syncing,dot=live?' on':s==='ready'?'':s==='offline'||s==='unauthorized'?' off':null;
- let html='<button type="button" class="box-name" data-box="info" aria-haspopup="true" aria-expanded="'+(boxCard==='info')+'" aria-label="Sync Box '+esc(box.name)+(live?', syncing':s==='ready'?', not syncing':'')+'">'+boxSvg('box')+'<span>'+esc(box.name)+'</span>'+(dot===null?'':'<i class="box-dot'+dot+'"></i>')+'</button>';
- const busy=boxBusy??box.changing??null;
- if(s==='ready'&&busy!==null)html+='<button type="button" class="box-action" disabled>'+boxSvg(busy?'play':'stop')+'<span>'+(busy?'Starting…':'Stopping…')+'</span></button>';
- else if(s==='ready')html+=live?boxAction('toggle','Stop Sync','stop','box-stop'):boxAction('toggle','Start Sync','play','box-start');
- else if(s==='offline')html+='<span class="box-note">Offline</span>';
- else if(s==='unauthorized')html+=boxAction('connect','Reconnect','link','box-connect');
- else html+='<span class="box-note">Connecting…</span>';
- return html;
+ if(s==='unauthorized')return boxAction('connect','Reconnect','link','box-connect');
+ if(s!=='ready')return '';
+ const busy=boxBusy??box.changing??null,on=busy===null?box.syncing:!busy;
+ const html=on?boxAction('toggle','Stop Sync','stop','box-stop'):boxAction('toggle','Start Sync','play','box-start');
+ return busy===null?html:html.replace('<button ','<button disabled ');
 }
 function paintBox(){
  const el=$('#sync-box');if(!el)return;paintStatus();
- const html=boxBar(),bar=el.querySelector('.box-bar'),said=el.querySelector('.box-said');
- el.hidden=!html;el.classList.toggle('open',!!boxCard);
- if(html!==boxHtml){boxHtml=html;bar.innerHTML=html}
- bar.querySelector('[data-box="connect"]')?.setAttribute('aria-expanded',String(boxCard==='connect'));
+ const html=boxBar(),act=el.querySelector('.box-act'),said=el.querySelector('.box-said');
+ el.classList.toggle('open',!!boxCard);
+ if(html!==boxHtml){boxHtml=html;act.innerHTML=html}
+ act.hidden=!html;
+ $('#sync-status').setAttribute('aria-expanded',String(boxCard==='info'));
+ act.querySelector('[data-box="connect"]')?.setAttribute('aria-expanded',String(boxCard==='connect'));
  const text=boxSaid?boxSvg(boxSaid.kind==='ok'?'check':'alert')+'<span>'+esc(boxSaid.text)+'</span>':'';
  said.hidden=!text;said.dataset.kind=boxSaid?.kind||'';if(said.innerHTML!==text)said.innerHTML=text;
  paintBoxCard();
@@ -1552,8 +1572,7 @@ function boxRing(left){const share=Math.max(0,Math.min(1,left/BOX_PAIR_S));retur
 function boxStep(n,state,title,body=''){return '<li class="box-step '+state+'"><i>'+(state==='done'?boxSvg('check'):n)+'</i><div><b>'+title+'</b>'+body+'</div></li>'}
 function boxCardHtml(){
  if(boxCard==='info'){
-  const note={ready:box.syncing?'Syncing':'Not syncing',offline:'Offline',unauthorized:'Needs to be reconnected'}[box.state]||'';
-  return '<div class="box-info">'+esc([box.ip,note].filter(Boolean).join(' · '))+'</div>'
+  return '<div class="box-info">'+boxSvg('box')+'<div><b>'+esc(box.name||'Sync Box')+'</b><span>'+esc(box.ip||'')+'</span></div></div>'
    +'<div class="card-list card-end">'+(boxForget
     ?'<div class="card-confirm"><span>Forget this Sync Box?</span><button data-box="forget-cancel">Cancel</button><button class="danger" data-box="forget-yes">Forget</button></div>'
     :'<button class="card-row danger" data-box="forget">'+iconSvg('remove')+'<span>Forget Sync Box</span></button>')+'</div>';
@@ -1608,17 +1627,16 @@ async function pairBox(ip){
 function submitAddress(){boxAddress=$('#box-ip').value.trim();if(boxAddress)pairBox(boxAddress)}
 async function toggleSync(){
  if(box.state!=='ready'||boxBusy!==null)return;
- const active=!box.syncing;boxBusy=active;paintBox();
+ const active=!box.syncing;boxBusy=active;if(active)markSyncStart();paintBox();
  const r=await boxPost('sync',{active});boxBusy=null;
  applyBox(r.body);
- if(r.status!==200)boxSay(r.body?.state==='unauthorized'?'Reconnect the Sync Box':'The Sync Box did not respond','bad');
+ if(r.status!==200&&r.body?.state==='ready')boxSay('The Sync Box did not respond','bad');
 }
 function boxClick(e){
  const ip=e.target.closest('[data-box-ip]');if(ip){pairBox(ip.dataset.boxIp);return}
  const b=e.target.closest('[data-box]');if(!b||b.disabled)return;
  const id=b.dataset.box;
  if(id==='connect')boxCard==='connect'?closeBoxCard():openBoxCard('connect');
- else if(id==='info')boxCard==='info'?closeBoxCard():openBoxCard('info');
  else if(id==='toggle')toggleSync();
  else if(id==='close')closeBoxCard();
  else if(id==='retry')pairBox(box.ip);

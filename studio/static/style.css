@@ -429,19 +429,10 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-corner button:hover:not(:disabled){background:var(--soft);color:var(--accent)}
 .box-corner button:disabled{color:var(--muted);cursor:default}
 .box-corner svg{width:16px;height:16px;flex:none}
-.box-name svg{color:var(--muted)}
-.box-name[aria-expanded=true],.box-connect[aria-expanded=true]{background:var(--soft);color:var(--accent)}
-.box-dot{width:7px;height:7px;border-radius:50%;background:var(--unknown);flex:none}
-.box-dot.on{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}
-.box-dot.off{background:var(--bad)}
 .box-corner .box-start,.box-corner .box-start:hover:not(:disabled){background:var(--accent);color:var(--surface)}
 .box-corner .box-start:hover:not(:disabled){filter:brightness(1.08)}
 .box-corner .box-connect{color:var(--accent)}
-.box-note{padding:0 10px 0 4px;color:var(--muted)}
-/* The Sync status (only problems) and short messages are lines inside the block. */
-.box-corner .box-health{height:auto;min-height:30px;margin-top:2px;padding:6px 10px;font-weight:500;white-space:normal;text-align:left;background:color-mix(in srgb,var(--s-color) 9%,var(--surface))}
-.box-corner .box-health:hover:not(:disabled){background:color-mix(in srgb,var(--s-color) 14%,var(--surface));color:var(--text)}
-.box-corner .box-health[hidden],.box-said[hidden]{display:none}
+.box-said[hidden],.box-act[hidden]{display:none}
 .box-said{display:flex;align-items:center;gap:7px;margin:2px 0 0;padding:6px 10px;border-radius:var(--r-ctl);font-weight:500;animation:card-in .18s ease both}
 .box-said[data-kind=ok]{color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--surface))}
 .box-said[data-kind=bad]{color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
@@ -470,12 +461,21 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-error svg{margin-top:1px}
 .box-hold{display:flex;align-items:center;gap:12px}
 .box-hold span{color:var(--muted);font-size:12px}
-.box-info{padding:10px 14px 2px;color:var(--muted)}
 .box-ring{position:relative;width:44px;height:44px;flex:none;display:grid;place-items:center}
 #box-card .box-ring svg{position:absolute;inset:0;width:44px;height:44px;transform:rotate(-90deg)}
 .box-ring b{font-size:13px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
 .box-track{fill:none;stroke:var(--line);stroke-width:2.5}
 .box-arc{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-dasharray:119.4;transition:stroke-dashoffset 1s linear}
-@media(max-width:550px){.box-name span{display:none}.box-corner.open{width:calc(100vw - 60px)}}
+@media(max-width:550px){.box-corner.open{width:calc(100vw - 60px)}}
 @media (prefers-reduced-motion:reduce){.box-corner,.box-said,#box-card.opening{animation:none}.box-arc{transition:none}}
 #box-card .card-row svg path,#box-card .card-confirm svg path{fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+/* The status is the left of the bar: dot and words; it opens the box details. */
+.box-corner .sync-status{gap:8px;padding:0 12px 0 11px;font-weight:500}
+.box-corner .sync-status:hover:not(:disabled),.box-corner .sync-status[aria-expanded=true]{background:var(--soft);color:var(--text)}
+.box-act{display:flex}
+.box-corner .box-connect[aria-expanded=true]{background:var(--soft)}
+.box-info{display:flex;align-items:center;gap:10px;padding:12px 14px 4px}
+.box-info svg{color:var(--muted)}
+.box-info div{display:grid;gap:2px}
+.box-info b{font-weight:600}
+.box-info span{color:var(--muted);font-size:12px}

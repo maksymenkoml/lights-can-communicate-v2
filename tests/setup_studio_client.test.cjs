@@ -897,6 +897,7 @@ test('names from discovery are escaped in the room and the panel',async()=>{
 
 // ---------------------------------------------------------------- Sync Box --
 const BOX={state:'ready',syncing:false,name:'Sync Box 8K',ip:'192.168.10.101'};
+const WAITING=liveOk({sync:{state:'waiting',reason:'no_frames',blockers:[]}});
 // A fake Light Studio Sync Box API: state moves the way the server moves it.
 function fakeBox(start={state:'none'}){
  const box={status:structuredClone(start),pressAfter:Infinity,polls:0};
@@ -909,77 +910,117 @@ function fakeBox(start={state:'none'}){
   if(url==='/api/sync-box/find')return {boxes:[{ip:BOX.ip,name:BOX.name}]};
   if(url==='/api/sync-box/pair'){if(body.ip==='8.8.8.8')return {status:400,body:{error:'invalid'}};box.status={state:'connecting',remaining:30,name:BOX.name,ip:body.ip};box.polls=0;return box.status}
   if(url==='/api/sync-box/cancel'){box.status={state:'none'};return box.status}
-  if(url==='/api/sync-box/sync'){if(box.offline)return {status:503,body:{...box.status,state:'offline'}};box.status={...box.status,syncing:body.active};return box.status}
+  if(url==='/api/sync-box/sync'){if(box.offline)return {status:503,body:{...box.status,state:'offline'}};if(box.silent)return {status:503,body:box.status};box.status={...box.status,syncing:body.active};return box.status}
   if(url==='/api/sync-box/forget'){box.status={state:'none'};return box.status}
   assert.fail('unexpected '+url);
  };
  return box;
 }
-const cornerText=app=>app.$('#sync-box .box-bar').children.map(n=>n.textContent.trim()).join(' ');
+// The corner bar: the one Sync status, then the one action.
+const status=app=>app.$('#sync-status span').textContent;
+const action=app=>{const act=app.$('#sync-box .box-act');return act.hidden?'':act.textContent.trim()};
+const actionButton=app=>app.$('#sync-box .box-act button');
 const said=app=>{const el=app.$('#sync-box .box-said');return el.hidden?'':el.textContent.trim()};
 
-test('the toolbar view switch is Settings: it shows the Sync settings and never starts Sync',async()=>{
+test('the toolbar has only the Settings switch; the Sync status is in the corner',async()=>{
  const app=await harness();
  assert.equal(app.$('#sync-tool .sync-word').textContent,'Settings');
  assert.equal(app.$('#sync-tool').getAttribute('aria-label'),'Show the Sync settings');
+ assert.equal(app.$('.toolbar #sync-status'),null);
+ assert.ok(app.$('#sync-box .box-bar #sync-status'));
 });
 
-test('without a box the corner offers Connect, and the card connects the box found on the network',async()=>{
+test('without a box the corner shows the adapter status and Connect',async()=>{
+ const app=await harness();
+ assert.equal(status(app),'Syncing');
+ assert.equal(action(app),'Connect Sync Box');
+});
+
+test('the card connects the box found on the network in two steps, all inside the corner',async()=>{
  const box=fakeBox();box.pressAfter=3;
  const app=await harness({syncBox:box.api});
- assert.equal(cornerText(app),'Connect Sync Box');
  await app.click(app.$('#sync-box [data-box="connect"]'));
  const card=app.$('#box-card');
  assert.equal(card.hidden,false);
+ assert.equal(app.$('#sync-box').classList.contains('open'),true);
  assert.match(card.textContent,/1Choose your Sync BoxFound on this network:/);
- assert.equal(app.$('#sync-box').classList.contains('open'),true,'the card opens inside the corner block');
  const row=card.querySelector('[data-box-ip]');assert.match(row.textContent,/Sync Box 8K.*192\.168\.10\.101/);
  await app.click(row);
  assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:'192.168.10.101'},at:app.now()});
  assert.ok(card.querySelector('.box-step.done'),'step 1 is ticked');
  assert.match(card.querySelector('.box-step.active').textContent,/Hold the button on the box/);
  assert.equal(card.querySelector('.box-ring b').textContent,'30');
- assert.equal(cornerText(app),'Sync Box 8K Connecting…');
+ assert.equal(status(app),'Connecting…');
  await app.advance(1000);
  assert.equal(card.querySelector('.box-ring b').textContent,'29','the countdown follows the server');
  await app.advance(2000);
- assert.equal(cornerText(app),'Sync Box 8K Start Sync');
  assert.equal(said(app),'Connected');
  assert.equal(card.hidden,true);
+ assert.equal((status(app)+' | '+action(app)),'Sync off | Start Sync');
  assert.equal(app.$('#toast').textContent,'','nothing is said at the bottom');
  await app.advance(4000);assert.equal(said(app),'');
 });
 
-test('Start Sync and Stop Sync switch the box and show what is happening',async()=>{
+test('Start Sync reads Starting until frames arrive, then Syncing',async()=>{
+ let live=WAITING;let release;const box=fakeBox(BOX);
+ const app=await harness({live:()=>live,syncBox:(url,body)=>url==='/api/sync-box/sync'?new Promise(done=>{release=()=>done(box.api(url,body))}):box.api(url,body)});
+ assert.equal(status(app)+' | '+action(app),'Sync off | Start Sync','the adapter health is not news while Sync is off');
+ await app.click(actionButton(app));
+ assert.equal(status(app)+' | '+action(app),'Starting… | Start Sync');
+ assert.ok(actionButton(app).disabled,'one change at a time');
+ const sent=app.requests.box.length;await app.click(actionButton(app));assert.equal(app.requests.box.length,sent);
+ release();await app.settle();
+ assert.equal(status(app)+' | '+action(app),'Starting… | Stop Sync','the box runs Sync, the frames are still to come');
+ await app.advance(10000);
+ assert.equal(status(app),'Starting…');
+ live=liveOk();await app.advance(200);
+ assert.equal(status(app),'Syncing');
+ assert.equal(app.$('#sync-status').dataset.level,'ok');
+});
+
+test('Sync that never gets frames says so after its start time',async()=>{
+ const box=fakeBox(BOX);
+ const app=await harness({live:WAITING,syncBox:box.api});
+ await app.click(actionButton(app));
+ await app.advance(19000);assert.equal(status(app),'Starting…');
+ await app.advance(1500);assert.equal(status(app),'Waiting for frames');
+});
+
+test('Stop Sync reads Stopping, then Sync off however the stream winds down',async()=>{
+ let release;const box=fakeBox({...BOX,syncing:true});
+ const app=await harness({syncBox:(url,body)=>url==='/api/sync-box/sync'?new Promise(done=>{release=()=>done(box.api(url,body))}):box.api(url,body)});
+ assert.equal(status(app)+' | '+action(app),'Syncing | Stop Sync');
+ await app.click(actionButton(app));
+ assert.equal(status(app)+' | '+action(app),'Stopping… | Stop Sync');
+ release();await app.settle();
+ assert.equal(status(app)+' | '+action(app),'Sync off | Start Sync');
+ app.context.liveSnapshot=null;
+});
+
+test('a box that does not answer is offline without an action, and a failed Start says so in the corner',async()=>{
  const box=fakeBox(BOX);
  const app=await harness({syncBox:box.api});
- assert.equal(cornerText(app),'Sync Box 8K Start Sync');
- assert.equal(app.$('#sync-box .box-dot').classList.contains('on'),false);
- await app.click(app.$('#sync-box [data-box="toggle"]'));
- assert.deepEqual(app.requests.box.at(-1).body,{active:true});
- assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
- assert.ok(app.$('#sync-box .box-dot').classList.contains('on'));
- await app.click(app.$('#sync-box [data-box="toggle"]'));
- assert.deepEqual(app.requests.box.at(-1).body,{active:false});
- box.offline=true;
- await app.click(app.$('#sync-box [data-box="toggle"]'));
+ box.silent=true;
+ await app.click(actionButton(app));
  assert.equal(said(app),'The Sync Box did not respond');
- assert.equal(cornerText(app),'Sync Box 8K Offline');
+ assert.equal(status(app),'Sync off');
+ box.silent=false;box.offline=true;
+ await app.click(actionButton(app));
+ assert.equal(status(app)+' | '+action(app),'Sync Box offline | ');
+ assert.equal(app.$('#toast').textContent,'');
 });
 
-test('the button shows the change while the box answers and ignores a second click',async()=>{
- let release;const box=fakeBox(BOX);
- const app=await harness({syncBox:(url,body)=>url==='/api/sync-box/sync'?new Promise(done=>{release=()=>done(box.api(url,body))}):box.api(url,body)});
- await app.click(app.$('#sync-box [data-box="toggle"]'));
- assert.equal(cornerText(app),'Sync Box 8K Starting…');
- const sent=app.requests.box.length;
- await app.click(app.$('#sync-box button[disabled]'));
- assert.equal(app.requests.box.length,sent);
- release();await app.settle();
- assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
+test('another page sees Starting while the box switches',async()=>{
+ const box=fakeBox({...BOX,changing:true});
+ const app=await harness({syncBox:box.api});
+ assert.equal(status(app),'Starting…');
+ assert.ok(actionButton(app).disabled);
+ box.status={...BOX,syncing:true};
+ await app.advance(3000);
+ assert.equal(status(app)+' | '+action(app),'Syncing | Stop Sync');
 });
 
-test('an address can be typed, and a wrong one is explained',async()=>{
+test('an address can be typed, and a wrong one is explained at its step',async()=>{
  const box=fakeBox();
  const app=await harness({syncBox:(url,body)=>url==='/api/sync-box/find'?{boxes:[]}:box.api(url,body)});
  await app.click(app.$('#sync-box [data-box="connect"]'));
@@ -995,10 +1036,9 @@ test('an address can be typed, and a wrong one is explained',async()=>{
  await app.click(card.querySelector('[data-box="address"]'));
  assert.deepEqual(app.requests.box.at(-1).body,{ip:'192.168.10.101'});
  assert.match(card.textContent,/Hold the button/);
- assert.equal(card.querySelector('.box-error'),null);
 });
 
-test('Escape or Cancel while connecting stops asking the box',async()=>{
+test('Escape while connecting stops asking the box',async()=>{
  const box=fakeBox();
  const app=await harness({syncBox:box.api});
  await app.click(app.$('#sync-box [data-box="connect"]'));
@@ -1006,44 +1046,43 @@ test('Escape or Cancel while connecting stops asking the box',async()=>{
  await app.press(app.$('#box-card'),'Escape');
  assert.equal(app.requests.box.at(-1).url,'/api/sync-box/cancel');
  assert.equal(app.$('#box-card').hidden,true);
- assert.equal(cornerText(app),'Connect Sync Box');
+ assert.equal(action(app),'Connect Sync Box');
 });
 
 test('a missed button press offers Try again',async()=>{
  const box=fakeBox({state:'timeout',name:BOX.name,ip:BOX.ip});
  const app=await harness({syncBox:box.api});
- await app.click(app.$('#sync-box [data-box="info"]'));
- await app.run('openBoxCard("connect")');await app.settle();
+ app.run('openBoxCard("connect")');await app.settle();
  assert.match(app.$('#box-card').textContent,/not held in time/);
  await app.click(app.$('#box-card [data-box="retry"]'));
  assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:BOX.ip},at:app.now()});
 });
 
-test('Forget asks first, then removes the box',async()=>{
+test('the status opens the box details, where Forget asks first',async()=>{
  const box=fakeBox(BOX);
  const app=await harness({syncBox:box.api});
- await app.click(app.$('#sync-box [data-box="info"]'));
+ await app.click(app.$('#sync-status'));
  const card=app.$('#box-card');
- assert.match(card.textContent,/192\.168\.10\.101 · Not syncing/);
+ assert.match(card.textContent,/Sync Box 8K192\.168\.10\.101Forget Sync Box/);
  await app.click(card.querySelector('[data-box="forget"]'));
  assert.ok(!app.requests.box.some(r=>r.url==='/api/sync-box/forget'),'nothing is forgotten before the confirmation');
  await app.click(card.querySelector('[data-box="forget-cancel"]'));
  await app.click(card.querySelector('[data-box="forget"]'));
  await app.click(card.querySelector('[data-box="forget-yes"]'));
  assert.equal(app.requests.box.at(-1).url,'/api/sync-box/forget');
- assert.equal(cornerText(app),'Connect Sync Box');
+ assert.equal(action(app),'Connect Sync Box');
  assert.equal(said(app),'Sync Box forgotten');
 });
 
-test('the corner follows the box state and stops asking while the page is hidden',async()=>{
+test('the corner follows the box and stops asking while the page is hidden',async()=>{
  const box=fakeBox(BOX);
  const app=await harness({syncBox:box.api});
  box.status={...BOX,syncing:true};
  await app.advance(3000);
- assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
+ assert.equal(status(app)+' | '+action(app),'Syncing | Stop Sync','Sync started elsewhere and frames already flow');
  box.status={state:'unauthorized',name:BOX.name,ip:BOX.ip};
  await app.advance(3000);
- assert.equal(cornerText(app),'Sync Box 8K Reconnect');
+ assert.equal(status(app)+' | '+action(app),'Sync Box disconnected | Reconnect');
  await app.visible(false);
  const asked=app.requests.box.length;
  await app.advance(10000);
@@ -1052,21 +1091,11 @@ test('the corner follows the box state and stops asking while the page is hidden
  assert.equal(app.requests.box.length,asked+1);
 });
 
-test('the Sync status sits in the Sync Box corner and speaks only about problems',async()=>{
+test('a lamp problem during Sync is the status, and clicking it shows the lamp',async()=>{
  const box=fakeBox({...BOX,syncing:true});
- const app=await harness({syncBox:box.api});
- assert.equal(app.$('.toolbar #sync-status'),null,'the bottom toolbar has no Sync status');
- const status=app.$('#sync-box #sync-status');
- assert.ok(status,'the status is in the corner block');
- assert.equal(status.hidden,true,'Syncing needs no words: the dot is green');
-});
-
-test('every page shows Starting while the box is still switching',async()=>{
- const box=fakeBox({...BOX,changing:true});
- const app=await harness({syncBox:box.api});
- assert.equal(cornerText(app),'Sync Box 8K Starting…');
- assert.ok(app.$('#sync-box .box-bar button[disabled]'));
- box.status={...BOX,syncing:true};
- await app.advance(3000);
- assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
+ assert.equal(status(app)+' | '+action(app),'Govee Left off in HomeKit | Stop Sync');
+ await app.click(app.$('#sync-status'));
+ assert.equal(app.run('selected'),'govee-left');
+ assert.equal(app.$('#box-card').hidden,true,'a problem click shows the lamp, not the box details');
 });

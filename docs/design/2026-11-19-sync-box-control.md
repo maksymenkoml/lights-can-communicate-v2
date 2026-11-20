@@ -76,6 +76,16 @@ Owner choice: the corner at the top right of Light Studio (mock variant C).
   polls answer from the last read with `changing` during Start/Stop, and Offline
   needs 15 s of silence.
 
+### Second revision (owner, 2026-11-19): one status
+
+The corner showed the box's view (dot) and the adapter's health (line) side by
+side, so Stop was followed by "Waiting for frames" and "Hue busy", and Start by
+a green dot over "Waiting for frames". The corner now has one status and one
+action: the box decides whether Sync is on; Starting… covers the box answer and
+up to 20 s for the first frames; Stopping… ends in Sync off at once; the
+adapter's health speaks only while Sync runs past its start. The box name and
+Forget move behind a click on the status.
+
 ## Left to the builder
 
 Polling cadence, error wording, card animation reuse, test structure.

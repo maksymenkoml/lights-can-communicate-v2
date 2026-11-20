@@ -141,29 +141,43 @@ is off, stale, offline, excluded or blocked. In the Sync view the monitor shows 
 soft gradient of the strip's colours while Sync is active. Telemetry only
 repaints existing SVG attributes: it never rebuilds the layout and never saves.
 
-The Sync status is a line in the Sync Box corner that appears only for a
-problem: Waiting for frames, Hue busy, "<lamp> <reason>", "N lamps not lit", or
-Sync status unknown while the box syncs (Syncing is the green dot of the box).
-Unknown reasons fall back to these labels. Clicking it selects the lamp with the
-problem. A local sleep
+The Sync status in the Sync Box corner shows Syncing, Waiting for frames, Hue
+busy, Not syncing, Sync status unknown, "<lamp> <reason>" or "N lamps not lit"
+(with a connected box it follows the table in Sync Box). Unknown reasons fall
+back to these labels. Clicking it selects the lamp with the problem. A local sleep
 hold (`live-output-hold`) reports Not syncing without contacting the adapter.
 
 ## Sync Box
 
-The corner at the top right is one block for everything about Sync: the box
-name, a dot (green while Sync runs, red when the box is offline or its token was
-revoked), Start Sync / Stop Sync (Starting… / Stopping… until the box answers),
-the Sync status line and short messages ("Connected", "The Sync Box did not
-respond"). Nothing about the box is shown at the bottom of the page.
+The corner at the top right is one block for everything about Sync: one Sync
+status (a dot and its words), one action, short messages ("Connected", "The Sync
+Box did not respond") and, when opened, the connect steps or the box details.
+Nothing about Sync is shown at the bottom of the page.
+
+| Situation | Status | Action |
+| --- | --- | --- |
+| No box | the adapter's status (see Live colours and Sync status) | Connect Sync Box |
+| Sync off | Sync off | Start Sync |
+| Start sent, box not answered yet | Starting… | Start Sync (disabled) |
+| Box runs Sync, first frames not in yet (up to 20 s) | Starting… | Stop Sync |
+| Frames arrive | Syncing (green) | Stop Sync |
+| No frames after 20 s, or a lamp problem | Waiting for frames, "<lamp> <reason>", … | Stop Sync |
+| Stop sent | Stopping…, then Sync off at once | Stop Sync (disabled) |
+| Box silent for 15 s | Sync Box offline | none |
+| Token revoked | Sync Box disconnected | Reconnect |
+
+With a box, the box decides whether Sync is on: the adapter's health is not
+shown while Sync is off, starts or stops (the stream winding down is not news).
+Clicking the status selects the lamp with a problem, otherwise it shows the box
+name, its address and Forget Sync Box.
 
 Without a box the block offers Connect Sync Box and opens two steps inside it:
 1 Choose your Sync Box (the boxes that answer an mDNS query for `_huesync._tcp`,
 or an IP address; a container without host networking cannot receive multicast)
 and 2 Hold the button on the box (a 30-second countdown while the server asks the
 box for a registration once a second; the owner holds the button until the box's
-light blinks green). Errors appear at their step. Clicking the name shows the
-address and Forget Sync Box, which asks first and removes the registration on the
-box when it answers.
+light blinks green). Errors appear at their step. Forget Sync Box asks first and
+removes the registration on the box when it answers.
 
 The box can take several seconds to answer (up to 10 s for a read, 15 s for
 Start or Stop). Polls answer at once from the last read while a new read runs,
