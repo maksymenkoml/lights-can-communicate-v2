@@ -1555,6 +1555,8 @@ function setBox(next){
  // Sync that starts while this page watches gets time for its first frames.
  if(box.syncing===true&&!wasSyncing&&was!=='unknown')markSyncStart();
  if(box.syncing!==true&&box.changing!==true&&boxBusy!==true)syncStartedAt=null;
+ // Sync that ends without a Stop from Light Studio (the box gave up, or the Hue app) is news.
+ if(wasSyncing&&box.state==='ready'&&box.syncing===false&&boxBusy===null&&box.changing==null)boxSay('Sync stopped on the Sync Box','bad');
  if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
  paintBox();
 }

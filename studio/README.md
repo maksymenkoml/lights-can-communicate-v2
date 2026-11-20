@@ -172,7 +172,9 @@ Nothing about Sync is shown at the bottom of the page.
 With a box, the box decides whether Sync is on: the adapter's health is not
 shown while Sync is off, starts or stops (the stream winding down is not news).
 Clicking the status selects the lamp with a problem, otherwise it shows the box
-name, its address and Forget Sync Box.
+name, its address and Forget Sync Box. Sync that ends without a Stop from Light
+Studio (the box gave up, or the Hue app stopped it) says "Sync stopped on the
+Sync Box".
 
 Without a box the block offers Connect Sync Box and opens two steps inside it:
 1 Choose your Sync Box (the boxes that answer an mDNS query for `_huesync._tcp`,

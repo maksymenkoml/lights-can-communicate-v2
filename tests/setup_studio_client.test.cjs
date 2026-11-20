@@ -1119,3 +1119,15 @@ test('a lamp problem during Sync is the status, and clicking it shows the lamp',
  assert.equal(app.run('selected'),'govee-left');
  assert.equal(app.$('#box-card').hidden,true,'a problem click shows the lamp, not the box details');
 });
+
+test('Sync that ends without a Stop from here is said in the corner',async()=>{
+ const box=fakeBox({...BOX,syncing:true});
+ const app=await harness({syncBox:box.api});
+ box.status={...BOX,syncing:false};
+ await app.advance(3000);
+ assert.equal(status(app)+' | '+action(app),'Sync off | Start Sync');
+ assert.equal(said(app),'Sync stopped on the Sync Box');
+ await app.click(actionButton(app));await app.click(actionButton(app));
+ assert.equal(said(app),'Sync stopped on the Sync Box','a Stop from here says nothing new');
+ await app.advance(4000);assert.equal(said(app),'');
+});
