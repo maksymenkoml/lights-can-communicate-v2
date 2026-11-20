@@ -1145,3 +1145,14 @@ test('the corner shows the guard restarting Sync and says when it gives up',asyn
  await app.advance(20100);
  assert.equal(status(app)+' | '+action(app),'Waiting for frames | Stop Sync','after the start time');
 });
+
+test('a connection that could not be saved is said at step 2 with Try again',async()=>{
+ const box=fakeBox({state:'failed',name:'Sync Box 8K',ip:'192.168.10.101'});
+ const app=await harness({syncBox:box.api});
+ app.run('openBoxCard("connect")');await app.settle();
+ const card=app.$('#box-card');
+ assert.match(card.textContent,/Light Studio could not save the connection\./);
+ assert.doesNotMatch(card.textContent,/not held in time/);
+ await app.click(card.querySelector('[data-box="retry"]'));
+ assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:BOX.ip},at:app.now()});
+});

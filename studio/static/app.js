@@ -210,7 +210,7 @@ function cornerStatus(){
  const busy=boxBusy??box.changing??null;
  if(s==='offline')return {level:'bad',label:'Sync Box offline',detail:'The Sync Box does not answer'};
  if(s==='unauthorized')return {level:'bad',label:'Sync Box disconnected',detail:'Its access was removed'};
- if(s==='connecting'||s==='timeout')return {level:'wait',label:'Connecting…',detail:'Connecting the Sync Box'};
+ if(s==='connecting'||s==='timeout'||s==='failed')return {level:'wait',label:'Connecting…',detail:'Connecting the Sync Box'};
  if(s==='ready'&&box.recovery==='restarting')return {level:'wait',label:'Restarting Sync…',detail:'No frames reached the lamps, so Sync starts again'};
  if(busy===true)return {level:'wait',label:'Starting…',detail:'The Sync Box is starting Sync'};
  if(busy===false)return {level:'wait',label:'Stopping…',detail:'The Sync Box is stopping Sync'};
@@ -1524,7 +1524,7 @@ window.addEventListener('blur',hideTooltip);window.addEventListener('resize',hid
 
 // ---------------------------------------------------------------- Sync Box --
 // The server owns the box and its token. The page sees public states only:
-// none, connecting, timeout, ready, offline, unauthorized (unknown until the first answer).
+// none, connecting, timeout, failed, ready, offline, unauthorized (unknown until the first answer).
 // Everything about the box, messages included, happens inside the corner block.
 const BOX_POLL_MS=3000,BOX_FAST_MS=1000,BOX_PAIR_S=30,BOX_RING=119.4,BOX_SAY_MS=4000;
 const boxIcons={
@@ -1536,7 +1536,7 @@ const boxIcons={
  alert:'<circle cx="10" cy="10" r="7"/><path d="M10 6.5v4.2M10 13.4h.01"/>'};
 const boxSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+boxIcons[id]+'</svg>';
 let box={state:'unknown'},boxTimer=null,boxGeneration=0,boxBusy=null,boxCard=null,boxFound=null,boxForget=false,boxHtml='',boxAddress='',boxError='',boxSaid=null,boxSayTimer=null;
-const boxPairing=()=>box.state==='connecting'||box.state==='timeout';
+const boxPairing=()=>box.state==='connecting'||box.state==='timeout'||box.state==='failed';
 async function boxPost(action,body={}){
  try{const r=await fetch('/api/sync-box/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json().catch(()=>({}))}}
  catch{return {status:0,body:{}}}
@@ -1606,7 +1606,7 @@ function boxCardHtml(){
   first=boxStep(1,'done','Choose your Sync Box','<span>'+esc(box.name+' · '+box.ip)+'</span>');
   second=box.state==='connecting'
    ?boxStep(2,'active','Hold the button on the box','<div class="box-hold">'+boxRing(box.remaining??BOX_PAIR_S)+'<span>Press and hold it for about 3 seconds, until its light blinks green.</span></div>')
-   :boxStep(2,'active','Hold the button on the box','<p class="box-error" role="alert">'+boxSvg('alert')+'<span>The button was not held in time.</span></p><button class="box-retry" data-box="retry">Try again</button>');
+   :boxStep(2,'active','Hold the button on the box','<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+(box.state==='failed'?'Light Studio could not save the connection.':'The button was not held in time.')+'</span></p><button class="box-retry" data-box="retry">Try again</button>');
  }else{
   const rows=(boxFound||[]).map(b=>'<button class="card-row" data-box-ip="'+esc(b.ip)+'">'+boxSvg('box')+'<span>'+esc(b.name)+'</span><em>'+esc(b.ip)+'</em>'+iconSvg('next')+'</button>').join('');
   const hint=boxFound===null?'Looking on this network…':boxFound.length?'Found on this network:':'None found. Enter its IP address:';

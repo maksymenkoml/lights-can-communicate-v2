@@ -302,6 +302,34 @@ class SyncBoxTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(self.box.tokens, set())
 
+    def test_a_read_that_finishes_after_forget_does_not_bring_the_box_back(self):
+        self.pair()
+        self.control.status()
+        self.clock.now += 5
+        original = self.control._read_status
+
+        def read_then_forget():
+            result = original()  # the box answered while it was still paired
+            self.control._read_status = original
+            self.control.forget()
+            return result
+
+        self.control._read_status = read_then_forget
+        self.control._refresh()
+        self.assertEqual(self.control.status(), {"state": "none"})
+
+    def test_a_token_that_cannot_be_saved_ends_pairing_with_an_error(self):
+        def refuse(data):
+            raise OSError("read-only state")
+
+        self.control._save = refuse
+        self.box.button = True
+        self.control.pair(self.box.ip)
+        self.wait_for(lambda: self.control.status()["state"] != "connecting")
+        self.assertEqual(self.control.status(),
+                         {"state": "failed", "name": "Sync Box 8K", "ip": self.box.ip})
+        self.assertFalse(self.path.exists())
+
     def test_forget_works_while_the_box_is_offline(self):
         self.pair()
         self.box.online = False

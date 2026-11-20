@@ -178,9 +178,30 @@ class SyncGuardTests(unittest.TestCase):
         self.bridge_guard()
         self.box.syncing = False
         self.stream = "off"
-        self.run_for(10)
-        self.frames = 3
+        self.run_for(5)
+        self.frames = 3  # the bridge was back before the next check
         self.assertEqual(self.run_for(10), 1)
+
+    def test_a_stop_while_the_bridge_runs_stays_even_if_it_restarts_soon_after(self):
+        self.bridge_guard()
+        self.box.syncing = False  # stopped in the Hue app, the bridge undisturbed
+        self.run_for(20)
+        self.assertEqual(self.restart_bridge() + self.run_for(120), 0)
+        self.assertEqual(self.box.calls, [])
+
+    def test_the_owners_stop_during_a_recovery_pause_is_kept(self):
+        self.stream = "off"
+        self.run_for(25)  # first try
+        self.box.calls.clear()
+
+        def pause(seconds):
+            self.clock.now += seconds
+            self.guard.stopped()  # the owner's Stop from Light Studio meanwhile
+            self.box.syncing = False
+
+        self.guard.sleep = pause
+        self.assertEqual(self.run_for(120), 0)
+        self.assertEqual(self.box.calls, [False], "the guard's Stop, but no Start after it")
 
     def test_a_stop_while_the_bridge_runs_is_kept_even_if_it_restarts_later(self):
         self.bridge_guard()

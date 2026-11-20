@@ -28,11 +28,12 @@ RETRY_DELAYS = (0.0, 30.0, 30.0, 60.0, 60.0, 90.0)
 # Quiet time between Stop and Start, per attempt. A box that streamed into a lost
 # port came back in a live check only after about 50 s off; 6 s and 22 s did not.
 RESTART_PAUSES = (3.0, 15.0, 45.0, 45.0, 45.0, 45.0)
-# Sync that stops up to 60 s after a bridge restart was seen, or up to 30 s before
-# it is seen (the box stops as the bridge goes down; the restart shows once it is
-# back), was stopped by the restart.
+# Sync that stops up to 60 s after a bridge restart was seen was stopped by it.
+# The bridge must already be going down when the Stop is seen: the probe misses
+# or the frame counter resets in the same check or the next one, never later,
+# so a Stop while the bridge runs undisturbed stays.
 RESTART_BEFORE = 60.0
-RESTART_AFTER = 30.0
+RESTART_AFTER = 6.0
 TICK_SECONDS = 5.0
 # Stream states that mean no frames: the adapter answers and nobody else streams.
 STALLED = ("waiting", "off")
@@ -141,10 +142,13 @@ class SyncGuard:
         # True from a restart by the guard until frames flow: Sync is still wanted on.
         self.retrying = False
         self.state = None  # None, "restarting" or "failed"
+        # Bumped by the owner's Start and Stop; a restart that was pausing gives up.
+        self.generation = 0
 
     # The owner's own Start and Stop from Light Studio.
     def started(self):
         with self.lock:
+            self.generation += 1
             self.started_at = self.clock()
             self.stalled_since = None
             self.attempts = 0
@@ -153,6 +157,7 @@ class SyncGuard:
 
     def stopped(self):
         with self.lock:
+            self.generation += 1
             self.was_syncing = False
             self.lost_at = None
             self.started_at = None
@@ -248,6 +253,8 @@ class SyncGuard:
         return True
 
     def _restart(self):
+        with self.lock:
+            generation = self.generation
         self.box.set_sync(False)
         repaired = False
         if self.ingress is not None:
@@ -263,6 +270,10 @@ class SyncGuard:
             # A box that lost its stream needs the longest quiet time (see RESTART_PAUSES).
             pause = RESTART_PAUSES[-1]
         self.sleep(pause)
+        with self.lock:
+            if self.generation != generation:
+                # The owner started or stopped Sync meanwhile; theirs is the last word.
+                return False
         code, status = self.box.set_sync(True)
         with self.lock:
             # The next stall is counted from this Start.

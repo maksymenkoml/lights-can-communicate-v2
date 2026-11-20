@@ -192,6 +192,9 @@ class SyncBox:
         self.answered_at = None
         self.changing = None
         self.relocated_at = None
+        # Bumped when a pairing or Forget changes the stored box; a read that
+        # started before must not publish its result.
+        self.generation = 0
 
     # ------------------------------------------------------------- storage --
     def config(self):
@@ -274,10 +277,16 @@ class SyncBox:
                 with self.lock:
                     if attempt["stop"].is_set():
                         return
-                    self._save({**attempt, "accessToken": token,
-                                "registrationId": str(registration)})
+                    try:
+                        self._save({**attempt, "accessToken": token,
+                                    "registrationId": str(registration)})
+                    except OSError:
+                        # The token cannot be kept: end the attempt with an error.
+                        attempt["result"] = "failed"
+                        return
                     attempt["result"] = "connected"
                     self.pairing = None
+                    self.generation += 1
                     self.cached = None
                 return
             self.sleep(1.0)
@@ -332,8 +341,8 @@ class SyncBox:
             attempt = self.pairing
             if attempt is not None:
                 public = {"name": attempt["name"], "ip": attempt["ip"]}
-                if attempt["result"] == "timeout":
-                    return {"state": "timeout", **public}
+                if attempt["result"] in ("timeout", "failed"):
+                    return {"state": attempt["result"], **public}
                 if attempt["result"] is None:
                     left = max(0, math.ceil(attempt["deadline"] - self.clock()))
                     return {"state": "connecting", "remaining": left, **public}
@@ -357,12 +366,16 @@ class SyncBox:
             return result
 
     def _refresh(self):
+        with self.lock:
+            generation = self.generation
         try:
             result = self._read_status()
         finally:
             with self.lock:
                 self.reading = False
         with self.lock:
+            if generation != self.generation:
+                return
             now = self.clock()
             if result["state"] in ("ready", "unauthorized", "none"):
                 self.answered_at = now
@@ -402,6 +415,7 @@ class SyncBox:
             if self.changing is not None:
                 return 409, self.status()
             self.changing = bool(active)
+            generation = self.generation
         try:
             status, _, _ = self._request(config, "PUT", "/api/v1/execution",
                                          body={"syncActive": bool(active)},
@@ -410,7 +424,7 @@ class SyncBox:
             status = 0
         with self.lock:
             self.changing = None
-            if status == 200:
+            if status == 200 and generation == self.generation:
                 config = self.config() or config
                 now = self.clock()
                 self.answered_at = now
@@ -439,5 +453,6 @@ class SyncBox:
                 self.path.unlink()
             except FileNotFoundError:
                 pass
+            self.generation += 1
             self.cached = None
             return self.status()

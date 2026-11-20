@@ -232,7 +232,7 @@ Routes (local origin only; answers never contain the token or the certificate):
 
 | Route | Body | Answer |
 | --- | --- | --- |
-| `GET /api/sync-box` | | `{"state"}`: `none`, `connecting` (`remaining` s), `timeout`, `ready` (`syncing`, `changing` while Start or Stop runs), `offline`, `unauthorized`; plus `name`, `ip` |
+| `GET /api/sync-box` | | `{"state"}`: `none`, `connecting` (`remaining` s), `timeout`, `failed` (the token could not be saved), `ready` (`syncing`, `changing` while Start or Stop runs), `offline`, `unauthorized`; plus `name`, `ip` |
 | `POST /api/sync-box/find` | `{}` | `{"boxes": [{"ip", "name"}]}` |
 | `POST /api/sync-box/pair` | `{"ip"}` | state; 400 for an address outside the local network, 503 when no Sync Box answers |
 | `POST /api/sync-box/cancel` | `{}` | state |
