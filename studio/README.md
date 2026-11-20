@@ -191,7 +191,7 @@ Start. Only a new Start from the box recovers it. The Light Studio server runs a
 guard (`bridge/sync_guard.py`) every 5 s. It sees a bridge restart when the
 bridge probe stops answering or its `frames_received` counter goes back. It
 stops and starts Sync on the box, at most three times with pauses of 0, 30 and
-90 s, when:
+90 s and 3, 15 and 45 s of quiet between Stop and Start, when:
 
 - Sync stopped up to 60 s before or 30 s after a bridge restart was seen;
 - the box runs Sync and the adapter reports `waiting` or `off` for 20 s;

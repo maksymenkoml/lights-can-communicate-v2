@@ -22,7 +22,9 @@ STALL_SECONDS = 20.0
 DROP_SECONDS = 30.0
 # Pauses before the first, second and third restart, counted from the stall.
 RETRY_DELAYS = (0.0, 30.0, 90.0)
-RESTART_PAUSE = 3.0
+# Quiet time between Stop and Start, per attempt. A box that streamed into a lost
+# port came back in a live check only after about 50 s off; 6 s and 22 s did not.
+RESTART_PAUSES = (3.0, 15.0, 45.0)
 # Sync that stops up to 60 s after a bridge restart was seen, or up to 30 s before
 # it is seen (the box stops as the bridge goes down; the restart shows once it is
 # back), was stopped by the restart.
@@ -251,7 +253,9 @@ class SyncGuard:
                     self.ingress.repair()
             except Exception:  # noqa: BLE001 - a failed repair still leaves the restart
                 pass
-        self.sleep(RESTART_PAUSE)
+        with self.lock:
+            pause = RESTART_PAUSES[min(max(self.attempts, 1), len(RESTART_PAUSES)) - 1]
+        self.sleep(pause)
         code, status = self.box.set_sync(True)
         with self.lock:
             # The next stall is counted from this Start.

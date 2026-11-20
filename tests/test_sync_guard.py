@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from sync_guard import (  # noqa: E402
     REPAIR_INTERVAL,
     REPAIR_SETTLE,
-    RESTART_PAUSE,
+    RESTART_PAUSES,
     StreamIngress,
     SyncGuard,
     udp_port_free,
@@ -86,9 +86,17 @@ class SyncGuardTests(unittest.TestCase):
                 times.append(self.clock.now)
         self.assertEqual(len(times), 3)
         gaps = [b - a for a, b in zip(times, times[1:])]
-        self.assertGreaterEqual(gaps[0], 50 - RESTART_PAUSE)
+        self.assertGreaterEqual(gaps[0], 50 - RESTART_PAUSES[0])
         self.assertGreater(gaps[1], gaps[0], "the pauses grow")
         self.assertEqual(self.guard.public(), {"recovery": "failed"})
+
+    def test_the_quiet_time_between_stop_and_start_grows(self):
+        self.stream = "off"
+        pauses = []
+        sleep = self.guard.sleep
+        self.guard.sleep = lambda seconds: (pauses.append(seconds), sleep(seconds))
+        self.run_for(600)
+        self.assertEqual(pauses, list(RESTART_PAUSES))
 
     def test_a_box_that_drops_sync_right_after_a_start_is_started_again(self):
         self.box.syncing = False
