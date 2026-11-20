@@ -498,8 +498,9 @@ switches it off; at the end it switches the recorded lamps on again.
 "hue_center" | "hue_right"}` and the `X-Adapter-Token` header blinks one lamp.
 It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
 "reason"}` when refused, 503 when a command was not delivered and 400 on bad
-input. It refuses while Sync drives a native Hue role, or a Govee lamp that has
-not received a DreamView frame in the last two seconds (`sync active`), while the lamp is
+input. While Sync drives a lamp it refuses when that lamp's stream has stalled
+(no DreamView frame to a Govee in the last two seconds, no native frame in the
+last second) with `sync active`. It also refuses while the lamp is
 off or not freshly observed (`lamp off`), while its color writer is closed
 (`writer closed`), while another blink of the same lamp runs (`busy`) and for an
 unconfigured native role (`unavailable`).
@@ -514,7 +515,10 @@ unconfigured native role (`unavailable`).
   picture.
 - Native Hue: the Hue v2 `{"identify": {"action": "identify"}}` write on the
   pinned light, through its own client method (the color write still refuses
-  power and identify).
+  power and identify). While Sync streams to the light it shows only the
+  Entertainment stream, so the relay shows the same two white flashes (white,
+  dark, white, dark, 300 ms each) on that light's stream channels instead; the
+  next frame shows the Sync colors again, and Stop ends any flash.
 
 Setup Studio forwards `POST /api/identify {"lamp"}` here.
 

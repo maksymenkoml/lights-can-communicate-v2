@@ -90,6 +90,13 @@ class DtlsConnection:
                 stream.close()
 
 
+# Canonical native channels of each role (see entertainment_stream.native_colors).
+ROLE_CHANNELS = {"hue_center": (0,), "hue_left": (1,), "hue_right": (2,),
+                 "strip": tuple(range(3, 12))}
+# A frame this recent shows the relay is streaming.
+STREAMING_SECONDS = 1.0
+
+
 class HueEntertainmentRelay:
     def __init__(
         self, config, requester=None, connection_factory=DtlsConnection, layout_store=None,
@@ -117,6 +124,9 @@ class HueEntertainmentRelay:
         self.composition = False
         self.applied_roles = None
         self.channel_map = {}
+        # Role -> RGB16 shown instead of its Sync colors (an owner Blink while syncing).
+        self.overrides = {}
+        self.last_send_at = None
         self.location_cache = (
             NativeLocationCache(location_cache_file, self.area_id,
                                 {service for service, _ in self.inventory()[0]})
@@ -426,6 +436,9 @@ class HueEntertainmentRelay:
             else None
         )
         channels = native_colors(frame, scales)
+        for role, rgb in dict(self.overrides).items():
+            for channel in ROLE_CHANNELS[role]:
+                channels[channel] = rgb
         if self.composition:
             # IDs are bridge-owned; source/calibration indices remain canonical.
             mapping = self.channel_map
@@ -435,13 +448,31 @@ class HueEntertainmentRelay:
             canonical = output = channels
         self.connection.send(encode_frame(self.area_id, output, self.sequence))
         self.sequence = (self.sequence + 1) % 256
+        self.last_send_at = time.monotonic()
         if self.preview is not None:
             try:
                 self.preview.record_native_channels(canonical)
             except Exception:
                 pass  # Passive telemetry cannot interrupt the native stream.
 
+    def streams(self, role):
+        """True while this relay streams the role's light and frames keep coming."""
+        sent = self.last_send_at
+        return (self.owned and self.connection is not None and role in ROLE_CHANNELS
+                and (not self.composition or role in (self.applied_roles or ()))
+                and sent is not None and 0 <= time.monotonic() - sent <= STREAMING_SECONDS)
+
+    def override(self, role, rgb):
+        """Show `rgb` (RGB16) on the role's channels in the next frames; None ends it."""
+        if role not in ROLE_CHANNELS:
+            raise ValueError("Unknown native role")
+        if rgb is None:
+            self.overrides.pop(role, None)
+        else:
+            self.overrides[role] = tuple(rgb)
+
     def stop(self):
+        self.overrides.clear()
         if self.connection is not None:
             self.connection.close()
             self.connection = None

@@ -16,8 +16,9 @@ repeated ones. Only while the lamp received a DreamView frame within the last
 two seconds.
 
 Native Hue: the Hue API v2 ``identify`` action on the pinned light, only while
-the light is on and freshly observed. It refuses while Sync drives the role
-(Sync active and the role is in the composition).
+the light is on and freshly observed. While Sync drives the light it shows only
+the Entertainment stream, so the blink is the same two white flashes on the
+light's stream channels instead, only while frames keep coming.
 """
 
 import contextlib
@@ -38,6 +39,7 @@ STATUS_SECONDS = 0.75
 # A DreamView frame this recent shows the lamp is in DreamView and receiving.
 DREAMVIEW_SECONDS = 2.0
 DARK, WHITE = (0, 0, 0), (255, 255, 255)
+NATIVE_WHITE = (65535, 65535, 65535)
 
 
 class IdentifyRefused(RuntimeError):
@@ -100,8 +102,6 @@ class Identify:
         if role not in IDENTIFY_ROLES:
             raise ValueError("Unknown identify role")
         syncing = self.sync_owns(role)
-        if syncing and role not in GOVEE_ROLES:
-            raise IdentifyRefused("sync active")
         # Taking the side's fence waits for an in-flight controller write to finish.
         with self.fences.get(role) or contextlib.nullcontext():
             with self.lock:
@@ -109,8 +109,10 @@ class Identify:
                     raise IdentifyRefused("busy")
                 self.busy.add(role)
         try:
-            if syncing:
+            if syncing and role in GOVEE_ROLES:
                 return self._govee_sync(role)
+            if syncing:
+                return self._native_sync(role)
             if role in GOVEE_ROLES:
                 return self._govee(role)
             return self._native(role)
@@ -191,6 +193,22 @@ class Identify:
                 # The next Sync frame is sent in full and restores the picture.
                 sync.last_sent.pop(side, None)
         if not delivered:
+            raise IdentifyFailed("Blink was not delivered")
+        return True
+
+    def _native_sync(self, role):
+        relay = getattr(self.video, "relay", None)
+        if relay is None or not relay.streams(role):
+            raise IdentifyRefused("sync active")
+        before = relay.sequence
+        try:
+            for color in (NATIVE_WHITE, DARK, NATIVE_WHITE, DARK):
+                relay.override(role, color)
+                self.sleep(STEP_SECONDS)
+        finally:
+            # The next stream frame shows the Sync colors again.
+            relay.override(role, None)
+        if relay.sequence == before:
             raise IdentifyFailed("Blink was not delivered")
         return True
 

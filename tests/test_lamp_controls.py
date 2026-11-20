@@ -670,6 +670,52 @@ class IdentifyTests(IdentifyFixture):
         self.identify("left")
         self.assertEqual(held, [False, "right", True] * 4)
 
+    def native_relay(self, streams=True):
+        class Relay:
+            def __init__(self):
+                self.sequence, self.overrides, self.shown = 0, {}, []
+
+            def streams(self, role):
+                return streams
+
+            def override(self, role, rgb):
+                if rgb is None:
+                    self.overrides.pop(role, None)
+                else:
+                    self.overrides[role] = rgb
+
+        relay = Relay()
+        self.sync_video(composed=lambda role: True)
+        self.identify.video.relay = relay
+
+        def pause(seconds):
+            relay.shown.append(relay.overrides.get("strip"))
+            relay.sequence += 1
+
+        self.identify.sleep = pause
+        return relay
+
+    def test_a_syncing_hue_light_blinks_on_its_stream_channels(self):
+        relay = self.native_relay()
+        self.assertTrue(self.identify("strip"))
+        white = (65535, 65535, 65535)
+        self.assertEqual(relay.shown, [white, (0, 0, 0)] * 2)
+        self.assertEqual(relay.overrides, {}, "the Sync colors come back")
+        self.assertEqual(self.hue.identified, 0, "no identify write while streaming")
+
+    def test_a_syncing_hue_light_without_frames_cannot_blink(self):
+        self.native_relay(streams=False)
+        with self.assertRaises(IdentifyRefused) as refused:
+            self.identify("strip")
+        self.assertEqual(refused.exception.reason, "sync active")
+
+    def test_a_hue_blink_with_no_frame_sent_fails(self):
+        relay = self.native_relay()
+        self.identify.sleep = lambda seconds: None
+        with self.assertRaises(IdentifyFailed):
+            self.identify("strip")
+        self.assertEqual(relay.overrides, {})
+
     def test_blinks_in_a_row_keep_dreamview_fresh(self):
         self.sync_video()
 
