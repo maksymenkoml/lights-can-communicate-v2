@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
-from sync_guard import SyncGuard  # noqa: E402
+from sync_guard import StreamIngress, SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -325,7 +325,7 @@ def _post_local_json(url, body, timeout, headers):
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
-                sync_box=None):
+                sync_box=None, gateway_container=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
     # The Sync Box token lives with the other private state, never in the layout.
     box = sync_box or SyncBox(store.path.parent / "sync-box.json")
@@ -435,7 +435,9 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
         return frames if type(frames) is int else None
 
     # Restarts Sync on the box after a bridge restart or a stall (see sync_guard).
-    guard = SyncGuard(box, stream_state, bridge_frames)
+    ingress = (StreamIngress(gateway_container, lambda: bridge_frames() is not None)
+               if gateway_container else None)
+    guard = SyncGuard(box, stream_state, bridge_frames, ingress)
 
     def box_status():
         return {**box.status(), **guard.public()}
@@ -627,10 +629,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
 
 def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
-          adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1"):
+          adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1",
+          gateway_container=None):
     """Serve until interrupted; SIGTERM handling belongs to the caller."""
     handler = handler_for(
-        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url)
+        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url,
+        gateway_container=gateway_container)
     server = ThreadingHTTPServer((bind, port), handler)
     stop = threading.Event()
     threading.Thread(target=handler.guard.run, args=(stop,), daemon=True).start()

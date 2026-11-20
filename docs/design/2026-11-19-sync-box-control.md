@@ -96,7 +96,11 @@ Forget move behind a click on the status.
   `off/starting`; the box also dropped Starts while the bridge warmed up. The
   owner asked for protection from such restarts: a guard in the Light Studio
   server restarts Sync on the box (up to three times, growing pauses) and never
-  undoes a Stop.
+  undoes a Stop. A live reproduction showed the remaining hang: Docker Desktop
+  had dropped the host listener for UDP 2100 after the container restart, so no
+  datagram reached the bridge. When the host can bind that port while the bridge
+  answers, the guard restarts the bridge container with Sync stopped before it
+  starts Sync again (at most once per 10 minutes).
 
 ## Left to the builder
 

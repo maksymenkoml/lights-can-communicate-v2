@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from sync_guard import RESTART_PAUSE, SyncGuard  # noqa: E402
+from sync_guard import REPAIR_INTERVAL, RESTART_PAUSE, StreamIngress, SyncGuard, udp_port_free  # noqa: E402
 
 
 class Box:
@@ -177,6 +177,60 @@ class SyncGuardTests(unittest.TestCase):
         self.bridge_guard()
         self.restart_bridge()
         self.assertEqual(self.run_for(120), 0)
+
+    def ingress(self, published=False):
+        """A host whose stream port is lost until the container restarts."""
+        state = {"published": published, "runs": []}
+
+        def run(command, **kwargs):
+            state["runs"].append((command, self.box.syncing))
+            state["published"] = True
+
+        ingress = StreamIngress("bridge", lambda: True, port_free=lambda port:
+                                not state["published"], run=run, docker=lambda: "docker",
+                                clock=self.clock, sleep=self.clock.sleep)
+        return ingress, state
+
+    def test_a_lost_stream_port_is_published_again_while_the_box_is_quiet(self):
+        ingress, state = self.ingress()
+        self.guard.ingress = ingress
+        self.stream = "waiting"
+        self.assertEqual(self.run_for(25), 1)
+        self.assertEqual(state["runs"], [(["docker", "restart", "bridge"], False)])
+        self.assertTrue(self.box.syncing, "Sync starts again after the port is back")
+
+    def test_a_published_port_restarts_only_sync(self):
+        ingress, state = self.ingress(published=True)
+        self.guard.ingress = ingress
+        self.stream = "waiting"
+        self.assertEqual(self.run_for(25), 1)
+        self.assertEqual(state["runs"], [])
+
+    def test_the_container_is_restarted_at_most_once_per_interval(self):
+        ingress, state = self.ingress()
+        self.assertTrue(ingress.repair())
+        state["published"] = False
+        self.assertFalse(ingress.repair())
+        self.clock.now += REPAIR_INTERVAL
+        self.assertTrue(ingress.repair())
+        self.assertEqual(len(state["runs"]), 2)
+
+    def test_no_docker_or_a_bridge_that_does_not_answer_repairs_nothing(self):
+        ingress, state = self.ingress()
+        ingress.docker = lambda: None
+        self.assertFalse(ingress.repair())
+        ingress.bridge_up = lambda: False
+        self.assertFalse(ingress.lost(), "a stopped bridge is not a lost port")
+        self.assertEqual(state["runs"], [])
+
+    def test_udp_port_free_sees_a_bound_port(self):
+        import socket
+        holder = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        holder.bind(("127.0.0.1", 0))
+        try:
+            self.assertFalse(udp_port_free(holder.getsockname()[1], "127.0.0.1"))
+        finally:
+            holder.close()
 
     def test_run_survives_a_failing_check_and_stops(self):
         calls = []

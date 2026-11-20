@@ -3,12 +3,18 @@
 A restart of the bridge (an update, a crash, Docker) while the box streams makes
 the box stop Sync, or leaves it reporting Sync on while no frame arrives; while
 the bridge warms up the box also drops a new Start. Only a new Start from the
-box recovers it. The guard does that, a few times with growing pauses, and never
-overrides a Stop: Sync stopped while the bridge runs undisturbed stays off.
+box recovers it, and when Docker Desktop lost the stream port in the restart,
+only a further container restart while the box is quiet. The guard does that, a
+few times with growing pauses, and never overrides a Stop: Sync stopped while the
+bridge runs undisturbed stays off.
 """
 
+import shutil
+import socket
+import subprocess
 import threading
 import time
+from pathlib import Path
 
 # Frames normally arrive within about 11 s of a Start.
 STALL_SECONDS = 20.0
@@ -27,12 +33,85 @@ TICK_SECONDS = 5.0
 STALLED = ("waiting", "off")
 
 
+# Docker Desktop can lose a published UDP port when the bridge container restarts:
+# `docker port` still lists it, but nothing on the host listens, so the box's
+# datagrams are dropped and no Start can help. Only a container restart while
+# the box is quiet publishes it again.
+STREAM_PORT = 2100
+REPAIR_INTERVAL = 600.0
+REPAIR_WAIT = 60.0
+DOCKER_PATHS = ("/usr/local/bin/docker", "/opt/homebrew/bin/docker",
+                "/Applications/Docker.app/Contents/Resources/bin/docker", "/usr/bin/docker")
+
+
+def udp_port_free(port, host="0.0.0.0"):
+    """True when this host can bind the UDP port, i.e. nothing publishes it."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.bind((host, port))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def _docker():
+    found = shutil.which("docker")
+    if found:
+        return found
+    return next((path for path in DOCKER_PATHS if Path(path).is_file()), None)
+
+
+class StreamIngress:
+    """The host side of the bridge's stream port: notice it lost and publish it again."""
+
+    def __init__(self, container, bridge_up, port=STREAM_PORT, port_free=udp_port_free,
+                 run=subprocess.run, docker=_docker, clock=time.monotonic, sleep=time.sleep):
+        self.container = container
+        self.bridge_up = bridge_up
+        self.port = port
+        self.port_free = port_free
+        self.run = run
+        self.docker = docker
+        self.clock = clock
+        self.sleep = sleep
+        self.repaired_at = None
+
+    def lost(self):
+        """The bridge answers, yet nothing on the host receives its stream port."""
+        return bool(self.bridge_up()) and self.port_free(self.port)
+
+    def repair(self):
+        """Restart the bridge container once per interval; True when the port is back."""
+        now = self.clock()
+        if self.repaired_at is not None and now - self.repaired_at < REPAIR_INTERVAL:
+            return False
+        docker = self.docker()
+        if docker is None:
+            return False
+        self.repaired_at = now
+        try:
+            self.run([docker, "restart", self.container], capture_output=True, timeout=60,
+                     check=False)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        end = self.clock() + REPAIR_WAIT
+        while self.clock() < end:
+            self.sleep(2.0)
+            if not self.port_free(self.port) and self.bridge_up():
+                return True
+        return False
+
+
 class SyncGuard:
     """Watch the box and the stream; restart Sync when frames do not come."""
 
-    def __init__(self, box, stream_state, bridge_frames=None, clock=time.monotonic,
-                 sleep=time.sleep):
+    def __init__(self, box, stream_state, bridge_frames=None, ingress=None,
+                 clock=time.monotonic, sleep=time.sleep):
         self.box = box
+        # StreamIngress, or None where the stream port cannot be checked.
+        self.ingress = ingress
         self.stream_state = stream_state
         # Frames the bridge received since it started, or None when it does not answer.
         self.bridge_frames = bridge_frames
@@ -160,6 +239,13 @@ class SyncGuard:
 
     def _restart(self):
         self.box.set_sync(False)
+        if self.ingress is not None:
+            try:
+                if self.ingress.lost():
+                    # Publish the port again while the box is quiet.
+                    self.ingress.repair()
+            except Exception:  # noqa: BLE001 - a failed repair still leaves the restart
+                pass
         self.sleep(RESTART_PAUSE)
         code, status = self.box.set_sync(True)
         with self.lock:
