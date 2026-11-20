@@ -203,7 +203,9 @@ but nothing on the host listens, so the box's datagrams are dropped and no Start
 helps. Before each Start the guard checks whether the host could bind UDP 2100
 while the bridge answers; if so, it restarts the bridge container (named in the
 gateway configuration) while Sync is stopped, at most once per 30 s, waits
-for the port to return, lets the bridge settle for 15 s and then starts Sync.
+for the port to return, lets the bridge settle for 15 s, keeps the box quiet for
+another 45 s (a box that streamed into the lost port came back only then) and
+then starts Sync.
 
 It never acts while the adapter is down, another app streams, the output is
 paused or the box is switching, and it never undoes a Stop made while the bridge

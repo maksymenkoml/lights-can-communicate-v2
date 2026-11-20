@@ -246,15 +246,19 @@ class SyncGuard:
 
     def _restart(self):
         self.box.set_sync(False)
+        repaired = False
         if self.ingress is not None:
             try:
                 if self.ingress.lost():
                     # Publish the port again while the box is quiet.
-                    self.ingress.repair()
+                    repaired = self.ingress.repair()
             except Exception:  # noqa: BLE001 - a failed repair still leaves the restart
                 pass
         with self.lock:
             pause = RESTART_PAUSES[min(max(self.attempts, 1), len(RESTART_PAUSES)) - 1]
+        if repaired:
+            # A box that lost its stream needs the longest quiet time (see RESTART_PAUSES).
+            pause = RESTART_PAUSES[-1]
         self.sleep(pause)
         code, status = self.box.set_sync(True)
         with self.lock:

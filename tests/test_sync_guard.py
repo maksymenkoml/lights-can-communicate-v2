@@ -229,7 +229,8 @@ class SyncGuardTests(unittest.TestCase):
         self.stream = "waiting"
         before = self.clock.now
         self.run_for(25)
-        self.assertGreaterEqual(starts[0] - before, 20 + REPAIR_SETTLE)
+        self.assertGreaterEqual(starts[0] - before, 20 + REPAIR_SETTLE + RESTART_PAUSES[-1],
+                                "the box gets the longest quiet time after a lost port")
 
     def test_a_published_port_restarts_only_sync(self):
         ingress, state = self.ingress(published=True)
