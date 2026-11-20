@@ -64,6 +64,18 @@ Owner choice: the corner at the top right of Light Studio (mock variant C).
 - Pairing and Start/Stop on real hardware are checked live by the owner;
   offline tests use a fake box transport.
 
+### Revision after the first live check (owner, 2026-11-19)
+
+- The eye goes to the corner, so every message and the connect flow live in the
+  corner block; no toasts and no separate card. Connecting is two numbered steps
+  (choose the box, hold its button) with errors at their step.
+- The Sync status leaves the bottom toolbar and becomes a line in the corner
+  block that appears only for a problem.
+- The box answered a read in up to 4.7 s, beyond the first 3 s timeout, which
+  showed Offline while Sync started. Reads now wait 10 s and Start/Stop 15 s;
+  polls answer from the last read with `changing` during Start/Stop, and Offline
+  needs 15 s of silence.
+
 ## Left to the builder
 
 Polling cadence, error wording, card animation reuse, test structure.

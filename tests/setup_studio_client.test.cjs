@@ -915,7 +915,8 @@ function fakeBox(start={state:'none'}){
  };
  return box;
 }
-const cornerText=app=>app.$('#sync-box').children.map(n=>n.textContent.trim()).join(' ');
+const cornerText=app=>app.$('#sync-box .box-bar').children.map(n=>n.textContent.trim()).join(' ');
+const said=app=>{const el=app.$('#sync-box .box-said');return el.hidden?'':el.textContent.trim()};
 
 test('the toolbar view switch is Settings: it shows the Sync settings and never starts Sync',async()=>{
  const app=await harness();
@@ -930,19 +931,23 @@ test('without a box the corner offers Connect, and the card connects the box fou
  await app.click(app.$('#sync-box [data-box="connect"]'));
  const card=app.$('#box-card');
  assert.equal(card.hidden,false);
- assert.match(card.textContent,/Found on this network/);
+ assert.match(card.textContent,/1Choose your Sync BoxFound on this network:/);
+ assert.equal(app.$('#sync-box').classList.contains('open'),true,'the card opens inside the corner block');
  const row=card.querySelector('[data-box-ip]');assert.match(row.textContent,/Sync Box 8K.*192\.168\.10\.101/);
  await app.click(row);
  assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:'192.168.10.101'},at:app.now()});
- assert.match(card.textContent,/Hold the button on the Sync Box/);
+ assert.ok(card.querySelector('.box-step.done'),'step 1 is ticked');
+ assert.match(card.querySelector('.box-step.active').textContent,/Hold the button on the box/);
  assert.equal(card.querySelector('.box-ring b').textContent,'30');
  assert.equal(cornerText(app),'Sync Box 8K Connecting…');
  await app.advance(1000);
  assert.equal(card.querySelector('.box-ring b').textContent,'29','the countdown follows the server');
  await app.advance(2000);
  assert.equal(cornerText(app),'Sync Box 8K Start Sync');
- assert.equal(app.$('#toast').textContent,'Sync Box connected');
- await app.advance(200);assert.equal(card.hidden,true);
+ assert.equal(said(app),'Connected');
+ assert.equal(card.hidden,true);
+ assert.equal(app.$('#toast').textContent,'','nothing is said at the bottom');
+ await app.advance(4000);assert.equal(said(app),'');
 });
 
 test('Start Sync and Stop Sync switch the box and show what is happening',async()=>{
@@ -958,7 +963,7 @@ test('Start Sync and Stop Sync switch the box and show what is happening',async(
  assert.deepEqual(app.requests.box.at(-1).body,{active:false});
  box.offline=true;
  await app.click(app.$('#sync-box [data-box="toggle"]'));
- assert.equal(app.$('#toast').textContent,'The Sync Box did not respond');
+ assert.equal(said(app),'The Sync Box did not respond');
  assert.equal(cornerText(app),'Sync Box 8K Offline');
 });
 
@@ -979,14 +984,18 @@ test('an address can be typed, and a wrong one is explained',async()=>{
  const app=await harness({syncBox:(url,body)=>url==='/api/sync-box/find'?{boxes:[]}:box.api(url,body)});
  await app.click(app.$('#sync-box [data-box="connect"]'));
  const card=app.$('#box-card');
- assert.match(card.textContent,/None found on this network/);
+ assert.match(card.textContent,/None found\. Enter its IP address/);
  const input=card.querySelector('#box-ip');input.value='8.8.8.8';app.dispatch(input,'input');
  await app.press(input,'Enter');
- assert.equal(app.$('#toast').textContent,'Enter a local IP address');
- input.value=' 192.168.10.101 ';app.dispatch(input,'input');
+ assert.match(card.querySelector('.box-error').textContent,/Enter an address on this network/);
+ assert.equal(app.$('#toast').textContent,'');
+ const again=card.querySelector('#box-ip');assert.equal(again.value,'8.8.8.8','the typed address stays');
+ again.value=' 192.168.10.101 ';app.dispatch(again,'input');
+ assert.equal(card.querySelector('.box-error'),null,'typing clears the error');
  await app.click(card.querySelector('[data-box="address"]'));
  assert.deepEqual(app.requests.box.at(-1).body,{ip:'192.168.10.101'});
  assert.match(card.textContent,/Hold the button/);
+ assert.equal(card.querySelector('.box-error'),null);
 });
 
 test('Escape or Cancel while connecting stops asking the box',async()=>{
@@ -996,7 +1005,6 @@ test('Escape or Cancel while connecting stops asking the box',async()=>{
  await app.click(app.$('#box-card [data-box-ip]'));
  await app.press(app.$('#box-card'),'Escape');
  assert.equal(app.requests.box.at(-1).url,'/api/sync-box/cancel');
- await app.advance(200);
  assert.equal(app.$('#box-card').hidden,true);
  assert.equal(cornerText(app),'Connect Sync Box');
 });
@@ -1024,7 +1032,7 @@ test('Forget asks first, then removes the box',async()=>{
  await app.click(card.querySelector('[data-box="forget-yes"]'));
  assert.equal(app.requests.box.at(-1).url,'/api/sync-box/forget');
  assert.equal(cornerText(app),'Connect Sync Box');
- assert.equal(app.$('#toast').textContent,'Sync Box forgotten');
+ assert.equal(said(app),'Sync Box forgotten');
 });
 
 test('the corner follows the box state and stops asking while the page is hidden',async()=>{
@@ -1042,4 +1050,23 @@ test('the corner follows the box state and stops asking while the page is hidden
  assert.equal(app.requests.box.length,asked);
  await app.visible(true);
  assert.equal(app.requests.box.length,asked+1);
+});
+
+test('the Sync status sits in the Sync Box corner and speaks only about problems',async()=>{
+ const box=fakeBox({...BOX,syncing:true});
+ const app=await harness({syncBox:box.api});
+ assert.equal(app.$('.toolbar #sync-status'),null,'the bottom toolbar has no Sync status');
+ const status=app.$('#sync-box #sync-status');
+ assert.ok(status,'the status is in the corner block');
+ assert.equal(status.hidden,true,'Syncing needs no words: the dot is green');
+});
+
+test('every page shows Starting while the box is still switching',async()=>{
+ const box=fakeBox({...BOX,changing:true});
+ const app=await harness({syncBox:box.api});
+ assert.equal(cornerText(app),'Sync Box 8K Starting…');
+ assert.ok(app.$('#sync-box .box-bar button[disabled]'));
+ box.status={...BOX,syncing:true};
+ await app.advance(3000);
+ assert.equal(cornerText(app),'Sync Box 8K Stop Sync');
 });

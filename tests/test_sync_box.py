@@ -131,7 +131,7 @@ class SyncBoxTests(unittest.TestCase):
         self.clock = Clock()
         self.found = [self.box.ip]
         self.control = SyncBox(self.path, transport=self.box, find=lambda: list(self.found),
-                               clock=self.clock, sleep=self.clock.sleep)
+                               clock=self.clock, sleep=self.clock.sleep, background=False)
 
     def pair(self):
         self.box.button = True
@@ -208,7 +208,7 @@ class SyncBoxTests(unittest.TestCase):
     def test_another_certificate_at_the_address_gets_no_token(self):
         self.pair()
         self.box.fingerprint = "b" * 64
-        self.clock.now += 5
+        self.clock.now += 20  # past the grace of an answer pair() may have read
         sent = len(self.box.calls)
         self.assertEqual(self.control.status()["state"], "offline")
         self.assertTrue(all(c[4] is None or c[5] == PIN for c in self.box.calls[sent:]))
@@ -227,10 +227,74 @@ class SyncBoxTests(unittest.TestCase):
         self.box.online = False
         searches = []
         self.control.find_addresses = lambda: searches.append(1) or []
-        for _ in range(6):
+        self.clock.now += 20  # past the grace of an answer pair() may have read
+        self.assertEqual(self.control.status()["state"], "offline")
+        for _ in range(5):
             self.clock.now += 5
             self.assertEqual(self.control.status()["state"], "offline")
         self.assertEqual(len(searches), 1)
+
+    def test_a_slow_answer_keeps_the_box_until_it_stays_silent_for_15_s(self):
+        self.pair()
+        self.assertEqual(self.control.status()["state"], "ready")
+        self.box.online = False
+        self.found = []
+        for _ in range(2):
+            self.clock.now += 5
+            self.assertEqual(self.control.status()["state"], "ready")
+        self.clock.now += 6
+        self.assertEqual(self.control.status()["state"], "offline")
+        self.box.online = True
+        self.clock.now += 5
+        self.assertEqual(self.control.status()["state"], "ready")
+
+    def test_every_poll_shows_the_change_until_the_box_answers(self):
+        self.pair()
+        self.control.status()
+        answered, release = threading.Event(), threading.Event()
+        plain = self.box.__call__
+
+        def slow(ip, method, path, body=None, token=None, pin=None, timeout=3.0):
+            if method == "PUT":
+                self.assertEqual(timeout, 15.0)
+                answered.set()
+                release.wait(2)
+            return plain(ip, method, path, body, token, pin, timeout)
+
+        self.control.transport = slow
+        result = {}
+        worker = threading.Thread(target=lambda: result.update(code=self.control.set_sync(True)))
+        worker.start()
+        answered.wait(2)
+        status = self.control.status()
+        self.assertEqual((status["syncing"], status["changing"]), (False, True))
+        self.assertEqual(self.control.set_sync(False)[0], 409, "one change at a time")
+        release.set()
+        worker.join(2)
+        code, status = result["code"]
+        self.assertEqual((code, status["syncing"]), (200, True))
+        self.assertNotIn("changing", status)
+
+    def test_polls_answer_at_once_while_a_slow_read_runs(self):
+        self.pair()
+        self.control.status()
+        self.control.background = True
+        started, release = threading.Event(), threading.Event()
+        plain = self.box.__call__
+
+        def slow(*args, **kwargs):
+            started.set()
+            release.wait(2)
+            return plain(*args, **kwargs)
+
+        self.control.transport = slow
+        self.box.syncing = True
+        self.clock.now += 5
+        self.assertEqual(self.control.status()["syncing"], False, "the last read answers")
+        started.wait(2)
+        self.assertEqual(self.control.status()["syncing"], False, "one read at a time")
+        release.set()
+        self.wait_for(lambda: self.control.status()["syncing"] is True)
 
     def test_forget_removes_the_registration_and_the_file(self):
         self.pair()
@@ -252,7 +316,7 @@ class StudioSyncBoxRouteTests(unittest.TestCase):
         folder = Path(temp.name)
         self.box = FakeBox()
         self.control = SyncBox(folder / "sync-box.json", transport=self.box,
-                               find=lambda: [self.box.ip])
+                               find=lambda: [self.box.ip], background=False)
         server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler_for(
             folder / "missing-token", folder / "desk-layout.json", sync_box=self.control))
         worker = threading.Thread(target=server.serve_forever)

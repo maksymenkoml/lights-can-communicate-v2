@@ -20,9 +20,9 @@ files and credentials are never served. The page makes no external requests.
 ## The room
 
 - "Light Studio | Office ✓" in the top-left corner; the check mark means the
-  layout is saved. The Sync Box corner is at the top right (see Sync Box). Bottom
-  panels: Lamps (left), Sync status, the Settings switch and the light/dark scene
-  (centre), undo/redo (right).
+  layout is saved. The Sync Box corner is at the top right (see Sync Box); it
+  also shows Sync problems. Bottom panels: Lamps (left), the Settings switch and
+  the light/dark scene (centre), undo/redo (right).
 - Select an object to edit it in place: name chip above, height on the left,
   offset from the screen centre at the floor and resize knobs on its edges.
   Click a dimension to type an exact value. Positions snap to 5 cm. Every edit, including undo, saves after
@@ -141,23 +141,34 @@ is off, stale, offline, excluded or blocked. In the Sync view the monitor shows 
 soft gradient of the strip's colours while Sync is active. Telemetry only
 repaints existing SVG attributes: it never rebuilds the layout and never saves.
 
-The status pill shows Syncing, Waiting for frames, Hue busy, Not syncing, Sync
-status unknown, "<lamp> <reason>" or "N lamps not lit"; unknown reasons fall back
-to these labels. Clicking it selects the lamp with the problem. A local sleep
+The Sync status is a line in the Sync Box corner that appears only for a
+problem: Waiting for frames, Hue busy, "<lamp> <reason>", "N lamps not lit", or
+Sync status unknown while the box syncs (Syncing is the green dot of the box).
+Unknown reasons fall back to these labels. Clicking it selects the lamp with the
+problem. A local sleep
 hold (`live-output-hold`) reports Not syncing without contacting the adapter.
 
 ## Sync Box
 
-The corner at the top right starts and stops Hue Sync on a connected HDMI Sync
-Box: its name, a dot (green while Sync runs, red when the box is offline or its
-token was revoked) and Start Sync / Stop Sync. Without a box it offers Connect
-Sync Box; the card lists the boxes that answer an mDNS query for
-`_huesync._tcp` and takes an IP address when none answers (a container without
-host networking cannot receive multicast). After a box is chosen the server asks
-it for a registration once a second for 30 s while the owner holds the button on
-the box until its light blinks green. Clicking the name shows the address and
-Forget Sync Box, which asks first and removes the registration on the box when
-it answers.
+The corner at the top right is one block for everything about Sync: the box
+name, a dot (green while Sync runs, red when the box is offline or its token was
+revoked), Start Sync / Stop Sync (Starting… / Stopping… until the box answers),
+the Sync status line and short messages ("Connected", "The Sync Box did not
+respond"). Nothing about the box is shown at the bottom of the page.
+
+Without a box the block offers Connect Sync Box and opens two steps inside it:
+1 Choose your Sync Box (the boxes that answer an mDNS query for `_huesync._tcp`,
+or an IP address; a container without host networking cannot receive multicast)
+and 2 Hold the button on the box (a 30-second countdown while the server asks the
+box for a registration once a second; the owner holds the button until the box's
+light blinks green). Errors appear at their step. Clicking the name shows the
+address and Forget Sync Box, which asks first and removes the registration on the
+box when it answers.
+
+The box can take several seconds to answer (up to 10 s for a read, 15 s for
+Start or Stop). Polls answer at once from the last read while a new read runs,
+and a box that answered recently stays as it was until it is silent for 15 s, so
+a slow answer never shows Offline.
 
 Only the Light Studio server talks to the box (`bridge/sync_box.py`). It keeps
 `ip`, `uniqueId`, `name`, `registrationId`, `accessToken` and the SHA-256 of the
@@ -171,11 +182,11 @@ Routes (local origin only; answers never contain the token or the certificate):
 
 | Route | Body | Answer |
 | --- | --- | --- |
-| `GET /api/sync-box` | | `{"state"}`: `none`, `connecting` (`remaining` s), `timeout`, `ready` (`syncing`), `offline`, `unauthorized`; plus `name`, `ip` |
+| `GET /api/sync-box` | | `{"state"}`: `none`, `connecting` (`remaining` s), `timeout`, `ready` (`syncing`, `changing` while Start or Stop runs), `offline`, `unauthorized`; plus `name`, `ip` |
 | `POST /api/sync-box/find` | `{}` | `{"boxes": [{"ip", "name"}]}` |
 | `POST /api/sync-box/pair` | `{"ip"}` | state; 400 for an address outside the local network, 503 when no Sync Box answers |
 | `POST /api/sync-box/cancel` | `{}` | state |
-| `POST /api/sync-box/sync` | `{"active": bool}` | state; 409 without a box or with a revoked token, 503 offline |
+| `POST /api/sync-box/sync` | `{"active": bool}` | state; 409 without a box, with a revoked token or while another change runs, 503 offline |
 | `POST /api/sync-box/forget` | `{}` | `{"state": "none"}` |
 
 The page polls the state every 3 s (every second while connecting) and stops

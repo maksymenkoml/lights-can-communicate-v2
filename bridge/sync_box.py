@@ -28,6 +28,11 @@ SERVICE = "_huesync._tcp.local"
 MDNS_GROUP = ("224.0.0.251", 5353)
 STATUS_TTL = 1.0
 RELOCATE_INTERVAL = 30.0
+# The box can take several seconds to answer, longer while Sync starts or stops.
+READ_TIMEOUT = 10.0
+CHANGE_TIMEOUT = 15.0
+# A box that answered recently is shown as it was until it stays silent this long.
+OFFLINE_GRACE = 15.0
 FIELDS = ("ip", "uniqueId", "name", "registrationId", "accessToken", "fingerprint")
 
 
@@ -49,7 +54,7 @@ def box_address(value):
     return str(address)
 
 
-def https_json(ip, method, path, body=None, token=None, pin=None, timeout=3.0):
+def https_json(ip, method, path, body=None, token=None, pin=None, timeout=READ_TIMEOUT):
     """One HTTPS request to the box; return (status, JSON object, certificate SHA-256).
 
     The box certificate is self-signed, so trust comes from the pin taken when the
@@ -171,7 +176,7 @@ class SyncBox:
     """One paired Sync Box: status, Start/Stop, connect and forget."""
 
     def __init__(self, path, transport=https_json, find=discover, clock=time.monotonic,
-                 sleep=time.sleep, pair_seconds=PAIR_SECONDS):
+                 sleep=time.sleep, pair_seconds=PAIR_SECONDS, background=True):
         self.path = Path(path)
         self.transport = transport
         self.find_addresses = find
@@ -180,7 +185,12 @@ class SyncBox:
         self.pair_seconds = pair_seconds
         self.lock = threading.RLock()
         self.pairing = None
+        self.background = background
+        # (time, public state) of the last read; polls answer from it while a read runs.
         self.cached = None
+        self.reading = False
+        self.answered_at = None
+        self.changing = None
         self.relocated_at = None
 
     # ------------------------------------------------------------- storage --
@@ -206,7 +216,6 @@ class SyncBox:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, self.path)
-        self.cached = None
 
     # ------------------------------------------------------------- devices --
     def describe(self, ip, pin=None):
@@ -269,6 +278,7 @@ class SyncBox:
                                 "registrationId": str(registration)})
                     attempt["result"] = "connected"
                     self.pairing = None
+                    self.cached = None
                 return
             self.sleep(1.0)
         with self.lock:
@@ -283,16 +293,16 @@ class SyncBox:
         return self.status()
 
     # -------------------------------------------------------------- status --
-    def _request(self, config, method, path, body=None):
+    def _request(self, config, method, path, body=None, timeout=READ_TIMEOUT):
         """An authorised request that follows a box that moved to another address."""
         try:
-            return self.transport(config["ip"], method, path, body=body,
+            return self.transport(config["ip"], method, path, body=body, timeout=timeout,
                                   token=config["accessToken"], pin=config["fingerprint"])
         except (OSError, ssl.SSLError, http.client.HTTPException, BoxError):
             moved = self._relocate(config)
             if moved is None:
                 raise
-            return self.transport(moved["ip"], method, path, body=body,
+            return self.transport(moved["ip"], method, path, body=body, timeout=timeout,
                                   token=moved["accessToken"], pin=moved["fingerprint"])
 
     def _relocate(self, config):
@@ -327,12 +337,40 @@ class SyncBox:
                 if attempt["result"] is None:
                     left = max(0, math.ceil(attempt["deadline"] - self.clock()))
                     return {"state": "connecting", "remaining": left, **public}
-            now = self.clock()
-            if self.cached is not None and now - self.cached[0] < STATUS_TTL:
-                return dict(self.cached[1])
+            cached = self.cached
+            stale = cached is None or self.clock() - cached[0] >= STATUS_TTL
+            if stale and cached is not None and self.background:
+                # A slow box must not hold every poll: answer from the last read.
+                if not self.reading:
+                    self.reading = True
+                    threading.Thread(target=self._refresh, daemon=True).start()
+                stale = False
+        if stale:
+            self._refresh()
+        with self.lock:
+            if self.cached is None:
+                # Forgotten or connected while this poll read the old box.
+                return self.status()
+            result = dict(self.cached[1])
+            if self.changing is not None and result["state"] == "ready":
+                result["changing"] = self.changing
+            return result
+
+    def _refresh(self):
+        try:
             result = self._read_status()
+        finally:
+            with self.lock:
+                self.reading = False
+        with self.lock:
+            now = self.clock()
+            if result["state"] in ("ready", "unauthorized", "none"):
+                self.answered_at = now
+            elif (self.cached is not None and self.cached[1]["state"] == "ready"
+                  and self.answered_at is not None and now - self.answered_at < OFFLINE_GRACE):
+                # One slow or missed answer: keep showing the box as it was.
+                result = self.cached[1]
             self.cached = (now, result)
-            return dict(result)
 
     def _read_status(self):
         config = self.config()
@@ -352,21 +390,36 @@ class SyncBox:
         return {"state": "ready", "syncing": execution.get("syncActive") is True, **public}
 
     def set_sync(self, active):
-        """Start or stop Sync; return (HTTP status, public status)."""
+        """Start or stop Sync; return (HTTP status, public status).
+
+        Polls during the change answer from the last read with `changing`, so every
+        page shows Starting or Stopping until the box has answered.
+        """
         with self.lock:
             config = self.config()
             if config is None:
                 return 409, {"state": "none"}
-            try:
-                status, _, _ = self._request(config, "PUT", "/api/v1/execution",
-                                             body={"syncActive": bool(active)})
-            except (OSError, ssl.SSLError, http.client.HTTPException, BoxError):
-                status = 0
-            self.cached = None
-            result = self.status()
+            if self.changing is not None:
+                return 409, self.status()
+            self.changing = bool(active)
+        try:
+            status, _, _ = self._request(config, "PUT", "/api/v1/execution",
+                                         body={"syncActive": bool(active)},
+                                         timeout=CHANGE_TIMEOUT)
+        except (OSError, ssl.SSLError, http.client.HTTPException, BoxError):
+            status = 0
+        with self.lock:
+            self.changing = None
             if status == 200:
-                return 200, result
-            return (409 if result["state"] == "unauthorized" else 503), result
+                config = self.config() or config
+                now = self.clock()
+                self.answered_at = now
+                self.cached = (now, {"state": "ready", "syncing": bool(active),
+                                     "name": config["name"], "ip": config["ip"]})
+                return 200, self.status()
+            self.cached = None
+        result = self.status()
+        return (409 if result["state"] == "unauthorized" else 503), result
 
     def forget(self):
         """Remove the registration on the box when it answers, and always locally."""

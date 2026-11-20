@@ -194,8 +194,11 @@ function syncStatus(){
  if(p.length){const worst=p.some(l=>blockerLevel(lampBlocker(l))==='bad')?'bad':'wait';return {level:worst,label:p.length===1?p[0].name+' '+blockerText(lampBlocker(p[0])):p.length+' lamps not lit',detail:p.length===1?'Click to show the lamp':p.map(l=>l.name).join(', '),lamp:p[0].id}}
  return {level:'ok',label:'Syncing',detail:'Lamps take color from the screen'};
 }
+// The Sync status lives in the Sync Box corner and speaks only when something is wrong.
+function statusShown(st){return st.level==='wait'||st.level==='bad'||(st.level==='unknown'&&box.state==='ready'&&box.syncing)}
 function paintStatus(){
  const el=$('#sync-status');if(!el)return;const st=syncStatus(),label='Sync status: '+st.label;
+ const hide=!statusShown(st);if(el.hidden!==hide)el.hidden=hide;
  if(el.dataset.level!==st.level)el.dataset.level=st.level;
  el.style.setProperty('--s-color',levelColor[st.level]||'var(--unknown)');
  const text=el.querySelector('span');if(text.textContent!==st.label)text.textContent=st.label;
@@ -1484,14 +1487,17 @@ window.addEventListener('blur',hideTooltip);window.addEventListener('resize',hid
 // ---------------------------------------------------------------- Sync Box --
 // The server owns the box and its token. The page sees public states only:
 // none, connecting, timeout, ready, offline, unauthorized (unknown until the first answer).
-const BOX_POLL_MS=3000,BOX_FAST_MS=1000,BOX_PAIR_S=30,BOX_RING=119.4;
+// Everything about the box, messages included, happens inside the corner block.
+const BOX_POLL_MS=3000,BOX_FAST_MS=1000,BOX_PAIR_S=30,BOX_RING=119.4,BOX_SAY_MS=4000;
 const boxIcons={
  box:'<rect x="3" y="7" width="14" height="6.5" rx="1.6"/><path d="M6 10.2h.01M14 10.2h2"/>',
  link:'<path d="M8.5 11.5l3-3M7 9l-1.8 1.8a2.6 2.6 0 0 0 3.7 3.7L10.7 13M13 11l1.8-1.8a2.6 2.6 0 0 0-3.7-3.7L9.3 7"/>',
  play:'<path d="M7 5.2v9.6L15 10z" fill="currentColor"/>',
- stop:'<rect x="6" y="6" width="8" height="8" rx="1.3" fill="currentColor"/>'};
+ stop:'<rect x="6" y="6" width="8" height="8" rx="1.3" fill="currentColor"/>',
+ check:'<path d="m5 10.5 3.2 3L15 6.5"/>',
+ alert:'<circle cx="10" cy="10" r="7"/><path d="M10 6.5v4.2M10 13.4h.01"/>'};
 const boxSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+boxIcons[id]+'</svg>';
-let box={state:'unknown'},boxTimer=null,boxGeneration=0,boxBusy=null,boxCard=null,boxFound=null,boxForget=false,boxHtml='',boxAddress='';
+let box={state:'unknown'},boxTimer=null,boxGeneration=0,boxBusy=null,boxCard=null,boxFound=null,boxForget=false,boxHtml='',boxAddress='',boxError='',boxSaid=null,boxSayTimer=null;
 const boxPairing=()=>box.state==='connecting'||box.state==='timeout';
 async function boxPost(action,body={}){
  try{const r=await fetch('/api/sync-box/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json().catch(()=>({}))}}
@@ -1509,84 +1515,95 @@ async function refreshBox(){
 function applyBox(next){++boxGeneration;if(next&&typeof next.state==='string')setBox(next);scheduleBox()}
 function setBox(next){
  const was=box.state;box=next&&typeof next.state==='string'?next:{state:'unknown'};
- if(was==='connecting'&&box.state==='ready'){tell('Sync Box connected');closeBoxCard(false)}
- paintBox();if(boxCard)paintBoxCard();
+ if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
+ paintBox();
+}
+// A short line inside the corner block; it replaces the page toast for the box.
+function boxSay(text,kind='ok'){
+ clearTimeout(boxSayTimer);boxSaid={text,kind};paintBox();
+ boxSayTimer=setTimeout(()=>{boxSaid=null;paintBox()},BOX_SAY_MS);
 }
 function boxAction(action,label,icon,kind=''){return '<button type="button" class="box-action'+(kind?' '+kind:'')+'" data-box="'+action+'">'+boxSvg(icon)+'<span>'+label+'</span></button>'}
+function boxBar(){
+ const s=box.state;
+ if(s==='unknown')return '';
+ if(s==='none')return boxAction('connect','Connect Sync Box','link','box-connect');
+ const live=s==='ready'&&box.syncing,dot=live?' on':s==='ready'?'':s==='offline'||s==='unauthorized'?' off':null;
+ let html='<button type="button" class="box-name" data-box="info" aria-haspopup="true" aria-expanded="'+(boxCard==='info')+'" aria-label="Sync Box '+esc(box.name)+(live?', syncing':s==='ready'?', not syncing':'')+'">'+boxSvg('box')+'<span>'+esc(box.name)+'</span>'+(dot===null?'':'<i class="box-dot'+dot+'"></i>')+'</button>';
+ const busy=boxBusy??box.changing??null;
+ if(s==='ready'&&busy!==null)html+='<button type="button" class="box-action" disabled>'+boxSvg(busy?'play':'stop')+'<span>'+(busy?'Starting…':'Stopping…')+'</span></button>';
+ else if(s==='ready')html+=live?boxAction('toggle','Stop Sync','stop','box-stop'):boxAction('toggle','Start Sync','play','box-start');
+ else if(s==='offline')html+='<span class="box-note">Offline</span>';
+ else if(s==='unauthorized')html+=boxAction('connect','Reconnect','link','box-connect');
+ else html+='<span class="box-note">Connecting…</span>';
+ return html;
+}
 function paintBox(){
- const el=$('#sync-box');if(!el)return;const s=box.state;
- let html='';
- if(s==='none')html=boxAction('connect','Connect Sync Box','link','box-connect');
- else if(s!=='unknown'){
-  const live=s==='ready'&&box.syncing,dot=live?' on':s==='ready'?'':s==='offline'||s==='unauthorized'?' off':null;
-  html='<button type="button" class="box-name" data-box="info" aria-haspopup="dialog" aria-expanded="'+(boxCard==='info')+'" aria-label="Sync Box '+esc(box.name)+(live?', syncing':s==='ready'?', not syncing':'')+'">'+boxSvg('box')+'<span>'+esc(box.name)+'</span>'+(dot===null?'':'<i class="box-dot'+dot+'"></i>')+'</button>';
-  if(s==='ready'&&boxBusy!==null)html+='<button type="button" class="box-action" disabled>'+boxSvg(boxBusy?'play':'stop')+'<span>'+(boxBusy?'Starting…':'Stopping…')+'</span></button>';
-  else if(s==='ready')html+=live?boxAction('toggle','Stop Sync','stop','box-stop'):boxAction('toggle','Start Sync','play','box-start');
-  else if(s==='offline')html+='<span class="box-note">Offline</span>';
-  else if(s==='unauthorized')html+=boxAction('connect','Reconnect','link','box-connect');
-  else html+='<span class="box-note">Connecting…</span>';
- }
- el.hidden=!html;
- if(html!==boxHtml){boxHtml=html;el.innerHTML=html}
+ const el=$('#sync-box');if(!el)return;paintStatus();
+ const html=boxBar(),bar=el.querySelector('.box-bar'),said=el.querySelector('.box-said');
+ el.hidden=!html;el.classList.toggle('open',!!boxCard);
+ if(html!==boxHtml){boxHtml=html;bar.innerHTML=html}
+ bar.querySelector('[data-box="connect"]')?.setAttribute('aria-expanded',String(boxCard==='connect'));
+ const text=boxSaid?boxSvg(boxSaid.kind==='ok'?'check':'alert')+'<span>'+esc(boxSaid.text)+'</span>':'';
+ said.hidden=!text;said.dataset.kind=boxSaid?.kind||'';if(said.innerHTML!==text)said.innerHTML=text;
+ paintBoxCard();
 }
 function boxRing(left){const share=Math.max(0,Math.min(1,left/BOX_PAIR_S));return '<div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div>'}
+function boxStep(n,state,title,body=''){return '<li class="box-step '+state+'"><i>'+(state==='done'?boxSvg('check'):n)+'</i><div><b>'+title+'</b>'+body+'</div></li>'}
 function boxCardHtml(){
  if(boxCard==='info'){
   const note={ready:box.syncing?'Syncing':'Not syncing',offline:'Offline',unauthorized:'Needs to be reconnected'}[box.state]||'';
-  return '<div class="card-head"><b class="card-title">'+esc(box.name||'Sync Box')+'</b><div class="card-sub">'+esc([box.ip,note].filter(Boolean).join(' · '))+'</div></div>'
+  return '<div class="box-info">'+esc([box.ip,note].filter(Boolean).join(' · '))+'</div>'
    +'<div class="card-list card-end">'+(boxForget
     ?'<div class="card-confirm"><span>Forget this Sync Box?</span><button data-box="forget-cancel">Cancel</button><button class="danger" data-box="forget-yes">Forget</button></div>'
     :'<button class="card-row danger" data-box="forget">'+iconSvg('remove')+'<span>Forget Sync Box</span></button>')+'</div>';
  }
- const head=sub=>'<div class="card-head"><b class="card-title">Connect Sync Box</b><div class="card-sub">'+esc(sub)+'</div></div>';
- if(box.state==='connecting')return head(box.name+' · '+box.ip)
-  +'<div class="box-hold">'+boxRing(box.remaining??BOX_PAIR_S)+'<div><b>Hold the button on the Sync Box</b><span>About 3 seconds, until its light blinks green.</span></div></div>'
-  +'<div class="card-foot"><span class="card-gap"></span><button data-box="cancel">Cancel</button></div>';
- if(box.state==='timeout')return head(box.name+' · '+box.ip)
-  +'<div class="card-note box-missed">The button was not held in time.</div>'
-  +'<div class="card-foot"><span class="card-gap"></span><button data-box="cancel">Cancel</button><button class="primary" data-box="retry">Try again</button></div>';
- const rows=(boxFound||[]).map(b=>'<button class="card-row" data-box-ip="'+esc(b.ip)+'">'+boxSvg('box')+'<span>'+esc(b.name)+'</span><em>'+esc(b.ip)+'</em></button>').join('');
- return head(boxFound===null?'Looking on this network…':boxFound.length?'Found on this network':'None found on this network')
-  +(rows?'<div class="card-list">'+rows+'</div>':'')
-  +'<div class="card-field box-address"><input id="box-ip" type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="IP address" aria-label="Sync Box IP address" value="'+esc(boxAddress)+'"><button data-box="address">Connect</button></div>'
-  +'<div class="card-foot"><span class="card-gap"></span><button data-box="close">Cancel</button></div>';
+ const error=boxError?'<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+esc(boxError)+'</span></p>':'';
+ let first,second;
+ if(boxPairing()){
+  first=boxStep(1,'done','Choose your Sync Box','<span>'+esc(box.name+' · '+box.ip)+'</span>');
+  second=box.state==='connecting'
+   ?boxStep(2,'active','Hold the button on the box','<div class="box-hold">'+boxRing(box.remaining??BOX_PAIR_S)+'<span>Press and hold it for about 3 seconds, until its light blinks green.</span></div>')
+   :boxStep(2,'active','Hold the button on the box','<p class="box-error" role="alert">'+boxSvg('alert')+'<span>The button was not held in time.</span></p><button class="box-retry" data-box="retry">Try again</button>');
+ }else{
+  const rows=(boxFound||[]).map(b=>'<button class="card-row" data-box-ip="'+esc(b.ip)+'">'+boxSvg('box')+'<span>'+esc(b.name)+'</span><em>'+esc(b.ip)+'</em>'+iconSvg('next')+'</button>').join('');
+  const hint=boxFound===null?'Looking on this network…':boxFound.length?'Found on this network:':'None found. Enter its IP address:';
+  first=boxStep(1,'active','Choose your Sync Box','<span>'+hint+'</span>'+(rows?'<div class="card-list">'+rows+'</div>':'')
+   +'<div class="box-address"><input id="box-ip" type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(boxFound?.length?'Or an IP address':'IP address')+'" aria-label="Sync Box IP address" value="'+esc(boxAddress)+'"><button data-box="address">Connect</button></div>'+error);
+  second=boxStep(2,'todo','Hold the button on the box');
+ }
+ return '<ol class="box-steps">'+first+second+'</ol><div class="card-foot"><span class="card-gap"></span><button data-box="close">Cancel</button></div>';
 }
 function paintBoxCard(){
  const card=$('#box-card');if(!card)return;
- if(boxCard==='info'&&box.state!=='ready'&&box.state!=='offline'&&box.state!=='unauthorized'){closeBoxCard(false);return}
+ if(boxCard==='info'&&!['ready','offline','unauthorized'].includes(box.state)){boxCard=null;boxForget=false}
+ card.hidden=!boxCard;$('#sync-box').classList.toggle('open',!!boxCard);
+ if(!boxCard){if(card.innerHTML)card.innerHTML='';return}
  const focused=document.activeElement?.id==='box-ip';
  const html=boxCardHtml();if(card.innerHTML!==html){card.innerHTML=html;if(focused)card.querySelector('#box-ip')?.focus()}
- placeBoxCard();
-}
-function placeBoxCard(){
- const card=$('#box-card'),corner=$('#sync-box');if(!card||card.hidden||!corner)return;
- const a=corner.getBoundingClientRect(),app=$('#app').getBoundingClientRect();
- card.style.top=Math.round(a.bottom-app.top+8)+'px';
- card.style.right=Math.max(12,Math.round(app.right-a.right))+'px';
 }
 function openBoxCard(kind){
- const card=$('#box-card');boxCard=kind;boxForget=false;
- if(kind==='connect'){boxFound=null;findBoxes()}
- card.hidden=false;card.classList.remove('closing');card.classList.add('opening');
- paintBoxCard();paintBox();
+ boxCard=kind;boxForget=false;boxError='';
+ if(kind==='connect'&&!boxPairing()){boxFound=null;findBoxes()}
+ paintBox();
+ const card=$('#box-card');card.classList.remove('opening');void card.offsetWidth;card.classList.add('opening');
  (card.querySelector('#box-ip')||card.querySelector('button'))?.focus();
 }
 function closeBoxCard(cancelPairing=true){
  if(!boxCard)return;
  if(cancelPairing&&boxPairing())boxPost('cancel').then(r=>applyBox(r.body));
- boxCard=null;boxForget=false;
- const card=$('#box-card');card.classList.remove('opening');
- if(reduceMotion)card.hidden=true;else{card.classList.add('closing');setTimeout(()=>{if(!boxCard){card.hidden=true;card.classList.remove('closing')}},140)}
- paintBox();
+ boxCard=null;boxForget=false;boxError='';paintBox();
 }
 async function findBoxes(){
  const r=await boxPost('find');if(boxCard!=='connect')return;
- boxFound=r.status===200&&Array.isArray(r.body.boxes)?r.body.boxes:[];paintBoxCard();
+ boxFound=r.status===200&&Array.isArray(r.body.boxes)?r.body.boxes:[];paintBox();
 }
 async function pairBox(ip){
+ boxError='';paintBox();
  const r=await boxPost('pair',{ip});
  if(r.status===200)return applyBox(r.body);
- tell(r.status===400?'Enter a local IP address':'No Sync Box answered at '+ip);
+ boxError=r.status===400?'Enter an address on this network, like 192.168.1.20.':'No Sync Box answered at '+ip+'.';
+ paintBox();
 }
 function submitAddress(){boxAddress=$('#box-ip').value.trim();if(boxAddress)pairBox(boxAddress)}
 async function toggleSync(){
@@ -1594,7 +1611,7 @@ async function toggleSync(){
  const active=!box.syncing;boxBusy=active;paintBox();
  const r=await boxPost('sync',{active});boxBusy=null;
  applyBox(r.body);
- if(r.status!==200)tell(r.body?.state==='unauthorized'?'Reconnect the Sync Box':'The Sync Box did not respond');
+ if(r.status!==200)boxSay(r.body?.state==='unauthorized'?'Reconnect the Sync Box':'The Sync Box did not respond','bad');
 }
 function boxClick(e){
  const ip=e.target.closest('[data-box-ip]');if(ip){pairBox(ip.dataset.boxIp);return}
@@ -1603,20 +1620,18 @@ function boxClick(e){
  if(id==='connect')boxCard==='connect'?closeBoxCard():openBoxCard('connect');
  else if(id==='info')boxCard==='info'?closeBoxCard():openBoxCard('info');
  else if(id==='toggle')toggleSync();
- else if(id==='close'||id==='cancel')closeBoxCard();
+ else if(id==='close')closeBoxCard();
  else if(id==='retry')pairBox(box.ip);
  else if(id==='address')submitAddress();
- else if(id==='forget'){boxForget=true;paintBoxCard();$('#box-card [data-box="forget-yes"]')?.focus()}
- else if(id==='forget-cancel'){boxForget=false;paintBoxCard()}
- else if(id==='forget-yes'){closeBoxCard(false);boxPost('forget').then(r=>{applyBox(r.body);if(r.status===200)tell('Sync Box forgotten')})}
+ else if(id==='forget'){boxForget=true;paintBox();$('#box-card [data-box="forget-yes"]')?.focus()}
+ else if(id==='forget-cancel'){boxForget=false;paintBox()}
+ else if(id==='forget-yes'){closeBoxCard(false);boxPost('forget').then(r=>{applyBox(r.body);if(r.status===200)boxSay('Sync Box forgotten','ok')})}
 }
 $('#sync-box').addEventListener('click',boxClick);
-$('#box-card').addEventListener('click',boxClick);
-$('#box-card').addEventListener('input',e=>{if(e.target.id==='box-ip')boxAddress=e.target.value});
-$('#box-card').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
-document.addEventListener('pointerdown',e=>{if(boxCard&&!e.target.closest('#box-card,#sync-box'))closeBoxCard()},true);
-window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();const corner=$('#sync-box');closeBoxCard();corner.querySelector('button')?.focus()}},true);
-window.addEventListener('resize',placeBoxCard);
+$('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .box-error')?.remove()}}});
+$('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
+document.addEventListener('pointerdown',e=>{if(boxCard&&!e.target.closest('#sync-box'))closeBoxCard()},true);
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
 document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
 
 // ----------------------------------------------------------------- start --
