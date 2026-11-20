@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from sync_guard import REPAIR_INTERVAL, RESTART_PAUSE, StreamIngress, SyncGuard, udp_port_free  # noqa: E402
+from sync_guard import (  # noqa: E402
+    REPAIR_INTERVAL,
+    REPAIR_SETTLE,
+    RESTART_PAUSE,
+    StreamIngress,
+    SyncGuard,
+    udp_port_free,
+)
 
 
 class Box:
@@ -198,6 +205,23 @@ class SyncGuardTests(unittest.TestCase):
         self.assertEqual(self.run_for(25), 1)
         self.assertEqual(state["runs"], [(["docker", "restart", "bridge"], False)])
         self.assertTrue(self.box.syncing, "Sync starts again after the port is back")
+
+    def test_sync_starts_only_after_the_restarted_bridge_settles(self):
+        ingress, state = self.ingress()
+        starts = []
+        set_sync = self.box.set_sync
+
+        def record(active):
+            if active:
+                starts.append(self.clock.now)
+            return set_sync(active)
+
+        self.box.set_sync = record
+        self.guard.ingress = ingress
+        self.stream = "waiting"
+        before = self.clock.now
+        self.run_for(25)
+        self.assertGreaterEqual(starts[0] - before, 20 + REPAIR_SETTLE)
 
     def test_a_published_port_restarts_only_sync(self):
         ingress, state = self.ingress(published=True)

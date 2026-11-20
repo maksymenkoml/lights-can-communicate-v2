@@ -38,8 +38,12 @@ STALLED = ("waiting", "off")
 # datagrams are dropped and no Start can help. Only a container restart while
 # the box is quiet publishes it again.
 STREAM_PORT = 2100
-REPAIR_INTERVAL = 60.0
+# Each stall already allows only three attempts; this only stops back-to-back restarts.
+REPAIR_INTERVAL = 30.0
 REPAIR_WAIT = 60.0
+# A Start sooner than this after the restarted bridge answers left the box
+# reporting Sync on without ever streaming in a live check (4 s did, 13 s did not).
+REPAIR_SETTLE = 15.0
 DOCKER_PATHS = ("/usr/local/bin/docker", "/opt/homebrew/bin/docker",
                 "/Applications/Docker.app/Contents/Resources/bin/docker", "/usr/bin/docker")
 
@@ -100,6 +104,7 @@ class StreamIngress:
         while self.clock() < end:
             self.sleep(2.0)
             if not self.port_free(self.port) and self.bridge_up():
+                self.sleep(REPAIR_SETTLE)
                 return True
         return False
 
