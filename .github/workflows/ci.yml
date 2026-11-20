@@ -63,6 +63,8 @@ jobs:
           echo "BRIDGE_IMAGE=$image" >> "$GITHUB_ENV"
       - name: Pull pinned public test image
         run: docker pull "$BRIDGE_IMAGE"
+      - name: NAS container profile renders a valid Compose project
+        run: python3 -B tests/check_container_compose.py
       - name: Python contracts without network or private state
         run: >-
           docker run --rm --network none

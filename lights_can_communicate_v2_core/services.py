@@ -11,9 +11,14 @@ from pathlib import Path
 from . import __version__
 from .config import ConfigError
 
+PROJECT = "lights-can-communicate-v2"
+ADAPTER_CONTAINER = f"{PROJECT}-adapter"
+STUDIO_CONTAINER = f"{PROJECT}-studio"
 ADAPTER_LABEL = "com.lights-can-communicate-v2.adapter"
 SETUP_LABEL = "com.lights-can-communicate-v2.setup"
 ARCHIVE = "lights-can-communicate-v2.pyz"
+GATEWAY_COMPOSE = "gateway-compose.json"
+COMPOSE = "compose.json"
 GATEWAY_MODULES = (
     "bootstrap",
     "bridge_output",
@@ -42,6 +47,27 @@ def local_adapter_url(config):
     """Loopback when the adapter listens on all interfaces, else its own address."""
     host = "127.0.0.1" if ipaddress.IPv4Address(config.bind).is_unspecified else config.bind
     return f"http://{host}:{config.port}"
+
+
+def endpoints(config):
+    """Where the host and Light Studio reach each component.
+
+    The container profile uses the fixed core network: a host cannot reach its
+    own macvlan containers, and their loopback is not the host's.
+    """
+    container = config.container
+    if container is None:
+        bind = config.setup.bind
+        return {
+            "adapter": local_adapter_url(config),
+            "setup": ("127.0.0.1" if bind == "0.0.0.0" else bind, config.setup.port),
+            "bridge": "http://127.0.0.1" if config.gateway is not None else None,
+        }
+    return {
+        "adapter": f"http://{container.adapter_core}:{config.port}",
+        "setup": (container.studio_core, config.setup.port),
+        "bridge": f"http://{container.gateway_core}",
+    }
 
 
 def _release(release):
@@ -74,7 +100,7 @@ def agent(label, command, config, config_path, release, python):
     }
 
 
-def gateway_compose(config, release):
+def _gateway_service(config, release):
     gateway = config.gateway
     if gateway is None:
         raise ConfigError("Gateway configuration is required to render its service")
@@ -82,26 +108,89 @@ def gateway_compose(config, release):
     volumes += [f"{release / 'gateway' / (name + '.py')}:/probe/{name}.py:ro"
                 for name in GATEWAY_MODULES]
     return {
-        "name": "lights-can-communicate-v2",
+        "image": gateway.image,
+        "container_name": gateway.container_name,
+        "restart": "unless-stopped",
+        "entrypoint": ["python3", "-u", "/probe/bootstrap.py", "--docker"],
+        "environment": gateway.environment(),
+        "volumes": volumes,
+        "stop_grace_period": "20s",
+        "healthcheck": {
+            "test": ["CMD", "python3", "-c", _HEALTH],
+            "interval": "30s",
+            "timeout": "5s",
+            "retries": 3,
+            "start_period": "30s",
+        },
+    }
+
+
+def gateway_compose(config, release):
+    service = _gateway_service(config, release)
+    service["extra_hosts"] = ["host.docker.internal:host-gateway"]
+    service["ports"] = GATEWAY_PORTS
+    return {"name": PROJECT, "services": {"gateway": service}}
+
+
+def container_compose(config, config_path, release):
+    """The NAS profile: gateway, adapter and studio in one project.
+
+    The gateway and the adapter get their own LAN addresses (macvlan): Hue
+    clients need TCP 80/443, which the NAS holds, and Govee replies arrive on
+    UDP 4002, which the Govee plugin holds. All three share a fixed core network
+    that the host, Homebridge and Light Studio use to reach them.
+    """
+    container = config.container
+    gateway = _gateway_service(config, release)
+    gateway["networks"] = {
+        "lan": {"ipv4_address": config.gateway.lan_ip},
+        "core": {"ipv4_address": container.gateway_core},
+    }
+    config_dir = Path(config_path).resolve().parent
+    # Same paths inside and outside, so one configuration serves the host and
+    # every container; the release path goes through the installation's link.
+    volumes = [f"{config_dir}:{config_dir}:ro", f"{config.state_dir}:{config.state_dir}",
+               f"{release}:{release}:ro"]
+
+    def core(name, command, networks, **extra):
+        return {
+            "image": config.gateway.image,
+            "container_name": name,
+            "restart": "unless-stopped",
+            "entrypoint": ["python3", "-I", "-B", str(release / ARCHIVE), command,
+                           "--config", str(Path(config_path).resolve())],
+            "working_dir": str(config.state_dir),
+            "volumes": volumes,
+            "networks": networks,
+            "stop_grace_period": "20s",
+            **extra,
+        }
+
+    core_network = ipaddress.IPv4Network(container.core_subnet)
+    return {
+        "name": PROJECT,
+        "networks": {
+            "lan": {
+                "driver": "macvlan",
+                "driver_opts": {"parent": container.parent},
+                "ipam": {"config": [{"subnet": container.subnet,
+                                     "gateway": container.router}]},
+            },
+            "core": {
+                "driver": "bridge",
+                "ipam": {"config": [{"subnet": str(core_network),
+                                     "gateway": str(core_network.network_address + 1)}]},
+            },
+        },
         "services": {
-            "gateway": {
-                "image": gateway.image,
-                "container_name": gateway.container_name,
-                "restart": "unless-stopped",
-                "entrypoint": ["python3", "-u", "/probe/bootstrap.py", "--docker"],
-                "environment": gateway.environment(),
-                "extra_hosts": ["host.docker.internal:host-gateway"],
-                "ports": GATEWAY_PORTS,
-                "volumes": volumes,
-                "stop_grace_period": "20s",
-                "healthcheck": {
-                    "test": ["CMD", "python3", "-c", _HEALTH],
-                    "interval": "30s",
-                    "timeout": "5s",
-                    "retries": 3,
-                    "start_period": "30s",
-                },
-            }
+            "gateway": gateway,
+            "adapter": core(ADAPTER_CONTAINER, "adapter", {
+                "lan": {"ipv4_address": container.adapter_ip},
+                "core": {"ipv4_address": container.adapter_core},
+            }),
+            "studio": core(STUDIO_CONTAINER, "setup",
+                           {"core": {"ipv4_address": container.studio_core}},
+                           ports=[f"{config.setup.port}:{config.setup.port}/tcp"]),
         },
     }
 
@@ -115,14 +204,18 @@ def render(config, config_path, release, output, python, link=None):
     release = _release(release)
     if link is not None:
         release = Path(link)
-    files = {
-        f"{ADAPTER_LABEL}.plist": plistlib.dumps(
-            agent(ADAPTER_LABEL, "adapter", config, Path(config_path).resolve(), release, python)),
-        f"{SETUP_LABEL}.plist": plistlib.dumps(
-            agent(SETUP_LABEL, "setup", config, Path(config_path).resolve(), release, python)),
-    }
-    if config.gateway is not None:
-        files["gateway-compose.json"] = (
+    if config.container is not None:
+        files = {COMPOSE: (json.dumps(container_compose(config, config_path, release),
+                                      indent=2) + "\n").encode()}
+    else:
+        files = {
+            f"{ADAPTER_LABEL}.plist": plistlib.dumps(agent(
+                ADAPTER_LABEL, "adapter", config, Path(config_path).resolve(), release, python)),
+            f"{SETUP_LABEL}.plist": plistlib.dumps(agent(
+                SETUP_LABEL, "setup", config, Path(config_path).resolve(), release, python)),
+        }
+    if config.gateway is not None and config.container is None:
+        files[GATEWAY_COMPOSE] = (
             json.dumps(gateway_compose(config, release), indent=2) + "\n").encode()
     output = Path(output)
     output.mkdir(mode=0o700)
@@ -154,9 +247,10 @@ def _get(url, headers=None, timeout=1.0):
 def ready(config, token, timeout=10.0, clock=time.monotonic, sleep=time.sleep):
     """Return a credential-free readiness summary once components answer locally."""
     deadline = clock() + timeout
+    urls = endpoints(config)
     while True:
-        status = _get(local_adapter_url(config) + "/status", {"X-Adapter-Token": token})
-        bridge = _get("http://127.0.0.1/api/config") if config.gateway is not None else {}
+        status = _get(urls["adapter"] + "/status", {"X-Adapter-Token": token})
+        bridge = _get(urls["bridge"] + "/api/config") if config.gateway is not None else {}
         service = status.get("service") if isinstance(status, dict) else None
         result = {
             "adapter": status is not None,

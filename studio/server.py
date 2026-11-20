@@ -325,7 +325,7 @@ def _post_local_json(url, body, timeout, headers):
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
-                sync_box=None, gateway_container=None):
+                sync_box=None, gateway_container=None, hosts=()):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
     # The Sync Box token lives with the other private state, never in the layout.
     box = sync_box or SyncBox(store.path.parent / "sync-box.json")
@@ -616,11 +616,15 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.respond(503, {"error": "Sync Box unavailable"})
 
         def local_request(self):
-            hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
-            if self.headers.get("Host", "").lower() not in hosts:
+            port = self.server.server_port
+            # Loopback plus the LAN names the owner listed; any other Host
+            # (DNS rebinding) or a cross-site Origin is refused.
+            accepted = {f"{name}:{port}" for name in ("127.0.0.1", "localhost", *hosts)}
+            if self.headers.get("Host", "").lower() not in accepted:
                 return False
             origin = self.headers.get("Origin")
-            return (origin is None or origin.lower() in {"http://" + host for host in hosts}) and (
+            origins = {"http://" + host for host in accepted}
+            return (origin is None or origin.lower() in origins) and (
                 self.headers.get("Sec-Fetch-Site") != "cross-site"
             )
 
@@ -630,11 +634,11 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
 def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
           adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1",
-          gateway_container=None):
+          gateway_container=None, hosts=()):
     """Serve until interrupted; SIGTERM handling belongs to the caller."""
     handler = handler_for(
         Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url,
-        gateway_container=gateway_container)
+        gateway_container=gateway_container, hosts=hosts)
     server = ThreadingHTTPServer((bind, port), handler)
     stop = threading.Event()
     threading.Thread(target=handler.guard.run, args=(stop,), daemon=True).start()

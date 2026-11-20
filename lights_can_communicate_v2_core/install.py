@@ -306,7 +306,7 @@ class Installation:
             self._write(data)
             self._prune(data)
         return {"active": data["current"], "changed": True, "backup": transaction["backup"],
-                "restored": transaction["restore"], "start": self.start_commands()}
+                "restored": transaction["restore"], "start": self.start_commands(config)}
 
     def _prune(self, data):
         if not self.backups.is_dir():
@@ -320,14 +320,22 @@ class Installation:
             if path.name not in keep:
                 shutil.rmtree(path)
 
-    def start_commands(self):
-        compose = shlex.quote(str(self.current / "services" / "gateway-compose.json"))
+    def start_commands(self, config):
         archive = shlex.quote(str(self.current / services.ARCHIVE))
-        config = shlex.quote(str(self.config_path))
+        config_file = shlex.quote(str(self.config_path))
+        if config.container is not None:
+            # Docker supervises every component; `ready` runs where Python 3.10+ is.
+            compose = shlex.quote(str(self.current / "services" / services.COMPOSE))
+            return [
+                f"docker compose -f {compose} up -d --force-recreate",
+                f"docker exec {services.ADAPTER_CONTAINER} python3 -I -B {archive} ready "
+                f"--config {config_file}",
+            ]
+        compose = shlex.quote(str(self.current / "services" / services.GATEWAY_COMPOSE))
         return [
             f"docker compose -f {compose} up -d --force-recreate",
-            f"python3 -I -B {archive} adapter --config {config}",
-            f"python3 -I -B {archive} ready --config {config}",
+            f"python3 -I -B {archive} adapter --config {config_file}",
+            f"python3 -I -B {archive} ready --config {config_file}",
         ]
 
     def status(self):
@@ -352,15 +360,14 @@ def _answers(host, port):
 
 
 def running(config):
-    """Names of components that still accept local connections."""
-    adapter_host = services.local_adapter_url(config).split("//", 1)[1].rsplit(":", 1)[0]
+    """Names of components that still accept connections from this host."""
+    urls = services.endpoints(config)
     answering = []
-    if _answers(adapter_host, config.port):
+    if _answers(urls["adapter"].split("//", 1)[1].rsplit(":", 1)[0], config.port):
         answering.append("adapter")
-    setup_host = "127.0.0.1" if config.setup.bind == "0.0.0.0" else config.setup.bind
-    if _answers(setup_host, config.setup.port):
+    if _answers(*urls["setup"]):
         answering.append("setup")
-    if config.gateway is not None and services._get("http://127.0.0.1/api/config") is not None:
+    if config.gateway is not None and services._get(urls["bridge"] + "/api/config") is not None:
         answering.append("gateway")
     return answering
 

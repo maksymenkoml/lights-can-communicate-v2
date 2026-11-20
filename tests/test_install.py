@@ -9,6 +9,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from lights_can_communicate_v2_core import __version__, services
@@ -200,9 +201,19 @@ class InstallTests(unittest.TestCase):
 
     def test_start_commands_quote_installation_paths(self):
         install = Installation(self.base / "it's; touch owned", probe=stopped)
-        for command in install.start_commands():
-            self.assertNotIn("touch", shlex.split(command)[0])
-            self.assertFalse(any(part == "touch" for part in shlex.split(command)))
+        for container in (None, object()):
+            commands = install.start_commands(SimpleNamespace(container=container))
+            for command in commands:
+                self.assertNotIn("touch", shlex.split(command)[0])
+                self.assertFalse(any(part == "touch" for part in shlex.split(command)))
+
+    def test_container_profile_starts_the_whole_compose_project(self):
+        commands = self.install.start_commands(SimpleNamespace(container=object()))
+        self.assertEqual(shlex.split(commands[0])[-3:], ["up", "-d", "--force-recreate"])
+        self.assertTrue(shlex.split(commands[0])[3].endswith("/current/services/compose.json"))
+        self.assertEqual(shlex.split(commands[1])[:3],
+                         ["docker", "exec", "lights-can-communicate-v2-adapter"])
+        self.assertEqual(len(commands), 2)
 
     def test_rollback_without_a_schema_change_keeps_newer_state(self):
         self.place("1.0.0")
