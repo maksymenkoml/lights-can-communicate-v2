@@ -133,6 +133,51 @@ class SyncGuardTests(unittest.TestCase):
         self.guard.started()
         self.assertEqual(self.guard.public(), {})
 
+    def bridge_guard(self):
+        self.frames = 5000
+        guard = SyncGuard(self.box, lambda: self.stream, lambda: self.frames,
+                          clock=self.clock, sleep=self.clock.sleep)
+        self.guard = guard
+        self.run_for(30)
+        return guard
+
+    def restart_bridge(self):
+        """The box stops Sync as the bridge goes down; the bridge returns counting from 0."""
+        self.box.syncing = False
+        self.stream = "off"
+        self.frames = None
+        restarts = self.run_for(5)
+        self.frames = 0
+        return restarts
+
+    def test_sync_stopped_by_a_bridge_restart_is_started_again(self):
+        self.bridge_guard()
+        self.assertEqual(self.restart_bridge() + self.run_for(10), 1)
+        self.assertEqual(self.box.calls, [False, True])
+        self.assertTrue(self.box.syncing)
+
+    def test_a_bridge_restart_seen_only_by_its_counter_counts_too(self):
+        self.bridge_guard()
+        self.box.syncing = False
+        self.stream = "off"
+        self.run_for(10)
+        self.frames = 3
+        self.assertEqual(self.run_for(10), 1)
+
+    def test_a_stop_while_the_bridge_runs_is_kept_even_if_it_restarts_later(self):
+        self.bridge_guard()
+        self.box.syncing = False  # stopped in the Hue app
+        self.run_for(60)
+        self.restart_bridge()
+        self.assertEqual(self.run_for(120), 0)
+        self.assertEqual(self.box.calls, [])
+
+    def test_a_bridge_restart_while_sync_is_off_starts_nothing(self):
+        self.box.syncing = False
+        self.bridge_guard()
+        self.restart_bridge()
+        self.assertEqual(self.run_for(120), 0)
+
     def test_run_survives_a_failing_check_and_stops(self):
         calls = []
 

@@ -185,15 +185,21 @@ light blinks green). Errors appear at their step. Forget Sync Box asks first and
 removes the registration on the box when it answers.
 
 A restart of the bridge container (an update, a crash, Docker) while the box
-streams can leave the box reporting Sync on with no frames arriving, or make it
-drop Sync right after a Start while the bridge warms up; only a new Start from
-the box recovers it. The Light Studio server runs a guard (`bridge/sync_guard.py`)
-every 5 s: when the box runs Sync and the adapter reports `waiting` or `off` for
-20 s, or the box drops Sync within 30 s of a Start from Light Studio, it stops and
-starts Sync on the box, at most three times with pauses of 0, 30 and 90 s. It
-never acts while the adapter is down, another app streams, the output is paused
-or the box is switching, and it never undoes a Stop: Sync stopped later, here or
-in the Hue app, stays off. The corner shows Restarting Sync… meanwhile and says
+streams makes the box stop Sync (`explicit_stop`), or leaves it reporting Sync on
+with no frames arriving; while the bridge warms up the box also drops a new
+Start. Only a new Start from the box recovers it. The Light Studio server runs a
+guard (`bridge/sync_guard.py`) every 5 s. It sees a bridge restart when the
+bridge probe stops answering or its `frames_received` counter goes back. It
+stops and starts Sync on the box, at most three times with pauses of 0, 30 and
+90 s, when:
+
+- Sync stopped up to 60 s before or 30 s after a bridge restart was seen;
+- the box runs Sync and the adapter reports `waiting` or `off` for 20 s;
+- the box drops Sync within 30 s of a Start from Light Studio.
+
+It never acts while the adapter is down, another app streams, the output is
+paused or the box is switching, and it never undoes a Stop made while the bridge
+runs undisturbed, here or in the Hue app. The corner shows Restarting Sync… meanwhile and says
 "Sync did not come back. Stop and start it again" when the three tries fail
 (`recovery: "restarting" | "failed"` in `GET /api/sync-box`).
 

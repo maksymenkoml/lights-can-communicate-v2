@@ -428,8 +428,14 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
         sync = live().get("sync")
         return sync.get("state") if isinstance(sync, dict) else None
 
-    # Restarts Sync on the box when frames stop reaching the adapter (see sync_guard).
-    guard = SyncGuard(box, stream_state)
+    def bridge_frames():
+        data = _read_local_json(bridge_url + "/probe/status", 0.5)
+        receiver = data.get("entertainment") if isinstance(data, dict) else None
+        frames = receiver.get("frames_received") if isinstance(receiver, dict) else None
+        return frames if type(frames) is int else None
+
+    # Restarts Sync on the box after a bridge restart or a stall (see sync_guard).
+    guard = SyncGuard(box, stream_state, bridge_frames)
 
     def box_status():
         return {**box.status(), **guard.public()}

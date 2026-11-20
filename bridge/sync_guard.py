@@ -1,10 +1,10 @@
-"""Restart Sync on the Sync Box when it runs Sync but no frames reach the adapter.
+"""Restart Sync on the Sync Box when a bridge restart or a stall cost it its frames.
 
-A restart of the gateway (an update, a crash, Docker) while the box streams can
-leave the box reporting Sync on while no frame arrives, or make the box drop
-Sync right after a Start while the bridge is still warming up. Only a new Start
-from the box recovers it. The guard does that, a few times with growing pauses,
-and never overrides a Stop: Sync that was on and is stopped later is left off.
+A restart of the bridge (an update, a crash, Docker) while the box streams makes
+the box stop Sync, or leaves it reporting Sync on while no frame arrives; while
+the bridge warms up the box also drops a new Start. Only a new Start from the
+box recovers it. The guard does that, a few times with growing pauses, and never
+overrides a Stop: Sync stopped while the bridge runs undisturbed stays off.
 """
 
 import threading
@@ -17,6 +17,11 @@ DROP_SECONDS = 30.0
 # Pauses before the first, second and third restart, counted from the stall.
 RETRY_DELAYS = (0.0, 30.0, 90.0)
 RESTART_PAUSE = 3.0
+# Sync that stops up to 60 s after a bridge restart was seen, or up to 30 s before
+# it is seen (the box stops as the bridge goes down; the restart shows once it is
+# back), was stopped by the restart.
+RESTART_BEFORE = 60.0
+RESTART_AFTER = 30.0
 TICK_SECONDS = 5.0
 # Stream states that mean no frames: the adapter answers and nobody else streams.
 STALLED = ("waiting", "off")
@@ -25,9 +30,16 @@ STALLED = ("waiting", "off")
 class SyncGuard:
     """Watch the box and the stream; restart Sync when frames do not come."""
 
-    def __init__(self, box, stream_state, clock=time.monotonic, sleep=time.sleep):
+    def __init__(self, box, stream_state, bridge_frames=None, clock=time.monotonic,
+                 sleep=time.sleep):
         self.box = box
         self.stream_state = stream_state
+        # Frames the bridge received since it started, or None when it does not answer.
+        self.bridge_frames = bridge_frames
+        self.frames = None
+        self.bridge_restarted_at = None
+        self.was_syncing = False
+        self.lost_at = None
         self.clock = clock
         self.sleep = sleep
         self.lock = threading.Lock()
@@ -52,6 +64,8 @@ class SyncGuard:
 
     def stopped(self):
         with self.lock:
+            self.was_syncing = False
+            self.lost_at = None
             self.started_at = None
             self.stalled_since = None
             self.attempts = 0
@@ -63,13 +77,43 @@ class SyncGuard:
         with self.lock:
             return {"recovery": self.state} if self.state else {}
 
+    def _watch_bridge(self, now):
+        if self.bridge_frames is None:
+            return
+        try:
+            frames = self.bridge_frames()
+        except Exception:  # noqa: BLE001 - an unreadable bridge is a bridge that is down
+            frames = None
+        if frames is None or (self.frames is not None and frames < self.frames):
+            self.bridge_restarted_at = now
+        if frames is not None:
+            self.frames = frames
+
     def tick(self):
         """One check; returns True when it restarted Sync."""
+        now = self.clock()
+        self._watch_bridge(now)
         status = self.box.status()
         if status.get("state") != "ready" or status.get("changing") is not None:
             return False
-        now = self.clock()
-        if status.get("syncing"):
+        syncing = bool(status.get("syncing"))
+        with self.lock:
+            if self.was_syncing and not syncing:
+                self.lost_at = now
+            self.was_syncing = syncing
+            if self.lost_at is not None and now - self.lost_at > RESTART_AFTER:
+                self.lost_at = None
+            if (not syncing and self.lost_at is not None and not self.retrying
+                    and self.bridge_restarted_at is not None
+                    and -RESTART_BEFORE <= self.bridge_restarted_at - self.lost_at
+                    <= RESTART_AFTER):
+                # The bridge restart stopped Sync: start it again, as if it dropped.
+                self.lost_at = None
+                self.retrying = True
+                self.started_at = now
+                self.stalled_since = now - STALL_SECONDS
+                self.attempts = 0
+        if syncing:
             stream = self.stream_state()
             with self.lock:
                 if stream == "active":
