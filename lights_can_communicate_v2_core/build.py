@@ -37,7 +37,7 @@ RUNTIME_MODULES = (
 )
 CORE_MODULES = (
     "__init__", "__main__", "config", "cli", "discovery", "hue_discovery", "live_preview",
-    "native_profile", "services", "install",
+    "native_profile", "light_registry", "services", "install",
 )
 SETUP_FILES = {
     "setup_studio.py": "server.py",
