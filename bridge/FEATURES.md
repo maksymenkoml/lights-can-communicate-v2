@@ -50,7 +50,7 @@ optical timing were not recorded.
 | Live zone colors and Sync status in setup grid | Implemented; offline verified, activation held | Shared emitted-output observer, calibrated zones, freshness/Off masking and source-aware status; synthetic DOM/API/source/archive checks passed. Owner sleep hold retained; no optical acceptance. See ../core/evidence/live-preview-offline.json |
 | Applying arbitrary topology from setup UI | Not implemented | Current physical driver and native IDs remain pinned; zoned output is a separate explicit mode |
 | Packaged Python adapter | Activated locally; transport/API verified | Reproducible artifact, strict version-one configuration, no-IO preflight and SIGTERM cleanup. Real scene/Sync/Stop coverage; pinned desk profile remains. See ../core/evidence/local-cutover.json |
-| NAS service and own Homebridge package | Not implemented | Runtime is still on the Mac with a pinned reference bridge |
+| NAS service and own Homebridge package | Live | The core runs as the NAS compose project; the own Homebridge plugin holds HomeKit power (#9, #6) |
 
 ## What the Homebridge version must retain
 

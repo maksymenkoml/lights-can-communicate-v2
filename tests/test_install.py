@@ -9,8 +9,9 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 from unittest.mock import patch
+
+import nas_profile
 
 from lights_can_communicate_v2_core import __version__, services
 from lights_can_communicate_v2_core.dist import STATE_SCHEMAS, build_release
@@ -46,7 +47,7 @@ class InstallTests(unittest.TestCase):
         self.state = self.base / "state"
         (self.base / "config").mkdir(parents=True)
         self.state.mkdir()
-        (self.base / "targets.json").write_text(json.dumps({"targets": [
+        (self.base / "config" / "targets.json").write_text(json.dumps({"targets": [
             {"side": "left", "device": "AA:AA:AA:AA:AA:AA:AA:AA", "ip": "192.168.99.50"},
             {"side": "right", "device": "BB:BB:BB:BB:BB:BB:BB:BB", "ip": "192.168.99.51"},
         ]}))
@@ -62,11 +63,11 @@ class InstallTests(unittest.TestCase):
         self.config = {
             "version": 1,
             "state_dir": str(self.state),
-            "adapter": {"targets_file": str(self.base / "targets.json"),
+            "adapter": {"targets_file": str(self.base / "config" / "targets.json"),
                         "token_file": str(self.state / "adapter-token"),
                         "power_owner_token_file": str(self.state / "owner-token"),
-                        "bind": "0.0.0.0", "port": 19990},
-            "gateway": {"lan_ip": "192.168.99.10", "mac": "02:00:00:00:00:0A"},
+                        "port": 19990},
+            **nas_profile.sections(),
         }
         (self.base / "config" / "core.json").write_text(json.dumps(self.config))
         self.install = Installation(self.base, probe=stopped)
@@ -116,7 +117,7 @@ class InstallTests(unittest.TestCase):
         staged = self.base / "releases" / __version__
         verify(staged)
         self.assertFalse((self.base / "current").exists())
-        compose = json.loads((staged / "services" / "gateway-compose.json").read_text())
+        compose = json.loads((staged / "services" / "compose.json").read_text())
         mounts = compose["services"]["gateway"]["volumes"]
         self.assertTrue(all(str(self.base / "current") in m for m in mounts[1:]))
         self.assertEqual(self.install.stage(self.release)["staged"], False)
@@ -138,7 +139,7 @@ class InstallTests(unittest.TestCase):
         with self.assertRaisesRegex(InstallError, "configuration version"):
             self.install.stage(self.release)
         self.config["version"] = 1
-        self.config["adapter"]["targets_file"] = str(self.base / "missing.json")
+        self.config["adapter"]["targets_file"] = str(self.base / "config" / "missing.json")
         (self.base / "config" / "core.json").write_text(json.dumps(self.config))
         with self.assertRaisesRegex(InstallError, "does not validate"):
             self.install.stage(self.release)
@@ -179,7 +180,7 @@ class InstallTests(unittest.TestCase):
 
     def test_activation_revalidates_the_configuration_changed_after_staging(self):
         self.install.stage(self.release)
-        self.config["adapter"]["targets_file"] = str(self.base / "missing.json")
+        self.config["adapter"]["targets_file"] = str(self.base / "config" / "missing.json")
         (self.base / "config" / "core.json").write_text(json.dumps(self.config))
         with self.assertRaisesRegex(InstallError, "does not validate"):
             self.install.activate(__version__)
@@ -187,7 +188,7 @@ class InstallTests(unittest.TestCase):
         self.assertFalse((self.base / "install.json").exists())
 
     def rendered_ip(self, version=__version__):
-        compose = self.base / "releases" / version / "services" / "gateway-compose.json"
+        compose = self.base / "releases" / version / "services" / "compose.json"
         return json.loads(compose.read_text())["services"]["gateway"]["environment"]["IP"]
 
     def change_gateway_address(self):
@@ -236,7 +237,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.rendered_ip(), "192.168.99.10")
         result = self.install.activate(__version__)
         self.assertEqual((result["changed"], result["rendered"]), (False, True))
-        self.assertEqual(result["start"], self.install.start_commands(self.install.config()))
+        self.assertEqual(result["start"], self.install.start_commands())
         self.assertEqual(self.rendered_ip(), "192.168.99.20")
         self.assertEqual(self.install.activate(__version__),
                          {"active": __version__, "changed": False, "rendered": False})
@@ -281,14 +282,12 @@ class InstallTests(unittest.TestCase):
 
     def test_start_commands_quote_installation_paths(self):
         install = Installation(self.base / "it's; touch owned", probe=stopped)
-        for container in (None, object()):
-            commands = install.start_commands(SimpleNamespace(container=container))
-            for command in commands:
-                self.assertNotIn("touch", shlex.split(command)[0])
-                self.assertFalse(any(part == "touch" for part in shlex.split(command)))
+        for command in install.start_commands():
+            self.assertNotIn("touch", shlex.split(command)[0])
+            self.assertFalse(any(part == "touch" for part in shlex.split(command)))
 
-    def test_container_profile_starts_the_whole_compose_project(self):
-        commands = self.install.start_commands(SimpleNamespace(container=object()))
+    def test_start_commands_start_the_whole_compose_project(self):
+        commands = self.install.start_commands()
         self.assertEqual(shlex.split(commands[0])[-3:], ["up", "-d", "--force-recreate"])
         self.assertTrue(shlex.split(commands[0])[3].endswith("/current/services/compose.json"))
         self.assertEqual(shlex.split(commands[1])[:3],

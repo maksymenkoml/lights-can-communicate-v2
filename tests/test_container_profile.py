@@ -97,14 +97,16 @@ class ContainerProfileTests(unittest.TestCase):
         self.assertEqual(container.studio_hosts, ("192.168.99.5", "diskstation.local"))
         self.assertEqual(container.parent, "ovs_eth0")
 
-    def test_profile_is_optional_and_leaves_the_mac_layout_unchanged(self):
-        del self.value["container"]
-        self.value["adapter"]["bind"] = "0.0.0.0"
-        self.save()
-        config = load_config(self.config_path)
-        self.assertIsNone(config.container)
-        self.assertEqual(config.setup.bind, "127.0.0.1")
-        self.assertEqual(config.gateway.adapter_url, "http://host.docker.internal:19880")
+    def test_configuration_without_the_profile_is_rejected(self):
+        # The NAS container profile is the only supported runtime.
+        for removed in (("container",), ("gateway",), ("container", "gateway")):
+            with self.subTest(removed=removed):
+                def change(data, removed=removed):
+                    for section in removed:
+                        del data[section]
+                    data["adapter"]["bind"] = "127.0.0.1"
+                message = self.rejected(change)
+                self.assertIn("gateway and container sections", message)
 
     def test_invalid_profiles_are_rejected_without_echo(self):
         def lan(field, value):
@@ -130,6 +132,7 @@ class ContainerProfileTests(unittest.TestCase):
             lambda data: data["adapter"].__setitem__("bind", "0.0.0.0"),
             lambda data: data.__setitem__("setup", {"bind": "127.0.0.1"}),
             lambda data: data.pop("gateway"),
+            lambda data: data.pop("container"),
         ]
         for number, change in enumerate(cases):
             with self.subTest(case=number):
@@ -148,10 +151,10 @@ class ContainerProfileTests(unittest.TestCase):
     def render(self):
         output = self.base / "services"
         names = services.render(load_config(self.config_path), self.config_path, self.release,
-                                output, "/unused/python", link=self.base / "current")
+                                output, link=self.base / "current")
         return names, json.loads((output / services.COMPOSE).read_text()), output
 
-    def test_render_writes_one_project_without_launchd_agents(self):
+    def test_render_writes_one_project(self):
         names, project, output = self.render()
         self.assertEqual(names, [services.COMPOSE])
         self.assertNotIn(TOKEN, (output / services.COMPOSE).read_text())
@@ -211,14 +214,6 @@ class ContainerProfileTests(unittest.TestCase):
                                 "setup": ("172.30.250.4", 19881),
                                 "bridge": "http://172.30.250.2"})
 
-    def test_endpoints_without_the_profile_stay_on_loopback(self):
-        del self.value["container"]
-        self.value["adapter"]["bind"] = "0.0.0.0"
-        self.save()
-        urls = services.endpoints(load_config(self.config_path))
-        self.assertEqual(urls, {"adapter": "http://127.0.0.1:19880",
-                                "setup": ("127.0.0.1", 19881), "bridge": "http://127.0.0.1"})
-
     def test_installer_stop_check_probes_the_core_addresses(self):
         probed, fetched = [], []
         with (patch.object(install, "_answers", lambda *a: probed.append(a) or True),
@@ -247,18 +242,6 @@ class ContainerProfileTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(sleeps, [cli.HOLD_POLL_SECONDS] * 2)
         self.assertEqual(len(started), 1)
-
-    def test_hold_exits_without_the_profile(self):
-        del self.value["container"]
-        self.value["adapter"]["bind"] = "0.0.0.0"
-        self.save()
-        (self.state / "live-output-hold").write_text("")
-        runtime = type("Runtime", (), {"main": staticmethod(
-            lambda *args, **kwargs: self.fail("adapter started under hold"))})
-        with patch.object(cli, "prepare", lambda config: runtime):
-            code = cli._adapter(load_config(self.config_path), False,
-                                sleep=lambda seconds: self.fail("waited"))
-        self.assertEqual(code, 0)
 
 
 class StudioHostTests(unittest.TestCase):

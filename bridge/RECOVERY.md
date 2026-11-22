@@ -63,12 +63,12 @@ game again. Visual acceptance of the fallback interval and optical latency were
 not recorded separately.
 
 The cold restart failure was localized further with a coordinated Start capture.
-The Mac received nine inbound UDP packets from the Box at port 2100, but the
-container saw none. Both localhost and LAN-self synthetic packets also failed to
-reach the container, despite Docker reporting the port published; the Mac firewall
-was disabled. Recreating only the selected bridge container restored delivery of
+The former Mac host received nine inbound UDP packets from the Box at port 2100,
+but the container saw none. Both localhost and LAN-self synthetic packets also
+failed to reach the container, despite Docker reporting the port published; the
+host firewall was disabled. Recreating only the selected bridge container restored delivery of
 both test packets, verified with raw observation and a directly bound UDP socket.
-This identifies a failed Docker Desktop publication path in the observed case;
+This identifies a failed published-port path of that host in the observed case;
 it does not establish that every Box connection failure has the same cause.
 
 For local bridge code reloads, preserve the existing private state and use:
@@ -131,7 +131,7 @@ later Off came from the away automation; its power intent must be preserved. See
 
 The configured Linux receiver now keeps an idle, drop-only UDP socket bound
 before and between OpenSSL sessions. This removes the unbound-port condition
-that accompanied the observed Docker Desktop forwarding failure. It is not an
+that accompanied the forwarding failure observed on the former Mac host. It is not an
 automatic repair service for arbitrary Docker proxy failures. Normal Stop does
 not release the guard. Final shutdown fences queued work, stops receiver workers,
 and then closes it. The actual vendor SIGTERM/SIGINT path is chained before its

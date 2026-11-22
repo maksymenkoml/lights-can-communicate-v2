@@ -13,6 +13,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import nas_profile
+
 from lights_can_communicate_v2_core import cli
 from lights_can_communicate_v2_core.config import ConfigError, load_config
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
@@ -277,6 +279,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
                 "hue_play": True, "hue_stream_config_file": "stream.json",
                 "native_profile_file": "native.json",
             },
+            **nas_profile.sections(),
         }
 
     def config(self):

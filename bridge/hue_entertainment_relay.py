@@ -11,7 +11,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from entertainment_stream import POSITIONS, encode_frame, native_colors
 from native_location_cache import NativeLocationCache
@@ -22,17 +21,7 @@ from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 class DtlsConnection:
     def __init__(self, config):
-        binary = next(
-            (
-                str(p)
-                for p in (
-                    Path("/opt/homebrew/opt/openssl/bin/openssl"),
-                    Path("/usr/local/opt/openssl/bin/openssl"),
-                )
-                if p.is_file()
-            ),
-            shutil.which("openssl"),
-        )
+        binary = shutil.which("openssl")
         if not binary:
             raise ValueError("OpenSSL is unavailable")
         self.ready = threading.Event()

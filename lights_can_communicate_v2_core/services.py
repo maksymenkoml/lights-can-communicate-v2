@@ -2,7 +2,6 @@
 
 import ipaddress
 import json
-import plistlib
 import time
 import urllib.error
 import urllib.request
@@ -14,10 +13,7 @@ from .config import ConfigError
 PROJECT = "lights-can-communicate-v2"
 ADAPTER_CONTAINER = f"{PROJECT}-adapter"
 STUDIO_CONTAINER = f"{PROJECT}-studio"
-ADAPTER_LABEL = "com.lights-can-communicate-v2.adapter"
-SETUP_LABEL = "com.lights-can-communicate-v2.setup"
 ARCHIVE = "lights-can-communicate-v2.pyz"
-GATEWAY_COMPOSE = "gateway-compose.json"
 COMPOSE = "compose.json"
 GATEWAY_MODULES = (
     "bootstrap",
@@ -38,31 +34,17 @@ GATEWAY_MODULES = (
     "sync_projection",
     "sync_zone",
 )
-GATEWAY_PORTS = ("80:80/tcp", "443:443/tcp", "1900:1900/udp", "2100:2100/udp")
 _HEALTH = ("import urllib.request;"
            "urllib.request.urlopen('http://127.0.0.1/api/config', timeout=3)")
-
-
-def local_adapter_url(config):
-    """Loopback when the adapter listens on all interfaces, else its own address."""
-    host = "127.0.0.1" if ipaddress.IPv4Address(config.bind).is_unspecified else config.bind
-    return f"http://{host}:{config.port}"
 
 
 def endpoints(config):
     """Where the host and Light Studio reach each component.
 
-    The container profile uses the fixed core network: a host cannot reach its
-    own macvlan containers, and their loopback is not the host's.
+    They use the fixed core network: a host cannot reach its own macvlan
+    containers, and their loopback is not the host's.
     """
     container = config.container
-    if container is None:
-        bind = config.setup.bind
-        return {
-            "adapter": local_adapter_url(config),
-            "setup": ("127.0.0.1" if bind == "0.0.0.0" else bind, config.setup.port),
-            "bridge": "http://127.0.0.1" if config.gateway is not None else None,
-        }
     return {
         "adapter": f"http://{container.adapter_core}:{config.port}",
         "setup": (container.studio_core, config.setup.port),
@@ -84,26 +66,8 @@ def _release(release):
     return release
 
 
-def agent(label, command, config, config_path, release, python):
-    log = config.state_dir / "logs" / f"{command}.log"
-    return {
-        "Label": label,
-        "ProgramArguments": [str(python), "-I", "-B", str(release / ARCHIVE), command,
-                             "--config", str(config_path)],
-        "WorkingDirectory": str(config.state_dir),
-        "RunAtLoad": True,
-        # Restart after crashes only; an orderly stop or owner hold exits 0.
-        "KeepAlive": {"SuccessfulExit": False},
-        "ThrottleInterval": 10,
-        "StandardOutPath": str(log),
-        "StandardErrorPath": str(log),
-    }
-
-
 def _gateway_service(config, release):
     gateway = config.gateway
-    if gateway is None:
-        raise ConfigError("Gateway configuration is required to render its service")
     volumes = [f"{config.state_dir}:/opt/hue-emulator/config"]
     volumes += [f"{release / 'gateway' / (name + '.py')}:/probe/{name}.py:ro"
                 for name in GATEWAY_MODULES]
@@ -123,13 +87,6 @@ def _gateway_service(config, release):
             "start_period": "30s",
         },
     }
-
-
-def gateway_compose(config, release):
-    service = _gateway_service(config, release)
-    service["extra_hosts"] = ["host.docker.internal:host-gateway"]
-    service["ports"] = GATEWAY_PORTS
-    return {"name": PROJECT, "services": {"gateway": service}}
 
 
 def container_compose(config, config_path, release):
@@ -195,36 +152,22 @@ def container_compose(config, config_path, release):
     }
 
 
-def render(config, config_path, release, output, python, link=None):
-    """Write supervisor files into a new directory; never overwrite.
+def render(config, config_path, release, output, link=None):
+    """Write the Compose project into a new directory; never overwrite.
 
-    ``link`` is the stable path supervisors use instead of the verified release
-    directory, such as an installation's ``current`` symlink.
+    ``link`` is the stable path the containers use instead of the verified
+    release directory, such as an installation's ``current`` symlink.
     """
     release = _release(release)
     if link is not None:
         release = Path(link)
-    if config.container is not None:
-        files = {COMPOSE: (json.dumps(container_compose(config, config_path, release),
-                                      indent=2) + "\n").encode()}
-    else:
-        files = {
-            f"{ADAPTER_LABEL}.plist": plistlib.dumps(agent(
-                ADAPTER_LABEL, "adapter", config, Path(config_path).resolve(), release, python)),
-            f"{SETUP_LABEL}.plist": plistlib.dumps(agent(
-                SETUP_LABEL, "setup", config, Path(config_path).resolve(), release, python)),
-        }
-    if config.gateway is not None and config.container is None:
-        files[GATEWAY_COMPOSE] = (
-            json.dumps(gateway_compose(config, release), indent=2) + "\n").encode()
+    files = {COMPOSE: (json.dumps(container_compose(config, config_path, release),
+                                  indent=2) + "\n").encode()}
     output = Path(output)
     output.mkdir(mode=0o700)
     for name, data in files.items():
         with (output / name).open("xb") as stream:
             stream.write(data)
-    # launchd opens the log paths before the command runs and does not create
-    # missing parents; an absent directory would keep both agents from starting.
-    (config.state_dir / "logs").mkdir(mode=0o700, exist_ok=True)
     return sorted(files)
 
 
@@ -250,14 +193,14 @@ def ready(config, token, timeout=10.0, clock=time.monotonic, sleep=time.sleep):
     urls = endpoints(config)
     while True:
         status = _get(urls["adapter"] + "/status", {"X-Adapter-Token": token})
-        bridge = _get(urls["bridge"] + "/api/config") if config.gateway is not None else {}
+        bridge = _get(urls["bridge"] + "/api/config")
         service = status.get("service") if isinstance(status, dict) else None
         result = {
             "adapter": status is not None,
             "adapter_version": service.get("version") if isinstance(service, dict) else None,
-            "gateway": None if config.gateway is None else bridge is not None,
+            "gateway": bridge is not None,
         }
-        if result["adapter"] and result["gateway"] is not False:
+        if result["adapter"] and result["gateway"]:
             result["ready"] = True
             return result
         if clock() >= deadline:

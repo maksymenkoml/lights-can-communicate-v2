@@ -95,17 +95,7 @@ def prepare(config):
                 raise ConfigError("Scene and stream Hue bridges must match")
             live_adapter.HueEntertainmentRelay(stream, profile=profile)
             # Match the relay's binary selection without creating a DTLS client.
-            binary = next(
-                (
-                    str(p)
-                    for p in (
-                        Path("/opt/homebrew/opt/openssl/bin/openssl"),
-                        Path("/usr/local/opt/openssl/bin/openssl"),
-                    )
-                    if p.is_file()
-                ),
-                shutil.which("openssl"),
-            )
+            binary = shutil.which("openssl")
             if not binary:
                 raise ConfigError("Native video requires OpenSSL")
             version = subprocess.run(
@@ -178,8 +168,6 @@ def _adapter(config, check, sleep=time.sleep):
     if hold.exists():
         # An intentional owner state, not a failure: supervisors must not loop.
         print("Owner live-output hold is active; adapter not started", file=sys.stderr)
-        if config.container is None:
-            return 0
         # Docker restarts a finished container whatever its exit code, so wait
         # here until the owner removes the hold; SIGTERM still stops the wait.
         while hold.exists():
@@ -196,17 +184,12 @@ def _setup(config):
     _credential(config.token_file)
     studio = _setup_module()
     urls = services.endpoints(config)
-    container = config.container
     _interruptible(lambda: studio.serve(
         config.token_file, config.state_dir / "desk-layout.json",
         bind=config.setup.bind, port=config.setup.port,
         adapter_url=urls["adapter"],
-        bridge_url=urls["bridge"] or "http://127.0.0.1",
-        # Without a published host port to lose, the Sync guard never restarts
-        # the bridge container; it only restarts Sync.
-        gateway_container=(config.gateway.container_name
-                           if config.gateway and container is None else None),
-        hosts=container.studio_hosts if container else (),
+        bridge_url=urls["bridge"],
+        hosts=config.container.studio_hosts,
     ))
     return 0
 
@@ -224,7 +207,7 @@ def main(argv=None):
         "--check", action="store_true", help="adapter: validate without network or state writes"
     )
     parser.add_argument("--release", help="services: installed release directory")
-    parser.add_argument("--output", help="services: new directory for supervisor files")
+    parser.add_argument("--output", help="services: new directory for the Compose project")
     parser.add_argument("--timeout", type=float, default=10.0, help="ready: seconds to wait")
     args = parser.parse_args(argv)
     try:
@@ -240,7 +223,7 @@ def main(argv=None):
             return 0 if result["ready"] else 1
         if not args.release or not args.output:
             raise ConfigError("services requires --release and --output")
-        names = services.render(config, args.config, args.release, args.output, sys.executable)
+        names = services.render(config, args.config, args.release, args.output)
         print(json.dumps({"rendered": names}))
         return 0
     except (ConfigError, OSError, ValueError) as error:

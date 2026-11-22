@@ -307,7 +307,7 @@ udp_guard = UdpPortGuard() if include_entertainment else None
 if udp_guard is not None:
     udp_guard.start()
 entertainment_receiver = EntertainmentReceiver(
-    os.environ.get("PROBE_ADAPTER_URL", "http://host.docker.internal:19880"),
+    os.environ["PROBE_ADAPTER_URL"],
     local_secret("adapter-token", 24),
     enabled=include_entertainment and not (state / "live-output-hold").exists(),
     udp_guard=udp_guard,

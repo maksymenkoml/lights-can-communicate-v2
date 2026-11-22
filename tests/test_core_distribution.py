@@ -15,6 +15,7 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import nas_profile
 from test_native_profile import profile_data
 
 from lights_can_communicate_v2_core import __version__
@@ -86,10 +87,11 @@ class CoreDistributionTests(unittest.TestCase):
                 "targets_file": "targets.json",
                 "token_file": "state/adapter-token",
                 "power_owner_token_file": "state/owner-token",
-                "bind": "127.0.0.1",
                 "port": 19880,
                 "gradient": True,
             },
+            # Loopback core network, so the packaged process can bind its address.
+            **nas_profile.sections(core_subnet="127.0.0.0/29"),
         }
         self.save()
         self.cwd = self.root / "elsewhere"
@@ -249,10 +251,18 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
 
     def test_explicit_state_hold_blocks_start_even_when_targets_are_elsewhere(self):
         (self.state / "live-output-hold").write_text("Owner hold")
-        result = self.run_archive("--config", str(self.config))
-        # A hold is intentional: exit 0 so a supervisor does not restart in a loop.
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("hold", result.stderr.lower())
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-B", str(self.artifact), "--config", str(self.config)],
+            cwd=self.cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            # A hold is intentional: the adapter waits for its removal instead of
+            # exiting, because Docker would restart a finished container in a loop.
+            self.assertIn("hold", process.stderr.readline().lower())
+            time.sleep(0.5)
+            self.assertIsNone(process.poll())
+        finally:
+            process.kill()
+            process.communicate()
         check = self.run_archive("--config", str(self.config), "--check")
         self.assertEqual(check.returncode, 0, check.stderr)
         self.assertTrue(json.loads(check.stdout)["hold"])
@@ -335,7 +345,7 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
         )
         self.addCleanup(lambda: process.poll() is None and process.kill())
         request = urllib.request.Request(
-            "http://127.0.0.1:19883/status", headers={"X-Adapter-Token": "a" * 48}
+            "http://127.0.0.3:19883/status", headers={"X-Adapter-Token": "a" * 48}
         )
         end = time.monotonic() + 5
         status = None
@@ -358,7 +368,7 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
         stdout, stderr = process.communicate(timeout=5)
         self.assertEqual(process.returncode, 0, stdout + stderr)
         with socket.socket() as client:
-            self.assertNotEqual(client.connect_ex(("127.0.0.1", 19883)), 0)
+            self.assertNotEqual(client.connect_ex(("127.0.0.3", 19883)), 0)
 
 
 if __name__ == "__main__":

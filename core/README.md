@@ -15,8 +15,13 @@ From the repository root:
 python3 -B -m lights_can_communicate_v2_core.build --output /new/path/lights-can-communicate-v2-adapter.pyz
 python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --version
 python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json --check
-python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json
 ```
+
+The only supported runtime is the NAS container profile: Docker Compose runs the
+adapter, Light Studio and the virtual bridge from the pinned diyHue image (see
+"Managed service release" and "NAS container profile"). `--check` runs
+anywhere with Python and needs no network. Starting the adapter outside its
+container is not a supported deployment.
 
 Python 3.10+ is required. Native video also requires OpenSSL; preflight checks its
 availability before starting the adapter. No pip/runtime library installation is
@@ -30,9 +35,10 @@ including `state_dir`, resolve relative to the configuration file. Optional Hue
 configuration fields can be omitted for Govee-only operation. Native video
 requires Hue configuration, `hue_play` and an explicit native profile. Every Hue
 configuration requires `adapter.native_profile_file`. Omit all Hue fields,
-including the profile path, for Govee-only operation. `bind` defaults to loopback;
-select a reachable local address explicitly when the virtual bridge or existing
-Homebridge coordinator runs on another host/container.
+including the profile path, for Govee-only operation. The `gateway` and
+`container` sections are mandatory: a configuration without them is rejected.
+The adapter listens on its core-network address only (`adapter.bind` may only
+repeat it).
 
 Referenced files retain the existing live adapter formats. The two local token files
 must already exist, contain distinct bounded hexadecimal credentials and have
@@ -62,31 +68,29 @@ python3 -I -B $R/lights-can-communicate-v2.pyz services --config /private/core.j
 The release contains `lights-can-communicate-v2.pyz` (adapter and Setup Studio),
 `gateway/` (the virtual bridge modules) and `manifest.json` (version and
 SHA256 per file). `services` refuses a release of another version and writes
-into a new directory only:
-
-- `com.lights-can-communicate-v2.adapter.plist` and `com.lights-can-communicate-v2.setup.plist`:
-  launchd agents that start at login and restart only after a non-zero exit.
-  Logs go to `state_dir/logs`, which `services` creates because launchd does
-  not create missing log directories.
-- `gateway-compose.json` (only with a `gateway` section): the pinned diyHue
-  image with `restart: unless-stopped`, read-only module mounts from the
-  release, `state_dir` as its configuration directory and a health check.
+into a new directory only. It writes `compose.json`, one Compose project that
+holds the gateway, the adapter and Light Studio (see "NAS container profile").
 
 Commands of the archive: `adapter` (default), `setup` (Setup Studio on
-`setup.bind:setup.port`, default `127.0.0.1:19881`), `ready` (exit 0 once the
-adapter `/status` and, if configured, the bridge `/api/config` answer locally;
-prints a credential-free summary) and `services`. An active
-`state_dir/live-output-hold` makes `adapter` exit 0 without output, so the
-supervisor does not restart it in a loop.
+`setup.bind:setup.port`, default `0.0.0.0:19881` inside its container),
+`ready` (exit 0 once the adapter `/status` and the bridge `/api/config` answer
+on the core network; prints a credential-free summary) and `services`. An
+active `state_dir/live-output-hold` keeps `adapter` waiting until the hold is
+removed, because Docker restarts a finished container whatever its exit code.
 
-Optional configuration sections:
+Required configuration sections:
 
 ```json
-"setup": {"bind": "127.0.0.1", "port": 19881},
 "gateway": {"lan_ip": "192.168.1.20", "mac": "02:00:00:00:00:01",
             "live_output": true, "hue_strip": true, "hue_play": true,
-            "entertainment": true, "gradient": true}
+            "entertainment": true, "gradient": true},
+"container": {"lan": {"parent": "eth0", "subnet": "192.168.1.0/24",
+                      "router": "192.168.1.1", "adapter_ip": "192.168.1.21"},
+              "studio_hosts": ["diskstation.local"]}
 ```
+
+and the optional `"setup": {"port": 19881}` (`setup.bind` may only be
+`0.0.0.0`).
 
 `adapter.power_authority` selects who owns Govee power: `owner` (default, the
 remote heartbeat of the Homebridge overlay) or `homekit` (this adapter executes
@@ -94,11 +98,10 @@ power for the `homebridge-lights-can-communicate-v2` plugin through `/homekit`;
 `/power-owner` is then closed). See `homebridge/README.md`.
 
 `gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
-digest), `adapter_url` (default `http://host.docker.internal:<adapter port>`)
+digest), `adapter_url` (default `http://<adapter core address>:<adapter port>`)
 and `timezone`. `entertainment` requires `hue_strip` and `hue_play`: Desk
-Entertainment uses all six virtual lights. With a `gateway` section the adapter `bind` must not be a
-loopback address: the container reaches the host through its network. Rendering and readiness never load, start or stop services;
-loading the agents and starting the compose project is a separate, owner
+Entertainment uses all six virtual lights. Rendering and readiness never load,
+start or stop services; starting the compose project is a separate, owner
 authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
 
 ## Compatibility and operation
@@ -294,11 +297,11 @@ python3 -I -B BASE/current/lights-can-communicate-v2.pyz status --base BASE
 1. Verifies every manifest hash.
 2. Checks the configuration version and the Python version.
 3. Runs the new archive's `adapter --check`.
-4. Renders supervisor files whose paths go through `BASE/current`, and records
+4. Renders the Compose project whose paths go through `BASE/current`, and records
    the digest of `core.json` they were rendered from (`services/config.sha256`).
 
 When `core.json` changes, run `stage` again with the same archive: it renders
-the supervisor files of a staged release again. It refuses for the active
+the Compose project of a staged release again. It refuses for the active
 release, because its running services were started from those files. A release
 rendered before digests existed is not treated as stale; it records a digest
 when it is staged again while inactive. `activate` and `rollback`
@@ -322,8 +325,9 @@ publish packages.
 
 ### NAS container profile
 
-An optional `container` section in `core.json` selects the NAS profile
-(`docs/design/2026-11-20-nas-container-profile.md`, issue #9):
+The required `container` section in `core.json` describes the NAS profile, the
+only supported runtime (`docs/design/2026-11-20-nas-container-profile.md`,
+issue #9):
 
 ```json
 "container": {
@@ -334,7 +338,7 @@ An optional `container` section in `core.json` selects the NAS profile
 }
 ```
 
-`stage` then renders one `services/compose.json` and no launchd agents. Docker
+`stage` renders one `services/compose.json`. Docker
 runs the gateway, the adapter and Light Studio from the pinned diyHue image
 with `restart: unless-stopped`:
 - The gateway (`gateway.lan_ip`) and the adapter (`lan.adapter_ip`) get their
@@ -348,7 +352,8 @@ with `restart: unless-stopped`:
   listens on its core address only.
 - Light Studio is published on `setup.port` of the NAS and accepts the Host
   names in `studio_hosts` besides loopback. It has no password yet (#53). Its
-  Sync guard restarts only Sync, never the bridge container.
+  Sync guard restarts Sync on the Sync Box after a bridge restart or a stall,
+  never the bridge container.
 - Configured files must lie in the configuration directory or `state_dir`.
   These and the release are mounted at their host paths.
 - An owner `live-output-hold` keeps the adapter waiting instead of exiting.
@@ -385,14 +390,12 @@ credentials, frame payloads, exception text or device addresses are logged by
 these journals. A journal failure increments `write_errors` without interrupting
 output. Existing protocol request logs are separate.
 
-On the Mac installation, stop Sync Box before recreating the bridge container, wait for
-the API/UDP guard, verify ingress, then start Box/Sync. A live Box sending into
-the container startup window has coincided with a broken Docker Desktop UDP
-publication; a running in-container guard alone is not proof of host ingress.
-The control-datagram counter and actual DTLS frame counter are distinct checks.
-This operational recovery is not an automatic Docker Desktop repair mechanism.
-See `evidence/sync-transport-recovery.json` for the reproduced delivery failure,
-sequential live observation windows, tests and measurement limits.
+Before recreating the containers, stop Sync on the Sync Box. After `ready`
+reports the gateway, start Sync and confirm that frames arrive. The
+control-datagram counter and the actual DTLS frame counter are distinct checks.
+See `evidence/sync-transport-recovery.json` for a delivery failure observed on
+the former Mac host, sequential live observation windows, tests and measurement
+limits.
 
 ### Source reconnection without a new Start
 

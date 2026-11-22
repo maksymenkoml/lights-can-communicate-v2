@@ -30,7 +30,7 @@ else:
 os.environ.update(CONFIG_PATH=str(state), IP="127.0.0.1", MAC="00:17:88:00:fa:01",
                   DEBUG="false", PROBE_HUE_STRIP="true", PROBE_HUE_PLAY="true",
                   PROBE_ENTERTAINMENT="true", PROBE_GOVEE_GRADIENT="true",
-                  PROBE_LIVE_OUTPUT="false")
+                  PROBE_LIVE_OUTPUT="false", PROBE_ADAPTER_URL="http://127.0.0.1:19880")
 sys.path.insert(0, str(Path(source).parent))
 sys.argv = [source, "--docker"]
 
