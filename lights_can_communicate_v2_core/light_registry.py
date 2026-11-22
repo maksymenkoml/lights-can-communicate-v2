@@ -26,6 +26,17 @@ _HUE_ROLES = {
 }
 
 
+# Virtual bridge slot and identity seed of each migrated light (see bridge/bootstrap.py).
+_SEEDS = {
+    "govee-left": ("1", "Left"),
+    "govee-right": ("2", "Right"),
+    "hue-monitor": ("3", "HueMonitorStrip"),
+    "play-left": ("4", "HuePlayLeft"),
+    "play-center": ("5", "HuePlayCenter"),
+    "play-right": ("6", "HuePlayRight"),
+}
+
+
 class RegistryError(ValueError):
     """A registry is invalid or unreadable; messages never include input values."""
 
@@ -244,3 +255,87 @@ class LightRegistry:
                     os.unlink(temporary)
                 except OSError:
                     pass
+
+
+def _read_json(path, message):
+    try:
+        with Path(path).open("rb") as source:
+            encoded = source.read(_MAX_REGISTRY_BYTES + 1)
+        if len(encoded) > _MAX_REGISTRY_BYTES:
+            raise RegistryError(message)
+        return json.loads(encoded.decode("utf-8"), object_pairs_hook=_unique_object)
+    except (RegistryError, OSError, ValueError, TypeError, RecursionError):
+        raise RegistryError(message) from None
+
+
+def migrate(targets_file, native_profile_file):
+    """Build the registry from the live targets file and the native Hue profile.
+
+    This only reads: the old files are migration inputs and are never changed.
+    """
+    message = "Light registry migration needs the live targets file"
+    if targets_file is None:
+        raise RegistryError(message)
+    data = _read_json(targets_file, message)
+    targets = data.get("targets") if type(data) is dict else None
+    if type(targets) is not list:
+        raise RegistryError(message)
+    sides = {side: light_id for light_id, side in LEGACY_SIDES.items()}
+    lights = []
+    for target in targets:
+        if type(target) is not dict or target.get("side") not in sides:
+            raise RegistryError("Light registry migration found an unsupported target")
+        light_id = sides[target["side"]]
+        virtual = _SEEDS[light_id]
+        lights.append({
+            "id": light_id, "provider": "govee",
+            "virtual": {"id_v1": virtual[0], "seed": virtual[1]},
+            "govee": {key: value for key, value in target.items() if key != "side"},
+        })
+    result = {"version": 1, "lights": lights}
+    if native_profile_file is not None:
+        try:
+            profile = NativeHueProfile.load(native_profile_file).to_dict()
+        except NativeProfileError:
+            raise RegistryError("Light registry migration needs a valid native Hue profile"
+                                ) from None
+        members = {item["channel_id"]: item["member"]
+                   for item in profile["entertainment"]["channels"]}
+        strip_service = members[3]["rid"]
+        channels = {
+            "hue-monitor": [cid for cid, member in members.items()
+                            if member["rid"] == strip_service],
+            "play-left": [1],
+            "play-center": [0],
+            "play-right": [2],
+        }
+        for light_id, role in _HUE_ROLES.items():
+            virtual = _SEEDS[light_id]
+            lights.append({
+                "id": light_id, "provider": "hue",
+                "virtual": {"id_v1": virtual[0], "seed": virtual[1]},
+                "hue": {
+                    "light": profile["lights"][role],
+                    "channels": [{"channel_id": cid, "rid": members[cid]["rid"],
+                                  "index": members[cid]["index"]}
+                                 for cid in sorted(channels[light_id])],
+                },
+            })
+        result["hue"] = {"area_id": profile["entertainment"]["area_id"]}
+    return LightRegistry.from_dict(result)
+
+
+def ensure(state_dir, targets_file, native_profile_file, *, write):
+    """Return the registry of a state directory, migrating once when it is missing.
+
+    An existing registry is the only source: it is loaded strictly and the old
+    files are never read. With ``write=False`` a missing registry is migrated in
+    memory only, so a configuration check leaves the state untouched.
+    """
+    path = Path(state_dir) / REGISTRY_FILE
+    if path.exists() or path.is_symlink():
+        return LightRegistry.load(path)
+    registry = migrate(targets_file, native_profile_file)
+    if write:
+        registry.save(path)
+    return registry

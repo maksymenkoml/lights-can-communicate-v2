@@ -13,6 +13,8 @@ from lights_can_communicate_v2_core.light_registry import (
     REGISTRY_FILE,
     LightRegistry,
     RegistryError,
+    ensure,
+    migrate,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -221,6 +223,108 @@ class RegistryModelTests(unittest.TestCase):
                 LightRegistry.load(path)
             with self.assertRaises(RegistryError):
                 LightRegistry.load(Path(directory) / "missing.json")
+
+
+class MigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="tmp_light_registry_")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.targets = self.root / "targets.json"
+        self.profile = self.root / "native.json"
+        self.targets.write_text(json.dumps({"targets": GOVEE_TARGETS}))
+        self.profile.write_text(json.dumps(example_profile()))
+
+    def test_migrate_example_round_trips_behavior(self):
+        registry = migrate(self.targets, self.profile)
+        self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
+        self.assertEqual(registry.native_profile().to_dict(), example_profile())
+        self.assertEqual(registry.ids, (
+            "govee-left", "govee-right", "hue-monitor", "play-left", "play-center",
+            "play-right"))
+        virtual = {item["id"]: (item["virtual"]["id_v1"], item["virtual"]["seed"])
+                   for item in registry.to_dict()["lights"]}
+        self.assertEqual(virtual, {
+            "govee-left": ("1", "Left"), "govee-right": ("2", "Right"),
+            "hue-monitor": ("3", "HueMonitorStrip"), "play-left": ("4", "HuePlayLeft"),
+            "play-center": ("5", "HuePlayCenter"), "play-right": ("6", "HuePlayRight")})
+
+    def test_migrate_keeps_source_order(self):
+        self.targets.write_text(json.dumps({"targets": GOVEE_TARGETS[::-1]}))
+        self.assertEqual(migrate(self.targets, None).govee_targets(), GOVEE_TARGETS[::-1])
+
+    def test_migrate_does_not_change_old_files(self):
+        before = (self.targets.read_bytes(), self.profile.read_bytes())
+        migrate(self.targets, self.profile)
+        self.assertEqual((self.targets.read_bytes(), self.profile.read_bytes()), before)
+
+    def test_migrate_govee_only(self):
+        registry = migrate(self.targets, None)
+        self.assertIsNone(registry.native_profile())
+        self.assertEqual(registry.ids, ("govee-left", "govee-right"))
+        self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
+
+    def test_migrate_without_targets_fails(self):
+        for source in (None, self.root / "missing.json"):
+            with self.assertRaises(RegistryError) as caught:
+                migrate(source, self.profile)
+            self.assertIn("targets file", str(caught.exception))
+            self.assertNotIn(str(self.root), str(caught.exception))
+
+    def test_migrate_rejects_unknown_side(self):
+        for targets in (
+            [{**GOVEE_TARGETS[0], "side": "middle"}, GOVEE_TARGETS[1]],
+            [GOVEE_TARGETS[0], GOVEE_TARGETS[0]],
+            [GOVEE_TARGETS[0]],
+            [GOVEE_TARGETS[0], "SECRET"],
+        ):
+            with self.subTest(targets=len(targets)):
+                self.targets.write_text(json.dumps({"targets": targets}))
+                with self.assertRaises(RegistryError) as caught:
+                    migrate(self.targets, None)
+                self.assertNotIn("SECRET", str(caught.exception))
+
+    def test_migrate_rejects_bad_inputs(self):
+        self.profile.write_text("{}")
+        with self.assertRaises(RegistryError):
+            migrate(self.targets, self.profile)
+        self.profile.write_text(json.dumps(example_profile()))
+        with self.assertRaises(RegistryError):
+            migrate(self.targets, self.root / "missing.json")
+        self.targets.write_text("[]")
+        with self.assertRaises(RegistryError):
+            migrate(self.targets, None)
+
+    def test_ensure_writes_once(self):
+        first = ensure(self.root, self.targets, self.profile, write=True)
+        path = self.root / REGISTRY_FILE
+        self.assertEqual(LightRegistry.load(path), first)
+        self.targets.write_text("corrupt")
+        self.profile.unlink()
+        self.assertEqual(ensure(self.root, self.targets, self.profile, write=True), first)
+        self.assertEqual(ensure(self.root, None, None, write=False), first)
+
+    def test_ensure_check_mode_does_not_write(self):
+        registry = ensure(self.root, self.targets, self.profile, write=False)
+        self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
+        self.assertFalse((self.root / REGISTRY_FILE).exists())
+        self.assertEqual(sorted(item.name for item in self.root.iterdir()),
+                         ["native.json", "targets.json"])
+
+    def test_ensure_corrupt_registry_fails_closed(self):
+        for content in ("{not json", json.dumps({"version": 1, "lights": []}), ""):
+            with self.subTest(content=content[:12]):
+                (self.root / REGISTRY_FILE).write_text(content)
+                with self.assertRaises(RegistryError):
+                    ensure(self.root, self.targets, self.profile, write=True)
+                self.assertEqual((self.root / REGISTRY_FILE).read_text(), content)
+
+    def test_failed_migration_leaves_no_partial_registry(self):
+        self.targets.unlink()
+        with self.assertRaises(RegistryError):
+            ensure(self.root, self.targets, self.profile, write=True)
+        self.assertFalse((self.root / REGISTRY_FILE).exists())
+        self.assertEqual([item.name for item in self.root.iterdir()], ["native.json"])
 
 
 if __name__ == "__main__":
