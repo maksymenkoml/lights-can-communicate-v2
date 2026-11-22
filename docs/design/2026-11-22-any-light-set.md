@@ -1,7 +1,8 @@
 # Any selected set of Hue and Govee lights (#7)
 
-Status: design approved for planning. Stage 1 implemented. Implementation
-follows in stages; each stage is a separate PR with live NAS verification.
+Status: design approved for planning. Stage 1 and stage 2 (screen object and
+generic projection) implemented. Implementation follows in stages; each stage is
+a separate PR with live NAS verification.
 
 ## Intent
 

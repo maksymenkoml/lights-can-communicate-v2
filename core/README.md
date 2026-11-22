@@ -525,7 +525,7 @@ independent. Source capture channels, identities, power and native membership
 are unchanged. The layout canonicalizer also keeps physical bodies above the
 floor; the table has dimensions only and cannot move off the floor.
 
-## Two configurations (layout version 5, current version 6)
+## Two configurations (layout version 5, current version 7)
 
 Light Studio edits two independent configurations. With Sync uses `scale`,
 `syncZone` and `syncFalloff` (default on). Without Sync (scenes from the Hue app)
@@ -540,6 +540,35 @@ below 0.1 %. `LayoutStore.present()` is scene membership (every lamp that is not
 removed); `enabled()` stays the Sync composition (own-light and off lamps
 excluded). The virtual bridge forwards scenes to every present lamp. Version 3 and 4
 files load as version 5.
+
+## Screen object and per-light projection (layout version 7)
+
+The layout holds its own `screen` object: `positionCm` (`x`, `height`, on the five
+centimeter grid) and `inches` (19-55, 16:9). It replaces `monitorInches`, and the
+position of the `hue-monitor` row no longer doubles as the screen position. Version
+7 requires `screen` and rejects `monitorInches`. Files of version 3-6 load as
+version 7: the screen takes the size from `monitorInches` and the position from the
+`hue-monitor` row after its minimum height was applied. The screen is
+authoritative: the validated `hue-monitor` row always follows its position, and its
+height is raised to the same minimum as that row. Light Studio still drags the
+monitor lamp; its position is written as the screen. `STATE_SCHEMAS["desk_layout"]`
+is 7, so a rollback restores the pre-upgrade layout.
+
+`bridge/light_geometry.py` turns one layout row and the screen into zones. A zone is
+a point in layout centimeters: a segmented floor lamp (a model in `GEOMETRIES`,
+today H6076) has seven vertical segments, the `hue-monitor` strip has the nine
+anchors along the screen edge, and every other light has one zone at its position.
+A row takes its geometry from its role, else from its `model`.
+
+`sync_projection.sync_profile` computes the zone samples on the capture perimeter
+and the visibility gains for each light through that one geometry. The profile key
+`lights` maps the ID of each light in the Sync composition to its `samples` (none
+where a zone is hidden), `gains` and `fade_cm`; `project_light_frame` turns a frame
+into the attenuated colors of its zones. The earlier keys (`govee`, `plays`,
+`play_gains`, `strip_gains`, `enabled_roles`, `native_roles`) are derived from the
+same entries, for every role row, so the outputs of the six current lights are
+byte-identical. `scene_fade` uses the same geometry. The six role rows stay
+mandatory until Light Studio can enroll and remove lights.
 
 ## Lamp controls
 
