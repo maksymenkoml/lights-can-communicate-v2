@@ -95,7 +95,8 @@ power for the `homebridge-lights-can-communicate-v2` plugin through `/homekit`;
 
 `gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
 digest), `adapter_url` (default `http://host.docker.internal:<adapter port>`)
-and `timezone`. With a `gateway` section the adapter `bind` must not be a
+and `timezone`. `entertainment` requires `hue_strip` and `hue_play`: Desk
+Entertainment uses all six virtual lights. With a `gateway` section the adapter `bind` must not be a
 loopback address: the container reaches the host through its network. Rendering and readiness never load, start or stop services;
 loading the agents and starting the compose project is a separate, owner
 authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
@@ -293,7 +294,16 @@ python3 -I -B BASE/current/lights-can-communicate-v2.pyz status --base BASE
 1. Verifies every manifest hash.
 2. Checks the configuration version and the Python version.
 3. Runs the new archive's `adapter --check`.
-4. Renders supervisor files whose paths go through `BASE/current`.
+4. Renders supervisor files whose paths go through `BASE/current`, and records
+   the digest of `core.json` they were rendered from (`services/config.sha256`).
+
+When `core.json` changes, run `stage` again with the same archive: it renders
+the supervisor files of a staged release again. It refuses for the active
+release, because its running services were started from those files. `activate` and `rollback`
+also render a release again when its files come from another configuration;
+they refuse when the release is of another version than the running archive.
+`activate` of the active version then needs stopped components and prints the
+start commands, like any other transition.
 
 `activate` and `rollback` refuse while the adapter, Setup Studio or gateway
 still answers locally. They snapshot durable state (without logs, request

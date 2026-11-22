@@ -22,6 +22,8 @@ from . import __version__, services
 from .config import ConfigError, load_config
 
 JOURNAL = "install.json"
+# Digest of the configuration that ``services/`` was rendered from.
+FINGERPRINT = "config.sha256"
 KEEP_BACKUPS = 5
 # Live or regenerated data that a snapshot does not need: logs, request logs,
 # stream journals and the bridge's own rotating backups.
@@ -130,6 +132,62 @@ class Installation:
         except (OSError, ValueError, AttributeError) as error:
             raise InstallError("Service configuration is unavailable") from error
 
+    def _fingerprint(self):
+        """Digest of the configuration content, independent of its formatting."""
+        try:
+            value = json.loads(self.config_path.read_text())
+        except (OSError, ValueError) as error:
+            raise InstallError("Service configuration is unavailable") from error
+        canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+    @staticmethod
+    def _rendered_for(release):
+        try:
+            return (Path(release) / "services" / FINGERPRINT).read_text().strip()
+        except FileNotFoundError:
+            return None
+
+    def _stale(self, release):
+        """Whether ``release/services`` was rendered from another configuration.
+
+        Releases rendered before fingerprints existed are not known to be stale.
+        """
+        recorded = self._rendered_for(release)
+        return recorded is not None and recorded != self._fingerprint()
+
+    def _render(self, release, config, output):
+        services.render(config, self.config_path, release, output, self.python,
+                        link=self.current)
+        (Path(output) / FINGERPRINT).write_text(self._fingerprint() + "\n")
+
+    def _rerender(self, release, config):
+        """Replace ``release/services`` with files rendered from the current configuration.
+
+        Only this archive's own version may be rendered here: another version's
+        supervisor files come from that version's code, through its ``stage``.
+        """
+        release = Path(release)
+        partial = self.releases / (release.name + ".services.partial")
+        old = self.releases / (release.name + ".services-old.partial")
+        for path in (partial, old):
+            shutil.rmtree(path, ignore_errors=True)
+        self._render(release, config, partial)
+        target = release / "services"
+        if target.exists():
+            os.replace(target, old)
+        os.replace(partial, target)
+        self._sync_dir(release)
+        shutil.rmtree(old, ignore_errors=True)
+
+    def _refreshable(self, version):
+        """Refuse a stale release that this archive cannot render."""
+        stale = self._stale(self.releases / version)
+        if stale and version != __version__:
+            raise InstallError(
+                "Configuration changed after staging; stage this release again with its archive")
+        return stale
+
     def _stopped(self, config):
         answering = self.probe(config)
         if answering:
@@ -206,7 +264,19 @@ class Installation:
         if target.exists():
             if read_manifest(target) != manifest:
                 raise InstallError("A different build of this version is already installed")
-            return {"version": version, "staged": False}
+            verify(target)
+            if self._rendered_for(target) == self._fingerprint():
+                return {"version": version, "staged": False, "rendered": False}
+            if self._active() == version:
+                # Running services were started from these files; replacing them
+                # here would let a later `compose down` miss the old containers.
+                raise InstallError(
+                    "Configuration changed for the active release; stop the components "
+                    "and activate it again")
+            # Staging again applies a configuration changed since the first stage.
+            self._check(target)
+            self._rerender(target, self.config())
+            return {"version": version, "staged": False, "rendered": True}
         self.releases.mkdir(mode=0o755, parents=True, exist_ok=True)
         partial = self.releases / (version + ".partial")
         shutil.rmtree(partial, ignore_errors=True)
@@ -215,8 +285,7 @@ class Installation:
                             ignore=shutil.ignore_patterns("services"))
             verify(partial)
             self._check(partial)
-            services.render(self.config(), self.config_path, partial, partial / "services",
-                            self.python, link=self.current)
+            self._render(partial, self.config(), partial / "services")
             os.replace(partial, target)
         except BaseException:
             shutil.rmtree(partial, ignore_errors=True)
@@ -238,12 +307,24 @@ class Installation:
         if not (self.releases / version).is_dir():
             raise InstallError("Release is not staged")
         verify(self.releases / version)
-        if data["current"] == version and self._active() == version:
-            return {"active": version, "changed": False}
+        stale = self._refreshable(version)
         config = self.config()
+        if data["current"] == version and self._active() == version:
+            if not stale:
+                return {"active": version, "changed": False, "rendered": False}
+            # Applies a configuration change to the active release. Like any
+            # transition it needs stopped components; the start commands
+            # recreate the services from the new files.
+            self._stopped(config)
+            self._check(self.releases / version)
+            self._rerender(self.releases / version, config)
+            return {"active": version, "changed": False, "rendered": True,
+                    "start": self.start_commands(config)}
         self._stopped(config)
         # The configuration may have changed since staging.
         self._check(self.releases / version)
+        if stale:
+            self._rerender(self.releases / version, config)
         data["transaction"] = {"op": "activate", "from": data["current"], "to": version,
                                "backup": self._stamp("activate"), "restore": None,
                                "step": "snapshot"}
@@ -256,8 +337,12 @@ class Installation:
         if previous is None or not (self.releases / previous).is_dir():
             raise InstallError("No previous release to roll back to")
         verify(self.releases / previous)
+        stale = self._refreshable(previous)
         config = self.config()
         self._stopped(config)
+        if stale:
+            self._check(self.releases / previous)
+            self._rerender(self.releases / previous, config)
         newer = read_manifest(self.releases / data["current"])["compatibility"].get("state")
         older = read_manifest(self.releases / previous)["compatibility"].get("state")
         data["transaction"] = {"op": "rollback", "from": data["current"], "to": previous,

@@ -63,7 +63,8 @@ class ManagedServiceTests(unittest.TestCase):
                         "port": free_port()},
             "setup": {"port": free_port()},
             "gateway": {"lan_ip": "192.168.99.10", "mac": "02:00:00:00:00:0A",
-                        "live_output": True, "hue_play": True, "entertainment": True},
+                        "live_output": True, "hue_strip": True, "hue_play": True,
+                        "entertainment": True},
         }
         self.config_path = self.folder / "core.json"
         self.save()
@@ -86,7 +87,8 @@ class ManagedServiceTests(unittest.TestCase):
         self.assertEqual(config.gateway.container_name, "lights-can-communicate-v2-gateway")
         self.assertEqual(config.gateway.adapter_url,
                          f"http://host.docker.internal:{self.value['adapter']['port']}")
-        self.assertEqual(config.gateway.environment()["PROBE_HUE_STRIP"], "false")
+        self.assertEqual(config.gateway.environment()["PROBE_HUE_STRIP"], "true")
+        self.assertEqual(config.gateway.environment()["PROBE_GOVEE_GRADIENT"], "false")
         self.assertEqual(config.gateway.environment()["PROBE_ENTERTAINMENT"], "true")
         del self.value["gateway"], self.value["setup"]
         self.save()
@@ -131,6 +133,21 @@ class ManagedServiceTests(unittest.TestCase):
         self.save()
         with self.assertRaises(ConfigError):
             load_config(self.config_path)
+
+    def test_entertainment_requires_the_strip_and_play_lights(self):
+        # The gateway refuses to start Desk Entertainment without all six
+        # virtual lights; Docker would restart it in a loop.
+        for missing in ("hue_strip", "hue_play"):
+            with self.subTest(missing=missing):
+                saved = dict(self.value["gateway"])
+                self.value["gateway"][missing] = False
+                self.save()
+                with self.assertRaisesRegex(ConfigError, "entertainment requires"):
+                    load_config(self.config_path)
+                self.value["gateway"] = saved
+        self.value["gateway"].update(entertainment=False, hue_strip=False, hue_play=False)
+        self.save()
+        self.assertFalse(load_config(self.config_path).gateway.entertainment)
 
     # Release --------------------------------------------------------------
 

@@ -57,7 +57,8 @@ class ContainerProfileTests(unittest.TestCase):
                         "power_owner_token_file": "../state/owner-token", "port": 19880},
             "setup": {"port": 19881},
             "gateway": {"lan_ip": "192.168.99.10", "mac": "02:00:00:00:00:0A",
-                        "live_output": True, "entertainment": True},
+                        "live_output": True, "hue_strip": True, "hue_play": True,
+                        "entertainment": True},
             "container": {
                 "lan": {"parent": "ovs_eth0", "subnet": "192.168.99.0/24",
                         "router": "192.168.99.1", "adapter_ip": "192.168.99.11"},
