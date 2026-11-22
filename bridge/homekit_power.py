@@ -41,13 +41,17 @@ def _empty():
 
 class HomeKitPower:
     def __init__(self, targets, state_file, sender, observe, idle=lambda side: True,
-                 clock=time.monotonic, sleep=time.sleep, names=dict, wall_clock=time.time):
+                 clock=time.monotonic, sleep=time.sleep, names=dict, wall_clock=time.time,
+                 release=lambda side: None):
         self.roles = {lan.device_key(device): device["side"] for device in targets}
         if len(self.roles) != 2 or set(self.roles.values()) != set(ROLES):
             raise ValueError("HomeKit power requires the two selected roles")
         self.devices = {device["side"]: device for device in targets}
         self.state_file = state_file
         self.sender, self.observe, self.idle = sender, observe, idle
+        # Ends a Hue scene on a lamp so that an explicit Home brightness or
+        # color takes over; it leaves Sync output alone.
+        self.release = release
         self.clock, self.sleep = clock, sleep
         # Owner names of the lamps from Light Studio: {role: name}, possibly empty.
         self.names = names
@@ -220,6 +224,12 @@ class HomeKitPower:
             confirmed = True
             if "on" in payload:
                 confirmed = self._power(side, payload["on"])
+            if confirmed and set(payload) & {"brightness", "hue", "saturation",
+                                             "color_temperature"}:
+                # The last explicit setting wins, as in the Hue App: a Home
+                # brightness or color ends the Hue scene on this lamp. Power
+                # alone keeps the scene, so Home On resumes it.
+                self.release(side)
             if confirmed and self.allowed(side) and self.idle(side):
                 failed = self._apply_static(side, payload)
                 if failed:
@@ -237,6 +247,9 @@ class HomeKitPower:
 
     def _apply_static(self, side, payload):
         """Home color applies only while no scene or Sync owns the lamp.
+
+        An explicit Home brightness or color has already ended a Hue scene
+        (``release``); Sync output still keeps the lamp.
 
         Returns the names ("brightness", "color") of commands that were not
         delivered to a verified route.
