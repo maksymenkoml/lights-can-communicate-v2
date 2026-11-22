@@ -9,7 +9,9 @@ import hashlib
 import json
 import math
 
-from desk_layout import screen_size
+import light_geometry
+from desk_layout import composed, screen_size
+from light_geometry import geometry_for, segment_spans
 from sync_zone import vertical_bounds, zone_points
 
 _ROLES = {
@@ -87,77 +89,98 @@ def _visibility_function(zone, fade_on):
     return visibility
 
 
-def _govee_segments(zone, fade_on, x, base):
-    """Return per-segment (gain, lit centre height) from bottom to top, plus the fade width."""
-    bounds = vertical_bounds(zone, x) if fade_on else None
-    fade = bounds[1]-bounds[0] if bounds is not None else 0
-    rows = []
-    for segment in range(7):
-        low = base + 6 + segment * 128 / 7
-        high = base + 6 + (segment + 1) * 128 / 7
-        rows.append(_segment_visibility(low, high, bounds[1], fade)
-                    if bounds is not None else (1, (low+high)/2))
-    return rows, fade
-
-
 def _devices(validated_layout):
     return {row["id"]: row for row in validated_layout["devices"] if row["id"] in _ROLES}
 
 
-def _strip_gains(visibility, monitor, width, height):
-    anchors = [
-        (-.5,-.5),(-.5,0),(-.5,.5),(-.25,.5),(0,.5),(.25,.5),(.5,.5),(.5,0),(.5,-.5),
-    ]
-    return [visibility(monitor['x']+u*width, monitor['height']+v*height) for u,v in anchors]
+class _Projector:
+    """Per-light zone samples and visibility gains for one zone and fade switch."""
+
+    def __init__(self, validated_layout, zone_key="syncZone", fade_key="syncFalloff",
+                 fade_default=True):
+        self.screen = validated_layout["screen"]
+        center = self.screen["positionCm"]
+        width, height = screen_size(validated_layout)
+        self.zone = zone_points(validated_layout, zone_key)
+        self.fade_on = validated_layout.get(fade_key, fade_default)
+        self.visibility = _visibility_function(self.zone, self.fade_on)
+
+        def screen_point(x, physical_height):
+            u = max(0, min(1, (x - center["x"]) / width + 0.5))
+            v = max(0, min(1, (physical_height - center["height"]) / height + 0.5))
+            # Clamping handles outside points, including corners. For interior points,
+            # choose the nearest normalized screen edge, with stable tie handling.
+            edge = min(range(4), key=(u, 1 - u, v, 1 - v).__getitem__)
+            return ((0, v), (1, v), (u, 0), (u, 1))[edge]
+
+        self.screen_point = screen_point
+
+    def light(self, row):
+        """Return ``samples`` (None where hidden), ``gains`` and ``fade_cm`` of a row."""
+        kind = geometry_for(row)["kind"]
+        x = row["positionCm"]["x"]
+        bounds = vertical_bounds(self.zone, x) if self.fade_on else None
+        fade = bounds[1] - bounds[0] if bounds is not None else 0
+        if kind == "segmented-floor":
+            # The lit part of each segment, so a faded segment samples where it is lit.
+            zones = [_segment_visibility(low, high, bounds[1], fade) if bounds is not None
+                     else (1, (low + high) / 2) for low, high in segment_spans(row)]
+            gains = [gain for gain, _ in zones]
+            samples = [self.screen_point(x, center) if center is not None else None
+                       for _, center in zones]
+        else:
+            points = light_geometry.zone_points(row, self.screen)
+            gains = [self.visibility(px, ph) for px, ph in points]
+            samples = [self.screen_point(px, ph) for px, ph in points]
+            if kind == "screen":
+                # Its anchors lie on the capture channels; drop the rounding noise of
+                # the round trip through centimeters so they hit those channels exactly.
+                samples = [tuple(round(value, 9) for value in point) for point in samples]
+        return {"samples": samples, "gains": gains, "fade_cm": fade}
+
+
+def light_entry(row, validated_layout):
+    """Return the Sync zone samples and gains of one layout row, whatever its id."""
+    return _Projector(validated_layout).light(row)
+
+
+def _light_entries(validated_layout, **options):
+    devices = _devices(validated_layout)
+    projector = _Projector(validated_layout, **options)
+    return {key: projector.light(devices[key]) for key in _ROLES}
 
 
 def sync_profile(validated_layout):
     """Build a deterministic, public-role-only Sync profile from a validated layout."""
     devices = _devices(validated_layout)
-    monitor = validated_layout["screen"]["positionCm"]
-    width, height = screen_size(validated_layout)
-    zone = zone_points(validated_layout)
-    fade_on = validated_layout.get("syncFalloff", True)
-    visibility = _visibility_function(zone, fade_on)
-
-    def screen_point(x, physical_height):
-        u = max(0, min(1, (x - monitor["x"]) / width + 0.5))
-        v = max(0, min(1, (physical_height - monitor["height"]) / height + 0.5))
-        # Clamping handles outside points, including corners. For interior points,
-        # choose the nearest normalized screen edge, with stable tie handling.
-        edge = min(range(4), key=(u, 1 - u, v, 1 - v).__getitem__)
-        return ((0, v), (1, v), (u, 0), (u, 1))[edge]
-
+    entries = _light_entries(validated_layout)
     # Removed rows and rows with their own light or off during Sync are outside it.
-    enabled = [role for key, role in _ROLES.items()
-               if devices[key].get("enabled", True)
-               and devices[key].get("syncRole", "sync") == "sync"]
+    members = [key for key in _ROLES if composed(devices[key])]
+    enabled = [_ROLES[key] for key in members]
     profile = {
         "basis": "screen-perimeter-v1",
         "enabled_roles": enabled,
         "native_roles": [role for role in enabled if role not in ("left", "right")],
+        "lights": {key: copy.deepcopy(entries[key]) for key in members},
+        # The legacy keys below are derived from the per-light entries for every role row.
         "govee": {},
         "plays": {},
         "play_gains": {},
-        'zone': zone,
+        "zone": zone_points(validated_layout),
     }
     for key, side in (("govee-left", "left"), ("govee-right", "right")):
-        position = devices[key]["positionCm"]
-        rows, fade = _govee_segments(zone, fade_on, position['x'], position["height"] - 60)
-        samples = [screen_point(position['x'], center) if center is not None else None
-                   for _, center in rows]
+        entry = entries[key]
         profile["govee"][side] = {
-            "samples": samples,
-            "visible": [sample is not None for sample in samples],
-            'gains': [gain for gain, _ in rows],
-            'fade_cm': fade,
+            "samples": entry["samples"],
+            "visible": [sample is not None for sample in entry["samples"]],
+            "gains": entry["gains"],
+            "fade_cm": entry["fade_cm"],
         }
     for key, role in _ROLES.items():
         if role in _PLAY_CHANNELS:
-            position = devices[key]["positionCm"]
-            profile["plays"][role] = screen_point(position['x'], position['height'])
-            profile['play_gains'][role] = visibility(position['x'], position['height'])
-    profile['strip_gains'] = _strip_gains(visibility, monitor, width, height)
+            profile["plays"][role] = entries[key]["samples"][0]
+            profile["play_gains"][role] = entries[key]["gains"][0]
+    profile["strip_gains"] = entries["hue-monitor"]["gains"]
     encoded = json.dumps(profile, sort_keys=True, separators=(",", ":"), allow_nan=False)
     profile["signature"] = hashlib.sha256(encoded.encode()).hexdigest()
     return profile
@@ -170,23 +193,14 @@ def scene_fade(validated_layout):
     mean of the nine monitor-strip anchor gains and ``hue_*`` one gain per Play. Every
     gain is 1 while the scene fade is off (the default).
     """
-    devices = _devices(validated_layout)
-    zone = zone_points(validated_layout, "sceneZone")
-    fade_on = validated_layout.get("sceneFalloff", False)
-    visibility = _visibility_function(zone, fade_on)
-    monitor = validated_layout["screen"]["positionCm"]
-    width, height = screen_size(validated_layout)
-    result = {}
-    for key, side in (("govee-left", "left"), ("govee-right", "right")):
-        position = devices[key]["positionCm"]
-        rows, _ = _govee_segments(zone, fade_on, position["x"], position["height"] - 60)
-        result[side] = [gain for gain, _ in rows]
-    strip = _strip_gains(visibility, monitor, width, height)
+    entries = _light_entries(validated_layout, zone_key="sceneZone", fade_key="sceneFalloff",
+                             fade_default=False)
+    result = {"left": entries["govee-left"]["gains"], "right": entries["govee-right"]["gains"]}
+    strip = entries["hue-monitor"]["gains"]
     result["strip"] = sum(strip) / len(strip)
     for key, role in _ROLES.items():
         if role in _PLAY_CHANNELS:
-            position = devices[key]["positionCm"]
-            result[role] = visibility(position["x"], position["height"])
+            result[role] = entries[key]["gains"][0]
     return result
 
 
@@ -217,6 +231,23 @@ def _sample(frame, point):
     raise ValueError("Expected a screen-perimeter sample")
 
 
+def _project_zones(frame, samples, gains):
+    """Return the attenuated sample of every zone, black where the zone is hidden."""
+    if len(samples) != len(gains):
+        raise ValueError("Expected one visibility gain per projected zone")
+    return [_attenuate(_sample(frame, point), gain) if point is not None else (0, 0, 0)
+            for point, gain in zip(samples, gains)]
+
+
+def project_light_frame(frame, light_id, profile):
+    """Return the projected RGB16 colors of every zone of a composed light."""
+    _validate_frame(frame)
+    entry = profile.get("lights", {}).get(light_id)
+    if entry is None:
+        raise ValueError("Expected a light that takes part in the Sync composition")
+    return _project_zones(frame, entry["samples"], entry["gains"])
+
+
 def project_native_frame(frame, profile):
     """Project enabled physical Play colors from the original capture palette."""
     _validate_frame(frame)
@@ -224,12 +255,14 @@ def project_native_frame(frame, profile):
     if 'strip' in profile['native_roles'] and 'strip_gains' in profile:
         if len(profile['strip_gains']) != 9:
             raise ValueError('Expected nine monitor-strip visibility gains')
+        # The strip's nine zones sit on capture channels 2-10, so each keeps its own
+        # channel and only the visibility gain applies.
         for index,gain in enumerate(profile['strip_gains'],2):
             result[index] = _attenuate(frame[index], gain)
     for role, channel in _PLAY_CHANNELS.items():
         if role in profile["native_roles"]:
-            result[channel] = _attenuate(_sample(frame, profile["plays"][role]),
-                                         profile.get('play_gains', {}).get(role, 1))
+            result[channel] = _project_zones(
+                frame, [profile["plays"][role]], [profile.get('play_gains', {}).get(role, 1)])[0]
     return result
 
 
@@ -244,5 +277,4 @@ def project_govee_frame(frame, side, profile):
     gains = row.get('gains', [1] * 7)
     if len(row['samples']) != 7 or len(gains) != 7:
         raise ValueError('Expected seven projected segments')
-    return [_attenuate(_sample(frame, point), gain) if point is not None else (0, 0, 0)
-            for point, gain in zip(row['samples'], gains)]
+    return _project_zones(frame, row['samples'], gains)

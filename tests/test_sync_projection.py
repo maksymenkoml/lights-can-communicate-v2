@@ -9,7 +9,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import sync_projection  # noqa: E402
 from sync_projection import (  # noqa: E402
+    _sample,
+    light_entry,
     project_govee_frame,
+    project_light_frame,
     project_native_frame,
 )
 
@@ -63,6 +66,100 @@ def frame(size=18):
 
 
 class SyncProjectionTests(unittest.TestCase):
+    def test_lights_map_covers_composed_roles_only(self):
+        data = layout()
+        profile = sync_profile(data)
+        self.assertEqual(list(profile["lights"]), [
+            "govee-left", "govee-right", "hue-monitor", "play-left", "play-center", "play-right"])
+        self.assertEqual({key: (len(entry["samples"]), len(entry["gains"]))
+                          for key, entry in profile["lights"].items()},
+                         {"govee-left": (7, 7), "govee-right": (7, 7), "hue-monitor": (9, 9),
+                          "play-left": (1, 1), "play-center": (1, 1), "play-right": (1, 1)})
+        data["devices"][1]["enabled"] = False
+        data["devices"][4]["syncRole"] = "own"
+        data["devices"][5]["syncRole"] = "off"
+        profile = sync_profile(data)
+        self.assertEqual(list(profile["lights"]),
+                         ["govee-left", "hue-monitor", "play-left"])
+        self.assertEqual(profile["enabled_roles"], ["left", "strip", "hue_left"])
+        # The legacy keys stay derived from the same geometry for every role row.
+        self.assertEqual(profile["govee"]["left"]["samples"],
+                         profile["lights"]["govee-left"]["samples"])
+        self.assertEqual(profile["govee"]["left"]["gains"],
+                         profile["lights"]["govee-left"]["gains"])
+        self.assertEqual(profile["strip_gains"], profile["lights"]["hue-monitor"]["gains"])
+        self.assertEqual([profile["plays"]["hue_left"]], profile["lights"]["play-left"]["samples"])
+        self.assertEqual([profile["play_gains"]["hue_left"]],
+                         profile["lights"]["play-left"]["gains"])
+        self.assertIn("right", profile["govee"])
+        self.assertIn("hue_center", profile["plays"])
+
+    def test_screen_anchors_hit_capture_channels(self):
+        raw = frame()
+        for inches, x, height in ((32, 100, 110), (43, 60, 135), (55, 105, 40), (19.5, -35, 120),
+                                  (math.hypot(80, 45) / 2.54, 100, 110)):
+            data = layout()
+            data["monitorInches"] = inches
+            data["devices"][2]["positionCm"] = {"x": x, "height": height}
+            profile = sync_profile(data)
+            entry = profile["lights"]["hue-monitor"]
+            with self.subTest(inches=inches, x=x, height=height):
+                self.assertEqual([_sample(raw, point) for point in entry["samples"]],
+                                 [raw[channel] for channel in range(2, 11)])
+                self.assertEqual(entry["gains"], profile["strip_gains"])
+
+    def test_project_light_frame_hidden_zones_black(self):
+        data = layout()
+        profile = sync_profile(data)
+        raw = frame()
+        left = project_light_frame(raw, "govee-left", profile)
+        self.assertEqual(left, project_govee_frame(raw, "left", profile))
+        self.assertEqual(left[:3], [(0, 0, 0)] * 3)
+        self.assertNotEqual(left[3], (0, 0, 0))
+        # A fully hidden light is black without an error.
+        data["desk"]["height"] = 300
+        data["syncZone"] = {"version": 1, "points": [
+            {"u": -2, "h": 0}, {"u": 2, "h": 0}, {"u": 2, "h": -5}, {"u": 1, "h": -5},
+            {"u": -1, "h": -5}, {"u": -2, "h": -5.5}]}
+        hidden = sync_profile(data)
+        self.assertEqual(hidden["lights"]["govee-left"]["samples"], [None] * 7)
+        self.assertEqual(project_light_frame(raw, "govee-left", hidden), [(0, 0, 0)] * 7)
+        self.assertEqual(project_govee_frame(raw, "left", hidden), [(0, 0, 0)] * 7)
+        with self.assertRaises(ValueError):
+            project_light_frame(raw, "govee-unknown", profile)
+        with self.assertRaises(ValueError):
+            project_light_frame({}, "govee-left", profile)
+
+    def test_native_projection_matches_light_projection_of_the_same_light(self):
+        profile = sync_profile(layout())
+        raw = frame()
+        native = project_native_frame(raw, profile)
+        for key, channel in (("play-left", 11), ("play-center", 12), ("play-right", 13)):
+            self.assertEqual([native[channel]], project_light_frame(raw, key, profile))
+        self.assertEqual([native[channel] for channel in range(2, 11)],
+                         project_light_frame(raw, "hue-monitor", profile))
+
+    def test_generic_point_light(self):
+        data = layout()
+        extra = {"id": "device-" + "c" * 32, "model": "X1",
+                 "positionCm": {"x": 70, "height": 120}, "scale": 100}
+        entry = light_entry(extra, current(data))
+        self.assertEqual(len(entry["samples"]), 1)
+        self.assertEqual(len(entry["gains"]), 1)
+        self.assertEqual(entry["gains"], [1])
+        raw = frame()
+        profile = {"lights": {extra["id"]: entry}}
+        self.assertEqual(project_light_frame(raw, extra["id"], profile),
+                         [_sample(raw, entry["samples"][0])])
+        # The same placement as a Play light gives the same sample and gain.
+        play = {"id": "play-left", "positionCm": extra["positionCm"]}
+        self.assertEqual(light_entry(play, current(data)), entry)
+        # A deep light is dark and a Govee model with segments gets its seven zones.
+        deep = dict(extra, positionCm={"x": 70, "height": 20})
+        self.assertEqual(light_entry(deep, current(data))["gains"], [0])
+        floor = dict(extra, model="H6076", positionCm={"x": 50, "height": 60})
+        self.assertEqual(len(light_entry(floor, current(data))["gains"]), 7)
+
     def test_default_floor_lamps_fade_below_desk_and_keep_upper_samples(self):
         profile = sync_profile(layout())
         for side, u in (("left", 0), ("right", 1)):

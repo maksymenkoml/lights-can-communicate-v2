@@ -40,6 +40,8 @@ CONTRACTS = [
     "test_native_location_cache",
     "test_sync_visibility_fade",
     "test_sync_zone",
+    "test_light_geometry",
+    "test_projection_golden",
     "test_floor_zone_contract",
     "test_lamp_controls",
 ]
@@ -67,6 +69,7 @@ RUNTIME = [
     "sync_health",
     "sync_projection",
     "sync_zone",
+    "light_geometry",
     "native_location_cache",
     "identify",
     "sync_off",
