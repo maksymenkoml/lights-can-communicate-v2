@@ -285,7 +285,7 @@ class ServiceConfig:
 def load_config(path):
     path = Path(path).resolve()
     data = read_json(path, "service configuration")
-    if "container" not in data or "gateway" not in data:
+    if isinstance(data, dict) and ("container" not in data or "gateway" not in data):
         raise ConfigError("Service configuration requires gateway and container sections: "
                           "the NAS container profile is the only supported profile")
     _fields(data, {"version", "state_dir", "adapter", "gateway", "container"}, {"setup"},

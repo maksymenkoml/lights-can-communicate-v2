@@ -161,14 +161,12 @@ def render(config, config_path, release, output, link=None):
     release = _release(release)
     if link is not None:
         release = Path(link)
-    files = {COMPOSE: (json.dumps(container_compose(config, config_path, release),
-                                  indent=2) + "\n").encode()}
+    data = (json.dumps(container_compose(config, config_path, release), indent=2) + "\n").encode()
     output = Path(output)
     output.mkdir(mode=0o700)
-    for name, data in files.items():
-        with (output / name).open("xb") as stream:
-            stream.write(data)
-    return sorted(files)
+    with (output / COMPOSE).open("xb") as stream:
+        stream.write(data)
+    return [COMPOSE]
 
 
 def _get(url, headers=None, timeout=1.0):

@@ -108,6 +108,14 @@ class ContainerProfileTests(unittest.TestCase):
                 message = self.rejected(change)
                 self.assertIn("gateway and container sections", message)
 
+    def test_non_object_configuration_is_a_configuration_error(self):
+        for value in ("null", "42", "[]", '"text"'):
+            with self.subTest(value=value):
+                self.config_path.write_text(value)
+                with self.assertRaises(ConfigError):
+                    load_config(self.config_path)
+        self.save()
+
     def test_invalid_profiles_are_rejected_without_echo(self):
         def lan(field, value):
             return lambda data: data["container"]["lan"].__setitem__(field, value)
