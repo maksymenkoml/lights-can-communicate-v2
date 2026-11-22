@@ -157,8 +157,7 @@ class Installation:
         return recorded is not None and recorded != self._fingerprint()
 
     def _render(self, release, config, output):
-        services.render(config, self.config_path, release, output, self.python,
-                        link=self.current)
+        services.render(config, self.config_path, release, output, link=self.current)
         (output / FINGERPRINT).write_text(self._fingerprint() + "\n")
 
     def _rerender(self, release, config):
@@ -324,7 +323,7 @@ class Installation:
             self._check(self.releases / version)
             self._rerender(self.releases / version, config)
             return {"active": version, "changed": False, "rendered": True,
-                    "start": self.start_commands(config)}
+                    "start": self.start_commands()}
         self._stopped(config)
         # The configuration may have changed since staging.
         self._check(self.releases / version)
@@ -396,7 +395,7 @@ class Installation:
             self._write(data)
             self._prune(data)
         return {"active": data["current"], "changed": True, "backup": transaction["backup"],
-                "restored": transaction["restore"], "start": self.start_commands(config)}
+                "restored": transaction["restore"], "start": self.start_commands()}
 
     def _prune(self, data):
         if not self.backups.is_dir():
@@ -410,22 +409,15 @@ class Installation:
             if path.name not in keep:
                 shutil.rmtree(path)
 
-    def start_commands(self, config):
+    def start_commands(self):
         archive = shlex.quote(str(self.current / services.ARCHIVE))
         config_file = shlex.quote(str(self.config_path))
-        if config.container is not None:
-            # Docker supervises every component; `ready` runs where Python 3.10+ is.
-            compose = shlex.quote(str(self.current / "services" / services.COMPOSE))
-            return [
-                f"docker compose -f {compose} up -d --force-recreate",
-                f"docker exec {services.ADAPTER_CONTAINER} python3 -I -B {archive} ready "
-                f"--config {config_file}",
-            ]
-        compose = shlex.quote(str(self.current / "services" / services.GATEWAY_COMPOSE))
+        # Docker supervises every component; `ready` runs where Python 3.10+ is.
+        compose = shlex.quote(str(self.current / "services" / services.COMPOSE))
         return [
             f"docker compose -f {compose} up -d --force-recreate",
-            f"python3 -I -B {archive} adapter --config {config_file}",
-            f"python3 -I -B {archive} ready --config {config_file}",
+            f"docker exec {services.ADAPTER_CONTAINER} python3 -I -B {archive} ready "
+            f"--config {config_file}",
         ]
 
     def status(self):
@@ -457,7 +449,7 @@ def running(config):
         answering.append("adapter")
     if _answers(*urls["setup"]):
         answering.append("setup")
-    if config.gateway is not None and services._get(urls["bridge"] + "/api/config") is not None:
+    if services._get(urls["bridge"] + "/api/config") is not None:
         answering.append("gateway")
     return answering
 

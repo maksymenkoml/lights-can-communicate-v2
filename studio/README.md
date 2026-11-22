@@ -5,14 +5,14 @@ monitor and the selected lamps at their real sizes. Edits save automatically to
 the desk layout that Sync uses. The design is described in
 `docs/design/2026-11-18-light-studio-redesign.md`.
 
-Run from the repository root:
+Light Studio runs as the `studio` container of the NAS Compose project (see
+`core/README.md`). It is published on `setup.port` (default 19881) of the NAS:
+open `http://<NAS address>:19881` yourself; the server never opens a browser.
+For development only, `python3 -B studio/server.py` from the repository root
+serves the same pages on loopback.
 
-```sh
-python3 -B studio/server.py
-```
-
-Open `http://127.0.0.1:19881` yourself; the server never opens a browser. The
-server binds loopback, accepts only local `Host`/`Origin` requests and serves an
+The server accepts only `Host`/`Origin` values that are loopback or listed in
+`container.studio_hosts` of `core.json`, and serves an
 explicit asset list (`/`, `/app.js`, `/style.css` and the self-hosted
 Commissioner font, SIL OFL 1.1, see `static/fonts/OFL.txt`). Project and state
 files and credentials are never served. The page makes no external requests.
@@ -198,16 +198,6 @@ live checks), when:
 - Sync stopped up to 60 s before or 30 s after a bridge restart was seen;
 - the box runs Sync and the adapter reports `waiting` or `off` for 20 s;
 - the box drops Sync within 30 s of a Start from Light Studio.
-
-Docker Desktop can also lose the published stream port (UDP 2100) when the
-bridge container restarts while the box streams: `docker port` still lists it,
-but nothing on the host listens, so the box's datagrams are dropped and no Start
-helps. Before each Start the guard checks whether the host could bind UDP 2100
-while the bridge answers; if so, it restarts the bridge container (named in the
-gateway configuration) while Sync is stopped, at most once per 30 s, waits
-for the port to return, lets the bridge settle for 15 s, keeps the box quiet for
-another 45 s (a box that streamed into the lost port came back only then) and
-then starts Sync.
 
 It never acts while the adapter is down, another app streams, the output is
 paused or the box is switching, and it never undoes a Stop made while the bridge

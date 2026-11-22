@@ -43,7 +43,7 @@ def main():
         build_release(release)
         output = base / "services"
         services.render(load_config(config_path), config_path, release, output,
-                        sys.executable, link=base / "current")
+                        link=base / "current")
         compose = output / services.COMPOSE
         result = subprocess.run(
             ["docker", "compose", "-f", str(compose), "config", "--format", "json"],

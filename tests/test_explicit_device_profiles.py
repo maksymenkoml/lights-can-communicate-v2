@@ -10,6 +10,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import nas_profile
+
 from lights_can_communicate_v2_core import cli
 from lights_can_communicate_v2_core.config import ConfigError, load_config
 
@@ -56,6 +58,7 @@ class ExplicitSelectionTests(unittest.TestCase):
                     "targets_file": "targets.json", "token_file": "token",
                     "power_owner_token_file": "owner-token", "hue_config_file": "hue.json",
                 },
+                **nas_profile.sections(),
             }))
             with self.assertRaises(ConfigError):
                 load_config(path)

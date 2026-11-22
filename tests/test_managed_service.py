@@ -1,8 +1,9 @@
 """Versioned release, supervisor rendering and packaged Setup Studio, offline only."""
 
+import contextlib
 import hashlib
+import io
 import json
-import plistlib
 import re
 import signal
 import socket
@@ -16,8 +17,11 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from lights_can_communicate_v2_core import __version__, services
+import nas_profile
+
+from lights_can_communicate_v2_core import __version__, cli, services
 from lights_can_communicate_v2_core.config import GATEWAY_IMAGE, ConfigError, load_config
 from lights_can_communicate_v2_core.dist import build_release
 
@@ -59,12 +63,11 @@ class ManagedServiceTests(unittest.TestCase):
             "version": 1,
             "state_dir": "state",
             "adapter": {"targets_file": "targets.json", "token_file": "state/adapter-token",
-                        "power_owner_token_file": "state/owner-token", "bind": "0.0.0.0",
+                        "power_owner_token_file": "state/owner-token",
                         "port": free_port()},
             "setup": {"port": free_port()},
-            "gateway": {"lan_ip": "192.168.99.10", "mac": "02:00:00:00:00:0A",
-                        "live_output": True, "hue_strip": True, "hue_play": True,
-                        "entertainment": True},
+            **nas_profile.sections(live_output=True, hue_strip=True, hue_play=True,
+                                   entertainment=True),
         }
         self.config_path = self.folder / "core.json"
         self.save()
@@ -82,19 +85,17 @@ class ManagedServiceTests(unittest.TestCase):
     def test_gateway_and_setup_sections_have_safe_defaults(self):
         config = load_config(self.config_path)
         self.assertEqual((config.setup.bind, config.setup.port),
-                         ("127.0.0.1", self.value["setup"]["port"]))
+                         ("0.0.0.0", self.value["setup"]["port"]))
         self.assertEqual(config.gateway.image, GATEWAY_IMAGE)
         self.assertEqual(config.gateway.container_name, "lights-can-communicate-v2-gateway")
         self.assertEqual(config.gateway.adapter_url,
-                         f"http://host.docker.internal:{self.value['adapter']['port']}")
+                         f"http://172.30.250.3:{self.value['adapter']['port']}")
         self.assertEqual(config.gateway.environment()["PROBE_HUE_STRIP"], "true")
         self.assertEqual(config.gateway.environment()["PROBE_GOVEE_GRADIENT"], "false")
         self.assertEqual(config.gateway.environment()["PROBE_ENTERTAINMENT"], "true")
-        del self.value["gateway"], self.value["setup"]
+        del self.value["setup"]
         self.save()
-        config = load_config(self.config_path)
-        self.assertIsNone(config.gateway)
-        self.assertEqual(config.setup.port, 19881)
+        self.assertEqual(load_config(self.config_path).setup.port, 19881)
 
     def test_power_authority_defaults_to_the_remote_owner(self):
         config = load_config(self.config_path)
@@ -127,8 +128,8 @@ class ManagedServiceTests(unittest.TestCase):
         self.save()
         with self.assertRaises(ConfigError) as caught:
             load_config(self.config_path)
-        self.assertIn("reachable", str(caught.exception))
-        self.value["adapter"]["bind"] = "0.0.0.0"
+        self.assertIn("core address", str(caught.exception))
+        del self.value["adapter"]["bind"]
         self.value["setup"] = {"bind": "8.8.8.8"}
         self.save()
         with self.assertRaises(ConfigError):
@@ -180,42 +181,32 @@ class ManagedServiceTests(unittest.TestCase):
 
     # Supervisors ----------------------------------------------------------
 
-    def test_services_render_absolute_supervisors_without_credentials(self):
+    def test_services_render_one_compose_project_without_credentials(self):
         output = self.folder / "services"
         result = self.run_archive("services", "--config", str(self.config_path),
                                   "--release", str(self.release), "--output", str(output))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["rendered"], [
-            "com.lights-can-communicate-v2.adapter.plist",
-            "com.lights-can-communicate-v2.setup.plist",
-            "gateway-compose.json"])
-        state = self.state.resolve()
-        for label, command in ((services.ADAPTER_LABEL, "adapter"),
-                               (services.SETUP_LABEL, "setup")):
-            agent = plistlib.loads((output / f"{label}.plist").read_bytes())
-            self.assertEqual(agent["Label"], label)
-            self.assertEqual(agent["ProgramArguments"][1:], [
-                "-I", "-B", str(self.release.resolve() / services.ARCHIVE), command,
-                "--config", str(self.config_path.resolve())])
-            self.assertTrue(Path(agent["ProgramArguments"][0]).is_absolute())
-            self.assertEqual(agent["KeepAlive"], {"SuccessfulExit": False})
-            self.assertTrue(agent["RunAtLoad"])
-            self.assertEqual(agent["WorkingDirectory"], str(state))
-            self.assertEqual(agent["StandardErrorPath"], str(state / "logs" / f"{command}.log"))
-        compose = json.loads((output / "gateway-compose.json").read_text())
+        self.assertEqual(json.loads(result.stdout)["rendered"], [services.COMPOSE])
+        self.assertEqual([path.name for path in output.iterdir()], [services.COMPOSE])
+        release = self.release.resolve()
+        compose = json.loads((output / services.COMPOSE).read_text())
+        self.assertEqual(set(compose["services"]), {"gateway", "adapter", "studio"})
         gateway = compose["services"]["gateway"]
         self.assertEqual(gateway["restart"], "unless-stopped")
         self.assertEqual(gateway["image"], GATEWAY_IMAGE)
         self.assertEqual(gateway["container_name"], "lights-can-communicate-v2-gateway")
-        self.assertEqual(gateway["volumes"][0], f"{state}:/opt/hue-emulator/config")
+        self.assertEqual(gateway["volumes"][0], f"{self.state.resolve()}:/opt/hue-emulator/config")
         self.assertEqual(len(gateway["volumes"]), 1 + len(services.GATEWAY_MODULES))
         for volume in gateway["volumes"][1:]:
-            self.assertTrue(volume.startswith(str(self.release.resolve() / "gateway") + "/"))
+            self.assertTrue(volume.startswith(str(release / "gateway") + "/"))
             self.assertTrue(volume.endswith(":ro"))
         self.assertEqual(gateway["environment"]["IP"], "192.168.99.10")
         self.assertEqual(gateway["environment"]["PROBE_LIVE_OUTPUT"], "true")
-        self.assertTrue((state / "logs").is_dir())
-        text = "".join(path.read_text(errors="ignore") for path in output.iterdir())
+        for command, name in (("adapter", "adapter"), ("setup", "studio")):
+            self.assertEqual(compose["services"][name]["entrypoint"], [
+                "python3", "-I", "-B", str(release / services.ARCHIVE), command,
+                "--config", str(self.config_path.resolve())])
+        text = (output / services.COMPOSE).read_text()
         self.assertNotIn(TOKEN, text)
         self.assertNotIn("b" * 64, text)
         again = self.run_archive("services", "--config", str(self.config_path),
@@ -288,49 +279,55 @@ class ManagedServiceTests(unittest.TestCase):
 
     # Readiness ------------------------------------------------------------
 
-    def test_ready_reports_unavailable_adapter_without_credentials(self):
-        del self.value["gateway"]
-        self.save()
-        result = self.run_archive("ready", "--config", str(self.config_path), "--timeout", "0")
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(json.loads(result.stdout), {
-            "adapter": False, "adapter_version": None, "gateway": None, "ready": False})
-        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+    def ready_command(self, urls, *arguments):
+        """Run `ready` in this process against local endpoints instead of the core network."""
+        out = io.StringIO()
+        with patch.object(services, "endpoints", return_value=urls), \
+                contextlib.redirect_stdout(out):
+            code = cli.main(["ready", "--config", str(self.config_path), *arguments])
+        return code, out.getvalue()
 
-    def test_ready_accepts_an_authorized_adapter_status(self):
-        del self.value["gateway"]
-        self.value["adapter"]["bind"] = "127.0.0.1"
-        self.save()
+    def test_ready_reports_unavailable_adapter_without_credentials(self):
+        urls = {"adapter": f"http://127.0.0.1:{free_port()}",
+                "bridge": f"http://127.0.0.1:{free_port()}", "setup": ("127.0.0.1", 1)}
+        code, output = self.ready_command(urls, "--timeout", "0")
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output), {
+            "adapter": False, "adapter_version": None, "gateway": False, "ready": False})
+        self.assertNotIn(TOKEN, output)
+
+    def test_ready_accepts_an_authorized_adapter_and_gateway(self):
         seen = []
 
-        class Adapter(BaseHTTPRequestHandler):
+        class Components(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
 
             def do_GET(self):
-                seen.append(self.headers.get("X-Adapter-Token"))
+                seen.append((self.path, self.headers.get("X-Adapter-Token")))
                 body = json.dumps({"service": {"version": "9.9.9"}}).encode()
-                self.send_response(200 if self.path == "/status" else 404)
+                self.send_response(200 if self.path in ("/status", "/api/config") else 404)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
 
-        server = ThreadingHTTPServer(("127.0.0.1", self.value["adapter"]["port"]), Adapter)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Components)
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
         try:
-            result = self.run_archive("ready", "--config", str(self.config_path),
-                                      "--timeout", "3")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), {
-                "adapter": True, "adapter_version": "9.9.9", "gateway": None, "ready": True})
-            self.assertEqual(seen[-1], TOKEN)
+            url = f"http://127.0.0.1:{server.server_port}"
+            code, output = self.ready_command(
+                {"adapter": url, "bridge": url, "setup": ("127.0.0.1", 1)}, "--timeout", "3")
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(output), {
+                "adapter": True, "adapter_version": "9.9.9", "gateway": True, "ready": True})
+            self.assertIn(("/status", TOKEN), seen)
         finally:
             server.shutdown()
             server.server_close()
             worker.join(2)
 
-    def test_ready_waits_for_the_gateway_when_configured(self):
+    def test_ready_waits_for_the_gateway(self):
         config = load_config(self.config_path)
         calls = []
 
@@ -348,7 +345,7 @@ class ManagedServiceTests(unittest.TestCase):
             services._get = original
         self.assertEqual(result, {"adapter": True, "adapter_version": "x", "gateway": False,
                                   "ready": False})
-        self.assertIn("http://127.0.0.1/api/config", calls)
+        self.assertIn("http://172.30.250.2/api/config", calls)
 
 
 if __name__ == "__main__":

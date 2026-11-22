@@ -60,7 +60,7 @@ the client label `Hue#iPhone` and user agent `Dart/3.13 (dart:io)`.
 | Play | PASS | Scene and both simulated lamps report `dynamic_palette` |
 | Physical Govee output/calibration | NOT CONNECTED | Existing Python controller remains separate |
 | Hue Sync / HDMI Sync Box | NOT TESTED | Not implied by room or scene compatibility |
-| NAS deployment / Homebridge plugin | NOT IMPLEMENTED | This probe runs locally on the Mac |
+| NAS deployment / Homebridge plugin | PASS | The bridge runs in the NAS container profile; the own Homebridge plugin controls power (#9, #6) |
 
 The shipped metadata `1.67.0` / `1967054020` caused a mandatory firmware
 update screen without a skip button. The probe's public BSB002 metadata was
@@ -84,7 +84,10 @@ The wrapper seeds `Govee Left TEST`, `Govee Right TEST`, and
 It does not mount the existing `.lighting.json` or real bridge credentials.
 Remote discovery and configured physical integrations are disabled.
 
-Copy `.env.example` to `.env` and set the test host's actual LAN IP and MAC.
+Copy `.env.example` to `.env` and set the test host's actual LAN IP and MAC and
+the URL at which the container reaches the adapter (`PROBE_ADAPTER_URL`).
+This compose file is the isolated test harness; production runs the NAS
+container profile described in `core/README.md`.
 Use a distinct host identity, not the genuine Hue Bridge's MAC. The host
 must have ports 80/443 TCP and 1900 UDP available. From this directory:
 
@@ -102,7 +105,7 @@ The token-protected `POST /probe/link` is the virtual pairing button and
 opens the normal 30-second pairing window. `GET /probe/status` exposes only
 the simulated state and non-secret client labels.
 
-On Docker Desktop, multicast inside the VM is not proof of LAN discovery.
+Multicast inside a container on a bridge network is not proof of LAN discovery.
 During this run, a separate host `dns-sd -R` advertisement was registered for
 `_hue._tcp` on port 80 with `bridgeid` and `modelid` TXT records. The app can
 also use the host IP manually. Whether discovery was automatic or manual in

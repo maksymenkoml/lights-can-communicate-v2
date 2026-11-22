@@ -6,6 +6,11 @@ Hue app and a Hue Sync Box as one virtual Hue bridge. The bridge is documented i
 release format are documented in [core/README.md](core/README.md). The commands
 below describe the original palette CLI, `lights_can_communicate_v2.py`.
 
+The only supported runtime is the NAS container profile: Docker Compose runs the
+virtual bridge, the adapter and Light Studio on a macvlan LAN network and a fixed
+core network, from the `container` section of `core.json`. A configuration
+without that section is rejected.
+
 Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
 The palette CLI runs in the foreground; it is not a background service.
@@ -18,7 +23,7 @@ Sync and one for scenes without Sync. Each configuration has its own brightness
 corrections and fade zone. A lamp card can blink the lamp, rename a desk lamp,
 and choose whether the lamp follows Sync, keeps its own light or switches off
 during Sync. Its frontend is in `studio/static/` and its
-local server is `studio/server.py`.
+server is `studio/server.py`; it runs as the `studio` container of the NAS project.
 
 ![Light Studio in the Sync view: a colour-wheel demo picture on the monitor and the colours that Sync would send to the two Govee floor lamps and the monitor strip](docs/images/light-studio.png)
 
