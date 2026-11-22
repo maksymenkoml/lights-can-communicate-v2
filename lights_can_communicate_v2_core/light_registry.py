@@ -220,6 +220,29 @@ class LightRegistry:
             for item in self.to_dict()["lights"] if item["provider"] == "govee"
         ]
 
+    def with_govee_targets(self, targets):
+        """Return a registry whose Govee lights take the given adapter targets.
+
+        The adapter follows a lamp to a new address and keeps the sides, so the
+        result must carry the same two sides; ``side`` itself is not stored.
+        """
+        if type(targets) is not list:
+            raise _invalid()
+        sides = {side: light_id for light_id, side in LEGACY_SIDES.items()}
+        replacement = {}
+        for target in targets:
+            if type(target) is not dict or target.get("side") not in sides:
+                raise _invalid()
+            replacement[sides[target["side"]]] = {
+                key: value for key, value in target.items() if key != "side"}
+        data = self.to_dict()
+        govee = [item for item in data["lights"] if item["provider"] == "govee"]
+        if len(replacement) != len(targets) or set(replacement) != {i["id"] for i in govee}:
+            raise _invalid()
+        for item in govee:
+            item["govee"] = replacement[item["id"]]
+        return LightRegistry.from_dict(data)
+
     def native_profile(self):
         """Return the validated native Hue profile, or None without Hue lights."""
         data = self.to_dict()
@@ -233,6 +256,7 @@ class LightRegistry:
         payload = (json.dumps(self.to_dict(), indent=2) + "\n").encode()
         temporary = None
         try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                     dir=path.parent, prefix=".lights-", suffix=".tmp", delete=False) as stream:
                 temporary = stream.name

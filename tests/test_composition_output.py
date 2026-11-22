@@ -1,7 +1,6 @@
 """Composition gates synthetic scene and Sync output without changing power."""
 
 import copy
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -13,6 +12,7 @@ import live_adapter as adapter  # noqa: E402
 from entertainment_stream import CHANNELS, VideoLease  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
 from live_adapter import GoveeController  # noqa: E402
+from registry_files import write_registry  # noqa: E402
 from test_entertainment_stream import envelope as legacy_envelope  # noqa: E402
 from test_hue_strip_proxy import FakeHue  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, command, targets  # noqa: E402
@@ -241,14 +241,14 @@ class CompositionOutputTests(unittest.TestCase):
         try:
             with TemporaryDirectory(prefix='tmp_composition_startup_') as folder:
                 root = Path(folder)
-                (root / 'targets.json').write_text(json.dumps({'targets': devices}))
+                write_registry(root, devices)
                 (root / 'token').write_text('a' * 48)
                 with (patch.object(adapter, 'LayoutStore', return_value=layout),
                       patch.object(adapter, 'GRADIENT_MODE', False),
                       patch.object(adapter, 'GoveeController', side_effect=capture),
                       patch.object(adapter, 'ThreadingHTTPServer', side_effect=BeforeServer)):
                     with self.assertRaises(BeforeServer):
-                        adapter.main(['--targets', str(root / 'targets.json'),
+                        adapter.main(['--registry', str(root / 'lights.json'),
                                     '--token-file', str(root / 'token'), '--state-dir', str(root)])
         finally:
             adapter.lan.CONFIG = previous_config

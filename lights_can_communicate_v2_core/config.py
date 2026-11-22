@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .light_registry import REGISTRY_FILE
+
 MAX_BYTES = 65536
 GATEWAY_IMAGE = (
     "diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba"
@@ -240,7 +242,7 @@ def _gateway(value, adapter_host, adapter_port):
 @dataclass(frozen=True)
 class ServiceConfig:
     state_dir: Path
-    targets_file: Path
+    targets_file: Path | None
     token_file: Path
     power_owner_token_file: Path
     bind: str
@@ -255,12 +257,16 @@ class ServiceConfig:
     power_authority: str = "owner"
     setup: SetupConfig = SetupConfig()
 
+    @property
+    def registry_file(self):
+        return self.state_dir / REGISTRY_FILE
+
     def arguments(self):
         result = [
             "--state-dir",
             str(self.state_dir),
-            "--targets",
-            str(self.targets_file),
+            "--registry",
+            str(self.registry_file),
             "--token-file",
             str(self.token_file),
             "--power-owner-token-file",
@@ -276,8 +282,6 @@ class ServiceConfig:
             result.append("--hue-play")
         if self.hue_stream_config_file:
             result.extend(["--hue-stream-config", str(self.hue_stream_config_file)])
-        if self.native_profile_file:
-            result.extend(["--native-profile", str(self.native_profile_file)])
         result.extend(["--power-authority", self.power_authority])
         return result
 
@@ -293,8 +297,11 @@ def load_config(path):
     if type(data["version"]) is not int or data["version"] != 1:
         raise ConfigError("Unsupported service configuration version")
     options = data["adapter"]
-    paths = {"targets_file", "token_file", "power_owner_token_file"}
-    optional_paths = {"hue_config_file", "hue_stream_config_file", "native_profile_file"}
+    paths = {"token_file", "power_owner_token_file"}
+    # The targets file and the native profile only seed the one-time light
+    # registry migration; once the registry exists they are not read.
+    optional_paths = {"targets_file", "hue_config_file", "hue_stream_config_file",
+                      "native_profile_file"}
     _fields(options, paths,
             optional_paths | {"bind", "port", "gradient", "hue_play", "power_authority"},
             "adapter")
@@ -332,10 +339,6 @@ def load_config(path):
         raise ConfigError("Adapter and power credentials must be separate")
     if options.get("hue_play", False) and resolved["hue_config_file"] is None:
         raise ConfigError("Hue Play requires a Hue configuration")
-    if resolved["native_profile_file"] and resolved["hue_config_file"] is None:
-        raise ConfigError("Native Hue profile requires a Hue configuration")
-    if resolved["hue_config_file"] and resolved["native_profile_file"] is None:
-        raise ConfigError("Hue output requires an explicit native Hue profile")
     if resolved["hue_stream_config_file"] and not options.get("hue_play", False):
         raise ConfigError("Native video requires Hue Play")
     return ServiceConfig(

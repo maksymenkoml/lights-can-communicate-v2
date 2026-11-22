@@ -231,6 +231,13 @@ class ContainerProfileTests(unittest.TestCase):
         self.assertEqual(probed, [("172.30.250.3", 19880), ("172.30.250.4", 19881)])
         self.assertEqual(fetched, ["http://172.30.250.2/api/config"])
 
+    def test_config_without_targets_file_loads(self):
+        del self.value["adapter"]["targets_file"]
+        self.save()
+        config = load_config(self.config_path)
+        self.assertIsNone(config.targets_file)
+        self.assertEqual(config.registry_file, self.state / "lights.json")
+
     # Owner hold ------------------------------------------------------------
 
     def test_hold_waits_in_the_profile_instead_of_exiting(self):
@@ -245,7 +252,7 @@ class ContainerProfileTests(unittest.TestCase):
 
         runtime = type("Runtime", (), {"main": staticmethod(
             lambda *args, **kwargs: started.append(args))})
-        with patch.object(cli, "prepare", lambda config: runtime):
+        with patch.object(cli, "prepare", lambda config, **kwargs: runtime):
             code = cli._adapter(load_config(self.config_path), False, sleep=sleep)
         self.assertEqual(code, 0)
         self.assertEqual(sleeps, [cli.HOLD_POLL_SECONDS] * 2)

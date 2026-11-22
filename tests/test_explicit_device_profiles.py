@@ -20,6 +20,8 @@ import live_adapter as adapter  # noqa: E402
 import test_native_profile_integration as integration  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
+from registry_files import write_registry  # noqa: E402
+from test_live_adapter import targets  # noqa: E402
 from test_native_profile_integration import (  # noqa: E402
     hue_config,
     stream_config,
@@ -39,18 +41,19 @@ class ExplicitSelectionTests(unittest.TestCase):
             with self.subTest(factory=factory), self.assertRaises(ValueError):
                 factory()
 
-    def test_source_launcher_rejects_missing_profile_before_reading_targets_or_token(self):
+    def test_source_launcher_rejects_hue_without_profile_before_reading_token(self):
         with TemporaryDirectory(prefix="tmp_explicit_selection_") as folder:
             root = Path(folder)
-            arguments = ["--targets", str(root / "missing-targets.json"),
+            write_registry(root, targets())
+            arguments = ["--registry", str(root / "lights.json"),
                          "--token-file", str(root / "missing-token"),
                          "--hue-config", str(root / "missing-hue.json")]
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
                 adapter.main(arguments)
             self.assertEqual(caught.exception.code, 2)
-            self.assertEqual(list(root.iterdir()), [])
+            self.assertEqual([item.name for item in root.iterdir()], ["lights.json"])
 
-    def test_service_config_rejects_hue_without_profile_before_preflight(self):
+    def test_service_config_without_profile_loads_and_prepare_rejects_it(self):
         with TemporaryDirectory(prefix="tmp_explicit_selection_") as folder:
             path = Path(folder) / "service.json"
             path.write_text(json.dumps({
@@ -60,8 +63,12 @@ class ExplicitSelectionTests(unittest.TestCase):
                 },
                 **nas_profile.sections(),
             }))
-            with self.assertRaises(ConfigError):
-                load_config(path)
+            config = load_config(path)
+            (Path(folder) / "targets.json").write_text(json.dumps({"targets": targets()}))
+            with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
+                with self.assertRaises(ConfigError):
+                    cli.prepare(config, write_registry=True)
+            self.assertFalse(config.state_dir.exists())
 
     def test_prepare_rejects_programmatic_config_before_credentials_or_runtime(self):
         fixture = integration.ProfileConfigurationIntegrationTests()
@@ -70,5 +77,5 @@ class ExplicitSelectionTests(unittest.TestCase):
         config = replace(fixture.config(), native_profile_file=None)
         with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
             with self.assertRaises(ConfigError):
-                cli.prepare(config)
+                cli.prepare(config, write_registry=True)
         self.assertFalse(config.state_dir.exists())

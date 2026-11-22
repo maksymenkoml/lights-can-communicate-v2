@@ -100,6 +100,22 @@ class RegistryModelTests(unittest.TestCase):
         self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
         self.assertEqual(LEGACY_SIDES, {"govee-left": "left", "govee-right": "right"})
 
+    def test_with_govee_targets_follows_a_new_address(self):
+        registry = LightRegistry.from_dict(sample())
+        targets = registry.govee_targets()
+        targets[1]["ip"] = "192.168.10.99"
+        targets[1]["segment_count"] = 7
+        updated = registry.with_govee_targets(targets)
+        self.assertEqual(updated.govee_targets(), targets)
+        self.assertEqual(updated.ids, registry.ids)
+        self.assertEqual(updated.native_profile().to_dict(), registry.native_profile().to_dict())
+        self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
+        for bad in (None, [], targets[:1], [targets[0], targets[0]],
+                    [targets[0], {**targets[1], "side": "middle"}],
+                    [targets[0], {**targets[1], "ip": ""}]):
+            with self.subTest(bad=repr(bad)[:20]), self.assertRaises(RegistryError):
+                registry.with_govee_targets(bad)
+
     def test_native_profile_matches_source(self):
         profile = example_profile()
         data = sample()

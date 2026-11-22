@@ -17,13 +17,19 @@ import nas_profile
 
 from lights_can_communicate_v2_core import cli
 from lights_can_communicate_v2_core.config import ConfigError, load_config
-from lights_can_communicate_v2_core.native_profile import NativeHueProfile, NativeProfileError
+from lights_can_communicate_v2_core.light_registry import (
+    REGISTRY_FILE,
+    LightRegistry,
+    RegistryError,
+)
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import hue_entertainment_relay as relay_module  # noqa: E402
 import live_adapter as adapter  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
+from registry_files import write_registry  # noqa: E402
 from test_hue_entertainment_relay import FakeConnection  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 from test_native_profile import (  # noqa: E402
@@ -322,16 +328,24 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         self.assertEqual([instance.resource_id for instance in objects["PinnedHueClient"]],
                          [STRIP, LEFT, CENTER, RIGHT])
 
-    def test_relative_profile_path_arguments_dependency_and_legacy_config(self):
+    def test_relative_profile_path_is_a_migration_input_and_arguments_pass_the_registry(self):
         config = self.config()
         self.assertEqual(config.native_profile_file, self.profile_path)
         arguments = config.arguments()
-        self.assertEqual(arguments[arguments.index("--native-profile") + 1], str(self.profile_path))
+        self.assertEqual(arguments[arguments.index("--registry") + 1],
+                         str(config.state_dir / "lights.json"))
+        self.assertNotIn("--native-profile", arguments)
+        self.assertNotIn("--targets", arguments)
         del self.data["adapter"]["hue_config_file"]
         self.data["adapter"]["hue_play"] = False
         del self.data["adapter"]["hue_stream_config_file"]
+        # The profile no longer needs a Hue configuration to load; the registry
+        # check in prepare rejects a native profile without one.
+        mismatched = self.config()
+        self.assertEqual(mismatched.native_profile_file, self.profile_path)
         with self.assertRaises(ConfigError):
-            self.config()
+            cli.prepare(mismatched, write_registry=True)
+        self.assertFalse(mismatched.state_dir.exists())
         del self.data["adapter"]["native_profile_file"]
         legacy = self.config()
         self.assertIsNone(legacy.native_profile_file)
@@ -344,10 +358,57 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
             objects = self.capture_constructors(stack)
             loader = stack.enter_context(patch.object(NativeHueProfile, "load",
                                                       wraps=NativeHueProfile.load))
-            self.assertIs(cli.prepare(config), adapter)
+            self.assertIs(cli.prepare(config, write_registry=False), adapter)
             loader.assert_called_once_with(self.profile_path)
         self.assert_shared_profile(objects)
         self.assertFalse(config.state_dir.exists())
+
+    def test_prepare_migrates_then_ignores_old_files(self):
+        config = self.config()
+        with ExitStack() as stack:
+            self.no_device_io(stack)
+            objects = self.capture_constructors(stack)
+            cli.prepare(config, write_registry=True)
+        self.assert_shared_profile(objects)
+        registry_path = config.state_dir / REGISTRY_FILE
+        self.assertEqual(LightRegistry.load(registry_path).govee_targets(), targets())
+        (self.root / "targets.json").unlink()
+        self.profile_path.unlink()
+        with ExitStack() as stack:
+            self.no_device_io(stack)
+            objects = self.capture_constructors(stack)
+            self.assertIs(cli.prepare(config, write_registry=True), adapter)
+        self.assert_shared_profile(objects)
+
+    def test_failed_validation_does_not_freeze_a_migration(self):
+        config = self.config()
+        (self.root / "hue.json").write_text(json.dumps({"bridge": "192.168.99.2"}))
+        with ExitStack() as stack:
+            self.no_device_io(stack)
+            with self.assertRaises(ConfigError):
+                cli.prepare(config, write_registry=True)
+        self.assertFalse((config.state_dir / REGISTRY_FILE).exists())
+
+    def test_hue_config_without_hue_lights_fails(self):
+        config = self.config()
+        config.state_dir.mkdir()
+        write_registry(config.state_dir, targets())
+        before = (config.state_dir / REGISTRY_FILE).read_bytes()
+        with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
+            with self.assertRaises(ConfigError):
+                cli.prepare(config, write_registry=True)
+        self.assertEqual((config.state_dir / REGISTRY_FILE).read_bytes(), before)
+
+    def test_registry_with_hue_lights_requires_a_hue_configuration(self):
+        del self.data["adapter"]["hue_config_file"]
+        del self.data["adapter"]["hue_play"]
+        del self.data["adapter"]["hue_stream_config_file"]
+        config = self.config()
+        config.state_dir.mkdir()
+        write_registry(config.state_dir, targets(), profile_data())
+        with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
+            with self.assertRaises(ConfigError):
+                cli.prepare(config, write_registry=True)
 
     def test_missing_or_invalid_profile_fails_sanitized_before_runtime_validation(self):
         config = self.config()
@@ -358,7 +419,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
                 self.profile_path.write_text(payload)
             with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
                 with self.subTest(payload=payload), self.assertRaises(ConfigError) as caught:
-                    cli.prepare(config)
+                    cli.prepare(config, write_registry=True)
             self.assertNotIn("private", str(caught.exception))
             self.assertNotIn(str(self.profile_path), str(caught.exception))
         self.assertFalse(config.state_dir.exists())
@@ -385,32 +446,31 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         class BeforeServer(Exception):
             pass
 
-        arguments = ["--targets", str(self.root / "targets.json"), "--token-file",
+        write_registry(self.root, targets(), profile_data())
+        arguments = ["--registry", str(self.root / REGISTRY_FILE), "--token-file",
                      str(self.root / "token"), "--state-dir", str(self.root / "state"),
                      "--hue-config", str(self.root / "hue.json"), "--hue-play",
-                     "--hue-stream-config", str(self.root / "stream.json"),
-                     "--native-profile", str(self.profile_path)]
+                     "--hue-stream-config", str(self.root / "stream.json")]
         previous_lan_config = adapter.lan.CONFIG
         self.addCleanup(setattr, adapter.lan, "CONFIG", previous_lan_config)
         with ExitStack() as stack:
             self.no_device_io(stack)
             objects = self.capture_constructors(stack)
-            loader = stack.enter_context(patch.object(NativeHueProfile, "load",
-                                                      wraps=NativeHueProfile.load))
+            loader = stack.enter_context(patch.object(LightRegistry, "load",
+                                                      wraps=LightRegistry.load))
             stack.enter_context(patch.object(adapter, "ThreadingHTTPServer",
                                             side_effect=BeforeServer))
             with self.assertRaises(BeforeServer):
                 adapter.main(arguments)
-            loader.assert_called_once_with(self.profile_path)
+            loader.assert_called_once_with(self.root / REGISTRY_FILE)
         self.assert_shared_profile(objects)
 
     def test_main_rejects_bad_profile_before_creating_missing_token(self):
-        self.profile_path.write_text("private-profile-data")
+        (self.root / REGISTRY_FILE).write_text("private-profile-data")
         token = self.root / "not-created-token"
-        arguments = ["--targets", str(self.root / "targets.json"), "--token-file", str(token),
-                     "--hue-config", str(self.root / "hue.json"),
-                     "--native-profile", str(self.profile_path)]
-        with self.assertRaises(NativeProfileError):
+        arguments = ["--registry", str(self.root / REGISTRY_FILE), "--token-file", str(token),
+                     "--hue-config", str(self.root / "hue.json")]
+        with self.assertRaises(RegistryError):
             adapter.main(arguments)
         self.assertFalse(token.exists())
 

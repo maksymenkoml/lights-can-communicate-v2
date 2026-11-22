@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
+from registry_files import write_registry  # noqa: E402
 
 LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
@@ -99,6 +100,33 @@ class LiveAdapterTests(unittest.TestCase):
             server.server_close()
             worker.join()
 
+    def test_adapter_main_loads_registry(self):
+        # The registry yields the targets the old targets file did, in order.
+        class BeforeServer(Exception):
+            pass
+
+        captured = []
+        constructor = adapter.GoveeController
+
+        def capture(*args, **kwargs):
+            result = constructor(*args, **kwargs)
+            captured.extend(copy.deepcopy(result.targets))
+            return result
+
+        with TemporaryDirectory(prefix="tmp_adapter_registry_") as directory:
+            folder = Path(directory)
+            write_registry(folder, targets())
+            (folder / "token").write_text("a" * 48)
+            with (
+                patch.object(adapter, "GoveeController", side_effect=capture),
+                patch.object(adapter, "ThreadingHTTPServer", side_effect=BeforeServer),
+                self.assertRaises(BeforeServer),
+            ):
+                adapter.main(["--registry", str(folder / "lights.json"),
+                              "--token-file", str(folder / "token")])
+        self.assertEqual(
+            captured, [{**target, "segment_count": 0} for target in targets()])
+
     def test_owner_hold_prevents_adapter_start_before_any_network_setup(self):
         with TemporaryDirectory(prefix="tmp_adapter_hold_") as directory:
             folder = Path(directory)
@@ -108,8 +136,8 @@ class LiveAdapterTests(unittest.TestCase):
                     "sys.argv",
                     [
                         "live_adapter.py",
-                        "--targets",
-                        str(folder / "missing-targets.json"),
+                        "--registry",
+                        str(folder / "missing-lights.json"),
                         "--token-file",
                         str(folder / "token"),
                     ],
