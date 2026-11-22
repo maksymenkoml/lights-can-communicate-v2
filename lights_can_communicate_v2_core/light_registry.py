@@ -1,6 +1,5 @@
 """Core-owned registry of the enrolled lights; the adapter reads only this file."""
 
-import copy
 import json
 import os
 import re
@@ -150,6 +149,11 @@ def _validated(data):
         raise _invalid() from None
 
 
+def _payload(data):
+    """Encode a registry exactly as ``save`` writes it, so the size check matches."""
+    return (json.dumps(data, indent=2) + "\n").encode()
+
+
 def _profile_data(data):
     """Rebuild the version-one native profile dictionary from registry data."""
     hue = {item["id"]: item["hue"] for item in data["lights"] if item["provider"] == "hue"}
@@ -186,6 +190,8 @@ class LightRegistry:
                 NativeHueProfile.from_dict(_profile_data(normalized))
             except NativeProfileError:
                 raise RegistryError("Light registry Hue resources are invalid.") from None
+        if len(_payload(normalized)) > _MAX_REGISTRY_BYTES:
+            raise RegistryError("Light registry exceeds the size limit.")
         registry = object.__new__(cls)
         object.__setattr__(registry, "_json", json.dumps(normalized))
         return registry
@@ -216,7 +222,7 @@ class LightRegistry:
     def govee_targets(self):
         """Return fresh adapter target dictionaries, each with its legacy side."""
         return [
-            {"side": LEGACY_SIDES[item["id"]], **copy.deepcopy(item["govee"])}
+            {"side": LEGACY_SIDES[item["id"]], **item["govee"]}
             for item in self.to_dict()["lights"] if item["provider"] == "govee"
         ]
 
@@ -253,7 +259,7 @@ class LightRegistry:
     def save(self, path):
         """Replace the registry atomically with owner-only permissions."""
         path = Path(path)
-        payload = (json.dumps(self.to_dict(), indent=2) + "\n").encode()
+        payload = _payload(self.to_dict())
         temporary = None
         try:
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -349,17 +355,14 @@ def migrate(targets_file, native_profile_file):
     return LightRegistry.from_dict(result)
 
 
-def ensure(state_dir, targets_file, native_profile_file, *, write):
+def ensure(state_dir, targets_file, native_profile_file):
     """Return the registry of a state directory, migrating once when it is missing.
 
     An existing registry is the only source: it is loaded strictly and the old
-    files are never read. With ``write=False`` a missing registry is migrated in
-    memory only, so a configuration check leaves the state untouched.
+    files are never read. A missing registry is migrated in memory only; the
+    caller saves it once every startup check has passed.
     """
     path = Path(state_dir) / REGISTRY_FILE
     if path.exists() or path.is_symlink():
         return LightRegistry.load(path)
-    registry = migrate(targets_file, native_profile_file)
-    if write:
-        registry.save(path)
-    return registry
+    return migrate(targets_file, native_profile_file)

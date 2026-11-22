@@ -252,7 +252,7 @@ class ContainerProfileTests(unittest.TestCase):
 
         runtime = type("Runtime", (), {"main": staticmethod(
             lambda *args, **kwargs: started.append(args))})
-        with patch.object(cli, "prepare", lambda config, **kwargs: runtime):
+        with patch.object(cli, "prepare", lambda config, **kwargs: (runtime, None)):
             code = cli._adapter(load_config(self.config_path), False, sleep=sleep)
         self.assertEqual(code, 0)
         self.assertEqual(sleeps, [cli.HOLD_POLL_SECONDS] * 2)

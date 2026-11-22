@@ -47,12 +47,12 @@ def prepare(config, *, write_registry):
     from the old files in memory and written only after every check passed, so
     a configuration that fails to start never freezes a stale migration. With
     ``write_registry=False`` (configuration check) the state is never touched.
+    Returns the runtime module and the light registry.
     """
     registry_path = config.state_dir / REGISTRY_FILE
     migrating = not (registry_path.exists() or registry_path.is_symlink())
     try:
-        registry = ensure(config.state_dir, config.targets_file, config.native_profile_file,
-                          write=False)
+        registry = ensure(config.state_dir, config.targets_file, config.native_profile_file)
         profile = registry.native_profile()
     except RegistryError as error:
         raise ConfigError(str(error)) from None
@@ -129,7 +129,7 @@ def prepare(config, *, write_registry):
             registry.save(registry_path)
         except RegistryError as error:
             raise ConfigError(str(error)) from None
-    return live_adapter
+    return live_adapter, registry
 
 
 def _setup_module():
@@ -164,10 +164,8 @@ HOLD_POLL_SECONDS = 5.0
 
 
 def _adapter(config, check, sleep=time.sleep):
-    runtime = prepare(config, write_registry=not check)
+    runtime, registry = prepare(config, write_registry=not check)
     if check:
-        registry = ensure(config.state_dir, config.targets_file, config.native_profile_file,
-                          write=False)
         print(
             json.dumps(
                 {

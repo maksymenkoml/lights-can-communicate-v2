@@ -358,7 +358,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
             objects = self.capture_constructors(stack)
             loader = stack.enter_context(patch.object(NativeHueProfile, "load",
                                                       wraps=NativeHueProfile.load))
-            self.assertIs(cli.prepare(config, write_registry=False), adapter)
+            self.assertIs(cli.prepare(config, write_registry=False)[0], adapter)
             loader.assert_called_once_with(self.profile_path)
         self.assert_shared_profile(objects)
         self.assertFalse(config.state_dir.exists())
@@ -377,7 +377,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         with ExitStack() as stack:
             self.no_device_io(stack)
             objects = self.capture_constructors(stack)
-            self.assertIs(cli.prepare(config, write_registry=True), adapter)
+            self.assertIs(cli.prepare(config, write_registry=True)[0], adapter)
         self.assert_shared_profile(objects)
 
     def test_failed_validation_does_not_freeze_a_migration(self):

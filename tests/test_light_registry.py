@@ -311,17 +311,18 @@ class MigrationTests(unittest.TestCase):
         with self.assertRaises(RegistryError):
             migrate(self.targets, None)
 
-    def test_ensure_writes_once(self):
-        first = ensure(self.root, self.targets, self.profile, write=True)
+    def test_ensure_prefers_saved_registry(self):
+        first = ensure(self.root, self.targets, self.profile)
         path = self.root / REGISTRY_FILE
+        first.save(path)
         self.assertEqual(LightRegistry.load(path), first)
         self.targets.write_text("corrupt")
         self.profile.unlink()
-        self.assertEqual(ensure(self.root, self.targets, self.profile, write=True), first)
-        self.assertEqual(ensure(self.root, None, None, write=False), first)
+        self.assertEqual(ensure(self.root, self.targets, self.profile), first)
+        self.assertEqual(ensure(self.root, None, None), first)
 
-    def test_ensure_check_mode_does_not_write(self):
-        registry = ensure(self.root, self.targets, self.profile, write=False)
+    def test_ensure_does_not_write(self):
+        registry = ensure(self.root, self.targets, self.profile)
         self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
         self.assertFalse((self.root / REGISTRY_FILE).exists())
         self.assertEqual(sorted(item.name for item in self.root.iterdir()),
@@ -332,16 +333,28 @@ class MigrationTests(unittest.TestCase):
             with self.subTest(content=content[:12]):
                 (self.root / REGISTRY_FILE).write_text(content)
                 with self.assertRaises(RegistryError):
-                    ensure(self.root, self.targets, self.profile, write=True)
+                    ensure(self.root, self.targets, self.profile)
                 self.assertEqual((self.root / REGISTRY_FILE).read_text(), content)
 
     def test_failed_migration_leaves_no_partial_registry(self):
         self.targets.unlink()
         with self.assertRaises(RegistryError):
-            ensure(self.root, self.targets, self.profile, write=True)
+            ensure(self.root, self.targets, self.profile)
         self.assertFalse((self.root / REGISTRY_FILE).exists())
         self.assertEqual([item.name for item in self.root.iterdir()], ["native.json"])
 
+    def test_registry_over_size_limit_is_rejected_before_save(self):
+        # The targets file stays under the read limit; the migrated registry,
+        # with Hue lights and indentation, does not.
+        targets = json.loads(self.targets.read_text())
+        targets["targets"][0]["note"] = ""
+        size = len(json.dumps(targets).encode())
+        targets["targets"][0]["note"] = "x" * (64 * 1024 - size - 64)
+        self.targets.write_text(json.dumps(targets))
+        self.assertLess(self.targets.stat().st_size, 64 * 1024)
+        with self.assertRaises(RegistryError):
+            ensure(self.root, self.targets, self.profile)
+        self.assertFalse((self.root / REGISTRY_FILE).exists())
 
 if __name__ == "__main__":
     unittest.main()
