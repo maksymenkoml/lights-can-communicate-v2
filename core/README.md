@@ -33,9 +33,10 @@ overwritten. Build a new version alongside the installed artifact for rollback.
 Use `config.example.json` as the service configuration structure. All paths,
 including `state_dir`, resolve relative to the configuration file. Optional Hue
 configuration fields can be omitted for Govee-only operation. Native video
-requires Hue configuration, `hue_play` and an explicit native profile. Every Hue
-configuration requires `adapter.native_profile_file`. Omit all Hue fields,
-including the profile path, for Govee-only operation. The `gateway` and
+requires Hue configuration, `hue_play` and a native Hue profile in the light
+registry (see "Light registry"). Omit all Hue fields for Govee-only operation.
+`adapter.targets_file` and `adapter.native_profile_file` are optional: they are
+inputs of the one-time registry migration only. The `gateway` and
 `container` sections are mandatory: a configuration without them is rejected.
 The adapter listens on its core-network address only (`adapter.bind` may only
 repeat it).
@@ -106,9 +107,10 @@ authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
 
 ## Compatibility and operation
 
-The `bridge/live_adapter.py` command retains its existing flags.
-Hue output now requires `--native-profile` together with `--hue-config`.
-Its state directory still defaults to the target file's parent, and its bind
+The `bridge/live_adapter.py` command takes `--registry PATH` (the light
+registry) instead of `--targets` and `--native-profile`; a registry with Hue
+lights requires `--hue-config`, and `--hue-config` requires them. Its state
+directory defaults to the registry's parent, and its bind
 address still defaults to all interfaces. The packaged launcher adds explicit
 paths and reports `service.name`/`service.version` on the existing authenticated
 `/status` route. Existing command, stream and power-owner routes are unchanged.
@@ -201,13 +203,41 @@ matching and the owner's visual acceptance of this preview remain separate.
 See `evidence/live-preview-offline.json` for the historical overnight checks and
 `evidence/live-preview-live.json` for morning results and the UDP publication limit.
 
+## Light registry
+
+The core owns `state_dir/lights.json`, the registry of the enrolled lights: for
+each light its ID, provider, virtual bridge slot and identity seed, its Govee
+target fields, or its Hue light UUID with the native Entertainment channels, plus
+the Hue area UUID. The adapter reads only this file (`--registry`). The registry
+is strict: unknown fields, duplicate keys, invalid UUIDs and a light set other
+than the six current lights (`govee-left`, `govee-right`, `hue-monitor`,
+`play-left`, `play-center`, `play-right`, or the two Govee lights alone) are
+rejected. The file holds no credentials and is written atomically with
+owner-only permissions. The adapter also writes it when it follows a lamp to a
+new Govee address.
+
+The first start without `lights.json` migrates once, in memory, from
+`adapter.targets_file` and the native profile (`adapter.native_profile_file`),
+checks the whole configuration and only then writes the registry. The six lights
+keep their IDs, virtual slots 1-6 and identity seeds, and the Govee target
+fields (calibration scale, model and rate limits) carry over verbatim. The
+adapter then gets the same targets and the same native profile as before.
+`--check` migrates in memory and never writes. After `lights.json` exists the old
+files are never read again, and a corrupt registry stops the start instead of
+falling back to them. The migration never edits or deletes the old files.
+Rollback restores the pre-migration state through the activation snapshot (see
+"Installation, upgrades and rollback"), which removes `lights.json` together with
+the newer release.
+
 ## Native Hue selection profile
 
 The initial `0.1.0.dev4` extraction introduced optional
-`adapter.native_profile_file`. The current version-one service configuration
-requires this field whenever `hue_config_file` is present. The path resolves relative to the service configuration, requires
-`hue_config_file`, and contains a strict version-one profile of the same four light
-roles, native Entertainment area and twelve service/index mappings. The loader
+`adapter.native_profile_file`. The profile is now a migration input of the light
+registry (see "Light registry"): the registry holds the same four light roles,
+native Entertainment area and twelve service/index mappings, and the loader
+rebuilds the strict version-one profile from them. The profile file resolves
+relative to the service configuration and is read only while `lights.json` does
+not exist. The loader
 rejects duplicate/unknown fields, invalid UUIDs, overlapping resources and changed
 topology. Credentials stay in their existing separate files.
 
@@ -252,7 +282,7 @@ changes power.
 
 Reuse the existing validated version-one profile when one is already installed.
 Set `adapter.native_profile_file` to its path, relative to the service configuration.
-For source invocations, pass that same file with `--native-profile`.
+The first start migrates it into the light registry.
 
 Older installations need a complete explicit profile before this artifact can run
 Hue output. A credential file's `light` or `area_id` hint is not sufficient. Record
