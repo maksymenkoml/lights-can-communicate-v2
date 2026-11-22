@@ -208,6 +208,11 @@ def _gateway(value, adapter_port, adapter_host="host.docker.internal"):
     for field in flags:
         if type(value.get(field, False)) is not bool:
             raise ConfigError(f"Expected boolean {field}")
+    if value.get("entertainment", False) and not (
+            value.get("hue_strip", False) and value.get("hue_play", False)):
+        # The gateway builds Desk Entertainment from all six virtual lights and
+        # refuses to start without them, which Docker turns into a restart loop.
+        raise ConfigError("Gateway entertainment requires hue_strip and hue_play")
     lan_ip = _address(value["lan_ip"], "gateway LAN address")
     if ipaddress.IPv4Address(lan_ip).is_unspecified:
         raise ConfigError("Gateway LAN address must be specific")

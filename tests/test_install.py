@@ -186,6 +186,86 @@ class InstallTests(unittest.TestCase):
         self.assertFalse((self.base / "current").exists())
         self.assertFalse((self.base / "install.json").exists())
 
+    def rendered_ip(self, version=__version__):
+        compose = self.base / "releases" / version / "services" / "gateway-compose.json"
+        return json.loads(compose.read_text())["services"]["gateway"]["environment"]["IP"]
+
+    def change_gateway_address(self):
+        self.config["gateway"]["lan_ip"] = "192.168.99.20"
+        (self.base / "config" / "core.json").write_text(json.dumps(self.config))
+
+    def test_staging_again_renders_a_changed_configuration(self):
+        self.install.stage(self.release)
+        services_dir = self.base / "releases" / __version__ / "services"
+        self.assertTrue((services_dir / "config.sha256").is_file())
+        # Reformatting the same configuration is not a change.
+        (self.base / "config" / "core.json").write_text(json.dumps(self.config, indent=4))
+        self.assertEqual(self.install.stage(self.release),
+                         {"version": __version__, "staged": False, "rendered": False})
+        self.change_gateway_address()
+        self.assertEqual(self.install.stage(self.release),
+                         {"version": __version__, "staged": False, "rendered": True})
+        self.assertEqual(self.rendered_ip(), "192.168.99.20")
+        verify(self.base / "releases" / __version__)
+        self.assertEqual([p.name for p in (self.base / "releases").iterdir()], [__version__])
+
+    def test_staging_again_validates_the_changed_configuration(self):
+        self.install.stage(self.release)
+        self.config["gateway"]["hue_strip"] = False
+        self.config["gateway"]["entertainment"] = True
+        (self.base / "config" / "core.json").write_text(json.dumps(self.config))
+        with self.assertRaisesRegex(InstallError, "does not validate"):
+            self.install.stage(self.release)
+        self.assertEqual(self.rendered_ip(), "192.168.99.10")
+
+    def test_activation_renders_a_configuration_changed_after_staging(self):
+        self.install.stage(self.release)
+        self.change_gateway_address()
+        self.install.activate(__version__)
+        self.assertEqual(self.rendered_ip(), "192.168.99.20")
+
+    def test_activating_the_active_release_applies_a_changed_configuration(self):
+        self.install.stage(self.release)
+        self.install.activate(__version__)
+        self.change_gateway_address()
+        with self.assertRaisesRegex(InstallError, "activate it again"):
+            self.install.stage(self.release)
+        busy = Installation(self.base, probe=lambda _: ["gateway"])
+        with self.assertRaisesRegex(InstallError, "gateway"):
+            busy.activate(__version__)
+        self.assertEqual(self.rendered_ip(), "192.168.99.10")
+        result = self.install.activate(__version__)
+        self.assertEqual((result["changed"], result["rendered"]), (False, True))
+        self.assertEqual(result["start"], self.install.start_commands(self.install.config()))
+        self.assertEqual(self.rendered_ip(), "192.168.99.20")
+        self.assertEqual(self.install.activate(__version__),
+                         {"active": __version__, "changed": False, "rendered": False})
+
+    def test_a_release_rendered_before_digests_is_not_treated_as_stale(self):
+        self.install.stage(self.release)
+        services_dir = self.base / "releases" / __version__ / "services"
+        (services_dir / "config.sha256").unlink()
+        self.install.activate(__version__)
+        self.change_gateway_address()
+        # Active: its files are left alone and no digest is claimed for them.
+        self.assertEqual(self.install.stage(self.release)["rendered"], False)
+        self.assertFalse((services_dir / "config.sha256").exists())
+        self.assertFalse(self.install.activate(__version__)["changed"])
+        self.assertEqual(self.rendered_ip(), "192.168.99.10")
+        # Inactive: staging again renders it and records the digest.
+        (self.base / "current").unlink()
+        self.assertEqual(self.install.stage(self.release)["rendered"], True)
+        self.assertEqual(self.rendered_ip(), "192.168.99.20")
+        self.assertTrue((services_dir / "config.sha256").is_file())
+
+    def test_a_stale_release_of_another_version_is_not_rendered_here(self):
+        target = self.place("1.0.0")
+        (target / "services").mkdir()
+        (target / "services" / "config.sha256").write_text("0" * 64 + "\n")
+        with self.assertRaisesRegex(InstallError, "stage this release again"):
+            self.install.activate("1.0.0")
+        self.assertFalse((self.base / "current").exists())
+
     def test_recovery_waits_until_components_are_stopped(self):
         self.place("1.0.0")
         with patch.object(Installation, "_point", side_effect=OSError("interrupted")):
