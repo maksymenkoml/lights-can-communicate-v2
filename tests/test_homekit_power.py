@@ -182,6 +182,37 @@ class HomeKitPowerTests(unittest.TestCase):
             ("left", "colorwc", {"color": {"r": 255, "g": 255, "b": 255},
                                  "colorTemInKelvin": 4000})])
 
+    def test_explicit_home_brightness_or_color_ends_a_hue_scene(self):
+        released = []
+        scene = {"left": True}
+        sync = {"active": False}
+
+        def release(side):
+            released.append(side)
+            if not sync["active"]:
+                scene[side] = False
+
+        self.power = HomeKitPower(targets(), self.file, self.lamps.send, self.lamps.observe,
+                                  idle=lambda side: not scene.get(side) and not sync["active"],
+                                  clock=self.lamps.clock, sleep=self.lamps.sleep,
+                                  release=release)
+        self.power.tick()
+        # Power alone keeps the scene, so Home On resumes it.
+        self.power.set({"role": "left", "on": False})
+        self.power.set({"role": "left", "on": True})
+        self.assertEqual(released, [])
+        self.assertNotIn(("left", "brightness", {"value": 40}), self.lamps.sent)
+        self.power.set({"role": "left", "brightness": 40})
+        self.assertEqual(released, ["left"])
+        self.assertEqual(self.lamps.sent[-1], ("left", "brightness", {"value": 40}))
+        # During Sync the release keeps the lamp with Sync: nothing is sent.
+        sync["active"] = True
+        self.lamps.sent.clear()
+        self.power.set({"role": "left", "hue": 0, "saturation": 100})
+        self.assertEqual(released, ["left", "left"])
+        self.assertEqual(self.lamps.sent, [])
+        self.assertEqual(self.power.state()["roles"]["left"]["hue"], 0)
+
     def test_unconfirmed_power_shows_the_verified_lamp_until_it_confirms(self):
         self.power.tick()
         self.lamps.ignore.add("right")

@@ -925,7 +925,8 @@ def main(argv=None, service_info=None):
             power_owner = homekit = HomeKitPower(
                 config["targets"], state_dir / "homekit-power.json", power_sender,
                 observe=lambda: controller.power_observations(),
-                idle=lambda side: idle["check"](side), names=layout_store.names)
+                idle=lambda side: idle["check"](side), names=layout_store.names,
+                release=lambda side: idle["release"](side))
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])
@@ -999,6 +1000,13 @@ def main(argv=None, service_info=None):
     if homekit is not None:
         idle["check"] = lambda side: (
             (video is None or not video.active()) and side not in controller.jobs)
+
+        def release_scene(side):
+            # Sync output owns the lamp until it ends; only a Hue scene yields.
+            if video is None or not video.active():
+                controller.clear_side(side)
+
+        idle["release"] = release_scene
     controller.pause_gate = lambda: (
         (video is None or not video.active())
         and all(proxy.govee_allowed() for proxy in hue_proxies.values() if proxy.included())
