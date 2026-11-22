@@ -92,6 +92,25 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertEqual([profile["play_gains"]["hue_left"]],
                          profile["lights"]["play-left"]["gains"])
         self.assertIn("right", profile["govee"])
+
+    def test_lights_map_includes_composed_devices_not_drawings(self):
+        data = layout()
+        device = {"id": "device-" + "a" * 32, "scale": 80,
+                  "positionCm": {"x": 230, "height": 120}, "orientation": "horizontal",
+                  "name": "Extra", "model": "X", "shape": "bar", "zones": 1}
+        drawing = {"id": "virtual-sketch", "scale": 80,
+                   "positionCm": {"x": -30, "height": 120}, "orientation": "horizontal",
+                   "name": "Sketch", "shape": "bar"}
+        excluded = dict(device, id="device-" + "b" * 32, syncRole="own")
+        data["devices"] += [device, drawing, excluded]
+        profile = sync_profile(data)
+        self.assertIn(device["id"], profile["lights"])
+        self.assertNotIn(drawing["id"], profile["lights"])
+        self.assertNotIn(excluded["id"], profile["lights"])
+        self.assertNotIn("fade_cm", profile["lights"][device["id"]])
+        self.assertIn("fade_cm", profile["lights"]["govee-left"])
+        frame = {channel: (channel * 1000, 0, 0) for channel in range(2, 14)}
+        self.assertEqual(len(project_light_frame(frame, device["id"], profile)), 1)
         self.assertIn("hue_center", profile["plays"])
 
     def test_screen_anchors_hit_capture_channels(self):

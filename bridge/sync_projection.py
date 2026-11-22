@@ -116,27 +116,30 @@ class _Projector:
         self.screen_point = screen_point
 
     def light(self, row):
-        """Return ``samples`` (None where hidden), ``gains`` and ``fade_cm`` of a row."""
+        """Return ``samples`` (None where hidden) and ``gains`` of a row.
+
+        A segmented floor lamp also gets ``fade_cm``, the width of its fade band.
+        """
         kind = geometry_for(row)["kind"]
         x = row["positionCm"]["x"]
-        bounds = vertical_bounds(self.zone, x) if self.fade_on else None
-        fade = bounds[1] - bounds[0] if bounds is not None else 0
         if kind == "segmented-floor":
+            bounds = vertical_bounds(self.zone, x) if self.fade_on else None
+            fade = bounds[1] - bounds[0] if bounds is not None else 0
             # The lit part of each segment, so a faded segment samples where it is lit.
             zones = [_segment_visibility(low, high, bounds[1], fade) if bounds is not None
                      else (1, (low + high) / 2) for low, high in segment_spans(row)]
             gains = [gain for gain, _ in zones]
             samples = [self.screen_point(x, center) if center is not None else None
                        for _, center in zones]
-        else:
-            points = light_geometry.zone_points(row, self.screen)
-            gains = [self.visibility(px, ph) for px, ph in points]
-            samples = [self.screen_point(px, ph) for px, ph in points]
-            if kind == "screen":
-                # Its anchors lie on the capture channels; drop the rounding noise of
-                # the round trip through centimeters so they hit those channels exactly.
-                samples = [tuple(round(value, 9) for value in point) for point in samples]
-        return {"samples": samples, "gains": gains, "fade_cm": fade}
+            return {"samples": samples, "gains": gains, "fade_cm": fade}
+        points = light_geometry.zone_points(row, self.screen)
+        gains = [self.visibility(px, ph) for px, ph in points]
+        samples = [self.screen_point(px, ph) for px, ph in points]
+        if kind == "screen":
+            # Its anchors lie on the capture channels; drop the rounding noise of
+            # the round trip through centimeters so they hit those channels exactly.
+            samples = [tuple(round(value, 9) for value in point) for point in samples]
+        return {"samples": samples, "gains": gains}
 
 
 def light_entry(row, validated_layout):
@@ -157,11 +160,17 @@ def sync_profile(validated_layout):
     # Removed rows and rows with their own light or off during Sync are outside it.
     members = [key for key in _ROLES if composed(devices[key])]
     enabled = [_ROLES[key] for key in members]
+    # Every composed light gets an entry; layout-only drawings never produce output.
+    projector = _Projector(validated_layout)
+    lights = {row["id"]: (copy.deepcopy(entries[row["id"]]) if row["id"] in entries
+                          else projector.light(row))
+              for row in validated_layout["devices"]
+              if composed(row) and not row["id"].startswith("virtual-")}
     profile = {
         "basis": "screen-perimeter-v1",
         "enabled_roles": enabled,
         "native_roles": [role for role in enabled if role not in ("left", "right")],
-        "lights": {key: copy.deepcopy(entries[key]) for key in members},
+        "lights": lights,
         # The legacy keys below are derived from the per-light entries for every role row.
         "govee": {},
         "plays": {},
@@ -261,8 +270,8 @@ def project_native_frame(frame, profile):
             result[index] = _attenuate(frame[index], gain)
     for role, channel in _PLAY_CHANNELS.items():
         if role in profile["native_roles"]:
-            result[channel] = _project_zones(
-                frame, [profile["plays"][role]], [profile.get('play_gains', {}).get(role, 1)])[0]
+            result[channel] = _attenuate(_sample(frame, profile["plays"][role]),
+                                         profile.get('play_gains', {}).get(role, 1))
     return result
 
 
