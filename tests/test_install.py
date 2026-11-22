@@ -241,6 +241,23 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.install.activate(__version__),
                          {"active": __version__, "changed": False, "rendered": False})
 
+    def test_a_release_rendered_before_digests_is_not_treated_as_stale(self):
+        self.install.stage(self.release)
+        services_dir = self.base / "releases" / __version__ / "services"
+        (services_dir / "config.sha256").unlink()
+        self.install.activate(__version__)
+        self.change_gateway_address()
+        # Active: its files are left alone and no digest is claimed for them.
+        self.assertEqual(self.install.stage(self.release)["rendered"], False)
+        self.assertFalse((services_dir / "config.sha256").exists())
+        self.assertFalse(self.install.activate(__version__)["changed"])
+        self.assertEqual(self.rendered_ip(), "192.168.99.10")
+        # Inactive: staging again renders it and records the digest.
+        (self.base / "current").unlink()
+        self.assertEqual(self.install.stage(self.release)["rendered"], True)
+        self.assertEqual(self.rendered_ip(), "192.168.99.20")
+        self.assertTrue((services_dir / "config.sha256").is_file())
+
     def test_a_stale_release_of_another_version_is_not_rendered_here(self):
         target = self.place("1.0.0")
         (target / "services").mkdir()

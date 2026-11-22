@@ -299,7 +299,9 @@ python3 -I -B BASE/current/lights-can-communicate-v2.pyz status --base BASE
 
 When `core.json` changes, run `stage` again with the same archive: it renders
 the supervisor files of a staged release again. It refuses for the active
-release, because its running services were started from those files. `activate` and `rollback`
+release, because its running services were started from those files. A release
+rendered before digests existed is not treated as stale; it records a digest
+when it is staged again while inactive. `activate` and `rollback`
 also render a release again when its files come from another configuration;
 they refuse when the release is of another version than the running archive.
 `activate` of the active version then needs stopped components and prints the

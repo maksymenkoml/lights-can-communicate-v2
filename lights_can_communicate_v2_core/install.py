@@ -144,7 +144,7 @@ class Installation:
     @staticmethod
     def _rendered_for(release):
         try:
-            return (Path(release) / "services" / FINGERPRINT).read_text().strip()
+            return (release / "services" / FINGERPRINT).read_text().strip()
         except FileNotFoundError:
             return None
 
@@ -159,7 +159,7 @@ class Installation:
     def _render(self, release, config, output):
         services.render(config, self.config_path, release, output, self.python,
                         link=self.current)
-        (Path(output) / FINGERPRINT).write_text(self._fingerprint() + "\n")
+        (output / FINGERPRINT).write_text(self._fingerprint() + "\n")
 
     def _rerender(self, release, config):
         """Replace ``release/services`` with files rendered from the current configuration.
@@ -167,7 +167,6 @@ class Installation:
         Only this archive's own version may be rendered here: another version's
         supervisor files come from that version's code, through its ``stage``.
         """
-        release = Path(release)
         partial = self.releases / (release.name + ".services.partial")
         old = self.releases / (release.name + ".services-old.partial")
         for path in (partial, old):
@@ -265,9 +264,15 @@ class Installation:
             if read_manifest(target) != manifest:
                 raise InstallError("A different build of this version is already installed")
             verify(target)
-            if self._rendered_for(target) == self._fingerprint():
+            recorded = self._rendered_for(target)
+            if recorded == self._fingerprint():
                 return {"version": version, "staged": False, "rendered": False}
             if self._active() == version:
+                if recorded is None:
+                    # Rendered before digests existed: whether its files match
+                    # this configuration is unknown, and recording a digest
+                    # without rendering would claim they do.
+                    return {"version": version, "staged": False, "rendered": False}
                 # Running services were started from these files; replacing them
                 # here would let a later `compose down` miss the old containers.
                 raise InstallError(
