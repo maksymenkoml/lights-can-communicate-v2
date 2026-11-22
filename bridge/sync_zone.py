@@ -105,9 +105,8 @@ def default_zone(layout):
     desk_height = layout["desk"]["height"]
     half_width = layout["desk"]["width"] / 2
     desk_left, desk_right = 100 - half_width, 100 + half_width
-    monitor = next(row for row in layout["devices"] if row["id"] == "hue-monitor")
-    monitor_x = monitor["positionCm"]["x"]
-    monitor_half_width = layout["monitorInches"] * 2.54 * 8 / math.hypot(16, 9)
+    monitor_x = layout["screen"]["positionCm"]["x"]
+    monitor_half_width = layout["screen"]["inches"] * 2.54 * 8 / math.hypot(16, 9)
     device_xs = [row["positionCm"]["x"] for row in layout["devices"]
                  if row.get("enabled", True)]
     left = min([desk_left - 50, monitor_x - monitor_half_width - 20]

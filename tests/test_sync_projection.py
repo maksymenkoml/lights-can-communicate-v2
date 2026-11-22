@@ -7,11 +7,33 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+import sync_projection  # noqa: E402
 from sync_projection import (  # noqa: E402
     project_govee_frame,
     project_native_frame,
-    sync_profile,
 )
+
+
+def current(data):
+    """Return a hand-written layout in the shape the projection reads (version 7).
+
+    The screen object comes from the ``hue-monitor`` row and ``monitorInches``, as when a
+    stored file loads. Nothing is rounded to the grid, so tests may use any height.
+    """
+    result = copy.deepcopy(data)
+    monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+    result["screen"] = {"positionCm": copy.deepcopy(monitor["positionCm"]),
+                        "inches": result.pop("monitorInches")}
+    result["version"] = 7
+    return result
+
+
+def sync_profile(data):
+    return sync_projection.sync_profile(current(data))
+
+
+def scene_fade(data):
+    return sync_projection.scene_fade(current(data))
 
 
 def layout():

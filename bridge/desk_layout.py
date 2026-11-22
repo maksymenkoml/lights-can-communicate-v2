@@ -42,9 +42,11 @@ PREVIEW_FIELDS = {
 # ``syncFalloff`` and ``sceneFalloff``. Stored version 3 and 4 files load and are
 # returned as version 5; writes must use LAYOUT_VERSION. Version 6 adds the
 # optional Govee row field ``calibration`` (see govee_calibration.py); older
-# files load as version 6 without it.
-LAYOUT_VERSION = 6
-LAYOUT_VERSIONS = (3, 4, 5, LAYOUT_VERSION)
+# files load as version 6 without it. Version 7 replaces ``monitorInches`` with the
+# ``screen`` object (position and diagonal); older files load with a screen taken
+# from their ``hue-monitor`` row and ``monitorInches``.
+LAYOUT_VERSION = 7
+LAYOUT_VERSIONS = (3, 4, 5, 6, LAYOUT_VERSION)
 # Calibration controls of a Govee role row: name -> (lowest, highest). Zero is
 # neutral; an all-zero calibration is not stored.
 CALIBRATION_RANGES = {"warmth": (-100, 100), "tint": (-100, 100), "lowLight": (0, 100)}
@@ -102,13 +104,43 @@ def number(value, low, high):
     return value
 
 
+def grid_position(point):
+    """Return a validated ``{"x", "height"}`` front-wall position on the five-cm grid."""
+    if not isinstance(point, dict) or set(point) != {"x", "height"}:
+        raise ValueError("Expected centimeter coordinates")
+    x, height = number(point["x"], -200, 400), number(point["height"], 0, 300)
+    if any(not math.isclose(v / 5, round(v / 5), abs_tol=1e-7) for v in (x, height)):
+        raise ValueError("Position must be on the five-centimeter grid")
+    return {"x": x, "height": height}
+
+
+def validate_screen(value):
+    """Validate the version 7 ``screen`` object; its height rises to the minimum."""
+    if not isinstance(value, dict) or set(value) != {"positionCm", "inches"}:
+        raise ValueError("Expected the screen position and size")
+    inches = number(value["inches"], 19, 55)
+    position = grid_position(value["positionCm"])
+    position["height"] = max(position["height"],
+                             minimum_anchor_height({"id": "hue-monitor"}, inches))
+    return {"positionCm": position, "inches": inches}
+
+
+def screen_size(layout):
+    """Return the (width, height) in cm of the 16:9 screen of a validated layout."""
+    width = layout["screen"]["inches"] * 2.54 * 16 / math.hypot(16, 9)
+    return width, width * 9 / 16
+
+
 def validate_layout(value):
-    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "devices", "syncZone",
-               "sceneZone", *FALLOFF_DEFAULTS}
+    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "screen", "devices",
+               "syncZone", "sceneZone", *FALLOFF_DEFAULTS}
     version = value.get("version") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) - allowed or type(version) is not int
             or version not in LAYOUT_VERSIONS):
-        raise ValueError("Expected a desk layout of version three to six")
+        raise ValueError("Expected a desk layout of version three to seven")
+    if (version == LAYOUT_VERSION) != ("screen" in value) or (
+            version == LAYOUT_VERSION and "monitorInches" in value):
+        raise ValueError("Version seven carries the screen object, older versions monitorInches")
     if value.get("gridStepCm", 5) != 5:
         raise ValueError("Desk placement requires a five-centimeter grid")
     desk = value.get("desk")
@@ -128,9 +160,10 @@ def validate_layout(value):
             "width": number(desk["width"], 80, 240),
             "height": number(desk["height"], 50, 120),
         },
-        "monitorInches": number(value.get("monitorInches"), 19, 55),
         "devices": [],
     }
+    screen = (validate_screen(value["screen"]) if version == LAYOUT_VERSION
+              else {"inches": number(value.get("monitorInches"), 19, 55)})
     seen = set()
     for row in devices:
         if not isinstance(row, dict) or set(row) - PREVIEW_FIELDS:
@@ -142,12 +175,8 @@ def validate_layout(value):
         if key not in ROLES and not re.fullmatch(r"virtual-[a-z0-9]{1,32}", key) and not real:
             raise ValueError("Unknown layout identity")
         seen.add(key)
-        point = row.get("positionCm")
-        if not isinstance(point, dict) or set(point) != {"x", "height"}:
-            raise ValueError("Expected centimeter coordinates")
-        x, height = number(point["x"], -200, 400), number(point["height"], 0, 300)
-        if any(not math.isclose(v / 5, round(v / 5), abs_tol=1e-7) for v in (x, height)):
-            raise ValueError("Position must be on the five-centimeter grid")
+        position = grid_position(row.get("positionCm"))
+        x, height = position["x"], position["height"]
         orientation = row.get("orientation", "horizontal")
         if orientation not in ("horizontal", "vertical"):
             raise ValueError("Unknown orientation")
@@ -204,10 +233,17 @@ def validate_layout(value):
                 raise ValueError("Invalid identity-bound layout metadata")
             device.update(name=name, model=model, shape=shape, zones=zones)
         device['positionCm']['height'] = max(height, minimum_anchor_height(
-            device, result['monitorInches']))
+            device, screen["inches"]))
+        if key == "hue-monitor":
+            if "positionCm" in screen:
+                # The screen is authoritative: its row follows it.
+                device["positionCm"] = copy.deepcopy(screen["positionCm"])
+            else:
+                screen["positionCm"] = copy.deepcopy(device["positionCm"])
         result["devices"].append(device)
     if not set(ROLES) <= seen:
         raise ValueError("The selected six device roles must remain present")
+    result["screen"] = {"positionCm": screen["positionCm"], "inches": screen["inches"]}
     if value.get('syncZone') is not None:
         from sync_zone import validate_zone
 
@@ -246,9 +282,8 @@ def minimum_anchor_height(device, monitor_inches):
 
 def positions(layout, gradient=True):
     devices = {row["id"]: row for row in layout["devices"] if row["id"] in ROLES}
-    monitor = devices["hue-monitor"]["positionCm"]
-    width = layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
-    height = width * 9 / 16
+    monitor = layout["screen"]["positionCm"]
+    width, height = screen_size(layout)
 
     def point(x, h):
         return (

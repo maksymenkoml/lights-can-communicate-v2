@@ -23,7 +23,7 @@ import lights_can_communicate_v2 as lan  # noqa: E402
 class DiscoveryIntegrationTests(unittest.TestCase):
     def test_real_catalog_placement_roundtrips_without_changing_controlled_roles(self):
         value = layout()
-        existing_positions = positions(value)
+        existing_positions = positions(validate_layout(value))
         added = {
             "id": "device-" + "a" * 32,
             "name": "Discovered floor light",

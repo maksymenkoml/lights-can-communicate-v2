@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
-from sync_projection import sync_profile  # noqa: E402
+from desk_layout import validate_layout  # noqa: E402
 from sync_zone import validate_zone, vertical_bounds, zone_points  # noqa: E402
-from test_sync_projection import layout  # noqa: E402
+from test_sync_projection import layout, sync_profile  # noqa: E402
 
 
 class SyncOverlayParityTests(unittest.TestCase):
@@ -63,7 +63,7 @@ harness().then(app=>console.log(JSON.stringify(cases.map(config=>{
             data = layout()
             data['monitorInches'] = 32
             data['syncZone'] = config
-            points = zone_points(data)
+            points = zone_points(validate_layout(data))
             self.assertEqual(found['points'],points)
             for x,bounds in zip(xs,found['bounds']):
                 expected = vertical_bounds(points,x)

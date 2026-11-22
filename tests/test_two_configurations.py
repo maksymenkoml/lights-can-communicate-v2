@@ -13,8 +13,6 @@ from live_adapter import GoveeController  # noqa: E402
 from sync_projection import (  # noqa: E402
     project_govee_frame,
     project_native_frame,
-    scene_fade,
-    sync_profile,
 )  # noqa: E402
 from sync_zone import zone_points  # noqa: E402
 from test_floor_zone_contract import custom_zone  # noqa: E402
@@ -22,7 +20,7 @@ from test_hue_strip_proxy import FakeHue  # noqa: E402
 from test_hue_strip_proxy import command as hue_command  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, command, targets  # noqa: E402
 from test_native_profile import PLAY_IDS  # noqa: E402
-from test_sync_projection import frame, layout  # noqa: E402
+from test_sync_projection import frame, layout, scene_fade, sync_profile  # noqa: E402
 
 
 def v5(**changes):
@@ -61,7 +59,7 @@ class LayoutFieldTests(StoreCase):
             data = v5(version=version)
             with self.subTest(version=version):
                 result = validate_layout(data)
-                self.assertEqual(result["version"], 6)
+                self.assertEqual(result["version"], 7)
                 for key in ("sceneZone", "syncFalloff", "sceneFalloff"):
                     self.assertNotIn(key, result)
                 # The without-Sync correction is the row's own value: a file
@@ -122,11 +120,12 @@ class LayoutFieldTests(StoreCase):
         self.assertTrue(LayoutStore(self.path.with_name("missing.json")).present("left"))
 
     def test_zone_points_resolve_the_scene_zone_independently(self):
-        data = v5(sceneZone=custom_zone())
+        data = validate_layout(v5(sceneZone=custom_zone()))
         self.assertEqual(zone_points(data, "sceneZone")[0]["x"],
                          100 + custom_zone()["points"][0]["u"] * 80)
         self.assertNotEqual(zone_points(data, "sceneZone"), zone_points(data))
-        self.assertEqual(zone_points(v5(), "sceneZone"), zone_points(v5()))
+        plain = validate_layout(v5())
+        self.assertEqual(zone_points(plain, "sceneZone"), zone_points(plain))
 
 
 class FadeProjectionTests(unittest.TestCase):
@@ -387,7 +386,7 @@ class HueProxyTests(StoreCase):
         self.save(data)
         stored = json.loads(self.path.read_text())
         self.assertEqual((stored["version"], stored["sceneFalloff"], stored["syncFalloff"]),
-                         (6, True, False))
+                         (7, True, False))
 
 
 if __name__ == "__main__":

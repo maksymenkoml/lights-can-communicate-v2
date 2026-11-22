@@ -67,8 +67,8 @@ const CALIBRATION={warmth:[-100,100],tint:[-100,100],lowLight:[0,100]};
 function calibrationOf(v){const c={};for(const [k,[lo,hi]] of Object.entries(CALIBRATION))c[k]=Math.round(finite(v?.[k],lo,hi,0));return c}
 const calibrated=c=>!!c&&Object.keys(CALIBRATION).some(k=>c[k]);
 function fromLayout(data){
- if(!data||typeof data!=='object'||![3,4,5,6].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
- const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.monitorInches,19,55,32),
+ if(!data||typeof data!=='object'||![3,4,5,6,7].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
+ const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.screen?.inches??data.monitorInches,19,55,32),
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
@@ -99,7 +99,8 @@ function fromLayout(data){
 function pack(m={room,environment,lamps}){
  const env=m.environment;
  const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
- return {version:6,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},monitorInches:env.inches,
+ const monitor=m.lamps.find(l=>l.id===MONITOR);
+ return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
    ...(l.enabled===false?{enabled:false}:{}),...(/^govee-/.test(l.id)&&calibrated(l.calibration)?{calibration:{...l.calibration}}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
@@ -1248,7 +1249,11 @@ function applyModel(m){
 function mergeLayouts(base,local,remote){
  const result=clone(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
- for(const key of ['room','monitorInches'])field(result,key,base[key],local[key]);
+ // Files before version 7 carry the screen as monitorInches and the monitor row.
+ const screenOf=l=>l.screen??{positionCm:clone(l.devices.find(d=>d.id===MONITOR).positionCm),inches:l.monitorInches};
+ result.screen=screenOf(remote);delete result.monitorInches;
+ field(result,'room',base.room,local.room);
+ field(result,'screen',screenOf(base),screenOf(local));
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
  for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
  // Canonical responses also omit fade switches at their defaults.

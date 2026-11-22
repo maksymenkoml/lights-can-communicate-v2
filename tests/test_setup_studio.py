@@ -19,9 +19,10 @@ spec.loader.exec_module(studio)
 
 def layout():
     """A layout in the current format: older versions are refused on write."""
+    from desk_layout import validate_layout
     from test_desk_layout import layout as stored
 
-    return stored() | {"version": 6}
+    return validate_layout(stored())
 
 
 def catalog_device(**changes):
@@ -263,14 +264,15 @@ class StudioTests(unittest.TestCase):
 
     def test_a_migrated_version_three_file_changes_the_revision_seen_by_old_pages(self):
         from desk_layout import LayoutStore
+        from test_desk_layout import layout as stored
 
         with TemporaryDirectory(prefix="tmp_studio_migration_") as folder:
             path = Path(folder) / "desk-layout.json"
-            older = layout() | {"version": 3}
+            older = stored() | {"version": 3}
             path.write_text(json.dumps(older))
             old_revision = LayoutStore.digest(older)
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 6)
+            self.assertEqual(store.snapshot()["version"], 7)
             self.assertNotEqual(store.revision(), old_revision)
 
     def test_status_projection_excludes_keys_unselected_devices_and_raw_commands(self):

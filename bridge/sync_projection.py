@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 
+from desk_layout import screen_size
 from sync_zone import vertical_bounds, zone_points
 
 _ROLES = {
@@ -113,9 +114,8 @@ def _strip_gains(visibility, monitor, width, height):
 def sync_profile(validated_layout):
     """Build a deterministic, public-role-only Sync profile from a validated layout."""
     devices = _devices(validated_layout)
-    monitor = devices["hue-monitor"]["positionCm"]
-    width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
-    height = width * 9 / 16
+    monitor = validated_layout["screen"]["positionCm"]
+    width, height = screen_size(validated_layout)
     zone = zone_points(validated_layout)
     fade_on = validated_layout.get("syncFalloff", True)
     visibility = _visibility_function(zone, fade_on)
@@ -174,14 +174,14 @@ def scene_fade(validated_layout):
     zone = zone_points(validated_layout, "sceneZone")
     fade_on = validated_layout.get("sceneFalloff", False)
     visibility = _visibility_function(zone, fade_on)
-    monitor = devices["hue-monitor"]["positionCm"]
-    width = validated_layout["monitorInches"] * 2.54 * 16 / math.hypot(16, 9)
+    monitor = validated_layout["screen"]["positionCm"]
+    width, height = screen_size(validated_layout)
     result = {}
     for key, side in (("govee-left", "left"), ("govee-right", "right")):
         position = devices[key]["positionCm"]
         rows, _ = _govee_segments(zone, fade_on, position["x"], position["height"] - 60)
         result[side] = [gain for gain, _ in rows]
-    strip = _strip_gains(visibility, monitor, width, width * 9 / 16)
+    strip = _strip_gains(visibility, monitor, width, height)
     result["strip"] = sum(strip) / len(strip)
     for key, role in _ROLES.items():
         if role in _PLAY_CHANNELS:
