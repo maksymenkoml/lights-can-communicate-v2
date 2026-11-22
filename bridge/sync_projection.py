@@ -147,23 +147,22 @@ def light_entry(row, validated_layout):
     return _Projector(validated_layout).light(row)
 
 
-def _light_entries(validated_layout, **options):
+def _light_entries(validated_layout, projector=None, **options):
     devices = _devices(validated_layout)
-    projector = _Projector(validated_layout, **options)
+    projector = projector or _Projector(validated_layout, **options)
     return {key: projector.light(devices[key]) for key in _ROLES}
 
 
 def sync_profile(validated_layout):
     """Build a deterministic, public-role-only Sync profile from a validated layout."""
     devices = _devices(validated_layout)
-    entries = _light_entries(validated_layout)
+    projector = _Projector(validated_layout)
+    entries = _light_entries(validated_layout, projector)
     # Removed rows and rows with their own light or off during Sync are outside it.
     members = [key for key in _ROLES if composed(devices[key])]
     enabled = [_ROLES[key] for key in members]
     # Every composed light gets an entry; layout-only drawings never produce output.
-    projector = _Projector(validated_layout)
-    lights = {row["id"]: (copy.deepcopy(entries[row["id"]]) if row["id"] in entries
-                          else projector.light(row))
+    lights = {row["id"]: entries[row["id"]] if row["id"] in entries else projector.light(row)
               for row in validated_layout["devices"]
               if composed(row) and not row["id"].startswith("virtual-")}
     profile = {
