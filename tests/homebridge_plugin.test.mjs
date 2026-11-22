@@ -80,8 +80,16 @@ function harness({ cached = [], client = new FakeClient(), lamps = LAMPS, clock 
 }
 
 /** An accessory shaped like the cached Govee H6076 (inventory 2026-11-17). */
+// Mirrors addAccessory of @homebridge-plugins/homebridge-govee 11.40.0.
 function goveeAccessory(name, deviceId) {
   const accessory = new hap.Accessory(name, hap.uuid.generate(deviceId));
+  accessory.getService(hap.Service.AccessoryInformation)
+    .setCharacteristic(hap.Characteristic.Name, name)
+    .setCharacteristic(hap.Characteristic.ConfiguredName, name)
+    .setCharacteristic(hap.Characteristic.Manufacturer, 'Govee')
+    .setCharacteristic(hap.Characteristic.SerialNumber, deviceId)
+    .setCharacteristic(hap.Characteristic.Model, 'H6076')
+    .setCharacteristic(hap.Characteristic.Identify, true);
   const service = accessory.addService(hap.Service.Lightbulb);
   for (const type of [hap.Characteristic.Brightness, hap.Characteristic.Hue,
     hap.Characteristic.Saturation, hap.Characteristic.ColorTemperature]) {
@@ -223,6 +231,7 @@ test('an owner name from the core renames the accessory without changing identif
   assert.equal(lamp.accessory.displayName, 'Desk left');
   assert.equal(accessory.displayName, 'Desk left');
   assert.equal(info.getCharacteristic(hap.Characteristic.Name).value, 'Desk left');
+  assert.equal(info.getCharacteristic(hap.Characteristic.ConfiguredName).value, 'Desk left');
   assert.equal(platform.lamps.get('right').accessory.displayName, 'Mykola office R');
   assert.deepEqual({ ...identifiers(accessory), aid: accessory.aid, uuid: accessory.UUID }, before);
   // A later answer without a name keeps the last name; another name renames again.

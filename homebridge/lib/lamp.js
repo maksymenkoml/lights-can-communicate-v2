@@ -25,6 +25,12 @@ export class Lamp {
     info.setCharacteristic(Characteristic.Manufacturer, 'Govee')
       .setCharacteristic(Characteristic.Model, lamp.model || 'H6076')
       .setCharacteristic(Characteristic.SerialNumber, lamp.deviceId);
+    // The Govee plugin adds ConfiguredName here when it creates an accessory;
+    // without it the cached IID would expire. Home writes it on renames, so an
+    // existing value is kept.
+    if (!info.testCharacteristic(Characteristic.ConfiguredName)) {
+      info.setCharacteristic(Characteristic.ConfiguredName, lamp.name);
+    }
 
     this.service = accessory.getService(Service.Lightbulb) || accessory.addService(Service.Lightbulb);
     const characteristic = (type) => this.service.getCharacteristic(type);
@@ -71,7 +77,8 @@ export class Lamp {
 
   /**
    * Show the owner's name from Light Studio. Only display names change: UUID,
-   * AID and IID stay, so rooms, scenes and automations survive. Name and
+   * AID and IID stay, so rooms, scenes and automations survive. The
+   * AccessoryInformation Name and ConfiguredName follow; Name and
    * ConfiguredName on the Lightbulb are updated only where the accessory
    * already has them, so no characteristic (and no IID) is added. Apple Home
    * may keep a name that the owner edited in the Home app.
@@ -88,6 +95,7 @@ export class Lamp {
       this.accessory._associatedHAPAccessory.displayName = value;
     }
     this.info.updateCharacteristic(Characteristic.Name, value);
+    this.info.updateCharacteristic(Characteristic.ConfiguredName, value);
     for (const type of [Characteristic.Name, Characteristic.ConfiguredName]) {
       if (type && this.service.testCharacteristic(type)) this.service.updateCharacteristic(type, value);
     }
