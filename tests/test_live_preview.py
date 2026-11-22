@@ -18,6 +18,7 @@ from govee_segments import razer_data, razer_mode, segment_data  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy  # noqa: E402
 from live_adapter import GoveeController, handler_for  # noqa: E402
+from registry_files import write_registry  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_hue_strip_proxy import FakeHue, command  # noqa: E402
 from test_live_adapter import LEFT, targets  # noqa: E402
@@ -505,23 +506,20 @@ class ProducerTests(unittest.TestCase):
 
         with TemporaryDirectory(prefix="tmp_preview_wiring_") as directory:
             root = Path(directory)
-            (root / "targets.json").write_text(json.dumps({"targets": targets()}))
+            write_registry(root, targets(), profile_data())
             (root / "token").write_text("a" * 48)
             (root / "hue.json").write_text('{"bridge":"192.168.99.2"}')
-            (root / "native.json").write_text(json.dumps(profile_data()))
             fixture = relay_tests.RelayTests()
             fixture.setUp()
             fixture.config["bridge"] = "192.168.99.2"
             (root / "stream.json").write_text(json.dumps(fixture.config))
             args = [
-                "--targets",
-                str(root / "targets.json"),
+                "--registry",
+                str(root / "lights.json"),
                 "--token-file",
                 str(root / "token"),
                 "--hue-config",
                 str(root / "hue.json"),
-                "--native-profile",
-                str(root / "native.json"),
                 "--hue-play",
                 "--hue-stream-config",
                 str(root / "stream.json"),

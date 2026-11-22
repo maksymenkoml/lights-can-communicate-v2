@@ -43,8 +43,11 @@ from video_output import VideoOutput  # noqa: E402
 import lights_can_communicate_v2 as lan  # noqa: E402
 from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
 from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # noqa: E402
+from lights_can_communicate_v2_core.light_registry import (  # noqa: E402
+    LightRegistry,
+    RegistryError,
+)
 from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
-from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
 
 def number(value, low, high):
@@ -864,7 +867,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
 
 def main(argv=None, service_info=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--targets", type=Path, required=True)
+    parser.add_argument("--registry", type=Path, required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--port", type=int, default=19880)
     parser.add_argument("--bind", default="0.0.0.0")
@@ -872,7 +875,6 @@ def main(argv=None, service_info=None):
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
     parser.add_argument("--hue-stream-config", type=Path)
-    parser.add_argument("--native-profile", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
     parser.add_argument("--power-authority", choices=("owner", "homekit"), default="owner",
                         help="owner: remote heartbeat; homekit: this adapter executes power")
@@ -881,15 +883,16 @@ def main(argv=None, service_info=None):
         parser.error("--hue-play requires --hue-config")
     if args.hue_stream_config and not args.hue_play:
         parser.error("--hue-stream-config requires --hue-play and --hue-config")
-    if args.native_profile and not args.hue_config:
-        parser.error("--native-profile requires --hue-config")
-    if args.hue_config and not args.native_profile:
-        parser.error("--hue-config requires --native-profile")
-    native_profile = NativeHueProfile.load(args.native_profile) if args.native_profile else None
-    state_dir = args.state_dir or args.targets.parent
+    state_dir = args.state_dir or args.registry.parent
     if (state_dir / "live-output-hold").exists():
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
-    config = json.loads(args.targets.read_text())
+    registry = LightRegistry.load(args.registry)
+    native_profile = registry.native_profile()
+    if native_profile and not args.hue_config:
+        parser.error("A native Hue profile in the light registry requires --hue-config")
+    if args.hue_config and not native_profile:
+        parser.error("--hue-config requires a native Hue profile in the light registry")
+    config = {"targets": registry.govee_targets()}
     layout_store = LayoutStore(state_dir / "desk-layout.json")
     composition_profile = layout_store.sync_profile()
     for device in config["targets"]:
@@ -1011,7 +1014,16 @@ def main(argv=None, service_info=None):
         (video is None or not video.active())
         and all(proxy.govee_allowed() for proxy in hue_proxies.values() if proxy.included())
     )
-    lan.CONFIG = args.targets
+
+    def remember_targets():
+        # The adapter follows a lamp to a new address; persist it in the registry,
+        # the only source of lights. A failed write is an OSError for the
+        # transport, which restarts its receive loop as it did for the old file.
+        try:
+            registry.with_govee_targets(controller.targets).save(args.registry)
+        except RegistryError:
+            raise OSError("Light registry could not be written") from None
+
     legacy_roles = {("govee", lan.device_key(device)): "govee-" + device["side"]
                     for device in controller.targets}
     hue_layout_roles = {"strip": "hue-monitor", "hue_left": "play-left",
@@ -1076,7 +1088,7 @@ def main(argv=None, service_info=None):
         transport = GoveeTransport(
             controller.targets,
             publish_statuses,
-            remember=lambda: lan.save_config({"targets": controller.targets}),
+            remember=remember_targets,
             discovery=catalog,
         )
         threading.Thread(

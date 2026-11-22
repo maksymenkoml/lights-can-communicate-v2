@@ -14,7 +14,8 @@ import time
 
 from . import __version__, install, services
 from .config import ConfigError, load_config, read_json
-from .native_profile import NativeHueProfile, NativeProfileError
+from .light_registry import REGISTRY_FILE, RegistryError, ensure
+from .native_profile import NativeProfileError
 
 
 def _hue_identity(value):
@@ -39,17 +40,28 @@ def _credential(path):
     return value
 
 
-def prepare(config):
-    """Import and validate the existing runtime without starting any workers."""
-    if config.hue_config_file and not config.native_profile_file:
-        raise ConfigError("Hue output requires an explicit native Hue profile")
+def prepare(config, *, write_registry):
+    """Import and validate the existing runtime without starting any workers.
+
+    The light registry is the only source of lights. A missing one is migrated
+    from the old files in memory and written only after every check passed, so
+    a configuration that fails to start never freezes a stale migration. With
+    ``write_registry=False`` (configuration check) the state is never touched.
+    Returns the runtime module and the light registry.
+    """
+    registry_path = config.state_dir / REGISTRY_FILE
+    migrating = not (registry_path.exists() or registry_path.is_symlink())
     try:
-        profile = (
-            NativeHueProfile.load(config.native_profile_file)
-            if config.native_profile_file else None
-        )
+        registry = ensure(config.state_dir, config.targets_file, config.native_profile_file)
+        profile = registry.native_profile()
+    except RegistryError as error:
+        raise ConfigError(str(error)) from None
     except NativeProfileError:
         raise ConfigError("Invalid native Hue profile") from None
+    if config.hue_config_file and profile is None:
+        raise ConfigError("Hue output requires a native Hue profile in the light registry")
+    if profile is not None and not config.hue_config_file:
+        raise ConfigError("A native Hue profile in the light registry requires a Hue configuration")
     os.environ["PROBE_GOVEE_GRADIENT"] = "true" if config.gradient else "false"
     # Source mode explicitly adds only the known bridge module directory. In an
     # archive all runtime modules already live in the archive's import root.
@@ -65,9 +77,8 @@ def prepare(config):
     token, owner = _credential(config.token_file), _credential(config.power_owner_token_file)
     if hmac.compare_digest(token, owner):
         raise ConfigError("Adapter and power credentials must differ")
-    data = read_json(config.targets_file, "target configuration")
     try:
-        targets = data["targets"]
+        targets = registry.govee_targets()
         live_adapter.GoveeController(targets)
         for target in targets:
             lan.local_ip(target["ip"])
@@ -113,7 +124,12 @@ def prepare(config):
         subprocess.SubprocessError,
     ) as error:
         raise ConfigError("Invalid adapter runtime configuration or dependency") from error
-    return live_adapter
+    if write_registry and migrating:
+        try:
+            registry.save(registry_path)
+        except RegistryError as error:
+            raise ConfigError(str(error)) from None
+    return live_adapter, registry
 
 
 def _setup_module():
@@ -148,14 +164,14 @@ HOLD_POLL_SECONDS = 5.0
 
 
 def _adapter(config, check, sleep=time.sleep):
-    runtime = prepare(config)
+    runtime, registry = prepare(config, write_registry=not check)
     if check:
         print(
             json.dumps(
                 {
                     "version": __version__,
-                    "profile": "explicit-native" if config.native_profile_file else "govee-only",
-                    "targets": 2,
+                    "profile": "explicit-native" if registry.native_profile() else "govee-only",
+                    "targets": len(registry.govee_targets()),
                     "gradient": config.gradient,
                     "native_hue": bool(config.hue_config_file),
                     "native_video": bool(config.hue_stream_config_file),

@@ -97,6 +97,14 @@ class ManagedServiceTests(unittest.TestCase):
         self.save()
         self.assertEqual(load_config(self.config_path).setup.port, 19881)
 
+    def test_arguments_pass_registry(self):
+        config = load_config(self.config_path)
+        arguments = config.arguments()
+        self.assertEqual(config.registry_file, config.state_dir / "lights.json")
+        self.assertEqual(arguments[arguments.index("--registry") + 1], str(config.registry_file))
+        self.assertNotIn("--targets", arguments)
+        self.assertNotIn("--native-profile", arguments)
+
     def test_power_authority_defaults_to_the_remote_owner(self):
         config = load_config(self.config_path)
         self.assertEqual(config.power_authority, "owner")
