@@ -36,6 +36,7 @@ RUNTIME_MODULES = (
     "native_location_cache",
     "identify",
     "legacy_wire",
+    "light_enrollment",
     "sync_off",
 )
 CORE_MODULES = (

@@ -219,6 +219,32 @@ atomically with owner-only permissions. The adapter also writes it when it
 follows a lamp to a new Govee address. Only an entry in the registry makes a
 Govee light an output; discovery never does.
 
+### Enrolling and removing Govee lights
+
+The owner enrolls a discovered Govee light with `POST /api/lights/enroll` and
+removes one with `POST /api/lights/remove` in Light Studio (body `{"id":
+"device-<32 hex>"}`, local origin only). Light Studio forwards the request to the
+adapter (`/lights/enroll`, `/lights/remove`, adapter token), the only writer of
+the registry. An enrollment needs the light to pass the binding rules at that
+moment: discovered, online, at one address that no other device uses, and not
+one of the migrated lamps. Any model qualifies; a model outside the capability
+table is driven as a basic light. The new entry takes the Govee device ID, the
+current address and the model; its virtual slot is the lowest free `id_v1`, with
+the light ID as the identity seed. A removal keeps the light's virtual identity
+in `retired` (at most 64 records, oldest dropped first), so a rejoin of the same
+device gets the same slot and seed. The migrated lamps cannot be removed: they
+still own the fixed layout rows.
+
+A change is refused with 409 and a reason while Sync output is active
+(`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled
+(`not_enrolled`), when discovery does not offer it now (`unavailable`), and after a
+change until the restart (`restarting`). A changed registry is saved atomically,
+then the adapter stops and Docker restarts it with the new light set; until stage
+4 of the light-set design an enrolled light works in Sync, power and HomeKit but
+not in Hue app scenes. Place the light in the Light Studio layout to give it a
+Sync zone, and add `{"deviceId": ..., "name": ...}` to the Homebridge plugin's
+`lamps` for a HomeKit accessory.
+
 ### Govee lights and model tiers
 
 The adapter addresses every Govee light by its registry ID: `/command`,

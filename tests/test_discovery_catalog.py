@@ -46,6 +46,31 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         return rows[0]
 
+    def test_an_online_unambiguous_govee_light_of_any_model_is_enrollable(self):
+        self.catalog.observe_govee({"device": MAC.lower(), "sku": "h6008"}, "192.168.1.10")
+        identifier = self.one()["id"]
+        self.assertFalse(self.one()["supported"])
+        self.assertEqual(self.catalog.govee_enrollment(identifier),
+                         {"device": MAC, "ip": "192.168.1.10", "model": "H6008"})
+        self.now = 121  # stale: offline
+        self.assertIsNone(self.catalog.govee_enrollment(identifier))
+        self.assertIsNone(self.catalog.govee_enrollment("device-" + "0" * 32))
+
+    def test_ambiguous_migrated_or_hue_lights_are_not_enrollable(self):
+        self.scan()
+        self.scan(device=OTHER, ip="192.168.1.10")  # two devices on one address
+        self.assertEqual([self.catalog.govee_enrollment(row["id"])
+                          for row in self.catalog.snapshot()["devices"]], [None, None])
+        legacy = DeviceCatalog(clock=lambda: self.now, ttl=20,
+                               legacy_roles={("govee", MAC): "govee-left"})
+        legacy.observe_govee({"device": MAC, "sku": "H6076"}, "192.168.1.10")
+        row = legacy.snapshot()["devices"][0]
+        self.assertIsNone(legacy.govee_enrollment(row["id"]))
+        self.catalog.observe_hue(BRIDGE, *hue())
+        hue_row = next(row for row in self.catalog.snapshot()["devices"]
+                       if row["provider"] == "hue")
+        self.assertIsNone(self.catalog.govee_enrollment(hue_row["id"]))
+
     def test_identity_survives_name_case_and_address_change(self):
         self.scan(device=MAC.lower(), deviceName="First")
         original = self.one()["id"]

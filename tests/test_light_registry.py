@@ -305,6 +305,80 @@ class RegistryModelTests(unittest.TestCase):
                 LightRegistry.load(Path(directory) / "missing.json")
 
 
+NEW = "device-" + "c" * 32
+OTHER = "device-" + "d" * 32
+
+
+class EnrollmentTests(unittest.TestCase):
+    def test_a_new_light_takes_the_next_free_slot_and_its_id_as_seed(self):
+        registry = LightRegistry.from_dict(sample()).with_govee_light(
+            NEW, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52", "H6008")
+        light = registry.to_dict()["lights"][-1]
+        self.assertEqual(light, {"id": NEW, "provider": "govee",
+                                 "virtual": {"id_v1": "7", "seed": NEW},
+                                 "govee": {"device": "CC:CC:CC:CC:CC:CC:CC:CC",
+                                           "ip": "192.168.10.52", "model": "H6008"}})
+        self.assertEqual([item["light"] for item in registry.govee_targets()],
+                         ["govee-left", "govee-right", NEW])
+        # The native profile of the migrated Hue lights is unchanged.
+        self.assertEqual(registry.native_profile(),
+                         LightRegistry.from_dict(sample()).native_profile())
+
+    def test_a_removed_light_keeps_its_identity_for_a_rejoin(self):
+        registry = LightRegistry.from_dict(sample()).with_govee_light(
+            NEW, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52", "H6008")
+        registry = registry.with_govee_light(OTHER, "DD:DD:DD:DD:DD:DD:DD:DD",
+                                             "192.168.10.53", "H6076")
+        removed = registry.without_govee_light(NEW)
+        data = removed.to_dict()
+        self.assertNotIn(NEW, removed.ids)
+        self.assertEqual(data["retired"], [{"id": NEW, "virtual": {"id_v1": "7", "seed": NEW}}])
+        # A third light does not take the retired slot; the rejoin gets it back.
+        third = "device-" + "e" * 32
+        other = removed.with_govee_light(third, "EE:EE:EE:EE:EE:EE:EE:EE", "192.168.10.54",
+                                         "H6008")
+        self.assertEqual(other.to_dict()["lights"][-1]["virtual"]["id_v1"], "9")
+        rejoined = removed.with_govee_light(NEW, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.60",
+                                            "H6008")
+        self.assertEqual(rejoined.to_dict()["lights"][-1]["virtual"],
+                         {"id_v1": "7", "seed": NEW})
+        self.assertNotIn("retired", rejoined.to_dict())
+
+    def test_enrollment_refuses_duplicates_and_non_device_ids(self):
+        registry = LightRegistry.from_dict(sample())
+        for light_id, device in ((NEW, "aa:bb:cc:dd:ee:01"), ("govee-third", "CC"),
+                                 ("govee-left", "CC:CC:CC:CC:CC:CC:CC:CC")):
+            with self.subTest(light_id=light_id), self.assertRaises(RegistryError):
+                registry.with_govee_light(light_id, device, "192.168.10.52", "H6008")
+        enrolled = registry.with_govee_light(NEW, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52",
+                                             "H6008")
+        with self.assertRaises(RegistryError):
+            enrolled.with_govee_light(NEW, "DD:DD:DD:DD:DD:DD:DD:DD", "192.168.10.53", "H6008")
+
+    def test_removal_refuses_the_migrated_lamps_and_unknown_lights(self):
+        registry = LightRegistry.from_dict(sample())
+        for light_id in ("govee-left", "hue-monitor", NEW):
+            with self.subTest(light_id=light_id), self.assertRaises(RegistryError):
+                registry.without_govee_light(light_id)
+
+    def test_retired_records_are_validated_and_bounded(self):
+        data = sample()
+        data["retired"] = [{"id": NEW, "virtual": {"id_v1": "1", "seed": "Other"}}]
+        with self.assertRaises(RegistryError):
+            LightRegistry.from_dict(data)  # slot 1 belongs to govee-left
+        for retired in ([], [{"id": "govee-left", "virtual": {"id_v1": "9", "seed": "X"}}],
+                        [{"id": NEW, "virtual": {"id_v1": "9"}}]):
+            data["retired"] = retired
+            with self.subTest(retired=retired), self.assertRaises(RegistryError):
+                LightRegistry.from_dict(data)
+        registry = LightRegistry.from_dict(sample(hue=False))
+        for index in range(70):
+            light_id = f"device-{index:032x}"
+            registry = registry.with_govee_light(
+                light_id, f"{index:016X}", "192.168.10.52", "H6008").without_govee_light(light_id)
+        self.assertEqual(len(registry.to_dict()["retired"]), 64)
+
+
 class MigrationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="tmp_light_registry_")

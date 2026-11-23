@@ -3,7 +3,8 @@
 Status: design approved for planning. Stage 1, stage 2 (screen object and
 generic projection), stage 3a (Govee lights by registry id, model tiers) and
 stage 3b (`/homekit` API 2 and plugin 0.2.0 by Govee device ID; only the
-obsolete `/power-owner` keeps side names) implemented. Implementation follows
+obsolete `/power-owner` keeps side names) and stage 3c (enrollment and removal
+of discovered Govee lights through Light Studio and the adapter) implemented. Implementation follows
 in stages; each stage is a separate PR with live NAS verification.
 
 ## Intent
