@@ -209,19 +209,20 @@ The core owns `state_dir/lights.json`, the registry of the enrolled lights: for
 each light its ID, provider, virtual bridge slot and identity seed, its Govee
 target fields, or its Hue light UUID with the native Entertainment channels, plus
 the Hue area UUID. The adapter reads only this file (`--registry`). The registry
-is strict: unknown fields, duplicate keys, invalid UUIDs and a Hue light set
-other than the four current native lights (`hue-monitor`, `play-left`,
-`play-center`, `play-right`, all or none) are rejected. Govee lights are any
-number of entries whose ID is `govee-left`, `govee-right` (the migrated lamps)
-or `device-` followed by 32 lower-case hexadecimal digits (the discovery ID); a
-registry needs at least one light. The file holds no credentials and is written
+is strict: unknown fields, duplicate keys, invalid UUIDs and an incomplete set
+of the four migrated native lights (`hue-monitor`, `play-left`, `play-center`,
+`play-right`, all or none) are rejected. Govee lights are any number of entries
+whose ID is `govee-left`, `govee-right` (the migrated lamps) or `device-`
+followed by 32 lower-case hexadecimal digits (the discovery ID). A Hue light
+enrolled later also has a discovery ID and keeps its native model; a registry
+needs at least one light. The file holds no credentials and is written
 atomically with owner-only permissions. The adapter also writes it when it
 follows a lamp to a new Govee address. Only an entry in the registry makes a
 Govee light an output; discovery never does.
 
-### Enrolling and removing Govee lights
+### Enrolling and removing lights
 
-The owner enrolls a discovered Govee light with `POST /api/lights/enroll` and
+The owner enrolls a discovered Govee or Hue light with `POST /api/lights/enroll` and
 removes one with `POST /api/lights/remove` in Light Studio (body `{"id":
 "device-<32 hex>"}`, local origin only). Light Studio forwards the request to the
 adapter (`/lights/enroll`, `/lights/remove`, adapter token), the only writer of
@@ -235,10 +236,46 @@ in `retired` (at most 64 records, oldest dropped first), so a rejoin of the same
 device gets the same slot and seed. The migrated lamps cannot be removed: they
 still own the fixed layout rows.
 
+A Hue light is enrolled into the native Entertainment area that the existing
+pairing uses (#60 adds the choice of area later). With Sync off, the adapter adds
+the light to that area through the bridge with the paired credentials. The
+bridge merges lights at one position into one channel, so the light takes the
+free point farthest from the area's channels; otherwise positions in the area do
+not matter, because the Light Studio layout gives the light its Sync zone. The
+bridge places every gradient light on the same fixed template, whatever its
+position and the area type, so a second gradient light shares the first one's
+channels (verified on a Hue Bridge on 2026-11-23). A light whose channels are
+shared cannot be driven on its own: the area is restored and the enrollment is
+refused. The light's entertainment service is the
+one whose renderer is the light, and its channels are the area's channels of
+that service. A light that is already a member is kept as it is. The registry
+appends the light's channels after the channels of the lights enrolled before
+it, so the migrated channels and their packet bytes do not change; removing a
+Hue light moves the channels of the later ones down. A removal takes the light
+out of the area before the registry changes and puts it back when the registry
+cannot be saved; an enrollment that is refused after the area changed takes the
+light out again, and a failed or uncertain area write restores the earlier
+locations. Enrollments and removals run one at a time.
+
+The area client authenticates the bridge before it sends the application key.
+It verifies the certificate chain against the Signify root CA for Hue bridges
+(`root-bridge`, embedded in `bridge/hue_area.py`), and the certificate's common
+name is the bridge id. The first verified request pins that id in
+`state/hue-bridge-id`; every later request must name the same bridge, otherwise
+the change is refused (`unavailable`). After a bridge replacement, delete that
+file. A bridge whose certificate is not issued by that CA cannot change the area.
+The native relay and light proxies do not verify the bridge yet. The relay refuses an area with
+a member that is not enrolled, so do not add lights to this area in the Hue app.
+
 A change is refused with 409 and a reason while Sync output is active
 (`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled
-(`not_enrolled`), when discovery does not offer it now (`unavailable`), and after a
-change until the restart (`restarting`). A changed registry is saved atomically,
+(`not_enrolled`), when discovery does not offer it now or the area cannot be read
+or changed (`unavailable`), when the area would exceed ten lights or twenty
+channels (`area_full`), when the bridge gives the light shared channels
+(`channels_shared`), and after a change until the restart (`restarting`). A
+native cleanup that is still pending does not block a change: it can wait on an
+area that only the change repairs, and the area itself is not changed while it
+streams. A changed registry is saved atomically,
 then the adapter stops and Docker restarts it with the new light set. The
 gateway also restarts when the set of virtual lights changes (see "Virtual
 lights"). Place the light in the Light Studio layout to give it a
@@ -249,11 +286,14 @@ Sync zone, and add `{"deviceId": ..., "name": ...}` to the Homebridge plugin's
 
 The gateway reads the registry at start (the release mounts the core archive
 read-only next to its modules; without a registry it keeps the two migrated
-lamps) and creates one virtual Hue light for each enrolled Govee light. The
+lamps) and creates one virtual Hue light for each enrolled light. The
 migrated lamps keep slots 1 and 2 and their UUIDs. A light enrolled later gets
 the virtual slot from its registry entry and a UUID seeded from its registry ID
 (`uuid5(URL, "smart-lighting-probe/<seed>")`). A segmented light is a gradient
-light in the gradient mode; any other light is a color bulb (`LCT015`). New
+light in the gradient mode; any other light is a color bulb (`LCT015`). A Hue
+light enrolled later mirrors its native light: a gradient light (`LCX006`) with
+several channels, else a color bulb; its scenes and power go to its native
+light through the adapter. New
 lights join the room, so Hue app scenes, group power and the Hue app reach
 them, but not the Entertainment area: the Sync Box pairing and the sampler stay
 as they are, and Sync drives the new light by projection. Scene output, power
@@ -344,9 +384,10 @@ The adapter creates one proxy per native light and addresses every native light
 by its registry light ID: `/command` (`light`), `/native-power`, `/identify`,
 calibration, Sync Off and `/status` (`"hue": {<light ID>: snapshot}`). The
 relay derives each light's channels from the profile and keeps the packet bytes
-of the migrated area. The registry still accepts only the four migrated Hue
-lights: enrolling another light of the paired area, and projecting Sync colors
-onto it, is the next stage.
+of the migrated area. A Hue light enrolled later (see "Enrolling and removing
+lights") has no capture sources: Sync projects one zone per channel from its
+layout row, spread 10 cm apart along its orientation around its position, and the
+relay sends each channel the zone at its place.
 
 The owner's same-selection profile replaced dev3 locally after read-only metadata
 parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six roles,

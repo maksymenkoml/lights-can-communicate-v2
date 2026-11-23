@@ -18,6 +18,7 @@ RUNTIME_MODULES = (
     "calibration_session",
     "sync_box",
     "sync_guard",
+    "hue_area",
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "govee_transport",

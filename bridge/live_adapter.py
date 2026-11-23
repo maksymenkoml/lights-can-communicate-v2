@@ -19,7 +19,7 @@ if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from calibration_session import CalibrationRefused, CalibrationSession  # noqa: E402
 from desk_layout import LayoutStore  # noqa: E402
-from entertainment_stream import GRADIENT_MODE  # noqa: E402
+from entertainment_stream import GRADIENT_MODE, NATIVE_SOURCES  # noqa: E402
 from govee_calibration import GoveeCalibration  # noqa: E402
 from govee_models import target_capabilities  # noqa: E402
 from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
@@ -30,6 +30,7 @@ from homekit_power import (  # noqa: E402
     SignatureVerifier,
     response_signature,
 )
+from hue_area import HueArea  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
@@ -945,7 +946,10 @@ def main(argv=None, service_info=None):
     if args.hue_config and not native_profile:
         parser.error("--hue-config requires a native Hue profile in the light registry")
     config = {"targets": registry.govee_targets()}
-    layout_store = LayoutStore(state_dir / "desk-layout.json")
+    layout_store = LayoutStore(
+        state_dir / "desk-layout.json",
+        native={light: len(channels) for light, channels in native_profile.channels.items()
+                if light not in NATIVE_SOURCES} if native_profile else None)
     composition_profile = layout_store.sync_profile()
     prepare_targets(config["targets"], composition_profile)
     if not args.token_file.exists():
@@ -1064,9 +1068,11 @@ def main(argv=None, service_info=None):
 
     legacy_roles = {("govee", lan.device_key(device)): device["light"]
                     for device in controller.targets if device["light"] in LEGACY_SIDES}
+    # Only the migrated Hue lights own fixed layout rows; an enrolled one is placed
+    # like any discovered light.
     for light, proxy in hue_proxies.items():
         resource = getattr(proxy, "resource_id", None)
-        if resource:
+        if resource and light in NATIVE_SOURCES:
             legacy_roles[("hue", resource)] = light
     catalog = DeviceCatalog(legacy_roles=legacy_roles)
     catalog.provider_state("govee", "discovering")
@@ -1078,9 +1084,19 @@ def main(argv=None, service_info=None):
         # Leave time for the HTTP answer; Docker restarts the finished container.
         threading.Timer(0.5, stop.set).start()
 
+    # A new Hue light is enrolled into the paired Entertainment area (#60 chooses it later).
+    # Without usable paired credentials a Hue enrollment is refused as unavailable.
+    try:
+        area = (HueArea(hue_config, native_profile.area_id,
+                        pin_file=state_dir / "hue-bridge-id")
+                if hue_config is not None else None)
+    except (KeyError, TypeError, ValueError):
+        area = None
     enrollment = LightEnrollment(
         args.registry, registry, catalog,
-        busy=lambda: video is not None and video.active(), restart=restart_with_new_lights)
+        busy=lambda: video is not None and video.owns_lights(),
+        restart=restart_with_new_lights,
+        area=area)
     server = ThreadingHTTPServer(
         (args.bind, args.port),
         handler_for(

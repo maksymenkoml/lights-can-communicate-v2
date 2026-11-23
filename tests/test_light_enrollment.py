@@ -12,8 +12,9 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
+from hue_area import AreaBusy, AreaShared  # noqa: E402
 from light_enrollment import LightEnrollment  # noqa: E402
-from test_light_registry import sample  # noqa: E402
+from test_light_registry import AREA, sample  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 from test_setup_studio import studio  # noqa: E402
 
@@ -131,6 +132,176 @@ class EnrollmentTests(unittest.TestCase):
         # The running controller still has the old set; it must not write it back.
         lights.remember(moved)
         self.assertNotIn(self.new, self.stored().ids)
+
+
+HUE_LIGHT = "a0000000-0000-4000-8000-00000000000a"
+HUE_SERVICE = "b0000000-0000-4000-8000-00000000000b"
+BRIDGE_ID = "001788FFFE123456"
+
+
+class Area:
+    """The paired Entertainment area of the tests, as HueArea changes it."""
+
+    area_id = AREA
+
+    def __init__(self, member=None, error=None, added=True):
+        self.result, self.error, self.added, self.calls = member, error, added, []
+
+    def join(self, light):
+        self.calls.append(("join", light))
+        if self.error is not None:
+            raise self.error
+        return self.result, self.added
+
+    def leave(self, light):
+        self.calls.append(("leave", light))
+        if self.error is not None:
+            raise self.error
+        return ["locations before"]
+
+    def rejoin(self, before):
+        self.calls.append(("rejoin", before))
+
+
+class HueEnrollmentTests(unittest.TestCase):
+    def setUp(self):
+        temp = TemporaryDirectory(prefix="tmp_light_enrollment_")
+        self.addCleanup(temp.cleanup)
+        self.path = Path(temp.name) / "lights.json"
+        self.registry = LightRegistry.from_dict(sample())
+        self.registry.save(self.path)
+        self.clock = Clock()
+        self.catalog = DeviceCatalog(clock=self.clock, ttl=20)
+        self.catalog.observe_hue(BRIDGE_ID, [
+            {"id": HUE_LIGHT, "type": "light", "metadata": {"name": "Lightstrip 27"},
+             "owner": {"rid": HUE_SERVICE, "rtype": "device"}}],
+            [{"id": HUE_SERVICE, "product_data": {"model_id": "LCX005"}}])
+        self.new = self.catalog.snapshot()["devices"][0]["id"]
+        self.restarts = []
+
+    def enrollment(self, area, registry=None, busy=lambda: False):
+        return LightEnrollment(self.path, registry or self.registry, self.catalog, busy=busy,
+                               restart=lambda: self.restarts.append(True), area=area)
+
+    def test_a_hue_light_joins_the_paired_area_and_is_enrolled_with_its_channels(self):
+        area = Area({"service": HUE_SERVICE, "segments": 7})
+        self.enrollment(area).enroll(self.new)
+        self.assertEqual(area.calls, [("join", HUE_LIGHT)])
+        self.assertEqual(self.restarts, [True])
+        stored = LightRegistry.load(self.path)
+        light = stored.to_dict()["lights"][-1]
+        self.assertEqual((light["id"], light["provider"], light["hue"]["model"]),
+                         (self.new, "hue", "LCX005"))
+        self.assertEqual(stored.native_profile().channels[self.new], tuple(range(12, 19)))
+
+    def test_hue_refusals_leave_the_registry_and_the_area_unchanged(self):
+        before = self.path.read_bytes()
+        for area, reason, calls in (
+                (None, "unavailable", None),
+                (Area(error=AreaBusy()), "sync_active", [("join", HUE_LIGHT)]),
+                (Area(error=AreaShared()), "channels_shared", [("join", HUE_LIGHT)]),
+                (Area(error=OSError()), "unavailable", [("join", HUE_LIGHT)]),
+                (Area(error=ValueError()), "unavailable", [("join", HUE_LIGHT)]),
+                # Too many channels: the light that joined leaves again.
+                (Area({"service": HUE_SERVICE, "segments": 9}), "area_full",
+                 [("join", HUE_LIGHT), ("leave", HUE_LIGHT)]),
+                # A light that was already a member stays there.
+                (Area({"service": HUE_SERVICE, "segments": 9}, added=False), "area_full",
+                 [("join", HUE_LIGHT)])):
+            with self.subTest(reason=reason, calls=calls), \
+                    self.assertRaises(adapter.LightRefused) as refused:
+                self.enrollment(area).enroll(self.new)
+            self.assertEqual(refused.exception.reason, reason)
+            if area is not None:
+                self.assertEqual(area.calls, calls)
+        area = Area({"service": HUE_SERVICE, "segments": 1})
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(area, busy=lambda: True).enroll(self.new)
+        self.assertEqual((refused.exception.reason, area.calls), ("sync_active", []))
+        self.clock.now += 30  # the light went offline
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(area).enroll(self.new)
+        self.assertEqual((refused.exception.reason, area.calls), ("unavailable", []))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.restarts, [])
+
+    def test_a_light_that_goes_offline_while_it_joins_is_refused_and_leaves(self):
+        catalog = self.catalog
+
+        class Offline(Area):
+            def join(self, light):
+                result = super().join(light)
+                catalog._entries[next(iter(catalog._entries))]["seen"] = -100
+                return result
+
+        area = Offline({"service": HUE_SERVICE, "segments": 1})
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(area).enroll(self.new)
+        self.assertEqual(refused.exception.reason, "unavailable")
+        self.assertEqual(area.calls, [("join", HUE_LIGHT), ("leave", HUE_LIGHT)])
+        self.assertEqual(self.restarts, [])
+
+    def test_concurrent_enrollments_of_one_light_change_the_area_once(self):
+        joining, release = threading.Event(), threading.Event()
+
+        class Slow(Area):
+            def join(self, light):
+                joining.set()
+                release.wait(5)
+                return super().join(light)
+
+        area = Slow({"service": HUE_SERVICE, "segments": 1})
+        lights = self.enrollment(area)
+        results = []
+
+        def enroll():
+            try:
+                lights.enroll(self.new)
+                results.append("enrolled")
+            except adapter.LightRefused as refused:
+                results.append(refused.reason)
+
+        first = threading.Thread(target=enroll)
+        first.start()
+        joining.wait(5)
+        second = threading.Thread(target=enroll)
+        second.start()
+        release.set()
+        first.join(5)
+        second.join(5)
+        # The second request waits for the first and then finds the light enrolled
+        # (or the adapter restarting); it never undoes the first one's area change.
+        self.assertEqual(results[0], "enrolled")
+        self.assertIn(results[1], ("enrolled", "restarting"))
+        self.assertEqual(area.calls, [("join", HUE_LIGHT)])
+
+    def test_an_enrolled_hue_light_leaves_the_area_and_keeps_its_identity(self):
+        self.enrollment(Area({"service": HUE_SERVICE, "segments": 2})).enroll(self.new)
+        enrolled = self.path.read_bytes()
+        for area, reason in ((None, "unavailable"), (Area(error=AreaBusy()), "sync_active"),
+                             (Area(error=OSError()), "unavailable")):
+            with self.subTest(reason=reason), self.assertRaises(adapter.LightRefused) as refused:
+                self.enrollment(area, LightRegistry.load(self.path)).remove(self.new)
+            self.assertEqual(refused.exception.reason, reason)
+        self.assertEqual(self.path.read_bytes(), enrolled)
+        # A registry that cannot be written puts the light back into the area.
+        area = Area()
+        lights = self.enrollment(area, LightRegistry.load(self.path))
+        # A directory in the registry's place cannot be replaced, even by root.
+        lights.path = self.path.parent / "taken"
+        (lights.path / "entry").mkdir(parents=True)
+        with self.assertRaises(OSError):
+            lights.remove(self.new)
+        self.assertEqual(area.calls, [("leave", HUE_LIGHT), ("rejoin", ["locations before"])])
+        self.assertEqual(self.path.read_bytes(), enrolled)
+        area = Area()
+        self.enrollment(area, LightRegistry.load(self.path)).remove(self.new)
+        self.assertEqual(area.calls, [("leave", HUE_LIGHT)])
+        data = LightRegistry.load(self.path).to_dict()
+        self.assertEqual([item["id"] for item in data["lights"]],
+                         [item["id"] for item in sample()["lights"]])
+        self.assertEqual(data["retired"], [{"id": self.new,
+                                            "virtual": {"id_v1": "7", "seed": self.new}}])
 
 
 class AdapterRouteTests(unittest.TestCase):

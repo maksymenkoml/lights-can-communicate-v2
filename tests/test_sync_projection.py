@@ -66,6 +66,32 @@ def frame(size=18):
 
 
 class SyncProjectionTests(unittest.TestCase):
+    def test_an_enrolled_hue_light_gets_one_zone_per_channel_along_its_orientation(self):
+        new = "device-" + "a" * 32
+        data = layout()
+        data["devices"].append({"id": new, "positionCm": {"x": 100, "height": 20}, "scale": 100})
+        plain = sync_profile(data)
+        self.assertNotIn(new, plain["native_roles"])
+        self.assertEqual(len(plain["lights"][new]["samples"]), 1)
+        profile = sync_projection.sync_profile(current(data), {new: 3})
+        self.assertEqual(profile["native_roles"],
+                         ["hue-monitor", "play-left", "play-center", "play-right", new])
+        entry = profile["lights"][new]
+        self.assertEqual(len(entry["samples"]), 3)
+        # Horizontal: left to right below the screen, 10 cm apart around x = 100.
+        projector = sync_projection._Projector(current(data))
+        self.assertEqual(entry["samples"], [projector.screen_point(x, 20) for x in (90, 100, 110)])
+        data["devices"][-1]["orientation"] = "vertical"
+        vertical = sync_projection.sync_profile(current(data), {new: 3})["lights"][new]
+        self.assertEqual(vertical["samples"],
+                         [projector.screen_point(100, h) for h in (10, 20, 30)])
+        # A light outside the composition is not driven.
+        data["devices"][-1]["syncRole"] = "own"
+        self.assertNotIn(new, sync_projection.sync_profile(current(data), {new: 3})["native_roles"])
+        # The migrated profile is unchanged by an enrolled light that has no row.
+        self.assertEqual(sync_projection.sync_profile(current(layout()), {new: 3}),
+                         sync_profile(layout()))
+
     def test_lights_map_covers_composed_roles_only(self):
         data = layout()
         profile = sync_profile(data)

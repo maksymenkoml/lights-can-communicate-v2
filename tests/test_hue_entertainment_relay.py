@@ -20,7 +20,7 @@ class FakeConnection:
         self.frames = []
         self.closed = False
 
-    def send(self, frame):
+    def send(self, frame, projected=None):
         self.frames.append(frame)
 
     def close(self):

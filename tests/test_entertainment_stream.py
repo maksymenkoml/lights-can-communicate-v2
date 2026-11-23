@@ -70,6 +70,26 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(native[3], (1002, 2002, 3002))
         self.assertEqual(native[11], (1010, 2010, 3010))
 
+    def test_an_enrolled_hue_light_shows_its_projected_zones(self):
+        frame = {i: (1000 + i, 2000 + i, 3000 + i) for i in range(14)}
+        new = "device-" + "a" * 32
+        channels = {"play-center": (0,), "hue-monitor": tuple(range(3, 12)),
+                    new: (12, 13, 14, 15)}
+        zones = [(100, 0, 0), (0, 200, 0), (0, 0, 300), (400, 400, 400)]
+        native = native_colors(frame, {new: 0.5}, channels, {new: zones})
+        # The migrated channels keep their capture sources.
+        self.assertEqual({k: v for k, v in native.items() if k < 12},
+                         {k: v for k, v in native_colors(frame, None, {
+                             "play-center": (0,), "hue-monitor": tuple(range(3, 12))}).items()})
+        self.assertEqual([native[c] for c in (12, 13, 14, 15)],
+                         [(50, 0, 0), (0, 100, 0), (0, 0, 150), (200, 200, 200)])
+        # Fewer zones than channels: each channel takes the zone at its place.
+        native = native_colors(frame, None, {new: (0, 1, 2, 3)}, {new: zones[:2]})
+        self.assertEqual([native[c] for c in range(4)],
+                         [zones[0], zones[0], zones[1], zones[1]])
+        # Without projected zones the light gets no channels.
+        self.assertEqual(native_colors(frame, None, {new: (0, 1)}), {})
+
     def test_lease_expires_and_rejects_replays_old_sessions_and_foreign_stop(self):
         now = [10.0]
         lease = VideoLease(clock=lambda: now[0], wall_clock=lambda: 1000)

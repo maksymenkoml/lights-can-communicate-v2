@@ -376,3 +376,91 @@ class NativeCompositionTests(unittest.TestCase):
                     self.relay.stop()
             self.assertTrue(self.relay.owned)
             self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
+
+
+NEW = 'device-' + 'a' * 32
+NEW_LIGHT = 'a0000000-0000-4000-8000-00000000000a'
+NEW_SERVICE = 'b0000000-0000-4000-8000-00000000000b'
+
+
+class EnrolledHueLightTests(unittest.TestCase):
+    """A Hue light enrolled from the paired area streams its projected zones."""
+
+    def setUp(self):
+        migrated = NativeHueProfile.from_dict(profile_data())
+        lights = migrated.to_lights() + [{
+            'id': NEW, 'light': NEW_LIGHT,
+            'channels': [{'channel_id': 12 + i, 'rid': NEW_SERVICE, 'index': i}
+                         for i in range(3)]}]
+        self.profile = NativeHueProfile.from_lights(migrated.area_id, lights)
+        self.area = self.area_of(self.profile.ids)
+        self.area['status'] = 'inactive'
+        self.connections = []
+        self.relay = HueEntertainmentRelay(
+            stream_config(), requester=self.request, connection_factory=self.connect,
+            profile=self.profile)
+
+    def area_of(self, lights):
+        services = self.profile.service_ids
+        members = [(cid, member) for cid, member in enumerate(self.profile.expected_members)
+                   if member[0] in {services[light] for light in lights}]
+        return {
+            'id': self.profile.area_id, 'type': 'entertainment_configuration',
+            'status': self.area['status'] if hasattr(self, 'area') else 'inactive',
+            'light_services': [{'rid': self.profile.light_ids[light], 'rtype': 'light'}
+                               for light in lights],
+            # Bridge channel ids differ from the canonical ones.
+            'channels': [{'channel_id': 60 - n, 'members': [
+                {'service': {'rid': rid, 'rtype': 'entertainment'}, 'index': index}]}
+                for n, (_, (rid, index)) in enumerate(members)],
+            'locations': {'service_locations': [
+                {'service': {'rid': services[light], 'rtype': 'entertainment'},
+                 'positions': [{'x': 0, 'y': 0, 'z': 0}]} for light in lights]},
+        }
+
+    def connect(self, _):
+        result = FakeConnection()
+        self.connections.append(result)
+        return result
+
+    def request(self, method, body=None):
+        if method == 'GET':
+            return copy.deepcopy(self.area)
+        if 'locations' in body:
+            services = {row['service']['rid'] for row in body['locations']['service_locations']}
+            lights = [light for light, service in self.profile.service_ids.items()
+                      if service in services]
+            self.area = self.area_of(lights)
+        elif body == {'action': 'start'}:
+            self.area.update(status='active', active_streamer={'rid': 'synthetic-stream-owner'})
+        elif body == {'action': 'stop'}:
+            self.area.update(status='inactive')
+            self.area.pop('active_streamer', None)
+        return {'errors': []}
+
+    def rows(self):
+        packet = self.connections[-1].frames[-1]
+        return {row[0]: row[1:] for row in (struct.unpack('!BHHH', packet[i:i + 7])
+                                            for i in range(52, len(packet), 7))}
+
+    def test_its_channels_carry_the_projected_zones_beside_the_migrated_lights(self):
+        self.assertTrue(self.relay.start(composition('play-left', NEW)))
+        frame = {i: (1000 + i, 2000 + i, 3000 + i) for i in range(14)}
+        self.relay.send(frame, {NEW: [(1, 2, 3), (4, 5, 6), (7, 8, 9)]})
+        bridge = {members['members'][0]['service']['rid'] + str(members['members'][0]['index']):
+                  members['channel_id'] for members in self.area['channels']}
+        rows = self.rows()
+        self.assertEqual(len(rows), 4)
+        self.assertEqual([rows[bridge[NEW_SERVICE + str(i)]] for i in range(3)],
+                         [(1, 2, 3), (4, 5, 6), (7, 8, 9)])
+        left = self.profile.service_ids['play-left']
+        self.assertEqual(rows[bridge[left + '0']], (1011, 2011, 3011))
+
+    def test_a_light_set_without_it_removes_it_from_the_area(self):
+        self.assertTrue(self.relay.start(composition('play-left', NEW)))
+        self.relay.stop()
+        self.assertTrue(self.relay.start(composition('play-left')))
+        self.assertEqual([row['rid'] for row in self.area['light_services']],
+                         [self.profile.light_ids['play-left']])
+        self.relay.send({i: (0, 0, 0) for i in range(14)}, {NEW: [(9, 9, 9)]})
+        self.assertEqual(len(self.rows()), 1)

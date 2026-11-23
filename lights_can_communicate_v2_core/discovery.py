@@ -253,6 +253,23 @@ class DeviceCatalog:
                 return None
             return {"device": entry["physical_id"], "ip": address, "model": entry["model"]}
 
+    def hue_enrollment(self, identifier):
+        """Return the native light UUID and model of an enrollable Hue light, or None.
+
+        The light is discovered, online, unambiguous and not one of the migrated
+        lamps. Whether it can stream is checked against the paired Entertainment
+        area, not against a model list.
+        """
+        now = self._now()
+        with self._lock:
+            entry = self._entries.get(identifier)
+            if (entry is None or entry["provider"] != "hue"
+                    or self._providers["hue"] != "ready" or not self._fresh(entry["seen"], now)
+                    or entry["ambiguous"]
+                    or (entry["provider"], entry["physical_id"]) in self._legacy_roles):
+                return None
+            return {"light": entry["physical_id"], "model": entry["model"] or "unknown"}
+
     def snapshot(self):
         now = self._now()
         with self._lock:

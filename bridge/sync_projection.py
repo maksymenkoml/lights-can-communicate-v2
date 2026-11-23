@@ -117,10 +117,11 @@ class _Projector:
 
         self.screen_point = screen_point
 
-    def light(self, row):
+    def light(self, row, zones=1):
         """Return ``samples`` (None where hidden) and ``gains`` of a row.
 
         A segmented floor lamp also gets ``fade_cm``, the width of its fade band.
+        A point light gets ``zones`` zones (the channels of a native Hue light).
         """
         kind = geometry_for(row)["kind"]
         x = row["positionCm"]["x"]
@@ -134,7 +135,7 @@ class _Projector:
             samples = [self.screen_point(x, center) if center is not None else None
                        for _, center in zones]
             return {"samples": samples, "gains": gains, "fade_cm": fade}
-        points = light_geometry.zone_points(row, self.screen)
+        points = light_geometry.zone_points(row, self.screen, zones)
         gains = [self.visibility(px, ph) for px, ph in points]
         samples = [self.screen_point(px, ph) for px, ph in points]
         if kind == "screen":
@@ -155,8 +156,14 @@ def _light_entries(validated_layout, projector=None, **options):
     return {key: projector.light(devices[key]) for key in _ROLES}
 
 
-def sync_profile(validated_layout):
-    """Build a deterministic, public-role-only Sync profile from a validated layout."""
+def sync_profile(validated_layout, native=None):
+    """Build a deterministic, public-role-only Sync profile from a validated layout.
+
+    ``native`` maps each enrolled native Hue light outside the migrated rows to its
+    channel count. Such a light is driven by the native relay with one projected
+    zone per channel.
+    """
+    native = native or {}
     devices = _devices(validated_layout)
     projector = _Projector(validated_layout)
     entries = _light_entries(validated_layout, projector)
@@ -164,13 +171,15 @@ def sync_profile(validated_layout):
     members = [key for key in _ROLES if composed(devices[key])]
     enabled = [_ROLES[key] for key in members]
     # Every composed light gets an entry; layout-only drawings never produce output.
-    lights = {row["id"]: entries[row["id"]] if row["id"] in entries else projector.light(row)
+    lights = {row["id"]: entries[row["id"]] if row["id"] in entries
+              else projector.light(row, native.get(row["id"], 1))
               for row in validated_layout["devices"]
               if composed(row) and not row["id"].startswith("virtual-")}
     profile = {
         "basis": "screen-perimeter-v1",
         "enabled_roles": enabled,
-        "native_roles": [role for role in enabled if role not in ("left", "right")],
+        "native_roles": [role for role in enabled if role not in ("left", "right")]
+        + [light for light in lights if light in native],
         "lights": lights,
         # The legacy keys below are derived from the per-light entries for every role row.
         "govee": {},

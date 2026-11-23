@@ -52,7 +52,7 @@ from HueObjects import (  # noqa: E402
     StreamEvent,
 )
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
-from virtual_lights import default_name, plan  # noqa: E402
+from virtual_lights import default_name, hue_plan, plan  # noqa: E402
 from virtual_lights import load as load_registry  # noqa: E402
 from virtual_lights import signature as registry_signature  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
@@ -112,11 +112,18 @@ include_entertainment = os.environ.get("PROBE_ENTERTAINMENT", "false").lower() =
 # UUID seeded from its registry id. A segmented light is a gradient light in the
 # gradient mode, any other one a color bulb.
 registry_at_start = registry_signature(state)
-govee_lights, _retired = plan(load_registry(state))
+registry_data = load_registry(state)
+govee_lights, _retired = plan(registry_data)
 govee_slots = {item["slot"]: item["light"] for item in govee_lights}
+# A Hue light enrolled after the migration (see virtual_lights.hue_plan) gets its
+# registry slot and seed. It mirrors its native light: a gradient light for several
+# channels, else a color bulb. Like a later Govee light it joins the room only.
+hue_lights = hue_plan(registry_data) if include_strip and include_hue_play else []
+hue_slots = {item["slot"]: item["light"] for item in hue_lights}
 gradient_slots = {item["slot"] for item in govee_lights if GRADIENT_MODE and item["segmented"]}
 selected_slots = (
     set(govee_slots)
+    | set(hue_slots)
     | ({"3"} if include_strip else set())
     | ({"4", "5", "6"} if include_hue_play else set())
 )
@@ -141,6 +148,31 @@ for item in govee_lights:
     lamp = config["lights"][identifier]
     lamp.state["reachable"] = True
     configure_signe(lamp, identifier in gradient_slots)
+for item in hue_lights:
+    identifier = item["slot"]
+    gradient = item["channels"] > 1
+    if identifier not in config["lights"]:
+        neutral = {"x": 0.3127, "y": 0.3290}
+        lamp = Light.Light(
+            {
+                "id_v1": identifier,
+                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                        f"{IDENTITY_NAMESPACE}/{item['seed']}")),
+                "name": default_name(item),
+                "modelid": "LCX006" if gradient else "LCT015",
+                "protocol": "dummy",
+                "protocol_cfg": ({"points_capable": 5, "proxy_color_kind": "gradient"}
+                                 if gradient else {"proxy_color_kind": "xy"}),
+            }
+        )
+        lamp.state.update({"on": True, "bri": 200, "colormode": "xy",
+                           "xy": [neutral["x"], neutral["y"]]})
+        if gradient:
+            lamp.state["gradient"] = {
+                "points": [{"color": {"xy": dict(neutral)}} for _ in range(5)]}
+        config["lights"][identifier] = lamp
+        config["groups"]["0"].add_light(lamp)
+    config["lights"][identifier].state["reachable"] = True
 for identifier, lamp in config["lights"].items():
     # A removed light keeps its virtual light for a rejoin, and so does a light
     # of a registry that is gone or invalid. Neither is driven.
@@ -153,7 +185,7 @@ if "1" not in config["groups"]:
     for lamp in config["lights"].values():
         room.add_light(lamp)
     config["groups"]["1"] = room
-for identifier in govee_slots:
+for identifier in [*govee_slots, *hue_slots]:
     # A light enrolled later joins the room, so Hue app scenes and power reach it,
     # but not the Entertainment area: the Sync Box pairing stays as it is.
     room = config["groups"]["1"]
@@ -307,8 +339,9 @@ def publish_light_names(lamps):
 # IDs stay; without an owner name the current name stays.
 owner_names = OwnerNames(
     config["lights"],
-    {**govee_slots, **{slot: role for slot, role in SLOT_ROLES.items()
-                       if slot in selected_slots and role not in govee_slots.values()}},
+    {**govee_slots, **hue_slots,
+     **{slot: role for slot, role in SLOT_ROLES.items()
+        if slot in selected_slots and role not in govee_slots.values()}},
     layout_store.names, save=lambda: configManager.bridgeConfig.save_config(backup=False),
     publish=publish_light_names,
 )
@@ -370,6 +403,7 @@ if (
         include_strip=include_strip,
         include_hue_play=include_hue_play,
         govee_slots=govee_slots,
+        hue_slots=hue_slots,
     )
 
 original_set_state = Light.Light._setV1State
@@ -436,7 +470,8 @@ def forward_selected_state(lamp, values, advertise=True):
                 for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
                 if key in lamp.state
             }
-            if lamp.id_v1 in {"3", "4", "5", "6"} or lamp.id_v1 in gradient_slots:
+            if (lamp.id_v1 in {"3", "4", "5", "6"} or lamp.id_v1 in hue_slots
+                    or lamp.id_v1 in gradient_slots):
                 selected["_changed"] = sorted(values)
                 selected["_color_kind"] = lamp.protocol_cfg.get(
                     "proxy_color_kind", "ct" if lamp.state.get("colormode") == "ct" else "xy"

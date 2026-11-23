@@ -47,6 +47,15 @@ class NativeLocationCacheTests(unittest.TestCase):
         for secret in (str(self.path), AREA, *SERVICES, UNKNOWN, "private-failure"):
             self.assertNotIn(secret, str(error))
 
+    def test_any_number_of_native_services_up_to_an_area_limit(self):
+        services = tuple(f"d4444444-4444-4444-8444-44444444444{i}" for i in range(10))
+        for count in (1, 5, 10):
+            cache = NativeLocationCache(self.path, AREA, services[:count])
+            self.assertEqual(cache.snapshot(), {})
+        for allowed in ((), services + (UNKNOWN,), (SERVICES[0], SERVICES[0]), ("",)):
+            with self.subTest(allowed=allowed), self.assertRaises(ValueError):
+                NativeLocationCache(self.path, AREA, allowed)
+
     def test_missing_constructor_and_empty_merge_do_not_write(self):
         self.path = self.path.parent / "missing" / "locations.json"
         cache = self.cache()

@@ -21,16 +21,22 @@ from lights_can_communicate_v2_core.light_registry import LightRegistry  # noqa:
 
 THIRD = "device-" + "c" * 32
 FOURTH = "device-" + "d" * 32
+HUE = "device-" + "e" * 32
+HUE_LIGHT = "a0000000-0000-4000-8000-00000000000a"
+HUE_SERVICE = "b0000000-0000-4000-8000-00000000000b"
 
 
-def registry(*, third_model="H6008", fourth=False, remove_third=False):
+def registry(*, third_model="H6008", fourth=False, remove_third=False, hue=False):
     result = LightRegistry.from_dict(sample()).with_govee_light(
         THIRD, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52", third_model)
     if fourth:
         result = result.with_govee_light(FOURTH, "DD:DD:DD:DD:DD:DD:DD:DD", "192.168.10.53",
                                          "H6076")
+    if hue:
+        result = result.with_hue_light(HUE, sample()["hue"]["area_id"], HUE_LIGHT, HUE_SERVICE,
+                                       3, "LCX005")
     if remove_third:
-        result = result.without_govee_light(THIRD)
+        result = result.without_light(THIRD)
     return result
 
 
@@ -77,6 +83,27 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(virtual_lights.signature(state), legacy)
 
 
+class HuePlanTests(unittest.TestCase):
+    def test_a_hue_light_enrolled_later_gets_its_slot_and_channel_count(self):
+        self.assertEqual(virtual_lights.hue_plan(None), [])
+        self.assertEqual(virtual_lights.hue_plan(registry().to_dict()), [])
+        lights = virtual_lights.hue_plan(registry(fourth=True, hue=True).to_dict())
+        self.assertEqual(lights, [{"slot": "9", "light": HUE, "seed": HUE, "model": "LCX005",
+                                   "channels": 3}])
+        self.assertEqual(virtual_lights.default_name(lights[0]), "Hue LCX005 eeee")
+        # Govee planning is unchanged by the Hue light.
+        self.assertEqual(virtual_lights.plan(registry(fourth=True, hue=True).to_dict()),
+                         virtual_lights.plan(registry(fourth=True).to_dict()))
+
+    def test_the_signature_follows_an_enrolled_hue_light(self):
+        with tempfile.TemporaryDirectory(prefix="tmp_virtual_signature_") as folder:
+            state = Path(folder)
+            registry(fourth=True).save(state / "lights.json")
+            before = virtual_lights.signature(state)
+            registry(fourth=True, hue=True).save(state / "lights.json")
+            self.assertNotEqual(virtual_lights.signature(state), before)
+
+
 class SlotMapTests(unittest.TestCase):
     SLOTS = {"1": "govee-left", "2": "govee-right", "7": THIRD}
 
@@ -91,6 +118,15 @@ class SlotMapTests(unittest.TestCase):
         self.assertFalse(output.submit("8", {"on": True}, 0))
         legacy = BridgeOutput("http://adapter", "t")
         self.assertEqual(legacy.slots, {"1": "govee-left", "2": "govee-right"})
+
+    def test_bridge_output_routes_an_enrolled_hue_slot_as_a_native_light(self):
+        output = BridgeOutput("http://adapter", "t", sender=lambda payload: None,
+                              include_strip=True, include_hue_play=True,
+                              govee_slots=self.SLOTS, hue_slots={"9": HUE})
+        self.assertIn(HUE, output.hue_roles)
+        self.assertNotIn(THIRD, output.hue_roles)
+        self.assertTrue(output.submit("9", {"on": True, "xy": [0.3, 0.3]}, 0))
+        self.assertEqual(output.pending[HUE]["state"]["_changed"], ["xy"])
 
     def test_power_maps_take_the_registry_slots(self):
         feedback = PowerFeedback("http://adapter", "t", {}, threading.RLock(), lambda lamp: None,
@@ -115,9 +151,14 @@ def fixture_request(g):
     area = [reference() for reference in groups["90"].lights]
     assert {lamp.id_v1 for lamp in area} == set("123456"), sorted(lamp.id_v1 for lamp in area)
     if phase == "enrolled":
-        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "7", "8"}
-        third, fourth = lights["7"], lights["8"]
-        assert third in room and fourth in room
+        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+        third, fourth, hue = lights["7"], lights["8"], lights["9"]
+        assert third in room and fourth in room and hue in room
+        assert hue not in area
+        assert hue.modelid == "LCX006", hue.modelid
+        assert hue.protocol_cfg["proxy_color_kind"] == "gradient"
+        assert hue.state["reachable"] is True
+        assert g["hue_slots"] == {"9": "device-" + "e" * 32}
         assert third.modelid == "LCT015", third.modelid
         assert fourth.modelid == "915005987201", fourth.modelid
         assert lights["1"].modelid == "915005987201"
@@ -127,11 +168,12 @@ def fixture_request(g):
     elif phase == "missing":
         # Without a registry only the migrated lamps are driven and reachable.
         assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6"}
+        assert lights["9"].state["reachable"] is False
         assert lights["7"].state["reachable"] is False
         assert lights["8"].state["reachable"] is False
         assert lights["1"].state["reachable"] is True
     else:
-        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "8"}
+        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "8", "9"}
         third = lights["7"]
         assert third.id_v2 == state.joinpath("third-id.txt").read_text()
         assert third.state["reachable"] is False
@@ -153,8 +195,9 @@ class VirtualLightsBootstrapTests(unittest.TestCase):
             state = Path(folder)
             path = state / "tmp_virtual_driver.py"
             path.write_text(driver)
-            for phase, current in (("enrolled", registry(fourth=True)),
-                                   ("removed", registry(fourth=True, remove_third=True)),
+            for phase, current in (("enrolled", registry(fourth=True, hue=True)),
+                                   ("removed", registry(fourth=True, remove_third=True,
+                                                        hue=True)),
                                    ("missing", None)):
                 with self.subTest(phase=phase):
                     if current is None:

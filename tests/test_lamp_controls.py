@@ -521,7 +521,7 @@ class FenceTests(unittest.TestCase):
                 def start(self, profile=None):
                     return True
 
-                def send(self, frame):
+                def send(self, frame, projected=None):
                     self.frames.append(frame)
 
                 def stop(self):
