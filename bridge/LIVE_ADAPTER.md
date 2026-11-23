@@ -79,7 +79,9 @@ the genuine Hue light's stored palette.
 
 The two Govee slots retain their existing test resource IDs and room. Slot 1
 maps to left and slot 2 maps to right. The host configuration contains exactly
-the two previously confirmed Govee IDs and a 0.65 multiplier for each side.
+the two previously confirmed Govee IDs and a 0.65 multiplier for each lamp
+(registry lights `govee-left` and `govee-right`; see `core/README.md`, "Light
+registry", for any other Govee light).
 No genuine Hue bridge key is copied into the container or the adapter target file.
 
 Opt-in slot 3 maps to the genuine gradient strip. Opt-in slots 4, 5, and 6
@@ -146,8 +148,12 @@ These tests made no physical network requests.
 
 ## Runtime boundaries
 
-- `bridge_output.py` coalesces per-side targets and preserves their duration.
+- `bridge_output.py` coalesces per-light targets and preserves their duration. Its
+  slots 1 and 2 address the registry lights `govee-left` and `govee-right`.
 - `live_adapter.py` validates the token, command shape, age, session, and sequence.
+  A `/command` payload is `{light, session, sequence, issued_at, transitiontime,
+  state}`: `light` is a Govee registry ID or a Hue role name, and an ID that the
+  adapter does not drive is refused with 400.
 - `govee_transport.py` owns UDP 4002 and publishes fresh pinned-ID state.
 - API key and adapter token values are never included in status output.
 - Native status checks and rendering use separate threads.
