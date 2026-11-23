@@ -147,6 +147,14 @@ class PreviewTests(unittest.TestCase):
         lamps = build_preview(status, self.store.snapshot())["lamps"]
         self.assertEqual((lamps[enrolled]["included"], lamps[hue]["included"]), (False, True))
         self.assertFalse(lamps["govee-right"]["included"])
+        # A registry light without any reading is still previewed, its state unknown.
+        quiet_govee, quiet_hue = "device-" + "d" * 32, "device-" + "f" * 32
+        status["lights"] = [{"id": quiet_govee, "provider": "govee"},
+                            {"id": quiet_hue, "provider": "hue"}, {"id": "device-bad"}]
+        lamps = build_preview(status, self.store.snapshot())["lamps"]
+        for quiet in (quiet_govee, quiet_hue):
+            self.assertEqual((lamps[quiet]["online"], lamps[quiet]["colors"]), (None, []))
+        self.assertNotIn("device-bad", lamps)
         # Unknown ids never become lamps.
         status["hue"]["device-short"] = status["hue"][hue]
         self.assertNotIn("device-short", build_preview(status, {})["lamps"])
