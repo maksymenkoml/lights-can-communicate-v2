@@ -196,25 +196,19 @@ class HueArea:
     def _path(self):
         return "/clip/v2/resource/entertainment_configuration/" + self.area_id
 
-    def member(self, light):
-        """Return ``{"service", "segments"}`` of native ``light`` in the area, or None.
-
-        None means that the light is not a member of the paired area. A response
-        that cannot be read raises OSError or ValueError.
-        """
-        light = _uuid(light)
-        if light is None:
-            return None
-        area = self._area()
-        if not self._contains(area, light):
-            return None
-        service = self._service(light)
-        return {"service": service, "segments": self._segments(area, service)}
+    def _restore(self, rows):
+        # Writing the earlier locations again is safe whether or not the failed write
+        # was applied; the bridge then rebuilds the other lights' channels.
+        try:
+            self._write(rows)
+        except (OSError, ValueError):
+            pass  # The relay refuses the changed area until it is repaired.
 
     def join(self, light):
-        """Add native ``light`` to the inactive area at its center; return
+        """Add native ``light`` to the inactive area; return
         ``({"service", "segments"}, added)``. ``added`` is False when the light
-        was already a member. Raise AreaBusy while the area streams."""
+        was already a member. Raise AreaBusy while the area streams, AreaShared
+        when the light's channels are shared; the area is then unchanged."""
         light = _uuid(light)
         if light is None:
             raise ValueError("Invalid Hue light")
@@ -224,9 +218,9 @@ class HueArea:
             return {"service": service, "segments": self._segments(area, service)}, False
         service = self._service(light)
         before = self._locations(area)
-        self._write(before + [{"service": {"rid": service, "rtype": "entertainment"},
-                               "positions": [_free_position(area)]}])
         try:
+            self._write(before + [{"service": {"rid": service, "rtype": "entertainment"},
+                                   "positions": [_free_position(area)]}])
             changed = self._area()
             if not self._contains(changed, light):
                 raise ValueError("Hue light did not join the area")
@@ -235,24 +229,31 @@ class HueArea:
                 raise AreaShared()
             return {"service": service, "segments": self._segments(changed, service)}, True
         except BaseException:
-            # Restore the area as it was; the bridge then rebuilds the other lights' channels.
-            try:
-                self._write(before)
-            except (OSError, ValueError):
-                pass  # The relay refuses the unknown member until the area is repaired.
+            self._restore(before)
             raise
 
     def leave(self, light):
-        """Take native ``light`` out of the inactive area; a non-member is a no-op.
-        Raise AreaBusy while the area streams."""
+        """Take native ``light`` out of the inactive area. Return the earlier
+        locations for ``rejoin``, or None when the light was not a member. Raise
+        AreaBusy while the area streams; a failed change restores the area."""
         light = _uuid(light)
         if light is None:
             raise ValueError("Invalid Hue light")
         area = self._inactive()
         if not self._contains(area, light):
-            return
+            return None
         service = self._service(light)
-        self._write([row for row in self._locations(area)
-                     if _uuid(row["service"].get("rid")) != service])
-        if self._contains(self._area(), light):
-            raise ValueError("Hue light did not leave the area")
+        before = self._locations(area)
+        try:
+            self._write([row for row in before if _uuid(row["service"].get("rid")) != service])
+            if self._contains(self._area(), light):
+                raise ValueError("Hue light did not leave the area")
+        except BaseException:
+            self._restore(before)
+            raise
+        return before
+
+    def rejoin(self, before):
+        """Undo ``leave`` with the locations it returned, if the area is inactive."""
+        if before is not None and self._area().get("status") == "inactive":
+            self._restore(before)

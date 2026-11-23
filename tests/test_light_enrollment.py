@@ -157,6 +157,10 @@ class Area:
         self.calls.append(("leave", light))
         if self.error is not None:
             raise self.error
+        return ["locations before"]
+
+    def rejoin(self, before):
+        self.calls.append(("rejoin", before))
 
 
 class HueEnrollmentTests(unittest.TestCase):
@@ -237,6 +241,40 @@ class HueEnrollmentTests(unittest.TestCase):
         self.assertEqual(area.calls, [("join", HUE_LIGHT), ("leave", HUE_LIGHT)])
         self.assertEqual(self.restarts, [])
 
+    def test_concurrent_enrollments_of_one_light_change_the_area_once(self):
+        joining, release = threading.Event(), threading.Event()
+
+        class Slow(Area):
+            def join(self, light):
+                joining.set()
+                release.wait(5)
+                return super().join(light)
+
+        area = Slow({"service": HUE_SERVICE, "segments": 1})
+        lights = self.enrollment(area)
+        results = []
+
+        def enroll():
+            try:
+                lights.enroll(self.new)
+                results.append("enrolled")
+            except adapter.LightRefused as refused:
+                results.append(refused.reason)
+
+        first = threading.Thread(target=enroll)
+        first.start()
+        joining.wait(5)
+        second = threading.Thread(target=enroll)
+        second.start()
+        release.set()
+        first.join(5)
+        second.join(5)
+        # The second request waits for the first and then finds the light enrolled
+        # (or the adapter restarting); it never undoes the first one's area change.
+        self.assertEqual(results[0], "enrolled")
+        self.assertIn(results[1], ("enrolled", "restarting"))
+        self.assertEqual(area.calls, [("join", HUE_LIGHT)])
+
     def test_an_enrolled_hue_light_leaves_the_area_and_keeps_its_identity(self):
         self.enrollment(Area({"service": HUE_SERVICE, "segments": 2})).enroll(self.new)
         enrolled = self.path.read_bytes()
@@ -245,6 +283,16 @@ class HueEnrollmentTests(unittest.TestCase):
             with self.subTest(reason=reason), self.assertRaises(adapter.LightRefused) as refused:
                 self.enrollment(area, LightRegistry.load(self.path)).remove(self.new)
             self.assertEqual(refused.exception.reason, reason)
+        self.assertEqual(self.path.read_bytes(), enrolled)
+        # A registry that cannot be written puts the light back into the area.
+        area = Area()
+        lights = self.enrollment(area, LightRegistry.load(self.path))
+        # A directory in the registry's place cannot be replaced, even by root.
+        lights.path = self.path.parent / "taken"
+        (lights.path / "entry").mkdir(parents=True)
+        with self.assertRaises(OSError):
+            lights.remove(self.new)
+        self.assertEqual(area.calls, [("leave", HUE_LIGHT), ("rejoin", ["locations before"])])
         self.assertEqual(self.path.read_bytes(), enrolled)
         area = Area()
         self.enrollment(area, LightRegistry.load(self.path)).remove(self.new)

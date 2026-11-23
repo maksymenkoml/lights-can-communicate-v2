@@ -26,7 +26,7 @@ def area(lights=(LIGHT, OTHER_LIGHT), channels=None):
         channel(0, OTHER_SERVICE, 0), channel(1, SERVICE, 1), channel(2, SERVICE, 0),
         channel(3, SERVICE, 2)]
     return {"errors": [], "data": [{
-        "id": AREA, "type": "entertainment_configuration",
+        "id": AREA, "type": "entertainment_configuration", "status": "inactive",
         "light_services": [{"rid": light, "rtype": "light"} for light in lights],
         "channels": channels}]}
 
@@ -95,10 +95,10 @@ class Bridge:
 
 
 class HueAreaReaderTests(unittest.TestCase):
-    def test_a_member_light_reports_its_service_and_segment_count(self):
+    def test_a_member_keeps_its_place_and_reports_its_service_and_segments(self):
         hue, calls = reader()
-        self.assertEqual(hue.member(LIGHT), {"service": SERVICE, "segments": 3})
-        self.assertEqual(hue.member(OTHER_LIGHT), {"service": OTHER_SERVICE, "segments": 1})
+        self.assertEqual(hue.join(LIGHT), ({"service": SERVICE, "segments": 3}, False))
+        self.assertEqual(hue.join(OTHER_LIGHT), ({"service": OTHER_SERVICE, "segments": 1}, False))
         self.assertEqual(calls[0], "/clip/v2/resource/entertainment_configuration/" + AREA)
 
     def test_resource_ids_are_compared_and_returned_in_canonical_form(self):
@@ -106,14 +106,7 @@ class HueAreaReaderTests(unittest.TestCase):
             {"id": SERVICE.upper(), "renderer_reference": {"rid": LIGHT.upper(),
                                                            "rtype": "light"}}]}
         hue, _ = reader(area(channels=[channel(0, SERVICE.upper(), 0)]), upper)
-        self.assertEqual(hue.member(LIGHT.upper()), {"service": SERVICE, "segments": 1})
-
-    def test_a_light_outside_the_area_is_not_a_member(self):
-        hue, calls = reader(area(lights=(OTHER_LIGHT,)))
-        self.assertIsNone(hue.member(LIGHT))
-        self.assertIsNone(hue.member("not-a-uuid"))
-        # The services are not read for a light outside the area.
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(hue.join(LIGHT.upper()), ({"service": SERVICE, "segments": 1}, False))
 
     def test_unreadable_answers_raise(self):
         broken = [
@@ -130,7 +123,7 @@ class HueAreaReaderTests(unittest.TestCase):
             with self.subTest(area=area_response, services=services):
                 hue, _ = reader(area_response, services)
                 with self.assertRaises(ValueError):
-                    hue.member(LIGHT)
+                    hue.join(LIGHT)
 
     def test_configuration_is_checked_without_io(self):
         for config, area_id in (({}, AREA), ({"bridge": "192.168.10.20"}, AREA),
@@ -159,19 +152,41 @@ class HueAreaChangeTests(unittest.TestCase):
             HueArea(CONFIG, AREA, requester=bridge).join(LIGHT)
         self.assertEqual(bridge.writes[-1], {"locations": {"service_locations": Bridge().rows}})
         self.assertEqual(bridge.rows, Bridge().rows)
-        # A member that shares channels cannot be read either.
+        # A member that already shares channels is refused as well, and kept.
         shared = Bridge((OTHER_SERVICE, SERVICE), shared=True)
         with self.assertRaises(AreaShared):
-            HueArea(CONFIG, AREA, requester=shared).member(LIGHT)
+            HueArea(CONFIG, AREA, requester=shared).join(LIGHT)
+        self.assertEqual(shared.writes, [])
+
+    def test_an_uncertain_write_restores_the_area(self):
+        class Lost(Bridge):
+            # The bridge applies the first write but its answer is lost.
+            def __call__(self, path, method="GET", body=None):
+                result = super().__call__(path, method, body)
+                if method == "PUT" and len(self.writes) == 1:
+                    raise OSError("answer lost")
+                return result
+
+        for start, call in (((OTHER_SERVICE,), "join"), ((OTHER_SERVICE, SERVICE), "leave")):
+            with self.subTest(call=call):
+                bridge = Lost(start)
+                rows = copy.deepcopy(bridge.rows)
+                with self.assertRaises(OSError):
+                    getattr(HueArea(CONFIG, AREA, requester=bridge), call)(LIGHT)
+                self.assertEqual(bridge.rows, rows)
+                self.assertEqual(bridge.writes[-1], {"locations": {"service_locations": rows}})
 
     def test_leave_removes_only_the_light(self):
         bridge = Bridge((OTHER_SERVICE, SERVICE))
         hue = HueArea(CONFIG, AREA, requester=bridge)
-        hue.leave(LIGHT)
+        rows = copy.deepcopy(bridge.rows)
+        self.assertEqual(hue.leave(LIGHT), rows)
         self.assertEqual(bridge.writes, [{"locations": {"service_locations": Bridge().rows}}])
-        self.assertIsNone(hue.member(LIGHT))
-        hue.leave(LIGHT)
+        self.assertIsNone(hue.leave(LIGHT))
         self.assertEqual(len(bridge.writes), 1)
+        # A refused removal puts the light back where it was.
+        hue.rejoin(rows)
+        self.assertEqual(bridge.rows, rows)
 
     def test_a_streaming_area_is_not_changed(self):
         for status in ("active", None):

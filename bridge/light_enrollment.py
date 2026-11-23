@@ -44,6 +44,9 @@ class LightEnrollment:
         # Serializes light set changes with Sync frames (see stream), so Sync
         # cannot start between the busy check and the registry write.
         self.lock = threading.Lock()
+        # Serializes whole enrollments and removals, including the area changes on the
+        # bridge that run outside ``lock``.
+        self.changes = threading.Lock()
         self.pending = False
 
     def _check(self, light_id):
@@ -64,6 +67,10 @@ class LightEnrollment:
 
     def enroll(self, light_id):
         """Add a discovered Govee or Hue light; raise LightRefused or ValueError."""
+        with self.changes:
+            self._enroll(light_id)
+
+    def _enroll(self, light_id):
         if self.catalog.hue_enrollment(light_id) is not None:
             self._enroll_hue(light_id)
             return
@@ -153,21 +160,34 @@ class LightEnrollment:
         """Remove an enrolled discovered light; its identity stays for a rejoin.
 
         A Hue light leaves the paired area first, so the relay never meets an
-        area member that is not enrolled."""
+        area member that is not enrolled; a refused removal puts it back."""
+        with self.changes:
+            self._remove(light_id)
+
+    def _remove(self, light_id):
         with self.lock:
             self._check(light_id)
             if light_id not in self.registry.ids:
                 raise LightRefused("not_enrolled")
             native = self._native_light(light_id)
+        before = None
         if native is not None:
             if self.area is None:
                 raise LightRefused("unavailable")
-            self._area_call(self.area.leave, native)
-        with self.lock:
-            self._check(light_id)
-            if light_id not in self.registry.ids:
-                raise LightRefused("not_enrolled")
-            self._apply(self.registry.without_light(light_id))
+            before = self._area_call(self.area.leave, native)
+        try:
+            with self.lock:
+                self._check(light_id)
+                if light_id not in self.registry.ids:
+                    raise LightRefused("not_enrolled")
+                self._apply(self.registry.without_light(light_id))
+        except BaseException:
+            if before is not None:
+                try:
+                    self.area.rejoin(before)
+                except (OSError, ValueError):
+                    pass  # The relay restores an enrolled member from its location cache.
+            raise
         self.restart()
 
     def stream(self, submit):

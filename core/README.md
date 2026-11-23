@@ -252,8 +252,10 @@ that service. A light that is already a member is kept as it is. The registry
 appends the light's channels after the channels of the lights enrolled before
 it, so the migrated channels and their packet bytes do not change; removing a
 Hue light moves the channels of the later ones down. A removal takes the light
-out of the area before the registry changes, and an enrollment that is refused
-after the area changed takes the light out again. The relay refuses an area with
+out of the area before the registry changes and puts it back when the registry
+cannot be saved; an enrollment that is refused after the area changed takes the
+light out again, and a failed or uncertain area write restores the earlier
+locations. Enrollments and removals run one at a time. The relay refuses an area with
 a member that is not enrolled, so do not add lights to this area in the Hue app.
 
 A change is refused with 409 and a reason while Sync output is active
