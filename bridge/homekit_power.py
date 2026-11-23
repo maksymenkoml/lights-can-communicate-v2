@@ -215,7 +215,9 @@ class HomeKitPower:
 
     def wire_intent(self, payload):
         """Light-keyed intent from a ``/homekit`` intent that names the Govee ``device``."""
-        if type(payload) is not dict or type(payload.get("device")) is not str:
+        # The wire names a lamp only by its device ID; a light id is refused.
+        if (type(payload) is not dict or type(payload.get("device")) is not str
+                or "light" in payload):
             raise ValueError("Invalid HomeKit intent")
         try:
             light = self.by_device.get(lan.device_key(payload))

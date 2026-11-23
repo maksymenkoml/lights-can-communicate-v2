@@ -229,6 +229,7 @@ class HomeKitWireTests(unittest.TestCase):
                         {"device": THIRD_ID, "on": False}, {"light": "govee-left", "on": False},
                         {"device": "middle", "on": False}, {"device": LEFT, "role": "left",
                                                             "on": False},
+                        {"device": LEFT, "light": "govee-right", "on": False},
                         {"on": False}):
             with self.subTest(payload=payload):
                 self.assertEqual(self.call("/homekit", payload)[0], 400)
