@@ -9,6 +9,9 @@ import tempfile
 import threading
 from pathlib import Path
 
+# One service per native light of the area; an area holds at most ten lights.
+MAX_SERVICES = 10
+
 _MAX_BYTES = 16 * 1024
 _INVALID = "invalid native location metadata"
 _WRITE_FAILED = "native location cache could not be saved"
@@ -54,9 +57,9 @@ class NativeLocationCache:
             if (
                 type(area_id) is not str
                 or not area_id
-                or len(allowed) != 4
+                or not 1 <= len(allowed) <= MAX_SERVICES
                 or any(type(rid) is not str or not rid for rid in allowed)
-                or len(set(allowed)) != 4
+                or len(set(allowed)) != len(allowed)
             ):
                 raise ValueError(_INVALID)
             self._allowed = frozenset(allowed)

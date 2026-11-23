@@ -1068,9 +1068,11 @@ def main(argv=None, service_info=None):
 
     legacy_roles = {("govee", lan.device_key(device)): device["light"]
                     for device in controller.targets if device["light"] in LEGACY_SIDES}
+    # Only the migrated Hue lights own fixed layout rows; an enrolled one is placed
+    # like any discovered light.
     for light, proxy in hue_proxies.items():
         resource = getattr(proxy, "resource_id", None)
-        if resource:
+        if resource and light in NATIVE_SOURCES:
             legacy_roles[("hue", resource)] = light
     catalog = DeviceCatalog(legacy_roles=legacy_roles)
     catalog.provider_state("govee", "discovering")

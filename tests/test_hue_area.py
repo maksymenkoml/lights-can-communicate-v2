@@ -58,6 +58,13 @@ class HueAreaReaderTests(unittest.TestCase):
         self.assertEqual(hue.member(OTHER_LIGHT), {"service": OTHER_SERVICE, "segments": 1})
         self.assertEqual(calls[0], "/clip/v2/resource/entertainment_configuration/" + AREA)
 
+    def test_resource_ids_are_compared_and_returned_in_canonical_form(self):
+        upper = {"errors": [], "data": [
+            {"id": SERVICE.upper(), "renderer_reference": {"rid": LIGHT.upper(),
+                                                           "rtype": "light"}}]}
+        hue, _ = reader(area(channels=[channel(0, SERVICE.upper(), 0)]), upper)
+        self.assertEqual(hue.member(LIGHT.upper()), {"service": SERVICE, "segments": 1})
+
     def test_a_light_outside_the_area_is_not_a_member(self):
         hue, calls = reader(area(lights=(OTHER_LIGHT,)))
         self.assertIsNone(hue.member(LIGHT))

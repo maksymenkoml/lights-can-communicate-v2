@@ -6,6 +6,7 @@ that area in the Hue app, and this reader finds the light's entertainment servic
 and its channels there with the paired credentials. It only reads.
 """
 
+import http.client
 import json
 import ssl
 import time
@@ -64,18 +65,21 @@ class HueAreaReader:
         except urllib.error.HTTPError as error:
             error.close()
             raise OSError("Hue area request failed") from None
-        with response:
-            raw = bytearray()
-            while len(raw) <= _MAX_BYTES:
-                if time.monotonic() >= deadline:
-                    raise OSError("Hue area response timed out")
-                chunk = response.read1(min(65536, _MAX_BYTES + 1 - len(raw)))
-                if not chunk:
-                    break
-                raw.extend(chunk)
-            if len(raw) > _MAX_BYTES:
-                raise ValueError("Hue area response too large")
-        return json.loads(raw)
+        try:
+            with response:
+                raw = bytearray()
+                while len(raw) <= _MAX_BYTES:
+                    if time.monotonic() >= deadline:
+                        raise OSError("Hue area response timed out")
+                    chunk = response.read1(min(65536, _MAX_BYTES + 1 - len(raw)))
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                if len(raw) > _MAX_BYTES:
+                    raise ValueError("Hue area response too large")
+            return json.loads(raw)
+        except (http.client.HTTPException, RecursionError, UnicodeDecodeError):
+            raise ValueError("Invalid Hue area response") from None
 
     def _data(self, path):
         response = self._requester(path)
@@ -101,14 +105,16 @@ class HueAreaReader:
         if not isinstance(rows, list):
             raise ValueError("Invalid Hue area response")
         if not any(isinstance(row, dict) and row.get("rtype") == "light"
-                   and row.get("rid") == light for row in rows):
+                   and _uuid(row.get("rid")) == light for row in rows):
             return None
         services = [item.get("id") for item in self._data("/clip/v2/resource/entertainment")
                     if isinstance(item, dict)
-                    and item.get("renderer_reference") == {"rid": light, "rtype": "light"}]
-        if len(services) != 1 or _uuid(services[0]) is None:
+                    and isinstance(item.get("renderer_reference"), dict)
+                    and item["renderer_reference"].get("rtype") == "light"
+                    and _uuid(item["renderer_reference"].get("rid")) == light]
+        service = _uuid(services[0]) if len(services) == 1 else None
+        if service is None:
             raise ValueError("Invalid Hue entertainment service")
-        service = services[0]
         channels = area.get("channels")
         if not isinstance(channels, list):
             raise ValueError("Invalid Hue area response")
@@ -119,7 +125,7 @@ class HueAreaReader:
                 raise ValueError("Invalid Hue area response")
             for member in members:
                 reference = member.get("service") if isinstance(member, dict) else None
-                if isinstance(reference, dict) and reference.get("rid") == service:
+                if isinstance(reference, dict) and _uuid(reference.get("rid")) == service:
                     indexes.append(member.get("index"))
         if (not indexes or any(type(index) is not int for index in indexes)
                 or sorted(indexes) != list(range(len(indexes)))):

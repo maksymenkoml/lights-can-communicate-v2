@@ -201,6 +201,20 @@ class HueEnrollmentTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(self.restarts, [])
 
+    def test_a_light_that_goes_offline_during_the_area_read_is_refused(self):
+        catalog = self.catalog
+
+        class Offline(Area):
+            def member(self, light):
+                result = super().member(light)
+                catalog._entries[next(iter(catalog._entries))]["seen"] = -100
+                return result
+
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(Offline({"service": HUE_SERVICE, "segments": 1})).enroll(self.new)
+        self.assertEqual(refused.exception.reason, "unavailable")
+        self.assertEqual(self.restarts, [])
+
     def test_an_enrolled_hue_light_is_removed_and_keeps_its_identity(self):
         lights = self.enrollment(Area({"service": HUE_SERVICE, "segments": 2}))
         lights.enroll(self.new)

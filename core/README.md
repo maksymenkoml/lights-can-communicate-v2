@@ -244,8 +244,9 @@ the one whose renderer is the light, and its channels are the area's channels of
 that service. The registry appends the light's channels after the channels of
 the lights enrolled before it, so the migrated channels and their packet bytes
 do not change; removing a Hue light moves the channels of the later ones down.
-While a light is in the area but not yet enrolled, the relay refuses the changed
-area and Sync does not start.
+While a light is in the area but not enrolled, the relay refuses the changed
+area and Sync does not start: enroll a light right after adding it, and remove it
+from the area in the Hue app after removing it here.
 
 A change is refused with 409 and a reason while Sync output is active
 (`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled

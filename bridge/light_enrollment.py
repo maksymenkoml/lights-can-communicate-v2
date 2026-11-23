@@ -73,6 +73,9 @@ class LightEnrollment:
                 raise LightRefused("enrolled")
             try:
                 if member is not None:
+                    # The light can go offline or ambiguous while the area is read.
+                    if self.catalog.hue_enrollment(light_id) is None:
+                        raise LightRefused("unavailable")
                     registry = self._with_hue_light(light_id, member)
                 else:
                     binding = self.catalog.govee_enrollment(light_id)
