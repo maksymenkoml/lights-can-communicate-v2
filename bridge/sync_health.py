@@ -6,11 +6,13 @@ reading; anything else stays ``unknown`` rather than being guessed.
 """
 
 import math
+import re
 
 from power_history import CAUSES as _POWER_CAUSES
 from stream_diagnostics import _REASONS, _STATES
 
-GOVEE_ROLES = ("left", "right")
+# A Govee light id as the registry names it; bounded like a registry id.
+_LIGHT = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 HUE_ROLES = ("strip", "hue_left", "hue_center", "hue_right")
 GOVEE_FRESH_SECONDS = 0.75
 # Under DreamView a Govee lamp misses a few status replies in a row now and
@@ -40,23 +42,30 @@ def _fresh(age, limit):
     return _number(age) and 0 <= age <= limit
 
 
-def _selected(status):
-    composition = status.get("composition")
-    if composition is None:
-        return set(GOVEE_ROLES + HUE_ROLES)
-    roles = _mapping(composition).get("enabled_roles")
-    if not isinstance(roles, list):
-        return set()
-    return {role for role in roles if role in GOVEE_ROLES + HUE_ROLES}
+def _light(value):
+    return type(value) is str and _LIGHT.match(value) is not None
 
 
 def _govee_rows(status):
     rows = {}
     targets = status.get("targets")
-    for target in targets[:16] if isinstance(targets, list) else []:
-        if isinstance(target, dict) and target.get("side") in GOVEE_ROLES:
-            rows.setdefault(target["side"], target)
+    for target in targets[:64] if isinstance(targets, list) else []:
+        if isinstance(target, dict) and _light(target.get("light")):
+            rows.setdefault(target["light"], target)
     return rows
+
+
+def _selected(status):
+    """The Govee lights and Hue roles that take part in the Sync composition."""
+    composition = status.get("composition")
+    if composition is None:
+        return set(_govee_rows(status)) | set(HUE_ROLES)
+    composition = _mapping(composition)
+    roles, lights = composition.get("enabled_roles"), composition.get("lights")
+    if not isinstance(roles, list) or not isinstance(lights, list):
+        return set()
+    return ({role for role in roles if role in HUE_ROLES}
+            | {light for light in lights[:64] if _light(light)})
 
 
 def govee_reading(row):
@@ -91,9 +100,9 @@ def _classified(video):
 def _blockers(status, video):
     selected = _selected(status)
     blockers = []
-    roles = _mapping(_mapping(status.get("power_owner")).get("roles"))
+    roles = _mapping(_mapping(status.get("power_owner")).get("lights"))
     govee = _govee_rows(status)
-    for role in GOVEE_ROLES:
+    for role in govee:
         if role not in selected:
             continue
         owner = _mapping(roles.get(role))
@@ -101,12 +110,11 @@ def _blockers(status, video):
             blockers.append({"role": role, "code": "owner_off"})
         elif owner.get("requested_on") is True and owner.get("color_allowed") is False:
             blockers.append({"role": role, "code": "color_fenced"})
-        if role in govee:
-            native = govee_reading(govee[role])
-            if native is None:
-                blockers.append({"role": role, "code": "native_stale"})
-            elif native.get("onOff") == 0 and type(native.get("onOff")) is int:
-                blockers.append({"role": role, "code": "native_off"})
+        native = govee_reading(govee[role])
+        if native is None:
+            blockers.append({"role": role, "code": "native_stale"})
+        elif native.get("onOff") == 0 and type(native.get("onOff")) is int:
+            blockers.append({"role": role, "code": "native_off"})
     owned = video.get("native_owned") is True
     for role, row in _hue_rows(status).items():
         if role not in selected:
@@ -156,7 +164,7 @@ def _scalar_map(value, keys):
 
 def _counters(value):
     return {key: count for key, count in _mapping(value).items()
-            if (key in GOVEE_ROLES or key in _REASONS) and type(count) is int}
+            if (_light(key) or key in _REASONS) and type(count) is int}
 
 
 def _native_row(row):
@@ -169,7 +177,7 @@ def _power_events(authority):
     clean = []
     for item in events[-MAX_EVENTS:] if isinstance(events, list) else []:
         item = _mapping(item)
-        if (item.get("role") in GOVEE_ROLES and type(item.get("cause")) is str
+        if (_light(item.get("role")) and type(item.get("cause")) is str
                 and item["cause"] in _POWER_CAUSES
                 and type(item.get("timestamp")) is str and len(item["timestamp"]) <= 40):
             clean.append({
@@ -210,7 +218,7 @@ def export(status):
             if type(target.get("segment_count")) is int else None,
         }
     authority = _mapping(status.get("power_owner"))
-    roles = _mapping(authority.get("roles"))
+    roles = _mapping(authority.get("lights"))
     return {
         "version": 1,
         "service": _scalar_map(status.get("service"), ("name", "version")),
@@ -231,7 +239,7 @@ def export(status):
         },
         "power_owner": {role: _scalar_map(roles[role], ("requested_on", "color_allowed",
                                                         "revision", "grant_remaining"))
-                        for role in GOVEE_ROLES if role in roles},
+                        for role in list(roles)[:64] if _light(role)},
         "power_events": _power_events(authority),
         "govee": govee,
         "native": {role: _native_row(row) for role, row in _hue_rows(status).items()},

@@ -15,7 +15,7 @@ LEGACY_SIDES = {"govee-left": "left", "govee-right": "right"}
 _MAX_REGISTRY_BYTES = 64 * 1024
 _ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 # A Govee light is one of the two migrated lamps or a discovered device.
-_GOVEE_ID = re.compile(r"(?:govee-left|govee-right|device-[0-9a-f]{32})\Z")
+GOVEE_ID = re.compile(r"(?:govee-left|govee-right|device-[0-9a-f]{32})\Z")
 # The only tier an owner can force; every model in the capability table is segmented.
 _GOVEE_TIERS = ("basic",)
 _ID_V1 = re.compile(r"[1-9][0-9]{0,3}\Z")
@@ -117,7 +117,7 @@ def _light(value):
     if provider not in ("govee", "hue"):
         raise _invalid()
     value = _object(value, ("id", "provider", "virtual", provider))
-    _text(value["id"], _GOVEE_ID if provider == "govee" else _ID)
+    _text(value["id"], GOVEE_ID if provider == "govee" else _ID)
     virtual = _object(value["virtual"], ("id_v1", "seed"))
     _text(virtual["id_v1"], _ID_V1)
     _text(virtual["seed"], _SEED)

@@ -35,7 +35,7 @@ from video_output import VideoOutput  # noqa: E402
 
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
-LAMPS = {"govee-left": "left", "govee-right": "right", "hue-monitor": "strip",
+LAMPS = {"govee-left": "govee-left", "govee-right": "govee-right", "hue-monitor": "strip",
          "play-left": "hue_left", "play-center": "hue_center", "play-right": "hue_right"}
 
 
@@ -103,15 +103,15 @@ class LayoutOffTests(unittest.TestCase):
             data["devices"][4]["enabled"] = False
             data["devices"][4]["syncRole"] = "off"
             store.save(data)
-            self.assertFalse(store.enabled("left"))
-            self.assertTrue(store.present("left"))
+            self.assertFalse(store.enabled("govee-left"))
+            self.assertTrue(store.present("govee-left"))
             self.assertFalse(store.enabled("strip"))
             self.assertTrue(store.present("strip"))
             profile = store.sync_profile()
             self.assertEqual(profile["enabled_roles"], ["right", "hue_right"])
             self.assertEqual(profile["native_roles"], ["hue_right"])
             # A removed row is never switched, even when it says "off".
-            self.assertEqual(store.sync_off_roles(), ["left", "strip"])
+            self.assertEqual(store.sync_off_roles(), ["govee-left", "strip"])
 
 
 class SessionFixture(unittest.TestCase):
@@ -131,8 +131,8 @@ class SessionFixture(unittest.TestCase):
     def homekit(self):
         power = HomeKitPower(targets(), self.folder / "homekit-power.json", self.lamps.send,
                              self.lamps.observe, clock=self.lamps.clock, sleep=self.lamps.sleep)
-        for side in ("left", "right"):
-            self.assertTrue(power.set({"role": side, "on": True}))
+        for side in ("govee-left", "govee-right"):
+            self.assertTrue(power.set({"light": side, "on": True}))
         return power
 
     def owner(self):
@@ -145,7 +145,7 @@ class SessionFixture(unittest.TestCase):
     def grant(self, gate, **states):
         self.sequence += 1
         return gate.submit({"session": "home", "sequence": self.sequence, "issued_at": 1000,
-                            "states": states})
+                            "states": {"govee-" + side: value for side, value in states.items()}})
 
     def session(self, govee):
         return SyncOffSession(self.store, lambda: self.active, self.state, govee=govee,
@@ -163,54 +163,54 @@ class SyncOffSessionTests(SessionFixture):
         session = self.session(power)
         self.lamps.sent.clear()
         session.step()
-        self.assertEqual(self.turns("left"), [])
+        self.assertEqual(self.turns("govee-left"), [])
         self.active = True
         session.step()
-        self.assertEqual(self.turns("left"), [0])
-        self.assertEqual(self.turns("right"), [])
-        self.assertFalse(self.lamps.native["left"])
-        self.assertFalse(power.allowed("left"))
-        self.assertTrue(power.allowed("right"))
+        self.assertEqual(self.turns("govee-left"), [0])
+        self.assertEqual(self.turns("govee-right"), [])
+        self.assertFalse(self.lamps.native["govee-left"])
+        self.assertFalse(power.allowed("govee-left"))
+        self.assertTrue(power.allowed("govee-right"))
         self.assertEqual(self.hue.power_calls, [False])
         # HomeKit keeps showing the owner's intent, and tick() never adopts the hold.
         for _ in range(40):
             self.lamps.now += 0.5
             power.tick()
             session.step()
-        roles = power.state()["roles"]
-        self.assertIs(roles["left"]["on"], True)
-        self.assertIs(roles["left"]["requested_on"], True)
-        self.assertIs(roles["left"]["native_on"], False)
-        self.assertTrue(power.snapshot()["roles"]["left"]["sync_hold"])
-        self.assertTrue(power.snapshot()["roles"]["left"]["requested_on"])
+        roles = power.state()["lights"]
+        self.assertIs(roles["govee-left"]["on"], True)
+        self.assertIs(roles["govee-left"]["requested_on"], True)
+        self.assertIs(roles["govee-left"]["native_on"], False)
+        self.assertTrue(power.snapshot()["lights"]["govee-left"]["sync_hold"])
+        self.assertTrue(power.snapshot()["lights"]["govee-left"]["requested_on"])
         saved = json.loads(self.state.read_text())
-        self.assertEqual(saved, {"version": 1, "roles": ["left", "strip"]})
+        self.assertEqual(saved, {"version": 1, "roles": ["govee-left", "strip"]})
         self.assertEqual(stat.S_IMODE(os.stat(self.state).st_mode), 0o600)
         self.active = False
         session.step()
-        self.assertEqual(self.turns("left"), [0, 1])
-        self.assertTrue(self.lamps.native["left"])
-        self.assertTrue(power.allowed("left"))
+        self.assertEqual(self.turns("govee-left"), [0, 1])
+        self.assertTrue(self.lamps.native["govee-left"])
+        self.assertTrue(power.allowed("govee-left"))
         self.assertEqual(self.hue.power_calls, [False, True])
         self.assertFalse(self.state.exists())
         self.assertEqual(session.snapshot()["roles"], [])
 
     def test_lamps_already_off_stay_off(self):
         power = self.homekit()
-        self.assertTrue(power.set({"role": "left", "on": False}))
+        self.assertTrue(power.set({"light": "govee-left", "on": False}))
         self.hue.native["on"]["on"] = False
         self.strip.process_once()
         session = self.session(power)
         self.lamps.sent.clear()
         self.active = True
         session.step()
-        self.assertFalse(power.sync_held("left"))
+        self.assertFalse(power.sync_held("govee-left"))
         self.assertFalse(self.state.exists())
         self.active = False
         session.step()
-        self.assertEqual(self.turns("left"), [])
+        self.assertEqual(self.turns("govee-left"), [])
         self.assertEqual(self.hue.power_calls, [])
-        self.assertFalse(self.lamps.native["left"])
+        self.assertFalse(self.lamps.native["govee-left"])
 
     def test_owner_changes_during_the_session_win(self):
         power = self.homekit()
@@ -218,19 +218,19 @@ class SyncOffSessionTests(SessionFixture):
         self.active = True
         session.step()
         # HomeKit Off during Sync: intent becomes Off and nothing is restored.
-        self.assertTrue(power.set({"role": "left", "on": False}))
-        self.assertFalse(power.sync_held("left"))
+        self.assertTrue(power.set({"light": "govee-left", "on": False}))
+        self.assertFalse(power.sync_held("govee-left"))
         # Hue app On through the virtual bridge's native power route.
         session.owner_power("strip")
-        self.assertEqual(json.loads(self.state.read_text())["roles"], ["left"])
+        self.assertEqual(json.loads(self.state.read_text())["roles"], ["govee-left"])
         # The watcher drops the Govee record once the authority dropped its hold.
         session.step()
         self.assertFalse(self.state.exists())
         self.lamps.sent.clear()
         self.active = False
         session.step()
-        self.assertEqual(self.turns("left"), [])
-        self.assertFalse(self.lamps.native["left"])
+        self.assertEqual(self.turns("govee-left"), [])
+        self.assertFalse(self.lamps.native["govee-left"])
         self.assertEqual(self.hue.power_calls, [False])
 
     def test_owner_on_during_the_session_turns_the_lamp_on_and_keeps_it(self):
@@ -238,9 +238,9 @@ class SyncOffSessionTests(SessionFixture):
         session = self.session(power)
         self.active = True
         session.step()
-        self.assertTrue(power.set({"role": "left", "on": True}))
-        self.assertTrue(self.lamps.native["left"])
-        self.assertTrue(power.allowed("left"))
+        self.assertTrue(power.set({"light": "govee-left", "on": True}))
+        self.assertTrue(self.lamps.native["govee-left"])
+        self.assertTrue(power.allowed("govee-left"))
         # The physical Hue app switched the strip on directly at the bridge.
         self.hue.native["on"]["on"] = True
         self.strip.process_once()
@@ -249,7 +249,7 @@ class SyncOffSessionTests(SessionFixture):
         self.active = False
         self.lamps.sent.clear()
         session.step()
-        self.assertEqual(self.turns("left"), [])
+        self.assertEqual(self.turns("govee-left"), [])
         self.assertEqual(self.hue.power_calls, [False])
 
     def test_role_changes_during_the_session_apply_at_once(self):
@@ -263,16 +263,16 @@ class SyncOffSessionTests(SessionFixture):
         # Set to Off while Sync runs: both lamps go off on the next step.
         self.store.save(with_roles(**{"govee-left": "off", "hue-monitor": "off"}))
         session.step()
-        self.assertEqual(self.turns("left"), [0])
+        self.assertEqual(self.turns("govee-left"), [0])
         self.assertEqual(self.hue.power_calls, [False])
-        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "strip"])
         # The owner switches the left lamp on again: it is not switched off again.
-        self.assertTrue(power.set({"role": "left", "on": True}))
+        self.assertTrue(power.set({"light": "govee-left", "on": True}))
         for _ in range(5):
             self.lamps.now += 0.5
             power.tick()
             session.step()
-        self.assertEqual(self.turns("left"), [0, 1])
+        self.assertEqual(self.turns("govee-left"), [0, 1])
         self.assertEqual(session.snapshot()["roles"], ["strip"])
         # The strip leaves Off while Sync runs: its power comes back at once.
         self.store.save(with_roles(**{"govee-left": "off"}))
@@ -284,12 +284,12 @@ class SyncOffSessionTests(SessionFixture):
         self.store.save(with_roles(**{"govee-left": "off", "hue-monitor": "off"}))
         session.step()
         self.assertEqual(self.hue.power_calls, [False, True, False])
-        self.assertEqual(self.turns("left"), [0, 1])
+        self.assertEqual(self.turns("govee-left"), [0, 1])
         # Session end restores what is still recorded, and only that.
         self.active = False
         session.step()
         self.assertEqual(self.hue.power_calls, [False, True, False, True])
-        self.assertEqual(self.turns("left"), [0, 1])
+        self.assertEqual(self.turns("govee-left"), [0, 1])
 
     def test_failed_restore_of_a_role_leaving_off_is_retried_during_the_session(self):
         session = self.session(None)
@@ -312,45 +312,45 @@ class SyncOffSessionTests(SessionFixture):
         session = self.session(power)
         self.active = True
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "strip"])
         self.hue.fail_power = True
         self.store.save(with_roles(**{"govee-left": "off"}))
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["left", "strip"])
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "strip"])
         # The left lamp leaves Off on the next step: restored at once.
         self.store.save(with_roles())
         session.step()
         self.assertEqual(session.snapshot()["roles"], ["strip"])
-        self.assertFalse(power.sync_held("left"))
-        self.assertTrue(self.lamps.native["left"])
+        self.assertFalse(power.sync_held("govee-left"))
+        self.assertTrue(self.lamps.native["govee-left"])
 
     def test_power_owner_hold_closes_the_gate_and_owner_off_wins(self):
         gate = self.owner()
         session = self.session(gate)
         self.active = True
         session.step()
-        self.assertEqual(self.turns("left"), [0])
-        self.assertFalse(gate.allowed("left"))
-        self.assertTrue(gate.allowed("right"))
+        self.assertEqual(self.turns("govee-left"), [0])
+        self.assertFalse(gate.allowed("govee-left"))
+        self.assertTrue(gate.allowed("govee-right"))
         # Owner heartbeats that keep the same intent keep the hold.
         self.assertTrue(self.grant(gate, left=True, right=True))
-        self.assertFalse(gate.allowed("left"))
-        self.assertTrue(gate.snapshot()["roles"]["left"]["requested_on"])
+        self.assertFalse(gate.allowed("govee-left"))
+        self.assertTrue(gate.snapshot()["lights"]["govee-left"]["requested_on"])
         self.active = False
         session.step()
-        self.assertEqual(self.turns("left"), [0, 1])
-        self.assertTrue(gate.allowed("left"))
+        self.assertEqual(self.turns("govee-left"), [0, 1])
+        self.assertTrue(gate.allowed("govee-left"))
         # Second session: the owner switches the lamp off in HomeKit during Sync.
         self.active = True
         session.step()
         self.assertTrue(self.grant(gate, left=False, right=True))
-        self.assertFalse(gate.sync_held("left"))
+        self.assertFalse(gate.sync_held("govee-left"))
         session.step()
-        self.assertNotIn("left", session.snapshot()["roles"])
+        self.assertNotIn("govee-left", session.snapshot()["roles"])
         self.active = False
         session.step()
-        self.assertEqual(self.turns("left"), [0, 1, 0])
-        self.assertFalse(self.lamps.native["left"])
+        self.assertEqual(self.turns("govee-left"), [0, 1, 0])
+        self.assertFalse(self.lamps.native["govee-left"])
 
     def test_without_a_power_authority_govee_is_untouched(self):
         session = self.session(None)
@@ -369,15 +369,15 @@ class SyncOffSessionTests(SessionFixture):
         session.step()
         self.store.save(with_roles(**{"govee-right": "off"}))
         session.step()
-        self.assertFalse(power.sync_held("left"))
-        self.assertTrue(self.lamps.native["left"])
-        self.assertTrue(power.sync_held("right"))
-        self.assertFalse(self.lamps.native["right"])
+        self.assertFalse(power.sync_held("govee-left"))
+        self.assertTrue(self.lamps.native["govee-left"])
+        self.assertTrue(power.sync_held("govee-right"))
+        self.assertFalse(self.lamps.native["govee-right"])
         self.assertEqual(self.hue.power_calls, [False, True])
         self.active = False
         session.step()
-        self.assertFalse(power.sync_held("right"))
-        self.assertTrue(self.lamps.native["right"])
+        self.assertFalse(power.sync_held("govee-right"))
+        self.assertTrue(self.lamps.native["govee-right"])
         self.assertEqual(self.hue.power_calls, [False, True])
 
     def test_a_lamp_is_left_alone_when_its_record_cannot_be_saved(self):
@@ -387,30 +387,31 @@ class SyncOffSessionTests(SessionFixture):
         self.lamps.sent.clear()
         self.active = True
         session.step()
-        self.assertEqual(self.turns("left"), [], "no Off without a recovery record")
+        self.assertEqual(self.turns("govee-left"), [], "no Off without a recovery record")
         self.assertEqual(self.hue.power_calls, [])
-        self.assertTrue(power.allowed("left"))
+        self.assertTrue(power.allowed("govee-left"))
         self.assertEqual(session.snapshot()["roles"], [])
 
     def test_failed_govee_restore_stays_held_recorded_and_is_retried(self):
         for gate in (self.homekit(), self.owner()):
             with self.subTest(gate=type(gate).__name__):
-                self.lamps.native["left"] = True
+                self.lamps.native["govee-left"] = True
                 session = self.session(gate)
                 self.active = True
                 session.step()
-                self.assertFalse(self.lamps.native["left"])
-                self.lamps.ignore.add("left")
+                self.assertFalse(self.lamps.native["govee-left"])
+                self.lamps.ignore.add("govee-left")
                 self.active = False
                 session.step()
-                self.assertIn("left", json.loads(self.state.read_text())["roles"])
-                self.assertFalse(gate.allowed("left"), "the hold stays until the lamp is back")
-                self.lamps.ignore.discard("left")
+                self.assertIn("govee-left", json.loads(self.state.read_text())["roles"])
+                self.assertFalse(gate.allowed("govee-left"),
+                                 "the hold stays until the lamp is back")
+                self.lamps.ignore.discard("govee-left")
                 self.lamps.now += 2
                 session.step()
-                self.assertTrue(self.lamps.native["left"])
-                self.assertNotIn("left", gate.holds, "a confirmed restore ends the hold")
-                self.assertNotIn("left", session.snapshot()["roles"])
+                self.assertTrue(self.lamps.native["govee-left"])
+                self.assertNotIn("govee-left", gate.holds, "a confirmed restore ends the hold")
+                self.assertNotIn("govee-left", session.snapshot()["roles"])
                 session.close()
 
     def test_failed_native_restore_is_retried_and_kept_on_disk(self):
@@ -429,41 +430,41 @@ class SyncOffSessionTests(SessionFixture):
 
     def test_crash_file_is_restored_on_start_and_deleted(self):
         power = self.homekit()
-        self.lamps.native["left"] = False
+        self.lamps.native["govee-left"] = False
         self.hue.native["on"]["on"] = False
         self.strip.process_once()
-        self.state.write_text(json.dumps({"version": 1, "roles": ["left", "strip"]}))
+        self.state.write_text(json.dumps({"version": 1, "roles": ["govee-left", "strip"]}))
         restarted = HomeKitPower(targets(), self.folder / "homekit-power.json", self.lamps.send,
                                  self.lamps.observe, clock=self.lamps.clock,
                                  sleep=self.lamps.sleep)
         self.assertIsNot(restarted, power)
         session = self.session(restarted)
         # The crash-time Off is held, so tick() cannot adopt it before the restore.
-        self.assertTrue(restarted.sync_held("left"))
+        self.assertTrue(restarted.sync_held("govee-left"))
         for _ in range(20):
             self.lamps.now += 0.5
             restarted.tick()
-        self.assertTrue(restarted.state()["roles"]["left"]["requested_on"])
+        self.assertTrue(restarted.state()["lights"]["govee-left"]["requested_on"])
         session.step()
-        self.assertTrue(self.lamps.native["left"])
-        self.assertTrue(restarted.allowed("left"))
+        self.assertTrue(self.lamps.native["govee-left"])
+        self.assertTrue(restarted.allowed("govee-left"))
         self.assertTrue(self.hue.native["on"]["on"])
         self.assertFalse(self.state.exists())
 
     def test_crash_restore_waits_for_a_native_reading(self):
         power = self.homekit()
-        self.lamps.native["left"] = False
-        self.lamps.reachable["left"] = False
-        self.state.write_text(json.dumps({"version": 1, "roles": ["left"]}))
+        self.lamps.native["govee-left"] = False
+        self.lamps.reachable["govee-left"] = False
+        self.state.write_text(json.dumps({"version": 1, "roles": ["govee-left"]}))
         session = self.session(power)
         self.lamps.sent.clear()
         session.step()
-        self.assertEqual(self.turns("left"), [])
+        self.assertEqual(self.turns("govee-left"), [])
         self.assertTrue(self.state.exists())
-        self.lamps.reachable["left"] = True
+        self.lamps.reachable["govee-left"] = True
         self.lamps.now += 2
         session.step()
-        self.assertEqual(self.turns("left"), [1])
+        self.assertEqual(self.turns("govee-left"), [1])
         self.assertFalse(self.state.exists())
 
     def test_shutdown_restores_immediately(self):
@@ -472,11 +473,11 @@ class SyncOffSessionTests(SessionFixture):
         self.active = True
         session.step()
         session.close()
-        self.assertTrue(self.lamps.native["left"])
+        self.assertTrue(self.lamps.native["govee-left"])
         self.assertTrue(self.hue.native["on"]["on"])
         self.assertFalse(self.state.exists())
         session.step()
-        self.assertEqual(self.turns("left"), [1, 0, 1])
+        self.assertEqual(self.turns("govee-left"), [1, 0, 1])
 
 
 class FenceTests(unittest.TestCase):
@@ -525,7 +526,7 @@ class IdentifyFixture(unittest.TestCase):
         self.sent = []
         self.controller = GoveeController(
             targets(), sender=lambda device, name, data: self.sent.append(
-                ("scene", device["side"], name, data["value"] if name == "brightness" else None))
+                ("scene", device["light"], name, data["value"] if name == "brightness" else None))
             or True, clock=lambda: self.now, wall_clock=lambda: 1000)
         self.controller.update_statuses({key: ({"onOff": 1, "brightness": 65}, self.now)
                                          for key in (LEFT, RIGHT)})
@@ -534,7 +535,7 @@ class IdentifyFixture(unittest.TestCase):
         self.strip.process_once()
         self.identify = Identify(self.controller, {"strip": self.strip}, sleep=self.pause)
         self.identify.sender = lambda device, name, data: self.sent.append(
-            ("blink", device["side"], name, data["value"])) or True
+            ("blink", device["light"], name, data["value"])) or True
         self.controller.sender = self.identify.wrap(self.controller.sender)
         self.pauses = 0
 
@@ -548,19 +549,19 @@ class IdentifyFixture(unittest.TestCase):
 class IdentifyTests(IdentifyFixture):
     def test_govee_dips_twice_and_restores_without_racing_the_scene_writer(self):
         self.controller.submit(command(transitiontime=0))
-        self.controller.submit(command(side="right", transitiontime=0))
+        self.controller.submit(command(light="govee-right", transitiontime=0))
         self.controller.render()
         self.sent.clear()
-        self.assertTrue(self.identify("left"))
+        self.assertTrue(self.identify("govee-left"))
         blink = [entry[3] for entry in self.sent if entry[0] == "blink"]
         self.assertEqual(blink, [10, 65, 10, 65])
         self.assertEqual(self.pauses, 3)
         self.assertFalse([entry for entry in self.sent
-                          if entry[0] == "scene" and entry[1] == "left"])
+                          if entry[0] == "scene" and entry[1] == "govee-left"])
         # After the blink the scene writer resends its own target.
         self.sent.clear()
         self.controller.render()
-        self.assertTrue([entry for entry in self.sent if entry[1] == "left"])
+        self.assertTrue([entry for entry in self.sent if entry[1] == "govee-left"])
 
     def test_a_blink_waits_for_an_in_flight_controller_write(self):
         entered, release, order = threading.Event(), threading.Event(), []
@@ -576,7 +577,7 @@ class IdentifyTests(IdentifyFixture):
         writer.start()
         self.assertTrue(entered.wait(2))
         self.identify.sender = lambda device, name, data: order.append("blink") or True
-        blinker = threading.Thread(target=self.identify, args=("left",))
+        blinker = threading.Thread(target=self.identify, args=("govee-left",))
         blinker.start()
         blinker.join(0.2)
         self.assertTrue(blinker.is_alive(), "the blink waits for the write in flight")
@@ -589,33 +590,33 @@ class IdentifyTests(IdentifyFixture):
 
     def test_dim_lamps_dip_below_their_brightness(self):
         self.controller.update_statuses({LEFT: ({"onOff": 1, "brightness": 6}, self.now)})
-        self.identify("left")
+        self.identify("govee-left")
         self.assertEqual([entry[3] for entry in self.sent], [2, 6, 2, 6])
 
     def test_govee_refusals(self):
         self.controller.update_statuses({LEFT: ({"onOff": 0, "brightness": 65}, self.now)})
         with self.assertRaises(IdentifyRefused) as refused:
-            self.identify("left")
+            self.identify("govee-left")
         self.assertEqual(refused.exception.reason, "lamp off")
         self.controller.update_statuses({LEFT: ({"onOff": 1, "brightness": 65}, self.now)})
         self.now += 1
         with self.assertRaises(IdentifyRefused):
-            self.identify("left")
+            self.identify("govee-left")
         self.controller.update_statuses({LEFT: ({"onOff": 1, "brightness": 65}, self.now)})
         gate = PowerOwner(targets(), clock=lambda: self.now, wall_clock=lambda: 1000)
         self.identify.power_owner = gate
         with self.assertRaises(IdentifyRefused) as refused:
-            self.identify("left")
+            self.identify("govee-left")
         self.assertEqual(refused.exception.reason, "writer closed")
         self.assertEqual(self.sent, [])
         with self.assertRaises(ValueError):
-            self.identify("govee-left")
+            self.identify("left")
 
-    def sync_video(self, composed=lambda role: role != "right"):
+    def sync_video(self, composed=lambda role: role != "govee-right"):
         sync = GoveeController(targets(), sender=lambda device, name, data: True,
                                clock=lambda: self.now, wall_clock=lambda: 1000)
         sync.effective_target = lambda side: {"segments": [[9, 9, 9]] * 7, "brightness": 35}
-        sync.razer["left"] = sync.razer_frame["left"] = self.now
+        sync.razer["govee-left"] = sync.razer_frame["govee-left"] = self.now
 
         class Video:
             controller = sync
@@ -635,40 +636,40 @@ class IdentifyTests(IdentifyFixture):
         with self.assertRaises(IdentifyRefused) as refused:
             self.identify("strip")
         self.assertEqual(refused.exception.reason, "sync active")
-        self.assertTrue(self.identify("right"))
+        self.assertTrue(self.identify("govee-right"))
 
     def test_a_syncing_govee_blinks_with_dreamview_frames(self):
         sync = self.sync_video()
-        sync.last_sent["left"] = {"segments": [[9, 9, 9]] * 7}
+        sync.last_sent["govee-left"] = {"segments": [[9, 9, 9]] * 7}
         frames = []
         self.identify.sender = lambda device, name, data: frames.append(
-            (device["side"], name, razer_colors(data))) or True
-        self.assertTrue(self.identify("left"))
-        self.assertEqual(frames, [("left", "razer", [[255, 255, 255]] * 7),
-                                  ("left", "razer", [[0, 0, 0]] * 7)] * 2)
-        self.assertNotIn("left", sync.last_sent, "the next Sync frame restores the picture")
+            (device["light"], name, razer_colors(data))) or True
+        self.assertTrue(self.identify("govee-left"))
+        self.assertEqual(frames, [("govee-left", "razer", [[255, 255, 255]] * 7),
+                                  ("govee-left", "razer", [[0, 0, 0]] * 7)] * 2)
+        self.assertNotIn("govee-left", sync.last_sent, "the next Sync frame restores the picture")
 
     def test_a_syncing_govee_without_recent_frames_cannot_blink(self):
         sync = self.sync_video()
-        sync.razer_frame["left"] = self.now - 3
+        sync.razer_frame["govee-left"] = self.now - 3
         with self.assertRaises(IdentifyRefused) as refused:
-            self.identify("left")
+            self.identify("govee-left")
         self.assertEqual(refused.exception.reason, "sync active")
 
     def test_sync_frames_to_the_blinking_side_are_held(self):
         sync = self.sync_video()
         held = []
         sync.sender = self.identify.wrap(lambda device, name, data: held.append(
-            device["side"]) or True)
+            device["light"]) or True)
 
         def pause(seconds):
-            held.append(sync.sender(sync.by_side["left"], "razer", {"pt": ""}))
-            held.append(sync.sender(sync.by_side["right"], "razer", {"pt": ""}))
+            held.append(sync.sender(sync.by_light["govee-left"], "razer", {"pt": ""}))
+            held.append(sync.sender(sync.by_light["govee-right"], "razer", {"pt": ""}))
 
         self.identify.sleep = pause
         self.identify.sender = lambda device, name, data: True
-        self.identify("left")
-        self.assertEqual(held, [False, "right", True] * 4)
+        self.identify("govee-left")
+        self.assertEqual(held, [False, "govee-right", True] * 4)
 
     def native_relay(self, streams=True):
         class Relay:
@@ -725,14 +726,14 @@ class IdentifyTests(IdentifyFixture):
         self.identify.sleep = pause
         self.identify.sender = lambda device, name, data: True
         for _ in range(4):
-            self.assertTrue(self.identify("left"), "no Sync frame lands between blinks")
+            self.assertTrue(self.identify("govee-left"), "no Sync frame lands between blinks")
 
     def test_failed_dip_still_restores_and_reports_failure(self):
         sent = []
         self.identify.sender = lambda device, name, data: sent.append(data["value"]) or len(
             sent) != 1
         with self.assertRaises(IdentifyFailed):
-            self.identify("left")
+            self.identify("govee-left")
         self.assertEqual(sent[-1], 65)
 
     def test_native_identify_only_while_on(self):
@@ -803,24 +804,24 @@ class IdentifyRouteTests(IdentifyFixture):
     def test_identify_route(self):
         self.identify.sleep = lambda seconds: None
         port = self.serve(identify=self.identify)
-        self.assertEqual(self.post(port, {"role": "left"}), (200, {"accepted": True}))
+        self.assertEqual(self.post(port, {"role": "govee-left"}), (200, {"accepted": True}))
         self.assertEqual(self.post(port, {"role": "strip"}), (200, {"accepted": True}))
         self.assertEqual(self.hue.identified, 1)
         self.controller.update_statuses({RIGHT: ({"onOff": 0}, self.now)})
-        self.assertEqual(self.post(port, {"role": "right"}),
+        self.assertEqual(self.post(port, {"role": "govee-right"}),
                          (409, {"accepted": False, "reason": "lamp off"}))
         self.hue.identify = lambda: (_ for _ in ()).throw(OSError("bridge unreachable"))
         self.assertEqual(self.post(port, {"role": "strip"}), (503, {"accepted": False}))
-        for body in ({"role": "govee-left"}, {"role": 1}, {}, {"role": "left", "x": 1}, []):
+        for body in ({"role": "left"}, {"role": 1}, {}, {"role": "govee-left", "x": 1}, []):
             with self.subTest(body=body):
                 self.assertEqual(self.post(port, body)[0], 400)
         sent = len(self.sent)
-        self.assertEqual(self.post(port, {"role": "left"}, token="wrong")[0], 403)
+        self.assertEqual(self.post(port, {"light": "govee-left"}, token="wrong")[0], 403)
         self.assertEqual(len(self.sent), sent)
 
     def test_identify_route_is_absent_without_identify(self):
         port = self.serve()
-        self.assertEqual(self.post(port, {"role": "left"})[0], 404)
+        self.assertEqual(self.post(port, {"role": "govee-left"})[0], 404)
 
     def test_native_power_route_marks_an_owner_change(self):
         marked = []
@@ -897,7 +898,7 @@ class StudioIdentifyTests(unittest.TestCase):
         for lamp in ("device-" + "a" * 32, "virtual-lamp1", "left"):
             with self.subTest(lamp=lamp):
                 self.assertEqual(self.post({"lamp": lamp})[0], 404)
-        for body in ({}, {"lamp": 1}, {"lamp": "govee-left", "role": "left"}, [], b"{"):
+        for body in ({}, {"lamp": 1}, {"lamp": "govee-left", "role": "govee-left"}, [], b"{"):
             with self.subTest(body=body):
                 self.assertEqual(self.post(body)[0], 400)
         self.assertEqual(self.post({"lamp": "govee-left"}, Origin="http://evil.example")[0],

@@ -67,8 +67,8 @@ class UpstreamFeedbackTests(unittest.TestCase):
             "id": "bridge-home", "services": []}, geoLocation=lambda: {})
         install_resource_compat(api, Group.Group, "bridge", groups)
         self.roles = {
-            "left": {"requested_on": True, "revision": 1, "grant_remaining": 1.5},
-            "right": {"requested_on": False, "revision": 1, "grant_remaining": 1.5},
+            "govee-left": {"requested_on": True, "revision": 1, "grant_remaining": 1.5},
+            "govee-right": {"requested_on": False, "revision": 1, "grant_remaining": 1.5},
         }
         self.output = BridgeOutput("http://unused", "test", sender=self.sent.append)
         self.ns = {
@@ -87,7 +87,8 @@ class UpstreamFeedbackTests(unittest.TestCase):
         self.feedback = PowerFeedback(
             "http://unused", "test", self.lights, self.guard.lock,
             self.ns["resume_power_color"], self.ns["publish_power_groups"],
-            fetcher=lambda: {"power_owner": {"enforced": True, "roles": copy.deepcopy(self.roles)}},
+            fetcher=lambda: {"power_owner": {"enforced": True,
+                                             "lights": copy.deepcopy(self.roles)}},
         )
         self.ns["power_feedback"] = self.feedback
         Light.Light._setV1State = self.ns["forward_selected_state"]
@@ -130,7 +131,7 @@ class UpstreamFeedbackTests(unittest.TestCase):
         def advance(_):
             turns.append(right.getV2Api()["on"]["on"])
             if len(turns) == 1:
-                self.roles["right"].update(requested_on=True, revision=2)
+                self.roles["govee-right"].update(requested_on=True, revision=2)
                 self.assertTrue(self.feedback.refresh_once())
             else:
                 right.dynamics["status"] = "none"
@@ -139,7 +140,7 @@ class UpstreamFeedbackTests(unittest.TestCase):
         self.guard.run(right, palette, 0, Light.Light.dynamicScenePlay)
         self.assertEqual(turns, [False, True])
         self.assertEqual(len(right.state["gradient"]["points"]), 3)
-        self.assertTrue(self.output.pending["right"]["state"]["on"])
+        self.assertTrue(self.output.pending["govee-right"]["state"]["on"])
         self.assertTrue(self.lights["3"].state["on"])
 
     def test_static_gradient_is_restored_on_home_on_without_cancelling_play_guard(self):
@@ -147,9 +148,9 @@ class UpstreamFeedbackTests(unittest.TestCase):
         before = copy.deepcopy(right.state["gradient"])
         generation = self.guard.generations.get("2")
         self.feedback.refresh_once()
-        self.roles["right"].update(requested_on=True, revision=2)
+        self.roles["govee-right"].update(requested_on=True, revision=2)
         self.feedback.refresh_once()
-        value = self.output.pending["right"]
+        value = self.output.pending["govee-right"]
         self.assertEqual(value["transitiontime"], 0)
         self.assertTrue(value["state"]["on"])
         self.assertEqual(value["state"]["gradient"], before)

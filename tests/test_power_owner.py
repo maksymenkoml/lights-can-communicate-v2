@@ -21,7 +21,8 @@ class PowerOwnerTests(unittest.TestCase):
 
     def message(self, sequence=1, states=None, session="owner", **extra):
         return {"session": session, "sequence": sequence, "issued_at": self.wall,
-                "states": {"left": True, "right": True} if states is None else states, **extra}
+                "states": {"govee-left": True, "govee-right": True} if states is None else states,
+                **extra}
 
     def test_no_grant_off_and_expiry_suppress_even_a_powering_color_sender(self):
         sent = []
@@ -30,7 +31,7 @@ class PowerOwnerTests(unittest.TestCase):
         self.assertFalse(send(right, "ptReal", {}))
         self.assertTrue(self.gate.submit(self.message()))
         self.assertTrue(send(right, "ptReal", {}))
-        self.assertTrue(self.gate.submit(self.message(2, {"right": False})))
+        self.assertTrue(self.gate.submit(self.message(2, {"govee-right": False})))
         self.assertFalse(send(right, "ptReal", {}))
         self.now += 2.1
         self.assertFalse(send(targets()[0], "ptReal", {}))
@@ -40,16 +41,16 @@ class PowerOwnerTests(unittest.TestCase):
         self.gate.submit(self.message())
         self.now += 1.5
         self.wall += 1.5
-        self.gate.submit(self.message(2, {"left": True}))
+        self.gate.submit(self.message(2, {"govee-left": True}))
         self.now += .6
-        self.assertTrue(self.gate.allowed("left"))
-        self.assertFalse(self.gate.allowed("right"))
+        self.assertTrue(self.gate.allowed("govee-left"))
+        self.assertFalse(self.gate.allowed("govee-right"))
 
     def test_old_grant_and_old_session_cannot_undo_off(self):
         self.gate.submit(self.message())
-        self.gate.submit(self.message(2, {"right": False}))
+        self.gate.submit(self.message(2, {"govee-right": False}))
         self.assertFalse(self.gate.submit(self.message()))
-        self.assertFalse(self.gate.allowed("right"))
+        self.assertFalse(self.gate.allowed("govee-right"))
         self.assertFalse(self.gate.submit(self.message(session="replacement")))
         self.now += 2.1
         self.assertTrue(self.gate.submit(self.message(session="replacement")))
@@ -57,13 +58,13 @@ class PowerOwnerTests(unittest.TestCase):
 
     def test_invalid_roles_clock_and_envelopes_never_grant(self):
         for message in (self.message(states={"third": True}),
-                        self.message(states={"left": 1}), self.message(states={}),
+                        self.message(states={"govee-left": 1}), self.message(states={}),
                         self.message(sequence=True), self.message(extra=True),
                         {**self.message(), "issued_at": float("nan")},
                         {**self.message(), "issued_at": 900}):
             with self.subTest(message=message), self.assertRaises(ValueError):
                 self.gate.submit(message)
-        self.assertFalse(self.gate.allowed("left"))
+        self.assertFalse(self.gate.allowed("govee-left"))
 
     def test_off_ack_waits_for_inflight_color_before_owner_sends_power_off(self):
         entered, release, acknowledged = threading.Event(), threading.Event(), threading.Event()
@@ -82,7 +83,7 @@ class PowerOwnerTests(unittest.TestCase):
         self.assertTrue(entered.wait(1))
 
         def off():
-            self.gate.submit(self.message(2, {"right": False}))
+            self.gate.submit(self.message(2, {"govee-right": False}))
             events.append("off_acknowledged")
             acknowledged.set()
 
@@ -113,10 +114,10 @@ class PowerOwnerTests(unittest.TestCase):
         controller.update_statuses({key: ({"onOff": 1, "brightness": 65}, self.now)
                                     for key in (LEFT, RIGHT)})
         self.gate.submit(self.message())
-        self.gate.submit(self.message(2, {"right": False}))
+        self.gate.submit(self.message(2, {"govee-right": False}))
         physical[RIGHT] = 0
-        for side in ("left", "right"):
-            controller.submit({"side": side, "session": "scene", "sequence": 1,
+        for side in ("govee-left", "govee-right"):
+            controller.submit({"light": side, "session": "scene", "sequence": 1,
                                "issued_at": self.wall, "transitiontime": 0,
                                "state": {"on": True, "segments": [[10, 20, 30]] * 3}})
         controller.render()
@@ -144,11 +145,13 @@ class PowerOwnerTests(unittest.TestCase):
                     return error.code, json.load(error)
 
         try:
+            # The overlay's wire format still names the lamps by side.
+            wire = self.message(states={"left": True, "right": True})
             self.assertEqual(request("/power-owner", "X-Adapter-Token", "adapter-secret",
-                                     self.message())[0], 403)
+                                     wire)[0], 403)
             self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
-                                      self.message()), (200, {"accepted": True,
-                                                              "power_request_version": 1,
+                                      wire), (200, {"accepted": True,
+                                                    "power_request_version": 1,
                                          "observer_epoch": controller.observer_epoch, "observed": {
                                          "left": {"on": None, "sample": None},
                                          "right": {"on": None, "sample": None},
@@ -156,9 +159,12 @@ class PowerOwnerTests(unittest.TestCase):
             self.assertEqual(request("/command", "X-Power-Owner-Token", "owner-secret", {})[0], 403)
             self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
                                      self.message(2, {"third": True}))[0], 400)
+            # A Govee light id is not a side: the legacy wire refuses it.
+            self.assertEqual(request("/power-owner", "X-Power-Owner-Token", "owner-secret",
+                                     self.message(2, {"govee-left": True}))[0], 400)
             code, status = request("/status", "X-Adapter-Token", "adapter-secret")
             self.assertEqual(code, 200)
-            self.assertTrue(status["power_owner"]["roles"]["right"]["color_allowed"])
+            self.assertTrue(status["power_owner"]["lights"]["govee-right"]["color_allowed"])
         finally:
             server.shutdown()
             server.server_close()
@@ -171,15 +177,15 @@ class PowerOwnerTests(unittest.TestCase):
             RIGHT: ({"onOff": 1, "identity_verified": True, "native_sample": 9.9}, 9.8),
         })
         self.assertEqual(controller.power_observations(), {
-            "left": {"on": False, "sample": 9.95},
-            "right": {"on": True, "sample": 9.9},
+            "govee-left": {"on": False, "sample": 9.95},
+            "govee-right": {"on": True, "sample": 9.9},
         })
         for native, seen in (({"onOff": 1}, 10),
                              ({"onOff": True, "identity_verified": True}, 10),
                              ({"onOff": 1, "identity_verified": True}, 9),
                              ({"onOff": 1, "identity_verified": True}, 11)):
             controller.update_statuses({LEFT: (native, seen)})
-            self.assertEqual(controller.power_observations()["left"],
+            self.assertEqual(controller.power_observations()["govee-left"],
                              {"on": None, "sample": None})
 
     def test_grant_that_expires_waiting_for_writer_lock_is_rejected(self):
@@ -206,7 +212,7 @@ class PowerOwnerTests(unittest.TestCase):
             self.wall += 1
         worker.join(2)
         self.assertEqual(errors, ['expired'])
-        self.assertFalse(gate.allowed('right'))
+        self.assertFalse(gate.allowed("govee-right"))
 
     def test_reusing_adapter_credential_for_power_authority_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -224,14 +230,14 @@ class PowerOwnerTests(unittest.TestCase):
             clock=lambda: self.now, wall_clock=lambda: self.wall, power_owner=self.gate)
         controller.update_statuses({RIGHT: ({'onOff': 1, 'brightness': 65}, self.now)})
         self.gate.submit(self.message())
-        controller.submit({'side': 'right', 'session': 'scene', 'sequence': 1,
+        controller.submit({"light": "govee-right", 'session': 'scene', 'sequence': 1,
                            'issued_at': self.wall, 'transitiontime': 0,
                            'state': {'on': True, 'segments': [[10, 20, 30]] * 3}})
         controller.render()
         self.assertEqual(colors.count('ptReal'), 1)
         # Power cycling can discard the lamp's zones while the render thread is busy.
-        self.gate.submit(self.message(2, {'right': False}))
-        self.gate.submit(self.message(3, {'right': True}))
+        self.gate.submit(self.message(2, {"govee-right": False}))
+        self.gate.submit(self.message(3, {"govee-right": True}))
         controller.render()
         self.assertEqual(colors.count('ptReal'), 2)
 
@@ -255,35 +261,35 @@ class PowerHistoryTests(unittest.TestCase):
                  e["sync_hold"]) for e in self.gate.snapshot()["events"]]
 
     def test_heartbeats_record_only_gate_changes_and_expiry_at_its_time(self):
-        self.submit(1, {"left": True, "right": True})
+        self.submit(1, {"govee-left": True, "govee-right": True})
         self.advance(1)
-        self.submit(2, {"left": True, "right": True})
+        self.submit(2, {"govee-left": True, "govee-right": True})
         self.advance(.5)
-        self.submit(3, {"left": True, "right": False})
+        self.submit(3, {"govee-left": True, "govee-right": False})
         self.advance(2.5)
         self.assertEqual(self.events(), [
-            ("1970-01-01T00:16:40Z", "left", "owner", True, True, False),
-            ("1970-01-01T00:16:40Z", "right", "owner", True, True, False),
-            ("1970-01-01T00:16:41.500000Z", "right", "owner", False, False, False),
+            ("1970-01-01T00:16:40Z", "govee-left", "owner", True, True, False),
+            ("1970-01-01T00:16:40Z", "govee-right", "owner", True, True, False),
+            ("1970-01-01T00:16:41.500000Z", "govee-right", "owner", False, False, False),
             # The last heartbeat granted two seconds; the lapse is dated then, not when seen.
-            ("1970-01-01T00:16:43.500000Z", "left", "grant_expired", True, False, False),
+            ("1970-01-01T00:16:43.500000Z", "govee-left", "grant_expired", True, False, False),
         ])
         self.advance(1)
-        self.submit(4, {"left": True, "right": False})
-        self.assertEqual(self.events()[-1][1:], ("left", "owner", True, True, False))
+        self.submit(4, {"govee-left": True, "govee-right": False})
+        self.assertEqual(self.events()[-1][1:], ("govee-left", "owner", True, True, False))
 
     def test_sync_hold_and_owner_power_are_recorded(self):
-        self.submit(1, {"left": True, "right": True})
-        self.assertTrue(self.gate.sync_hold("right", send=False))
-        self.gate.owner_power("right")
+        self.submit(1, {"govee-left": True, "govee-right": True})
+        self.assertTrue(self.gate.sync_hold("govee-right", send=False))
+        self.gate.owner_power("govee-right")
         self.assertEqual([event[1:] for event in self.events()[2:]], [
-            ("right", "sync_hold", True, False, True),
-            ("right", "owner_power", True, True, False),
+            ("govee-right", "sync_hold", True, False, True),
+            ("govee-right", "owner_power", True, True, False),
         ])
 
     def test_history_is_bounded(self):
         for sequence in range(1, 200):
-            self.submit(sequence, {"right": sequence % 2 == 0})
+            self.submit(sequence, {"govee-right": sequence % 2 == 0})
         events = self.gate.snapshot()["events"]
         self.assertEqual(len(events), 64)
         self.assertEqual(events[-1]["requested_on"], False)

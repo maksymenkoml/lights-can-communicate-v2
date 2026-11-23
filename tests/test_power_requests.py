@@ -36,6 +36,7 @@ class PowerRequestTests(unittest.TestCase):
         self.addCleanup(self.close)
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         self.sequence = 0
+        # The owner heartbeat keeps its wire format: the lamps are named by side.
         self.revisions = {"left": 0, "right": 0}
         self.states = {"left": False, "right": False}
 
@@ -72,7 +73,7 @@ class PowerRequestTests(unittest.TestCase):
 
     def begin(self, states=None):
         body = {"id": "a" * 32, "issued_at": time.time(),
-                "states": states or {"right": True}}
+                "states": states or {"govee-right": True}}
         result = []
         worker = threading.Thread(target=lambda: result.append(self.post("/power-request", body)))
         worker.start()
@@ -101,7 +102,7 @@ class PowerRequestTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(capability["power_request_version"], 1)
         status, body = self.post("/power-request", {"id": "a" * 32,
-                                "issued_at": time.time(), "states": {"right": True}})
+                                "issued_at": time.time(), "states": {"govee-right": True}})
         self.assertEqual(status, 503, body)
         self.assertFalse(body["accepted"])
 
@@ -142,18 +143,18 @@ class PowerRequestTests(unittest.TestCase):
                 "states": {"right": True}, "power_requests": {
                     "version": True, "revisions": {"right": 0}, "results": []}}
         self.assertEqual(self.post("/power-owner", body, owner=True)[0], 400)
-        self.assertFalse(self.gate.allowed("right"))
+        self.assertFalse(self.gate.allowed("govee-right"))
 
     def test_non_object_owner_json_returns_a_validation_error(self):
         self.assertEqual(self.post("/power-owner", None, owner=True)[0], 400)
 
     def test_wrong_credential_or_unknown_role_never_creates_a_command(self):
-        body = {"id": "a" * 32, "issued_at": time.time(), "states": {"right": True}}
+        body = {"id": "a" * 32, "issued_at": time.time(), "states": {"govee-right": True}}
         self.assertEqual(self.post("/power-request", body, token="owner-key")[0], 403)
         body["states"] = {"third": True}
         self.assertEqual(self.post("/power-request", body)[0], 400)
-        self.assertFalse(self.gate.allowed("left"))
-        self.assertFalse(self.gate.allowed("right"))
+        self.assertFalse(self.gate.allowed("govee-left"))
+        self.assertFalse(self.gate.allowed("govee-right"))
 
 
 @unittest.skipUnless(shutil.which("node"), "Node required for real owner loopback")
@@ -161,7 +162,7 @@ class PowerRequestOwnerIntegrationTests(unittest.TestCase):
     def test_hue_commands_use_coordinated_setter_with_actual_heartbeat_and_native_proof(self):
         gate = PowerOwner(targets())
         controller = GoveeController(targets(), power_owner=gate)
-        physical = {"left": False, "right": False, "third": True}
+        physical = {"govee-left": False, "govee-right": False, "third": True}
         writes = []
         parent = handler_for(controller, "adapter-key", power_owner=gate, power_token="a" * 48)
 
@@ -171,12 +172,13 @@ class PowerRequestOwnerIntegrationTests(unittest.TestCase):
                     value = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                     gateway = HuePowerRequests(f"http://127.0.0.1:{self.server.server_port}",
                                                "adapter-key", {}, {}, None)
-                    gateway.send(value["states"])
+                    # The overlay fixture names the lamps by side; the gateway sends light ids.
+                    gateway.send({"govee-" + side: on for side, on in value["states"].items()})
                     return self.respond(200, {"accepted": True})
                 if self.path == "/test-power":
                     value = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                    role = value["role"]
-                    assert role in {"left", "right"}
+                    role = "govee-" + value["role"]
+                    assert role in {"govee-left", "govee-right"}
                     assert not gate.allowed(role), "Power changed while color grant remained open"
                     physical[role] = value["on"]
                     writes.append((role, value["on"]))
@@ -186,7 +188,7 @@ class PowerRequestOwnerIntegrationTests(unittest.TestCase):
                     controller.update_statuses({
                         device: ({"onOff": int(physical[role]), "identity_verified": True,
                                   "native_sample": now}, now)
-                        for role, device in (("left", LEFT), ("right", RIGHT))
+                        for role, device in (("govee-left", LEFT), ("govee-right", RIGHT))
                     })
                 return super().do_POST()
 
@@ -199,10 +201,10 @@ class PowerRequestOwnerIntegrationTests(unittest.TestCase):
                                      f"http://127.0.0.1:{server.server_port}"],
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(writes[:2], [("right", True), ("right", False)])
-            self.assertCountEqual(writes[2:4], [("left", True), ("right", True)])
-            self.assertEqual(writes[4:], [("right", False)])
-            self.assertEqual(physical, {"left": True, "right": False, "third": True})
+            self.assertEqual(writes[:2], [("govee-right", True), ("govee-right", False)])
+            self.assertCountEqual(writes[2:4], [("govee-left", True), ("govee-right", True)])
+            self.assertEqual(writes[4:], [("govee-right", False)])
+            self.assertEqual(physical, {"govee-left": True, "govee-right": False, "third": True})
         finally:
             parent.power_requests.close()
             server.shutdown()
@@ -216,17 +218,18 @@ class SettledRequestTests(unittest.TestCase):
     def setUp(self):
         self.now, self.wall = 100, 1000
         self.owner = PowerOwner(targets(), clock=lambda: self.now, wall_clock=lambda: self.wall)
-        self.observed = {side: {"on": True, "sample": 99.9} for side in ("left", "right")}
+        self.observed = {side: {"on": True, "sample": 99.9}
+                         for side in ("govee-left", "govee-right")}
         self.broker = PowerRequests(self.owner, observe=lambda: self.observed)
         self.addCleanup(self.broker.close)
         self.sequence = 0
-        self.exchange({"left": True, "right": True})
+        self.exchange({"govee-left": True, "govee-right": True})
 
     def exchange(self, states):
         self.sequence += 1
         body = {"session": "owner", "sequence": self.sequence, "issued_at": self.wall,
                 "states": states}
-        extension = {"version": 1, "revisions": {"left": 0, "right": 0}, "results": []}
+        extension = {"version": 1, "revisions": {"govee-left": 0, "govee-right": 0}, "results": []}
         accepted = self.owner.submit(body)
         return self.broker.exchange(body, validate_capability(extension, states),
                                     self.observed, accepted)
@@ -236,34 +239,35 @@ class SettledRequestTests(unittest.TestCase):
 
     def test_a_request_for_the_current_confirmed_state_succeeds_without_a_command(self):
         started = time.monotonic()
-        self.assertTrue(self.request({"left": True, "right": True}))
+        self.assertTrue(self.request({"govee-left": True, "govee-right": True}))
         self.assertLess(time.monotonic() - started, 0.05)
-        self.assertEqual(self.exchange({"left": True, "right": True})["power_requests"], [])
+        self.assertEqual(
+            self.exchange({"govee-left": True, "govee-right": True})["power_requests"], [])
 
     def test_a_lamp_that_is_not_yet_in_the_state_still_gets_a_command(self):
-        self.observed["right"] = {"on": False, "sample": 99.9}
+        self.observed["govee-right"] = {"on": False, "sample": 99.9}
         result = []
         worker = threading.Thread(target=lambda: result.append(
-            self._quiet(lambda: self.request({"right": True}))))
+            self._quiet(lambda: self.request({"govee-right": True}))))
         worker.start()
         deadline = time.monotonic() + 1
         commands = []
         while not commands and time.monotonic() < deadline:
-            commands = self.exchange({"left": True, "right": True})["power_requests"]
+            commands = self.exchange({"govee-left": True, "govee-right": True})["power_requests"]
             time.sleep(0.005)
         self.broker.close()
         worker.join(1)
-        self.assertEqual([command["role"] for command in commands], ["right"])
+        self.assertEqual([command["light"] for command in commands], ["govee-right"])
 
     def test_home_intent_off_is_not_overridden_by_a_stale_on_reading(self):
-        self.exchange({"left": True, "right": False})
-        self.assertFalse(self.broker.settled({"right": True}))
-        self.assertTrue(self.broker.settled({"left": True}))
+        self.exchange({"govee-left": True, "govee-right": False})
+        self.assertFalse(self.broker.settled({"govee-right": True}))
+        self.assertTrue(self.broker.settled({"govee-left": True}))
 
     def test_unknown_or_stale_readings_never_count_as_settled(self):
-        self.observed["left"] = {"on": None, "sample": None}
-        self.assertFalse(self.broker.settled({"left": True}))
-        self.assertTrue(self.broker.settled({"right": True}))
+        self.observed["govee-left"] = {"on": None, "sample": None}
+        self.assertFalse(self.broker.settled({"govee-left": True}))
+        self.assertTrue(self.broker.settled({"govee-right": True}))
 
     @staticmethod
     def _quiet(call):
@@ -281,7 +285,7 @@ class BrokerFenceTests(unittest.TestCase):
         self.workers = []
         self.addCleanup(self.close)
         self.sequence = 0
-        self.revisions = {"left": 0, "right": 0}
+        self.revisions = {"govee-left": 0, "govee-right": 0}
         self.session = "owner"
         self.exchange()
 
@@ -294,7 +298,7 @@ class BrokerFenceTests(unittest.TestCase):
     def exchange(self, results=(), observed=None):
         self.sequence += 1
         body = {"session": self.session, "sequence": self.sequence, "issued_at": self.wall,
-                "states": {"left": False, "right": False}}
+                "states": {"govee-left": False, "govee-right": False}}
         extension = {"version": 1, "revisions": dict(self.revisions), "results": list(results)}
         accepted = self.owner.submit(body)
         return self.broker.exchange(body, validate_capability(extension, body["states"]),
@@ -306,7 +310,7 @@ class BrokerFenceTests(unittest.TestCase):
         def send():
             try:
                 result.append(self.broker.request({"id": request_id, "issued_at": self.wall,
-                                                  "states": states or {"right": True}}))
+                                                  "states": states or {"govee-right": True}}))
             except PowerRequestUnavailable:
                 result.append(False)
 
@@ -340,11 +344,11 @@ class BrokerFenceTests(unittest.TestCase):
 
     def test_superseding_home_revision_prevents_old_on_completion(self):
         result, commands, worker = self.start()
-        self.revisions["right"] = 2
+        self.revisions["govee-right"] = 2
         self.assertEqual(self.exchange()["power_requests"], [])
         worker.join(1)
         self.assertEqual(result, [False])
-        self.assertFalse(self.owner.allowed("right"))
+        self.assertFalse(self.owner.allowed("govee-right"))
         self.assertEqual(len(commands), 1)
 
     def test_delayed_older_heartbeat_cannot_confirm_on_after_newer_off_is_accepted(self):
@@ -352,38 +356,38 @@ class BrokerFenceTests(unittest.TestCase):
         command = commands[0]
         self.sequence += 1
         older = {"session": self.session, "sequence": self.sequence, "issued_at": self.wall,
-                 "states": {"left": False, "right": True}}
+                 "states": {"govee-left": False, "govee-right": True}}
         self.assertTrue(self.owner.submit(older))
         self.sequence += 1
         newer = {**older, "sequence": self.sequence,
-                 "states": {"left": False, "right": False}}
+                 "states": {"govee-left": False, "govee-right": False}}
         self.assertTrue(self.owner.submit(newer))
-        capability = {"version": 1, "revisions": {"left": 0, "right": 1},
+        capability = {"version": 1, "revisions": {"govee-left": 0, "govee-right": 1},
                       "results": [{"id": command["id"], "success": True}]}
-        self.broker.exchange(older, capability, {"right": {"on": True, "sample": 1}}, True)
+        self.broker.exchange(older, capability, {"govee-right": {"on": True, "sample": 1}}, True)
         worker.join(0.1)
         self.assertEqual(result, [])
-        self.revisions["right"] = 2
+        self.revisions["govee-right"] = 2
         self.exchange()
         worker.join(1)
         self.assertEqual(result, [False])
-        self.assertFalse(self.owner.allowed("right"))
+        self.assertFalse(self.owner.allowed("govee-right"))
 
     def test_failed_group_keeps_a_delivered_other_role_busy_until_completion(self):
-        result, commands, worker = self.start({"left": True, "right": True})
-        right = next(command for command in commands if command["role"] == "right")
+        result, commands, worker = self.start({"govee-left": True, "govee-right": True})
+        right = next(command for command in commands if command["light"] == "govee-right")
         self.exchange([{"id": right["id"], "success": False}])
         worker.join(1)
         self.assertEqual(result, [False])
-        second, outgoing, other = self.start({"left": True}, request_id="b" * 32)
+        second, outgoing, other = self.start({"govee-left": True}, request_id="b" * 32)
         self.assertEqual(outgoing, [])
         other.join(1)
         self.assertEqual(second, [False])
 
     def test_stale_or_unknown_requests_fail_before_owner_dispatch(self):
         for changes in ({"issued_at": 999}, {"issued_at": True}, {"id": "A" * 32},
-                        {"states": {"third": True}}, {"states": {"right": 1}}):
-            body = {"id": "a" * 32, "issued_at": self.wall, "states": {"right": True},
+                        {"states": {"third": True}}, {"states": {"govee-right": 1}}):
+            body = {"id": "a" * 32, "issued_at": self.wall, "states": {"govee-right": True},
                     **changes}
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.broker.request(body)
@@ -402,49 +406,49 @@ class BrokerFenceTests(unittest.TestCase):
         self.assertLessEqual(command["expires_at"] - command["issued_at"], 12)
 
     def test_completed_id_is_not_reexecuted_when_active_deadline_has_elapsed(self):
-        result, commands, worker = self.start({"right": False})
-        self.revisions["right"] = 1
+        result, commands, worker = self.start({"govee-right": False})
+        self.revisions["govee-right"] = 1
         self.exchange([{"id": commands[0]["id"], "success": True}],
-                      observed={"right": {"on": False, "sample": 1}})
+                      observed={"govee-right": {"on": False, "sample": 1}})
         worker.join(1)
         self.assertEqual(result, [True])
         self.now += 13
         self.wall += 13
         self.exchange()
-        repeated, commands, again = self.start({"right": False})
+        repeated, commands, again = self.start({"govee-right": False})
         self.assertEqual(commands, [])
         again.join(1)
         self.assertEqual(repeated, [True])
 
     def test_rejected_new_request_cannot_evict_a_completed_replay_fence(self):
         for number in range(64):
-            result, commands, worker = self.start({"right": False}, f"{number:032x}")
-            self.revisions["right"] += 1
+            result, commands, worker = self.start({"govee-right": False}, f"{number:032x}")
+            self.revisions["govee-right"] += 1
             self.exchange([{"id": commands[0]["id"], "success": True}],
-                          observed={"right": {"on": False, "sample": number + 1}})
+                          observed={"govee-right": {"on": False, "sample": number + 1}})
             worker.join(1)
             self.assertEqual(result, [True])
         self.now += 3
         self.wall += 3
         with self.assertRaises(PowerRequestUnavailable):
             self.broker.request({"id": "f" * 32, "issued_at": self.wall,
-                                 "states": {"right": False}})
+                                 "states": {"govee-right": False}})
         self.exchange()
-        repeated, outgoing, worker = self.start({"right": False}, "0" * 32)
+        repeated, outgoing, worker = self.start({"govee-right": False}, "0" * 32)
         self.assertEqual(outgoing, [])
         worker.join(1)
         self.assertEqual(repeated, [True])
 
     def test_full_cache_rejects_new_ids_while_original_payloads_remain_valid(self):
-        first = {"id": "0" * 32, "issued_at": self.wall, "states": {"right": False}}
+        first = {"id": "0" * 32, "issued_at": self.wall, "states": {"govee-right": False}}
         for number in range(64):
-            result, commands, worker = self.start({"right": False}, f"{number:032x}")
-            self.revisions["right"] += 1
+            result, commands, worker = self.start({"govee-right": False}, f"{number:032x}")
+            self.revisions["govee-right"] += 1
             self.exchange([{"id": commands[0]["id"], "success": True}],
-                          observed={"right": {"on": False, "sample": number + 1}})
+                          observed={"govee-right": {"on": False, "sample": number + 1}})
             worker.join(1)
             self.assertEqual(result, [True])
-        refused, outgoing, worker = self.start({"right": False}, "f" * 32)
+        refused, outgoing, worker = self.start({"govee-right": False}, "f" * 32)
         self.assertEqual(outgoing, [])
         worker.join(1)
         self.assertEqual(refused, [False])
@@ -456,7 +460,7 @@ class BrokerFenceTests(unittest.TestCase):
         self.assertTrue(self.broker.request(renewed))
         self.now += 0.2
         self.wall += 0.2
-        accepted, outgoing, worker = self.start({"right": False}, "e" * 32)
+        accepted, outgoing, worker = self.start({"govee-right": False}, "e" * 32)
         self.assertEqual(len(outgoing), 1)
         self.assertTrue(self.broker.request(renewed))
         with self.assertRaises(ValueError):

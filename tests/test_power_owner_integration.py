@@ -33,8 +33,8 @@ class OwnerIntegrationTests(unittest.TestCase):
             return True
 
         controller = GoveeController(devices, sender=gate.wrap(firmware))
-        for side in ('left', 'right'):
-            controller.submit({'side': side, 'session': 'fixture', 'sequence': 1,
+        for side in ("govee-left", "govee-right"):
+            controller.submit({"light": side, 'session': 'fixture', 'sequence': 1,
                                'issued_at': time.time(), 'transitiontime': 0,
                                'state': {'on': True, 'segments': [[10, 20, 30]] * 3}})
         parent = handler_for(controller, 'adapter-key', power_owner=gate, power_token='a' * 48)
@@ -43,7 +43,7 @@ class OwnerIntegrationTests(unittest.TestCase):
             def do_POST(self):
                 if self.path == '/test-power':
                     body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-                    assert not gate.allowed('right'), 'Color released before physical proof'
+                    assert not gate.allowed("govee-right"), 'Color released before physical proof'
                     writes.append(body)
                     if not body['drop']:
                         physical[RIGHT] = int(body['on'])
@@ -101,14 +101,15 @@ class OwnerIntegrationTests(unittest.TestCase):
                 if self.path == '/test-power':
                     body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                     if not body['on']:
-                        assert not gate.allowed('right'), 'Physical Off preceded color pause'
+                        assert not gate.allowed("govee-right"), 'Physical Off preceded color pause'
                     physical[RIGHT] = int(body['on'])
                     return self.respond(200, {})
                 if self.path == '/test-render':
                     self.rfile.read(int(self.headers['Content-Length']))
                     sequence = len(snapshots) + 1
-                    for side in ('left', 'right'):
-                        controller.submit({'side': side, 'session': 'fixture', 'sequence': sequence,
+                    for side in ("govee-left", "govee-right"):
+                        controller.submit({"light": side, 'session': 'fixture',
+                                           'sequence': sequence,
                                            'issued_at': 1000, 'transitiontime': 0,
                                            'state': {'on': True,
                                                      'segments': [[sequence, 20, 30]] * 3}})

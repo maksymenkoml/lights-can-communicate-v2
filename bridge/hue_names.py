@@ -51,7 +51,7 @@ def rename_legacy(config):
 
 
 # Virtual light slot of each adapter role (see ``BridgeOutput.slots``).
-SLOT_ROLES = {"1": "left", "2": "right", "3": "strip",
+SLOT_ROLES = {"1": "govee-left", "2": "govee-right", "3": "strip",
               "4": "hue_left", "5": "hue_center", "6": "hue_right"}
 
 
