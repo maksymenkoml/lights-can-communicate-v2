@@ -21,7 +21,7 @@ from calibration_session import CalibrationRefused, CalibrationSession  # noqa: 
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_calibration import GoveeCalibration  # noqa: E402
-from govee_models import capabilities  # noqa: E402
+from govee_models import target_capabilities  # noqa: E402
 from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
 from govee_transport import GoveeTransport  # noqa: E402
 from homekit_power import (  # noqa: E402
@@ -212,9 +212,7 @@ class GoveeController:
         if len(self.by_light) != len(self.targets):
             raise ValueError("Govee light ids must be distinct")
         # Per-light model capabilities: DreamView timing and the default stream rate.
-        self.caps = {item["light"]: capabilities(item.get("sku") or item.get("model"),
-                                                 item.get("tier"))
-                     for item in self.targets}
+        self.caps = {item["light"]: target_capabilities(item) for item in self.targets}
         self.packet_rates = {
             item["light"]: number(item["max_commands_per_second"], 1, 100)
             if "max_commands_per_second" in item
@@ -680,9 +678,12 @@ def prepare_targets(targets, composition_profile):
     nothing is enabled for it automatically.
     """
     for device in targets:
-        caps = capabilities(device.get("sku") or device.get("model"), device.get("tier"))
+        caps = target_capabilities(device)
         segments = caps["segments"]
-        auto_segments = composition_profile is not None and segments > 0
+        # A target without a model predates the capability table: as before, only the
+        # gradient mode enables its segments.
+        modelled = bool(device.get("sku") or device.get("model"))
+        auto_segments = composition_profile is not None and segments > 0 and modelled
         if device.get("tier") == "basic":
             device["segment_count"] = 0
         elif segments and device.get("segment_count", 0) != segments and (

@@ -17,7 +17,7 @@ from .services import ARCHIVE, GATEWAY_MODULES
 # Durable state formats this release writes. Rollback restores the
 # pre-upgrade snapshot when these differ between two releases, so bump a
 # number whenever a stored format changes.
-STATE_SCHEMAS = {"desk_layout": 7, "homekit_power": 1, "scene_play_intent": 1}
+STATE_SCHEMAS = {"desk_layout": 7, "homekit_power": 2, "scene_play_intent": 1}
 CONFIG_VERSIONS = [1]
 PYTHON = "3.10"
 # Version of the signed /homekit API the bundled Homebridge plugin expects.

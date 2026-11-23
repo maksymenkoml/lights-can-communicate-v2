@@ -70,9 +70,25 @@ class PrepareTargetsTests(unittest.TestCase):
 
     def test_a_declared_segment_count_is_kept_for_a_model_outside_the_table(self):
         selected = targets()
-        selected[0].update(segment_count=7)
+        selected[0].update(segment_count=7, model="H6008")
+        selected[1].update(model="H6008")
         adapter.prepare_targets(selected, {"lights": {}})
         self.assertEqual([item["segment_count"] for item in selected], [7, 0])
+
+
+    def test_migrated_lights_without_a_model_keep_the_gradient_mode_segments(self):
+        # The registry migrated from the live targets file carries no model: the
+        # NAS lamps must stay segmented in the gradient mode, as before tiers.
+        for gradient, expected in ((True, [7, 7]), (False, [0, 0])):
+            with self.subTest(gradient=gradient), patch.object(adapter, "GRADIENT_MODE",
+                                                               gradient):
+                selected = targets()
+                adapter.prepare_targets(selected, {"lights": {}})
+                self.assertEqual([item["segment_count"] for item in selected], expected)
+                controller = adapter.GoveeController(selected)
+                self.assertEqual([item["tier"] for item in controller.snapshot()["targets"]],
+                                 ["segmented", "segmented"])
+                self.assertEqual(controller.razer_idle_seconds("govee-left"), 45)
 
 
 class ThreeLightControllerTests(unittest.TestCase):
@@ -394,7 +410,10 @@ class StartupTests(unittest.TestCase):
                               "--token-file", str(root / "token")])
         self.assertEqual([item["light"] for item in captured],
                          ["govee-left", "govee-right", THIRD_ID])
-        self.assertEqual([item["segment_count"] for item in captured], [0, 0, 0])
+        # Without a layout only the gradient mode enables the segments of the migrated
+        # lamps, which carry no model; the extra light of another model stays basic.
+        legacy = 7 if adapter.GRADIENT_MODE else 0
+        self.assertEqual([item["segment_count"] for item in captured], [legacy, legacy, 0])
 
 
 if __name__ == "__main__":

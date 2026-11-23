@@ -33,6 +33,9 @@ MODELS = {
 }
 TIERS = (None, "basic")
 BASIC = {"tier": "basic", "segments": 0}
+# Targets from before the capability table carry no model; the adapter drove every
+# such lamp with these values (and enabled its segments only in the gradient mode).
+LEGACY_MODEL = "H6076"
 
 
 def capabilities(model, tier=None):
@@ -41,3 +44,16 @@ def capabilities(model, tier=None):
         raise ValueError("Unknown Govee tier")
     entry = MODELS.get(model) if tier is None and type(model) is str else None
     return copy.deepcopy(entry if entry is not None else BASIC)
+
+
+def target_capabilities(target):
+    """Return the capabilities of an adapter target from its model and tier.
+
+    A target without a model and without a tier predates the table and keeps the
+    values the adapter always used for it.
+    """
+    model = target.get("sku") or target.get("model")
+    tier = target.get("tier")
+    if model is None and tier is None:
+        return capabilities(LEGACY_MODEL)
+    return capabilities(model, tier)
