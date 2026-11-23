@@ -887,7 +887,8 @@ function selectionRect(){
 // takes the other side when it does not fit there. While calibrating it leaves the side
 // where the reference lamp is.
 function placeMenu(menu,anchorRect){
- const a=$('#app').getBoundingClientRect(),base=selectionRect(),pad=12,gap=12,w=menu.offsetWidth,h=menu.offsetHeight;
+ // A card whose height animates to a new page is placed by its target height.
+ const a=$('#app').getBoundingClientRect(),base=selectionRect(),pad=12,gap=12,w=menu.offsetWidth,h=parseFloat(menu.style.height)||menu.offsetHeight;
  menu.style.top=Math.max(pad,Math.min(a.height-h-pad,anchorRect.bottom-a.top+8))+'px';
  const sel=base?{left:Math.min(base.left,anchorRect.left),right:Math.max(base.right,anchorRect.right)}:null;
  if(!sel){menu.style.left=Math.max(pad,Math.min(a.width-w-pad,anchorRect.left+anchorRect.width/2-a.left-w/2))+'px';return}
@@ -992,7 +993,7 @@ async function openCalibrate(l){
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');if(!pages)return;
  const [main,page]=pages.children;page.innerHTML=calPageHtml(l);
  menu.style.height=main.offsetHeight+'px';
- requestAnimationFrame(()=>{pages.classList.add('at-cal');menu.style.height=page.offsetHeight+'px';page.querySelector('[data-menu="cal-back"]')?.focus?.({preventScroll:true})});
+ requestAnimationFrame(()=>{pages.classList.add('at-cal');menu.style.height=page.offsetHeight+'px';placeOpenMenu();page.querySelector('[data-menu="cal-back"]')?.focus?.({preventScroll:true})});
  render();
 }
 function closeCalibrate(save,message){
@@ -1007,7 +1008,7 @@ function closeCalibrate(save,message){
  }
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');
  if(menuOpen&&pages&&l){
-  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum){if(save&&sum.textContent!==calSummary(l)){sum.classList.remove('flash');void sum.offsetWidth;sum.classList.add('flash')}sum.textContent=calSummary(l)}pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';
+  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum){if(save&&sum.textContent!==calSummary(l)){sum.classList.remove('flash');void sum.offsetWidth;sum.classList.add('flash')}sum.textContent=calSummary(l)}pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';placeOpenMenu();
   setTimeout(()=>{if(!cal){page.innerHTML='';menu.style.height=''}},300);
  }
  render();

@@ -1211,3 +1211,9 @@ test('a connection that could not be saved is said at step 2 with Try again',asy
  await app.click(card.querySelector('[data-box="retry"]'));
  assert.deepEqual(app.requests.box.at(-1),{url:'/api/sync-box/pair',body:{ip:BOX.ip},at:app.now()});
 });
+
+test('the lamp card keeps its fixed width: no comment splits a selector list',()=>{
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ assert.match(css,/#object-menu\.card\{width:280px;/);
+ assert.doesNotMatch(css,/,\s*\/\*/,'a comment after a comma joins two rules into one selector list');
+});
