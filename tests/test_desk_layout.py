@@ -85,8 +85,9 @@ class LayoutTests(unittest.TestCase):
             self.assertEqual(store.names(), {})
             store.save(named(**{"govee-left": "Desk left", "hue-monitor": "Monitor bar",
                                 "play-right": "Right Play"}))
-            self.assertEqual(store.names(), {"govee-left": "Desk left", "strip": "Monitor bar",
-                                             "hue_right": "Right Play"})
+            self.assertEqual(store.names(), {"govee-left": "Desk left",
+                                             "hue-monitor": "Monitor bar",
+                                             "play-right": "Right Play"})
             self.assertNotEqual(store.revision(), LayoutStore.digest(validate_layout(layout())))
             store.save(named(**{"govee-left": "Floor lamp"}))
             self.assertEqual(store.names(), {"govee-left": "Floor lamp"})
@@ -313,7 +314,7 @@ class LayoutTests(unittest.TestCase):
             self.assertIsNone(reader.snapshot())
             writer.save(layout())
             self.assertEqual(reader.scale("govee-left", 1), 0.65)
-            self.assertEqual(reader.scale("hue_center", 1), 0.5)
+            self.assertEqual(reader.scale("play-center", 1), 0.5)
             previous = reader.snapshot()
             path.write_text("{broken")
             self.assertEqual(reader.snapshot(), previous)

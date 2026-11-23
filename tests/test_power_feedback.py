@@ -45,9 +45,10 @@ class FeedbackTests(unittest.TestCase):
         )
 
     def native(self, strip=True, left=True, age=0.5):
-        self.current = {**status(), "hue_strip": {"native_on": strip, "native_age": age},
-                        "hue_play": {"hue_left": {"native_on": left, "native_age": age},
-                                     "hue_center": {"native_on": None, "native_age": age}}}
+        self.current = {**status(), "hue": {
+            "hue-monitor": {"native_on": strip, "native_age": age},
+            "play-left": {"native_on": left, "native_age": age},
+            "play-center": {"native_on": None, "native_age": age}}}
 
     def test_a_registry_with_one_legacy_lamp_still_follows_its_slot(self):
         self.current = status(left=False)
@@ -77,8 +78,8 @@ class FeedbackTests(unittest.TestCase):
         feedback = PowerFeedback(
             "http://adapter", "private-token", self.lights, threading.RLock(),
             resume=lambda lamp: None, publish_groups=lambda slots: None,
-            fetcher=lambda: {"hue_play": {"hue_desk": {"native_on": False, "native_age": 0}}},
-            clock=lambda: self.now, native_slots={"7": "hue_desk"})
+            fetcher=lambda: {"hue": {"hue-desk": {"native_on": False, "native_age": 0}}},
+            clock=lambda: self.now, native_slots={"7": "hue-desk"})
         feedback.refresh_once()
         self.assertFalse(self.lights["7"].state["on"])
 

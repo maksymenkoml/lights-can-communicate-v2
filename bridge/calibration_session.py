@@ -19,7 +19,7 @@ import math
 import threading
 import time
 
-from desk_layout import HUE_ROLES, calibration_values
+from desk_layout import calibration_values
 from govee_segments import razer_mode
 
 import lights_can_communicate_v2 as lan
@@ -122,8 +122,8 @@ class CalibrationSession:
 
     # -- requests -----------------------------------------------------------
     def _role(self, lamp):
-        """The session key of a layout row: a Govee light id or the role of a Hue row."""
-        return lamp if lamp in self.controller.by_light else HUE_ROLES.get(lamp)
+        """The session key of a layout row: its Govee or native Hue light id."""
+        return lamp if lamp in self.controller.by_light or lamp in self.hue_proxies else None
 
     def update(self, payload):
         """Start or renew the session; apply the outputs when anything changed."""

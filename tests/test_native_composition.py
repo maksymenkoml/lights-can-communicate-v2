@@ -17,7 +17,7 @@ from test_native_profile_integration import stream_config, synthetic_area
 
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
-ROLES = ('hue_center', 'hue_left', 'hue_right', 'strip')
+ROLES = ('play-center', 'play-left', 'play-right', 'hue-monitor')
 
 
 def composition(*roles):
@@ -67,7 +67,7 @@ class NativeCompositionTests(unittest.TestCase):
         return {'errors': []}
 
     def test_subset_readback_reordered_ids_use_canonical_color_and_same_area(self):
-        self.assertTrue(self.relay.start(composition('hue_left', 'strip')))
+        self.assertTrue(self.relay.start(composition('play-left', 'hue-monitor')))
         frame = {i: (1000 + i, 2000 + i, 3000 + i) for i in range(14)}
         self.relay.send(frame)
         packet = self.connections[-1].frames[-1]
@@ -82,7 +82,7 @@ class NativeCompositionTests(unittest.TestCase):
         self.assertFalse(self.relay.owned)
 
     def test_empty_subset_releases_old_area_without_empty_put_or_dtls(self):
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         connection = self.connections[-1]
         count = len(self.connections)
         self.assertTrue(self.relay.start(composition()))
@@ -95,7 +95,7 @@ class NativeCompositionTests(unittest.TestCase):
 
     def test_foreign_active_area_never_stopped_or_reconfigured(self):
         self.area.update(status='active', active_streamer={'rid': 'foreign'})
-        self.assertFalse(self.relay.start(composition('hue_left')))
+        self.assertFalse(self.relay.start(composition('play-left')))
         self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
 
     def test_invalid_inventory_and_member_or_location_metadata_fail_before_write(self):
@@ -114,7 +114,7 @@ class NativeCompositionTests(unittest.TestCase):
             self.calls.clear()
             mutate(self.area)
             with self.assertRaises(ValueError):
-                self.relay.start(composition('hue_left'))
+                self.relay.start(composition('play-left'))
             self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
 
     def test_incorrect_readback_never_opens_dtls(self):
@@ -128,11 +128,11 @@ class NativeCompositionTests(unittest.TestCase):
 
         self.relay.requester = request
         with self.assertRaises(ValueError):
-            self.relay.start(composition('hue_left'))
+            self.relay.start(composition('play-left'))
         self.assertEqual(self.connections, [])
 
     def test_stop_validates_applied_selection_after_desired_membership_changes(self):
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         self.relay.stop()
         self.assertTrue(self.connections[-1].closed)
         self.assertFalse(self.relay.owned)
@@ -145,32 +145,32 @@ class NativeCompositionTests(unittest.TestCase):
         self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
 
     def test_rejoin_after_restart_can_restore_authorized_missing_service(self):
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         self.relay.stop()
         self.relay = HueEntertainmentRelay(stream_config(), requester=self.request,
                                            connection_factory=self.connect, profile=self.profile)
-        self.assertTrue(self.relay.start(composition('hue_right')))
+        self.assertTrue(self.relay.start(composition('play-right')))
         self.assertEqual({row['rid'] for row in self.area['light_services']},
-                         {self.profile.light_ids['hue_right']})
+                         {self.profile.light_ids['play-right']})
         self.assertEqual(len(self.connections), 2)
 
     def test_location_update_preserves_optional_equalization_and_omits_readonly_position(self):
         for row in self.area['locations']['service_locations']:
             row['position'] = {'x': 0, 'y': 0, 'z': 0}
             row['equalization_factor'] = 0.8
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         body = next(body for _, body in self.calls if body and 'locations' in body)
         row = body['locations']['service_locations'][0]
         self.assertEqual(set(row), {'service', 'positions', 'equalization_factor'})
         self.assertEqual(row['equalization_factor'], 0.8)
 
     def test_recover_observed_owned_subset_ignores_new_desired_selection(self):
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         self.relay.connection.close()
         self.relay = HueEntertainmentRelay(stream_config(), requester=self.request,
                                            connection_factory=self.connect, profile=self.profile)
         self.relay.layout_store = type(
-            'Layout', (), {'sync_profile': lambda _: composition('strip')})()
+            'Layout', (), {'sync_profile': lambda _: composition('hue-monitor')})()
         self.relay.recover()
         self.assertEqual(self.area['status'], 'inactive')
         self.assertFalse(self.relay.owned)
@@ -186,11 +186,11 @@ class NativeCompositionTests(unittest.TestCase):
 
         self.relay.requester = request
         with self.assertRaises(ValueError):
-            self.relay.start(composition('hue_left'))
+            self.relay.start(composition('play-left'))
         self.assertEqual(self.connections, [])
 
     def foreign_after_own_stop(self, selected):
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         existing_connections = len(self.connections)
         original = self.request
         reads_after_stop = 0
@@ -221,10 +221,10 @@ class NativeCompositionTests(unittest.TestCase):
         self.assertFalse(self.relay.owned)
 
     def test_foreign_after_own_stop_blocks_same_membership_restart(self):
-        self.foreign_after_own_stop(('hue_left',))
+        self.foreign_after_own_stop(('play-left',))
 
     def test_foreign_after_own_stop_blocks_changed_membership_location_write(self):
-        self.foreign_after_own_stop(('hue_right',))
+        self.foreign_after_own_stop(('play-right',))
 
     def test_foreign_after_own_stop_with_empty_selection_keeps_govee_and_never_stops_foreign(self):
         self.foreign_after_own_stop(())
@@ -232,9 +232,9 @@ class NativeCompositionTests(unittest.TestCase):
     def test_equalization_survives_subset_and_rejoin(self):
         for row in self.area['locations']['service_locations']:
             row['equalization_factor'] = 0.8
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         self.relay.stop()
-        self.relay.start(composition('hue_right'))
+        self.relay.start(composition('play-right'))
         row = self.area['locations']['service_locations'][0]
         self.assertEqual(row['service']['rid'], self.profile.expected_members[2][0])
         self.assertEqual(row.get('equalization_factor'), 0.8)
@@ -245,7 +245,7 @@ class NativeCompositionTests(unittest.TestCase):
             self.calls.clear()
             self.area['locations']['service_locations'][0]['equalization_factor'] = invalid
             with self.subTest(factor=invalid), self.assertRaises(ValueError):
-                self.relay.start(composition('hue_left'))
+                self.relay.start(composition('play-left'))
             self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
 
     def test_restart_cache_preserves_excluded_location_and_equalization(self):
@@ -257,20 +257,20 @@ class NativeCompositionTests(unittest.TestCase):
                 stream_config(), requester=self.request, connection_factory=self.connect,
                 profile=self.profile, location_cache_file=path)
             self.assertFalse(path.exists())
-            self.relay.start(composition('hue_left'))
+            self.relay.start(composition('play-left'))
             self.relay.stop()
             self.assertTrue(path.is_file())
             self.relay = HueEntertainmentRelay(
                 stream_config(), requester=self.request, connection_factory=self.connect,
                 profile=self.profile, location_cache_file=path)
-            self.assertTrue(self.relay.start(composition('hue_right')))
+            self.assertTrue(self.relay.start(composition('play-right')))
             row = self.area['locations']['service_locations'][0]
             self.assertEqual(row['service']['rid'], self.profile.expected_members[2][0])
             self.assertEqual(row['positions'], [{'x': 0.2, 'y': 0, 'z': 0}])
             self.assertEqual(row['equalization_factor'], 0.8)
 
     def test_configured_cache_missing_role_metadata_fails_before_location_write(self):
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         self.relay.stop()
         connections = len(self.connections)
         self.calls.clear()
@@ -279,7 +279,7 @@ class NativeCompositionTests(unittest.TestCase):
                 stream_config(), requester=self.request, connection_factory=self.connect,
                 profile=self.profile, location_cache_file=Path(folder) / 'locations.json')
             with self.assertRaises(ValueError):
-                self.relay.start(composition('hue_right'))
+                self.relay.start(composition('play-right'))
         self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
         self.assertEqual(len(self.connections), connections)
 
@@ -291,7 +291,7 @@ class NativeCompositionTests(unittest.TestCase):
             with patch.object(self.relay.location_cache, 'merge',
                               side_effect=OSError('Native location cache unavailable')):
                 with self.assertRaises(OSError):
-                    self.relay.start(composition('hue_left'))
+                    self.relay.start(composition('play-left'))
         self.assertFalse(any(method == 'PUT' for method, _ in self.calls))
         self.assertEqual(self.connections, [])
 
@@ -302,7 +302,7 @@ class NativeCompositionTests(unittest.TestCase):
         self.relay = HueEntertainmentRelay(
             stream_config(), requester=self.request, connection_factory=self.connect,
             profile=self.profile, location_cache_file=path)
-        self.relay.start(composition('hue_left'))
+        self.relay.start(composition('play-left'))
         self.calls.clear()
         self.area['locations']['service_locations'][0]['equalization_factor'] = 0.9
         return path
@@ -325,7 +325,8 @@ class NativeCompositionTests(unittest.TestCase):
             self.relay = HueEntertainmentRelay(
                 stream_config(), requester=self.request, connection_factory=self.connect,
                 profile=self.profile, location_cache_file=path,
-                layout_store=type('Layout', (), {'sync_profile': lambda _: composition('strip')})())
+                layout_store=type(
+                    'Layout', (), {'sync_profile': lambda _: composition('hue-monitor')})())
             with patch('native_location_cache.os.replace', side_effect=OSError('disk failed')):
                 self.relay.recover()
             self.assertFalse(self.relay.owned)
@@ -350,7 +351,7 @@ class NativeCompositionTests(unittest.TestCase):
             self.relay.requester = request
             with patch('native_location_cache.os.replace', side_effect=OSError('disk failed')):
                 with self.assertRaises(OSError):
-                    self.relay.start(composition('hue_left'))
+                    self.relay.start(composition('play-left'))
             self.assertFalse(self.relay.owned)
             self.assertEqual(self.area['status'], 'inactive')
             self.assertEqual([body for method, body in self.calls if method == 'PUT'],

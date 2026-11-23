@@ -18,8 +18,10 @@ CENTER_SERVICE = "f6666666-6666-4666-8666-666666666666"
 LEFT_SERVICE = "a7777777-7777-4777-8777-777777777777"
 RIGHT_SERVICE = "b8888888-8888-4888-8888-888888888888"
 STRIP_SERVICE = "c9999999-9999-4999-8999-999999999999"
+LIGHT_IDS = {"play-center": CENTER, "play-left": LEFT, "play-right": RIGHT, "hue-monitor": STRIP}
+# The migrated monitor strip and Play lights, by registry id.
 STRIP_ID = STRIP
-PLAY_IDS = {"hue_left": LEFT, "hue_center": CENTER, "hue_right": RIGHT}
+PLAY_IDS = {"play-left": LEFT, "play-center": CENTER, "play-right": RIGHT}
 OTHER = "daaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 ZERO = "00000000-0000-0000-0000-000000000000"
 
@@ -59,14 +61,14 @@ class NativeProfileTests(unittest.TestCase):
 
     def test_selection_and_members_use_exact_synthetic_resources(self):
         profile = NativeHueProfile.from_dict(profile_data())
-        self.assertEqual(profile.strip_id, STRIP)
-        self.assertEqual(
-            dict(profile.play_ids), {"hue_left": LEFT, "hue_center": CENTER, "hue_right": RIGHT}
-        )
-        self.assertEqual(
-            dict(profile.light_ids),
-            {"strip": STRIP, "hue_left": LEFT, "hue_center": CENTER, "hue_right": RIGHT},
-        )
+        # The version-one roles become the migrated registry ids, in channel order.
+        self.assertEqual(profile.ids, ("play-center", "play-left", "play-right", "hue-monitor"))
+        self.assertEqual(profile.light_ids, LIGHT_IDS)
+        self.assertEqual(profile.service_ids, {
+            "play-center": CENTER_SERVICE, "play-left": LEFT_SERVICE,
+            "play-right": RIGHT_SERVICE, "hue-monitor": STRIP_SERVICE})
+        self.assertEqual(profile.channels, {"play-center": (0,), "play-left": (1,),
+                                            "play-right": (2,), "hue-monitor": tuple(range(3, 12))})
         self.assertEqual(profile.area_id, AREA)
         self.assertEqual(
             profile.expected_members,
@@ -91,28 +93,25 @@ class NativeProfileTests(unittest.TestCase):
             channel["member"]["rid"] = channel["member"]["rid"].upper()
         data["entertainment"]["channels"].reverse()
         profile = NativeHueProfile.from_dict(data)
-        self.assertEqual(profile.to_dict(), profile_data())
-        self.assertEqual(json.dumps(profile.to_dict()), json.dumps(profile_data()))
+        self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
+        self.assertEqual(json.dumps(profile.to_lights()),
+                         json.dumps(NativeHueProfile.from_dict(profile_data()).to_lights()))
 
     def test_input_and_returned_containers_cannot_change_the_profile(self):
         data = profile_data()
         profile = NativeHueProfile.from_dict(data)
         data["lights"]["strip"] = OTHER
         data["entertainment"]["channels"][0]["member"]["rid"] = OTHER
-        exported = profile.to_dict()
-        exported["lights"]["strip"] = OTHER
-        exported["entertainment"]["channels"][0]["member"]["index"] = 9
-        for name in ("light_ids", "play_ids"):
-            returned = getattr(profile, name)
-            try:
-                returned["hue_left"] = OTHER
-            except TypeError:
-                pass
+        exported = profile.to_lights()
+        exported[0]["light"] = OTHER
+        exported[0]["channels"][0]["index"] = 9
+        for name in ("light_ids", "service_ids", "channels"):
+            getattr(profile, name)["play-left"] = OTHER
         with self.assertRaises((FrozenInstanceError, AttributeError, TypeError)):
             profile.area_id = OTHER
         with self.assertRaises(TypeError):
             profile.expected_members[0] = (OTHER, 0)
-        self.assertEqual(profile.to_dict(), profile_data())
+        self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
 
     def test_missing_or_unknown_fields_at_every_object_level_are_rejected(self):
         paths = [(), ("lights",), ("entertainment",),
@@ -237,8 +236,9 @@ class NativeProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="tmp_native_profile_") as directory:
             path = Path(directory) / "profile.json"
             path.write_bytes(encoded + b" " * (16 * 1024 - len(encoded)))
-            self.assertEqual(NativeHueProfile.load(path).to_dict(), profile_data())
-            self.assertEqual(NativeHueProfile.load(str(path)).to_dict(), profile_data())
+            expected = NativeHueProfile.from_dict(profile_data())
+            self.assertEqual(NativeHueProfile.load(path), expected)
+            self.assertEqual(NativeHueProfile.load(str(path)), expected)
             path.write_bytes(encoded + b" " * (16 * 1024 + 1 - len(encoded)))
             with self.assertRaises(NativeProfileError):
                 NativeHueProfile.load(path)
@@ -281,6 +281,59 @@ class NativeProfileTests(unittest.TestCase):
                 with self.subTest(field=original):
                     with self.assertRaises(NativeProfileError):
                         NativeHueProfile.load(path)
+
+
+
+def light(light_id, light_uuid, service, channels):
+    return {"id": light_id, "light": light_uuid,
+            "channels": [{"channel_id": cid, "rid": service, "index": index}
+                         for index, cid in enumerate(channels)]}
+
+
+class LightListTests(unittest.TestCase):
+    """The registry form: any list of native lights in one area."""
+
+    def lights(self):
+        return [light("device-" + "1" * 32, LEFT, LEFT_SERVICE, [2]),
+                light("hue-strip", STRIP, STRIP_SERVICE, [0, 1]),
+                light("play-x", RIGHT, RIGHT_SERVICE, [3])]
+
+    def test_any_list_keeps_ids_channels_and_round_trips(self):
+        profile = NativeHueProfile.from_lights(AREA, self.lights())
+        self.assertEqual(profile.ids, ("hue-strip", "device-" + "1" * 32, "play-x"))
+        self.assertEqual(profile.channels["hue-strip"], (0, 1))
+        self.assertEqual(profile.expected_members,
+                         ((STRIP_SERVICE, 0), (STRIP_SERVICE, 1), (LEFT_SERVICE, 0),
+                          (RIGHT_SERVICE, 0)))
+        self.assertEqual(NativeHueProfile.from_lights(AREA, profile.to_lights()), profile)
+        single = NativeHueProfile.from_lights(AREA, [light("one", LEFT, LEFT_SERVICE, [0])])
+        self.assertEqual(single.resource_ids, frozenset({LEFT}))
+
+    def test_invalid_lists_are_rejected(self):
+        def changed(edit):
+            lights = self.lights()
+            edit(lights)
+            return lights
+        cases = {
+            "empty": [],
+            "gap": changed(lambda ls: ls[2]["channels"][0].update(channel_id=5)),
+            "duplicate channel": changed(lambda ls: ls[2]["channels"][0].update(channel_id=0)),
+            "index gap": changed(lambda ls: ls[1]["channels"][1].update(index=2)),
+            "split service": changed(lambda ls: ls[1]["channels"][1].update(rid=OTHER)),
+            "duplicate id": changed(lambda ls: ls[2].update(id="hue-strip")),
+            "shared light": changed(lambda ls: ls[2].update(light=LEFT)),
+            "light is a service": changed(lambda ls: ls[2].update(light=STRIP_SERVICE)),
+            "unknown field": changed(lambda ls: ls[0].update(extra=1)),
+            "too many channels": [light("big", STRIP, STRIP_SERVICE, list(range(21)))],
+            "too many lights": [light(f"l{i}", f"{i:08x}-1111-4111-8111-111111111111",
+                                      f"{i:08x}-2222-4222-8222-222222222222", [i])
+                                for i in range(1, 12)],
+        }
+        for name, lights in cases.items():
+            with self.subTest(case=name), self.assertRaises(NativeProfileError):
+                NativeHueProfile.from_lights(AREA, lights)
+        with self.assertRaises(NativeProfileError):
+            NativeHueProfile.from_lights(LEFT, self.lights())
 
 
 if __name__ == "__main__":

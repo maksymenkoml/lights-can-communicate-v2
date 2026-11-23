@@ -11,7 +11,7 @@ class PowerFeedback:
     # The Govee light behind each virtual slot; the bridge passes the registry map.
     SLOTS = {"1": "govee-left", "2": "govee-right"}
     # Native Hue lights mirror the genuine bridge as the adapter last read it.
-    NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
+    NATIVE_SLOTS = {"3": "hue-monitor", "4": "play-left", "5": "play-center", "6": "play-right"}
     NATIVE_FRESH = 5.0
     NATIVE_HOLD = 15.0
 
@@ -81,11 +81,9 @@ class PowerFeedback:
 
     def mirror_native(self, payload):
         """Show the actual native power of fresh, healthy proxies in the virtual lights."""
-        # The adapter reports the strip separately and every other native role
-        # under hue_play; any configured role is mirrored the same way.
-        proxies = dict(payload.get("hue_play") or {}) if isinstance(payload, dict) else {}
-        if isinstance(payload, dict) and isinstance(payload.get("hue_strip"), dict):
-            proxies["strip"] = payload["hue_strip"]
+        # The adapter reports every native light under "hue", keyed by light id.
+        hue = payload.get("hue") if isinstance(payload, dict) else None
+        proxies = hue if isinstance(hue, dict) else {}
         with self.lock:
             changed = set()
             now = self.clock()

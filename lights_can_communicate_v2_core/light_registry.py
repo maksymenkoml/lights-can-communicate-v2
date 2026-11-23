@@ -25,13 +25,9 @@ _MAX_RETIRED = 64
 _GOVEE_TIERS = ("basic",)
 _ID_V1 = re.compile(r"[1-9][0-9]{0,3}\Z")
 _SEED = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-# Hue lights stay the four migrated ones until the list-based native profile (stage 5).
-_HUE_ROLES = {
-    "hue-monitor": "strip",
-    "play-left": "hue_left",
-    "play-center": "hue_center",
-    "play-right": "hue_right",
-}
+# Hue lights stay the four migrated ones until a new Hue light can be enrolled
+# from the paired Entertainment area (#7 stage 5b).
+_HUE_LIGHTS = ("hue-monitor", "play-left", "play-center", "play-right")
 
 
 # Virtual bridge slot and identity seed of each migrated light (see bridge/bootstrap.py).
@@ -168,7 +164,7 @@ def _validated(data):
     if len(set(devices)) != len(devices):
         raise RegistryError("Light registry lights must be distinct.")
     hue = {item["id"] for item in lights if item["provider"] == "hue"}
-    if hue not in (set(), set(_HUE_ROLES)):
+    if hue not in (set(), set(_HUE_LIGHTS)):
         raise RegistryError("Light registry light set is unsupported.")
     try:
         return json.loads(json.dumps(root, allow_nan=False))
@@ -186,22 +182,12 @@ def _payload(data):
     return (json.dumps(data, indent=2) + "\n").encode()
 
 
-def _profile_data(data):
-    """Rebuild the version-one native profile dictionary from registry data."""
-    hue = {item["id"]: item["hue"] for item in data["lights"] if item["provider"] == "hue"}
-    channels = sorted(
-        (
-            {"channel_id": channel["channel_id"],
-             "member": {"rid": channel["rid"], "index": channel["index"]}}
-            for light in hue.values() for channel in light["channels"]
-        ),
-        key=lambda channel: channel["channel_id"],
-    )
-    return {
-        "version": 1,
-        "lights": {role: hue[light_id]["light"] for light_id, role in _HUE_ROLES.items()},
-        "entertainment": {"area_id": data["hue"]["area_id"], "channels": channels},
-    }
+def _profile(data):
+    """Return the native Hue profile of registry data."""
+    return NativeHueProfile.from_lights(
+        data["hue"]["area_id"],
+        [{"id": item["id"], **item["hue"]} for item in data["lights"]
+         if item["provider"] == "hue"])
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -219,7 +205,7 @@ class LightRegistry:
         normalized = _validated(data)
         if any(item["provider"] == "hue" for item in normalized["lights"]):
             try:
-                NativeHueProfile.from_dict(_profile_data(normalized))
+                _profile(normalized)
             except NativeProfileError:
                 raise RegistryError("Light registry Hue resources are invalid.") from None
         if len(_payload(normalized)) > _MAX_REGISTRY_BYTES:
@@ -337,7 +323,7 @@ class LightRegistry:
         data = self.to_dict()
         if "hue" not in data:
             return None
-        return NativeHueProfile.from_dict(_profile_data(data))
+        return _profile(data)
 
     def save(self, path):
         """Replace the registry atomically with owner-only permissions."""
@@ -413,33 +399,19 @@ def migrate(targets_file, native_profile_file):
     result = {"version": 1, "lights": lights}
     if native_profile_file is not None:
         try:
-            profile = NativeHueProfile.load(native_profile_file).to_dict()
+            profile = NativeHueProfile.load(native_profile_file)
         except NativeProfileError:
             raise RegistryError("Light registry migration needs a valid native Hue profile"
                                 ) from None
-        members = {item["channel_id"]: item["member"]
-                   for item in profile["entertainment"]["channels"]}
-        strip_service = members[3]["rid"]
-        channels = {
-            "hue-monitor": [cid for cid, member in members.items()
-                            if member["rid"] == strip_service],
-            "play-left": [1],
-            "play-center": [0],
-            "play-right": [2],
-        }
-        for light_id, role in _HUE_ROLES.items():
+        hue = {light.pop("id"): light for light in profile.to_lights()}
+        for light_id in _HUE_LIGHTS:
             virtual = _SEEDS[light_id]
             lights.append({
                 "id": light_id, "provider": "hue",
                 "virtual": {"id_v1": virtual[0], "seed": virtual[1]},
-                "hue": {
-                    "light": profile["lights"][role],
-                    "channels": [{"channel_id": cid, "rid": members[cid]["rid"],
-                                  "index": members[cid]["index"]}
-                                 for cid in sorted(channels[light_id])],
-                },
+                "hue": hue[light_id],
             })
-        result["hue"] = {"area_id": profile["entertainment"]["area_id"]}
+        result["hue"] = {"area_id": profile.area_id}
     return LightRegistry.from_dict(result)
 
 

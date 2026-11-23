@@ -501,7 +501,7 @@ test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>
  assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Off in HomeKit');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
  await app.click(app.$('#sync-status'));assert.equal(app.run('selected'),'govee-left');
- const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'hue_left',code:'native_stale'},{role:'strip',code:'color_fenced'},{role:'nobody',code:'x'},{role:'govee-right',code:'future_code'}]}})});
+ const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'play-left',code:'native_stale'},{role:'hue-monitor',code:'color_fenced'},{role:'nobody',code:'x'},{role:'govee-right',code:'future_code'}]}})});
  assert.equal(many.$('#sync-status span').textContent,'3 lamps not lit');
  assert.equal(many.lamp('govee-right').querySelector('[data-badge]').dataset.tooltip,'Not ready');
 });

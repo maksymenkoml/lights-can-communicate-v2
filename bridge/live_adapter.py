@@ -695,7 +695,7 @@ def prepare_targets(targets, composition_profile):
             device.setdefault("segment_count", 0)
 
 
-def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
+def handler_for(controller, token, hue_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
                 power_requests=None, homekit=None, identify=None, sync_off=None,
                 calibration=None, lights=None):
@@ -706,9 +706,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
         raise ValueError("A distinct power owner credential is required")
     broker = power_requests or (PowerRequests(power_owner) if power_owner is not None else None)
     signatures = SignatureVerifier(power_token) if homekit is not None else None
-    hue_proxies = dict(hue_play_proxies or {})
-    if hue_proxy is not None:
-        hue_proxies["strip"] = hue_proxy
+    # Native Hue light id (registry id) -> its proxy.
+    hue_proxies = dict(hue_proxies or {})
 
     class Handler(BaseHTTPRequestHandler):
         power_requests = broker
@@ -765,12 +764,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     "enabled_roles": profile["enabled_roles"], "signature": profile["signature"],
                     "lights": sorted(profile["lights"]),
                 }
-            if hue_proxy is not None:
-                result["hue_strip"] = hue_proxy.snapshot()
-            if hue_play_proxies:
-                result["hue_play"] = {
-                    role: proxy.snapshot() for role, proxy in hue_play_proxies.items()
-                }
+            if hue_proxies:
+                result["hue"] = {light: proxy.snapshot() for light, proxy in hue_proxies.items()}
             if video_output is not None:
                 result["video"] = video_output.snapshot()
             if power_owner is not None:
@@ -886,17 +881,18 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     calibration.end("ended")
                     return self.respond(200, {"active": False})
                 elif self.path == "/native-power":
-                    roles = payload.get("roles") if isinstance(payload, dict) else None
-                    if (not isinstance(roles, dict) or not roles
-                            or set(roles) - set(hue_proxies)
-                            or any(type(value) is not bool for value in roles.values())):
+                    wanted = payload.get("lights") if isinstance(payload, dict) else None
+                    if (not isinstance(payload, dict) or set(payload) != {"lights"}
+                            or not isinstance(wanted, dict) or not wanted
+                            or set(wanted) - set(hue_proxies)
+                            or any(type(value) is not bool for value in wanted.values())):
                         raise ValueError("Invalid native power request")
                     if sync_off is not None:
-                        for role in roles:
-                            sync_off.owner_power(role)
+                        for light in wanted:
+                            sync_off.owner_power(light)
                     try:
-                        confirmed = all([hue_proxies[role].set_power(value)
-                                         for role, value in roles.items()])
+                        confirmed = all([hue_proxies[light].set_power(value)
+                                         for light, value in wanted.items()])
                     except (OSError, ValueError, KeyError):
                         confirmed = False
                     return self.respond(200 if confirmed else 503, {"accepted": confirmed})
@@ -959,7 +955,8 @@ def main(argv=None, service_info=None):
     token = args.token_file.read_text().strip()
     power_owner = power_token = homekit = None
     power_requests = None
-    preview = OutputPreviewStore()
+    preview = OutputPreviewStore(
+        native_channels=native_profile.channels if native_profile else None)
     # Per-lamp calibration converts commands to device values on the way out and
     # statuses back to logical values; an invalid profile refuses to start.
     calibration = GoveeCalibration(config["targets"], layout_store)
@@ -997,19 +994,15 @@ def main(argv=None, service_info=None):
     hue_config = None
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
-        hue_proxies["strip"] = HueStripProxy(
-            PinnedHueClient(hue_config, profile=native_profile), layout_store=layout_store,
-            preview=preview, profile=native_profile,
-        )
-        if args.hue_play:
-            for role, resource in native_profile.play_ids.items():
-                hue_proxies[role] = HueStripProxy(
-                    PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
-                    role=role,
-                    layout_store=layout_store,
-                    preview=preview,
-                    profile=native_profile,
-                )
+        # One proxy per native light of the profile, keyed by its registry id.
+        for light, resource in native_profile.light_ids.items():
+            hue_proxies[light] = HueStripProxy(
+                PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
+                light,
+                layout_store=layout_store,
+                preview=preview,
+                profile=native_profile,
+            )
     video = None
     if args.hue_stream_config:
         stream_config = json.loads(args.hue_stream_config.read_text())
@@ -1071,12 +1064,10 @@ def main(argv=None, service_info=None):
 
     legacy_roles = {("govee", lan.device_key(device)): device["light"]
                     for device in controller.targets if device["light"] in LEGACY_SIDES}
-    hue_layout_roles = {"strip": "hue-monitor", "hue_left": "play-left",
-                        "hue_center": "play-center", "hue_right": "play-right"}
-    for role, proxy in hue_proxies.items():
+    for light, proxy in hue_proxies.items():
         resource = getattr(proxy, "resource_id", None)
         if resource:
-            legacy_roles[("hue", resource)] = hue_layout_roles[role]
+            legacy_roles[("hue", resource)] = light
     catalog = DeviceCatalog(legacy_roles=legacy_roles)
     catalog.provider_state("govee", "discovering")
     catalog.provider_state("hue", "discovering" if hue_config is not None else "not_configured")
@@ -1095,8 +1086,7 @@ def main(argv=None, service_info=None):
         handler_for(
             controller,
             token,
-            hue_proxies.get("strip"),
-            {role: proxy for role, proxy in hue_proxies.items() if role != "strip"},
+            hue_proxies,
             video_output=video,
             power_owner=power_owner,
             power_token=power_token,
@@ -1127,9 +1117,9 @@ def main(argv=None, service_info=None):
             reader = HueDiscoveryReader(hue_config, catalog)
             threading.Thread(target=reader.run, args=(stop,), daemon=True,
                              name="hue-discovery").start()
-        for role, proxy in hue_proxies.items():
+        for light, proxy in hue_proxies.items():
             threading.Thread(
-                target=proxy.run, args=(stop,), daemon=True, name="adapter-" + role
+                target=proxy.run, args=(stop,), daemon=True, name="adapter-" + light
             ).start()
         if video is not None:
             video_thread = threading.Thread(

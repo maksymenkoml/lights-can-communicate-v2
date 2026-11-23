@@ -29,11 +29,13 @@ import time
 
 from lights_can_communicate_v2_core.light_registry import GOVEE_ID, LEGACY_SIDES
 
-# A role is a Govee light id or the role name of a native Hue light.
-NATIVE_ROLES = ("strip", "hue_left", "hue_center", "hue_right")
+# A role is the registry id of a Govee light or of a native Hue light.
 STATE_FILE = "sync-off-session.json"
 STATE_VERSION = 1
-LEGACY_ROLES = {side: light for light, side in LEGACY_SIDES.items()}
+# Older state files name the migrated lights by side or native role.
+LEGACY_ROLES = {**{side: light for light, side in LEGACY_SIDES.items()},
+                "strip": "hue-monitor", "hue_left": "play-left",
+                "hue_center": "play-center", "hue_right": "play-right"}
 RETRY_SECONDS = 1.0
 # After a restart, wait this long for a native Govee reading before restoring.
 OBSERVE_WAIT_SECONDS = 15.0
@@ -80,7 +82,7 @@ class SyncOffSession:
             # A file from before the light ids is converted once and rewritten.
             self._persist()
         for role in list(self.records):
-            if role not in NATIVE_ROLES and self.govee is not None:
+            if role not in self.native and self.govee is not None:
                 # Keep tick() from adopting the crash-time Off before it is restored.
                 try:
                     self.govee.sync_hold(role, send=False)
@@ -102,7 +104,7 @@ class SyncOffSession:
                 if role in LEGACY_ROLES:
                     role = LEGACY_ROLES[role]
                     self.migrated = True
-                if role in NATIVE_ROLES or (type(role) is str and GOVEE_ID.match(role)):
+                if role in self.native or (type(role) is str and GOVEE_ID.match(role)):
                     records[role] = True
             return records
         except (OSError, ValueError, TypeError, AttributeError):
@@ -152,7 +154,7 @@ class SyncOffSession:
             self.applied.add(role)
             if role in self.records:
                 continue
-            if role not in NATIVE_ROLES:
+            if role not in self.native:
                 if self.govee is None:
                     continue
                 # Persist first: a crash during the switch must still restore, so
@@ -187,7 +189,7 @@ class SyncOffSession:
     def end(self, roles=None):
         """Restore recorded lamps; failures stay recorded and are retried."""
         for role in [role for role in self.records if roles is None or role in roles]:
-            if role not in NATIVE_ROLES:
+            if role not in self.native:
                 if self.govee is None:
                     del self.records[role]
                     continue
@@ -217,7 +219,7 @@ class SyncOffSession:
     def owner_power(self, role):
         """The owner switched this lamp during the session: do not restore it."""
         with self.lock:
-            if role not in NATIVE_ROLES and self.govee is not None:
+            if role not in self.native and self.govee is not None:
                 self.govee.owner_power(role)
             if role in self.records:
                 del self.records[role]
@@ -227,7 +229,7 @@ class SyncOffSession:
     def _watch_owner(self):
         changed = False
         for role in list(self.records):
-            if role not in NATIVE_ROLES:
+            if role not in self.native:
                 owner = self.govee is not None and not self.govee.sync_held(role)
             else:
                 # A fresh On after the confirmed Off came from the owner (e.g. Hue app).

@@ -22,12 +22,16 @@ def event(state, reason, **metrics):
 
 
 def status(**video):
-    hue = {
-        role: {"resource_id": "PRIVATE_RESOURCE-" + role, "healthy": True, "native_on": True,
-               "native_mode": "normal", "native_age": 0.4, "native_brightness": 70,
-               "last_result": "applied", "last_payload": {"key": "TOKEN"}, "writes": 3}
-        for role in ("hue_left", "hue_center", "hue_right")
-    }
+    # The adapter reports every native Hue light under "hue", keyed by registry id.
+    hue = {"hue-monitor": {"resource_id": "PRIVATE_RESOURCE-strip", "healthy": True,
+                           "native_on": True, "native_mode": "normal", "native_age": 0.3,
+                           "last_result": "applied"}}
+    hue.update({
+        light: {"resource_id": "PRIVATE_RESOURCE-" + light, "healthy": True, "native_on": True,
+                "native_mode": "normal", "native_age": 0.4, "native_brightness": 70,
+                "last_result": "applied", "last_payload": {"key": "TOKEN"}, "writes": 3}
+        for light in ("play-left", "play-center", "play-right")
+    })
     data = {
         "service": {"name": "lights-can-communicate-v2-adapter", "version": "0.1.0.dev9"},
         "targets": [
@@ -40,9 +44,7 @@ def status(**video):
         "commands_sent": 12,
         "rejected_sends": {"govee-right": 1},
         "skipped_state": {},
-        "hue_strip": {"resource_id": "PRIVATE_RESOURCE-strip", "healthy": True, "native_on": True,
-                      "native_mode": "normal", "native_age": 0.3, "last_result": "applied"},
-        "hue_play": hue,
+        "hue": hue,
         "power_owner": {"enforced": True, "lights": {
             "govee-left": {"requested_on": True, "color_allowed": True, "revision": 2,
                      "grant_remaining": 1.5},
@@ -107,17 +109,17 @@ class DeriveTests(unittest.TestCase):
     def test_native_off_requires_a_fresh_verified_reading(self):
         data = status()
         data["targets"][1]["native"]["onOff"] = 0
-        data["hue_play"]["hue_center"]["native_on"] = False
+        data["hue"]["play-center"]["native_on"] = False
         blockers = sync_health.derive(data)["blockers"]
         self.assertIn({"role": "govee-right", "code": "native_off"}, blockers)
-        self.assertIn({"role": "hue_center", "code": "native_off"}, blockers)
+        self.assertIn({"role": "play-center", "code": "native_off"}, blockers)
         stale = status()
         stale["targets"][1]["native"]["onOff"] = 0
         stale["targets"][1]["status_age"] = 3
-        stale["hue_play"]["hue_center"].update(native_on=False, native_age=5)
+        stale["hue"]["play-center"].update(native_on=False, native_age=5)
         blockers = sync_health.derive(stale)["blockers"]
         self.assertIn({"role": "govee-right", "code": "native_stale"}, blockers)
-        self.assertIn({"role": "hue_center", "code": "native_stale"}, blockers)
+        self.assertIn({"role": "play-center", "code": "native_stale"}, blockers)
         self.assertNotIn({"role": "govee-right", "code": "native_off"}, blockers)
         unverified = status()
         unverified["targets"][0]["native"]["identity_verified"] = False
@@ -158,20 +160,24 @@ class DeriveTests(unittest.TestCase):
 
     def test_foreign_native_stream_only_when_not_owned(self):
         data = status(native_owned=False)
-        data["hue_strip"]["native_mode"] = "streaming"
-        self.assertIn({"role": "strip", "code": "native_foreign"},
+        data["hue"]["hue-monitor"]["native_mode"] = "streaming"
+        self.assertIn({"role": "hue-monitor", "code": "native_foreign"},
                       sync_health.derive(data)["blockers"])
         owned = status()
-        owned["hue_strip"]["native_mode"] = "streaming"
+        owned["hue"]["hue-monitor"]["native_mode"] = "streaming"
         self.assertEqual(sync_health.derive(owned)["blockers"], [])
 
     def test_only_selected_roles_are_reported(self):
         data = status()
-        data["composition"] = {"enabled_roles": ["left", "hue_left"], "signature": "x",
-                               "lights": ["govee-left", "hue-monitor"]}
+        data["composition"] = {"enabled_roles": ["left", "play-left"], "signature": "x",
+                               "lights": ["govee-left", "play-left"]}
         data["power_owner"]["lights"]["govee-right"]["requested_on"] = False
-        data["hue_play"]["hue_right"]["native_on"] = False
+        data["hue"]["play-right"]["native_on"] = False
         self.assertEqual(sync_health.derive(data)["blockers"], [])
+        # A selected native light is still reported by its registry id.
+        data["hue"]["play-left"]["native_on"] = False
+        self.assertEqual(sync_health.derive(data)["blockers"],
+                         [{"role": "play-left", "code": "native_off"}])
 
     def test_wait_detail_is_the_adapter_classification_text(self):
         data = status(last_result="waiting for native on/normal", diagnostics={
@@ -212,7 +218,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(result["govee"]["govee-right"], {
             "on": True, "brightness": 40, "identity_verified": True, "status_age": 0.2,
             "segment_count": 7})
-        self.assertEqual(result["native"]["strip"]["native_mode"], "normal")
+        self.assertEqual(result["native"]["hue-monitor"]["native_mode"], "normal")
         self.assertEqual(result["forwarding"], {"commands_sent": 12,
                                                 "rejected_sends": {"govee-right": 1},
                                                 "skipped_state": {}})
@@ -220,7 +226,7 @@ class ExportTests(unittest.TestCase):
     def test_export_is_bounded_and_drops_malformed_values(self):
         data = status(diagnostics={"events": [event("streaming", "frames_received")] * 500},
                       transitions={"x" * 500: 1, "frames_received": "many"})
-        data["hue_play"] = {"PRIVATE_RESOURCE": {"healthy": True}}
+        data["hue"] = {"PRIVATE_RESOURCE": {"healthy": True}}
         data["targets"].append({"light": "PRIVATE_DEVICE", "native": {}})
         result = sync_health.export(data)
         self.assertLessEqual(len(result["video"]["events"]), 64)

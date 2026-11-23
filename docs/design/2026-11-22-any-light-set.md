@@ -6,7 +6,8 @@ stage 3b (`/homekit` API 2 and plugin 0.2.0 by Govee device ID; only the
 obsolete `/power-owner` keeps side names), stage 3c (enrollment and removal
 of discovered Govee lights through Light Studio and the adapter) and stage 4
 (virtual lights per registry entry; the sampler rule for new installations
-moved to #59) implemented. Implementation follows in stages; each stage is a
+moved to #59) and stage 5a (list-based native Hue profile, native lights
+addressed by registry id everywhere) implemented. Implementation follows in stages; each stage is a
 separate PR with live NAS verification.
 
 ## Intent
@@ -276,7 +277,11 @@ Each stage is a separate PR, verified live on the NAS before it is offered.
    Sync, power and HomeKit, but not in Hue app scenes.
 4. Virtual bridge: virtual lights per registry entry, scene mapping, sampler
    area rule for new installations (live Sync Box check).
-5. Hue: list-based native profile and generic relay.
+5. Hue: list-based native profile and generic relay. 5a: the profile becomes a
+   list keyed by registry id, and the relay, proxies, adapter routes, status,
+   Sync Off, identify, calibration, Light Studio and the gateway address native
+   lights by registry id, with the migrated packet bytes unchanged. 5b: enroll
+   a Hue light from the paired area, its projection and its virtual light.
 6. Light Studio: enroll and remove lights; no fixed seed.
 
 ## Verification

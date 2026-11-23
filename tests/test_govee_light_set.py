@@ -326,7 +326,7 @@ class CommandRouteTests(unittest.TestCase):
 
 
 class LayoutKeyTests(unittest.TestCase):
-    """Rows are addressed by the light id; only Hue lamps keep a role name."""
+    """Rows are addressed by the light id, the native Hue rows included."""
 
     def store(self, folder):
         data = layout()
@@ -345,12 +345,13 @@ class LayoutKeyTests(unittest.TestCase):
             self.assertEqual(store.scale(THIRD_ID, 1), 0.8)
             self.assertEqual(store.scene_scale(THIRD_ID, 1), 0.7)
             self.assertEqual(store.scale("govee-left", 1), 0.65)
-            self.assertEqual(store.scale("hue_center", 1), 0.5)
+            self.assertEqual(store.scale("play-center", 1), 0.5)
             self.assertTrue(store.enabled(THIRD_ID))
             self.assertTrue(store.present("govee-right"))
             self.assertEqual(store.calibration(THIRD_ID), {"warmth": 0, "tint": 0, "lowLight": 0})
-            # The old side names no longer address a Govee row.
+            # The old side and Hue role names no longer address a row.
             self.assertEqual(store.scale("left", 1), 1)
+            self.assertEqual(store.scale("hue_center", 1), 1)
             self.assertEqual(store.calibration("left"), {"warmth": 0, "tint": 0, "lowLight": 0})
             self.assertEqual(store.names(), {})
             self.assertEqual(store.scene_fade()["govee-left"], [1] * 7)
@@ -374,7 +375,7 @@ class StudioStatusTests(unittest.TestCase):
         return {
             "targets": [{"light": "govee-left", "tier": tier, "status_age": 0.1,
                          "native": {"identity_verified": True, "onOff": 1, "brightness": 50}}],
-            "video": {"active": False}, "hue_play": {},
+            "video": {"active": False}, "hue": {},
             "preview": {"version": 1, "mode": "scene", "lamps": {"govee-left": {
                 "online": True, "on": True, "source": "scene-output", "stale": False,
                 "brightness": 50, "colors": [[255, 0, 0]] * 7}}},

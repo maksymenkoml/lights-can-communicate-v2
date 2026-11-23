@@ -31,8 +31,8 @@ class Proxy:
 class NativePowerRouteTests(unittest.TestCase):
     def setUp(self):
         self.strip, self.left = Proxy(), Proxy()
-        handler = handler_for(GoveeController(targets()), "adapter-key", hue_proxy=self.strip,
-                              hue_play_proxies={"hue_left": self.left})
+        handler = handler_for(GoveeController(targets()), "adapter-key",
+                              hue_proxies={"hue-monitor": self.strip, "play-left": self.left})
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.worker = threading.Thread(target=self.server.serve_forever)
         self.worker.start()
@@ -55,23 +55,26 @@ class NativePowerRouteTests(unittest.TestCase):
             with response:
                 return response.code, json.load(response)
 
-    def test_confirmed_roles_are_switched(self):
-        self.assertEqual(self.post({"roles": {"strip": True, "hue_left": False}}),
+    def test_confirmed_lights_are_switched(self):
+        self.assertEqual(self.post({"lights": {"hue-monitor": True, "play-left": False}}),
                          (200, {"accepted": True}))
         self.assertEqual((self.strip.calls, self.left.calls), ([True], [False]))
 
     def test_unconfirmed_or_failed_power_is_reported(self):
         self.left.confirm = False
-        self.assertEqual(self.post({"roles": {"hue_left": True}}), (503, {"accepted": False}))
+        self.assertEqual(self.post({"lights": {"play-left": True}}), (503, {"accepted": False}))
         self.left.confirm = "error"
-        self.assertEqual(self.post({"roles": {"hue_left": True}}), (503, {"accepted": False}))
+        self.assertEqual(self.post({"lights": {"play-left": True}}), (503, {"accepted": False}))
 
-    def test_unknown_roles_invalid_values_and_bad_tokens_switch_nothing(self):
-        for body in ({"roles": {"hue_right": True}}, {"roles": {"strip": "on"}},
-                     {"roles": {}}, {"states": {"strip": True}}):
+    def test_unknown_lights_invalid_values_and_bad_tokens_switch_nothing(self):
+        for body in ({"lights": {"play-right": True}}, {"lights": {"hue-monitor": "on"}},
+                     {"lights": {}}, {"states": {"hue-monitor": True}},
+                     # Old role names and the old body shape are not accepted.
+                     {"lights": {"strip": True}}, {"roles": {"hue-monitor": True}},
+                     {"lights": {"hue-monitor": True}, "roles": {"hue-monitor": True}}):
             with self.subTest(body=body):
                 self.assertEqual(self.post(body)[0], 400)
-        self.assertEqual(self.post({"roles": {"strip": True}}, token="wrong")[0], 403)
+        self.assertEqual(self.post({"lights": {"hue-monitor": True}}, token="wrong")[0], 403)
         self.assertEqual((self.strip.calls, self.left.calls), ([], []))
 
 

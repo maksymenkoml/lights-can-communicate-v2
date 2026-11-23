@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from desk_layout import GOVEE_ROWS, HUE_ROLES, LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
+from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
@@ -160,12 +160,8 @@ def project_status(data, source_active=None):
             if _number(native.get("brightness"), 0, 100)
             else None,
         }
-    names = {
-        "strip": "hue-monitor",
-        "hue_left": "play-left",
-        "hue_center": "play-center",
-        "hue_right": "play-right",
-    }
+    # The migrated native Hue lamps; the adapter reports them by registry light id.
+    names = {lamp: lamp for lamp in ("hue-monitor", "play-left", "play-center", "play-right")}
     role_lamps = {'left':'govee-left', 'right':'govee-right', **names}
     composition = data.get('composition')
     included = set(role_lamps.values())
@@ -176,8 +172,7 @@ def project_status(data, source_active=None):
                     if isinstance(selected_roles, list) and len(selected_roles) <= 6
                     and all(type(role) is str and role in role_lamps for role in selected_roles)
                     else set())
-    hue_play = data.get("hue_play") if isinstance(data.get("hue_play"), dict) else {}
-    selected = {"strip": data.get("hue_strip"), **hue_play}
+    selected = data.get("hue") if isinstance(data.get("hue"), dict) else {}
     for role, identifier in names.items():
         state = selected.get(role) if isinstance(selected.get(role), dict) else {}
         online = state.get("healthy") is True and _fresh(state.get("native_age"), 2)
@@ -605,8 +600,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                     raise ValueError("Expected a lamp")
             except (ValueError, TypeError):
                 return self.respond(400, {"error": "invalid identify request"})
-            # The adapter takes a Govee light id or the role of a Hue lamp.
-            role = HUE_ROLES.get(data["lamp"], data["lamp"] if data["lamp"] in GOVEE_ROWS else None)
+            # The adapter takes the registry light id of a role lamp.
+            role = data["lamp"] if data["lamp"] in ROLES else None
             if role is None:
                 # Only the six role lamps can blink; discovered lamps come later.
                 return self.respond(404, {"error": "unknown lamp"})

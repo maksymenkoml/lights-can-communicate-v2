@@ -35,7 +35,7 @@ class ExplicitSelectionTests(unittest.TestCase):
         legacy_stream = {**stream_config(), "area_id": "10c81079-56a6-45c4-8149-55185f703083"}
         for factory in (
             lambda: PinnedHueClient(legacy_hue),
-            lambda: HueStripProxy(object()),
+            lambda: HueStripProxy(object(), "hue-monitor"),
             lambda: HueEntertainmentRelay(legacy_stream),
         ):
             with self.subTest(factory=factory), self.assertRaises(ValueError):

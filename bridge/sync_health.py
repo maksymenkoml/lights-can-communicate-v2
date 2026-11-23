@@ -11,9 +11,8 @@ import re
 from power_history import CAUSES as _POWER_CAUSES
 from stream_diagnostics import _REASONS, _STATES
 
-# A Govee light id as the registry names it; bounded like a registry id.
+# A registry light id; bounded like a registry id.
 _LIGHT = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
-HUE_ROLES = ("strip", "hue_left", "hue_center", "hue_right")
 GOVEE_FRESH_SECONDS = 0.75
 # Under DreamView a Govee lamp misses a few status replies in a row now and
 # then. Within this time its last verified reading still stands.
@@ -56,16 +55,15 @@ def _govee_rows(status):
 
 
 def _selected(status):
-    """The Govee lights and Hue roles that take part in the Sync composition."""
+    """The Govee and native Hue light ids that take part in the Sync composition."""
     composition = status.get("composition")
     if composition is None:
-        return set(_govee_rows(status)) | set(HUE_ROLES)
+        return set(_govee_rows(status)) | set(_hue_rows(status))
     composition = _mapping(composition)
     roles, lights = composition.get("enabled_roles"), composition.get("lights")
     if not isinstance(roles, list) or not isinstance(lights, list):
         return set()
-    return ({role for role in roles if role in HUE_ROLES}
-            | {light for light in lights[:64] if _light(light)})
+    return {light for light in lights[:64] if _light(light)}
 
 
 def govee_reading(row):
@@ -82,10 +80,10 @@ def govee_reading(row):
 
 
 def _hue_rows(status):
-    rows = {"strip": _mapping(status.get("hue_strip"))} if "hue_strip" in status else {}
-    play = _mapping(status.get("hue_play"))
-    rows.update({role: _mapping(play[role]) for role in HUE_ROLES[1:] if role in play})
-    return rows
+    """Return ``{light id: snapshot}`` of the native Hue lights in ``status``."""
+    hue = _mapping(status.get("hue"))
+    return {light: _mapping(row) for light, row in list(hue.items())[:64]
+            if type(light) is str and _light(light)}
 
 
 def _classified(video):

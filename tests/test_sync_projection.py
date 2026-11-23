@@ -81,15 +81,15 @@ class SyncProjectionTests(unittest.TestCase):
         profile = sync_profile(data)
         self.assertEqual(list(profile["lights"]),
                          ["govee-left", "hue-monitor", "play-left"])
-        self.assertEqual(profile["enabled_roles"], ["left", "strip", "hue_left"])
+        self.assertEqual(profile["enabled_roles"], ["left", "hue-monitor", "play-left"])
         # The legacy keys stay derived from the same geometry for every role row.
         self.assertEqual(profile["govee"]["left"]["samples"],
                          profile["lights"]["govee-left"]["samples"])
         self.assertEqual(profile["govee"]["left"]["gains"],
                          profile["lights"]["govee-left"]["gains"])
         self.assertEqual(profile["strip_gains"], profile["lights"]["hue-monitor"]["gains"])
-        self.assertEqual([profile["plays"]["hue_left"]], profile["lights"]["play-left"]["samples"])
-        self.assertEqual([profile["play_gains"]["hue_left"]],
+        self.assertEqual([profile["plays"]["play-left"]], profile["lights"]["play-left"]["samples"])
+        self.assertEqual([profile["play_gains"]["play-left"]],
                          profile["lights"]["play-left"]["gains"])
         self.assertIn("right", profile["govee"])
 
@@ -111,7 +111,7 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertIn("fade_cm", profile["lights"]["govee-left"])
         frame = {channel: (channel * 1000, 0, 0) for channel in range(2, 14)}
         self.assertEqual(len(project_light_frame(frame, device["id"], profile)), 1)
-        self.assertIn("hue_center", profile["plays"])
+        self.assertIn("play-center", profile["plays"])
 
     def test_screen_anchors_hit_capture_channels(self):
         raw = frame()
@@ -226,14 +226,14 @@ class SyncProjectionTests(unittest.TestCase):
         data = layout()
         before = sync_profile(data)
         self.assertEqual(before["plays"], {
-            "hue_left": (0.125, 0), "hue_center": (0.5, 0), "hue_right": (0.875, 0),
+            "play-left": (0.125, 0), "play-center": (0.5, 0), "play-right": (0.875, 0),
         })
         self.assertEqual(set(before['play_gains'].values()), {0})
         data["devices"][3]["positionCm"]["height"] = 80
         data["devices"][3]["orientation"] = "vertical"
         self.assertEqual(sync_profile(data)["plays"], before["plays"])
         vertical = sync_profile(data)
-        self.assertGreater(vertical['play_gains']['hue_left'], 0)
+        self.assertGreater(vertical['play_gains']['play-left'], 0)
         data['devices'][3]['orientation'] = 'horizontal'
         self.assertEqual(sync_profile(data)['play_gains'], vertical['play_gains'])
 
@@ -242,8 +242,8 @@ class SyncProjectionTests(unittest.TestCase):
         data["devices"][3]["positionCm"] = {"x": 65, "height": 110}
         data["devices"][4]["positionCm"] = {"x": 200, "height": 200}
         plays = sync_profile(data)["plays"]
-        self.assertEqual(plays["hue_left"], (0, 0.5))
-        self.assertEqual(plays["hue_center"], (1, 1))
+        self.assertEqual(plays["play-left"], (0, 0.5))
+        self.assertEqual(plays["play-center"], (1, 1))
 
     def test_native_projection_interpolates_bottom_palette_from_original_frame(self):
         data = layout()
@@ -280,8 +280,8 @@ class SyncProjectionTests(unittest.TestCase):
         for index in (0, 2, 3):
             data["devices"][index]["enabled"] = False
         profile = sync_profile(data)
-        self.assertEqual(profile["enabled_roles"], ["right", "hue_center", "hue_right"])
-        self.assertEqual(profile["native_roles"], ["hue_center", "hue_right"])
+        self.assertEqual(profile["enabled_roles"], ["right", "play-center", "play-right"])
+        self.assertEqual(profile["native_roles"], ["play-center", "play-right"])
         raw = frame()
         self.assertEqual(project_native_frame(raw, profile)[11], raw[11])
         self.assertEqual(project_govee_frame(raw, "left", profile), [(0, 0, 0)] * 7)

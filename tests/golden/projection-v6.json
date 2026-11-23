@@ -1058,9 +1058,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -1070,6 +1068,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -1078,8 +1079,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -2194,9 +2194,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -2206,6 +2204,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -2214,8 +2215,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -3302,9 +3302,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -3314,6 +3312,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -3322,8 +3323,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -4436,9 +4436,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -4448,6 +4446,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -4456,8 +4457,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -5544,9 +5544,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -5556,6 +5554,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -5564,8 +5565,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -6652,9 +6652,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -6664,6 +6662,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -6672,8 +6673,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -7761,9 +7761,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -7773,6 +7771,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -7781,8 +7782,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -8869,9 +8869,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -8881,6 +8879,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -8889,8 +8890,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -9977,9 +9977,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -9989,6 +9987,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -9997,8 +9998,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -11087,9 +11087,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -11099,6 +11097,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -11107,8 +11108,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -12196,9 +12196,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -12208,6 +12206,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -12216,8 +12217,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -13332,9 +13332,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 0,
-    "hue_left": 0,
-    "hue_right": 0,
+    "hue-monitor": 1.0,
     "left": [
      0,
      0,
@@ -13344,6 +13342,9 @@
      1,
      1
     ],
+    "play-center": 0,
+    "play-left": 0,
+    "play-right": 0,
     "right": [
      0,
      0,
@@ -13352,8 +13353,7 @@
      0.9940501450769297,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -14468,9 +14468,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 0,
-    "hue_left": 0,
-    "hue_right": 0,
+    "hue-monitor": 0.6337777777777779,
     "left": [
      0,
      0,
@@ -14480,6 +14478,9 @@
      0.1760652200511302,
      0.9313566549488697
     ],
+    "play-center": 0,
+    "play-left": 0,
+    "play-right": 0,
     "right": [
      0,
      0,
@@ -14488,8 +14489,7 @@
      0,
      0.1760652200511302,
      0.9313566549488697
-    ],
-    "strip": 0.6337777777777779
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -15576,9 +15576,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -15588,6 +15586,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -15596,8 +15597,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -16712,9 +16712,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -16724,6 +16722,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -16732,8 +16733,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -17810,9 +17810,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -17822,6 +17820,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -17830,8 +17831,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -18909,9 +18909,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 1,
-    "hue_left": 1,
-    "hue_right": 1,
+    "hue-monitor": 1.0,
     "left": [
      1,
      1,
@@ -18921,6 +18919,9 @@
      1,
      1
     ],
+    "play-center": 1,
+    "play-left": 1,
+    "play-right": 1,
     "right": [
      1,
      1,
@@ -18929,8 +18930,7 @@
      1,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [
@@ -20015,9 +20015,7 @@
     ]
    },
    "scene_fade": {
-    "hue_center": 0,
-    "hue_left": 0,
-    "hue_right": 0,
+    "hue-monitor": 1.0,
     "left": [
      0,
      0,
@@ -20027,6 +20025,9 @@
      1,
      1
     ],
+    "play-center": 0,
+    "play-left": 0,
+    "play-right": 0,
     "right": [
      0,
      0,
@@ -20035,8 +20036,7 @@
      0.9606965736691502,
      1,
      1
-    ],
-    "strip": 1.0
+    ]
    },
    "zone": {
     "sceneZone": [

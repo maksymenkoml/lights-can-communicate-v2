@@ -25,7 +25,7 @@ class SyncVisibilityFadeTests(unittest.TestCase):
             data['devices'][4]['positionCm']['height'] = height
             profile = sync_profile(data)
             with self.subTest(height=height):
-                self.assertAlmostEqual(profile['play_gains']['hue_center'], gain)
+                self.assertAlmostEqual(profile['play_gains']['play-center'], gain)
                 raw = {channel:(60000,30000,15000) for channel in range(18)}
                 self.assertEqual(project_native_frame(raw,profile)[12],
                                  tuple(round(value*gain) for value in raw[12]))
@@ -79,8 +79,8 @@ class SyncVisibilityFadeTests(unittest.TestCase):
         self.assertEqual(profile['govee']['left']['gains'], [1]*7)
         self.assertEqual(profile['enabled_roles'], before['enabled_roles'])
         self.assertEqual(profile['native_roles'], before['native_roles'])
-        self.assertEqual(before['play_gains']['hue_center'], 0)
-        self.assertIn('hue_center', before['native_roles'])
+        self.assertEqual(before['play_gains']['play-center'], 0)
+        self.assertIn('play-center', before['native_roles'])
 
     def test_legacy_profiles_without_gains_keep_unit_gain(self):
         profile = sync_profile(layout())
