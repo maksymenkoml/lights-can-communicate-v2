@@ -170,7 +170,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,syncBox=()=>({state:'none'}),hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -190,6 +190,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),live=live
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
    if(url.startsWith('/api/calibration')){assert.ok(calibrate,'unexpected calibration');const result=await calibrate(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url.startsWith('/api/sync-box')){const body=options.body?JSON.parse(options.body):null;requests.box.push({url,body,at:now});const result=await syncBox(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
+   if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
    if(options.method!=='POST'){requests.layout++;if(layoutGet)return layoutGet(server);return response(200,{layout:server.layout,revision:server.layout?server.revision:null})}
@@ -366,7 +367,7 @@ test('placing a found lamp adds a configuration-only device row with its canonic
  const placed=app.lamp(discovered().id);
  assert.equal(placed.querySelector('[data-sync-power]').getAttribute('opacity'),'0','not connected rows stay neutral');
  await app.click(app.$('#list-toggle'));
- assert.match(app.$('#lamp-panel').querySelector('[data-list-lamp="'+discovered().id+'"]').textContent,/Not connected/);
+ assert.ok(app.$('#lamp-panel').querySelector('[data-list-lamp="'+discovered().id+'"] [data-connect]'),'a lamp that is not connected offers Connect');
  assert.equal(app.$('#lamp-panel').querySelector('[data-place]'),null);
 });
 
@@ -1216,4 +1217,89 @@ test('the lamp card keeps its fixed width: no comment splits a selector list',()
  const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
  assert.match(css,/#object-menu\.card\{width:280px;/);
  assert.doesNotMatch(css,/,\s*\/\*/,'a comment after a comma joins two rules into one selector list');
+});
+
+// ------------------------------------------------------------ connecting --
+const enrolledRow=(id,extra={})=>({id,provider:'govee',model:'H6076',zones:7,migrated:false,...extra});
+async function placeFound(app){
+ await app.click(app.$('#list-toggle'));
+ await app.click(app.$('#lamp-panel').querySelector('[data-place]'));
+ app.dispatch(app.stage,'pointerdown',{clientX:500+100*3.3,clientY:600});await app.settle();
+ await app.advance(40);
+}
+test('placing a found lamp asks to connect it; Not now leaves it in the layout only',async()=>{
+ const calls=[];
+ const app=await harness({lights:(url,body)=>{calls.push([url,body]);return {status:200,body:{accepted:true,restarting:true}}}});
+ await placeFound(app);
+ const menu=app.$('#object-menu');
+ assert.equal(menu.hidden,false,'the prompt opens beside the new lamp');
+ assert.match(menu.textContent,/Connect Third <lamp>\?/);
+ assert.doesNotMatch(app.$('#toast')?.textContent||'',/Added to layout/,'no toast with the prompt');
+ await app.click(menu.querySelector('[data-menu="connect-later"]'));
+ assert.equal(calls.length,0);
+ assert.equal(app.run('lamps.find(l=>l.id==="'+discovered().id+'").unbound'),true,'still not connected');
+ await app.advance(300);
+ assert.equal(app.$('#object-menu').hidden,true);
+ assert.equal(app.posts.at(-1).body.devices.at(-1).id,discovered().id,'the row is saved');
+});
+
+test('Connect enrolls the lamp; it is Connected once the core lists it',async()=>{
+ const id=discovered().id,calls=[];let lights=[];
+ const app=await harness({live:()=>liveOk({lights}),lights:(url,body)=>{calls.push([url,body]);return {status:200,body:{accepted:true,restarting:true}}}});
+ await placeFound(app);
+ await app.click(app.$('#object-menu [data-menu="connect-now"]'));await app.advance(40);
+ assert.deepEqual(calls,[['/api/lights/enroll',{id}]]);
+ assert.match(app.$('#object-menu').textContent,/Connecting…/);
+ const sw=app.$('#object-menu [data-menu="connected"]');assert.ok(sw.disabled,'no second request while connecting');
+ await app.click(app.$('#list-toggle'));
+ assert.match(app.$('#lamp-panel').querySelector('[data-list-lamp="'+id+'"]').textContent,/Connecting…/);
+ lights=[enrolledRow(id)];await app.advance(1500);
+ assert.equal(app.run('lamps.find(l=>l.id==="'+id+'").unbound'),false);
+ assert.equal(app.run('linking.size'),0);
+ assert.match(app.$('#toast').textContent,/Connected Third <lamp>/);
+});
+
+test('Connected off asks inline, then removes the lamp from the core',async()=>{
+ const id=discovered().id,calls=[],remote=saved();let lights=[enrolledRow(id)];
+ remote.devices.push({id,name:'Third <lamp>',model:'H6076',shape:'floor',zones:7,scale:45,positionCm:{x:150,height:60}});
+ const app=await harness({layout:remote,live:()=>liveOk({lights}),lights:(url,body)=>{calls.push([url,body]);return {status:200,body:{accepted:true,restarting:true}}}});
+ await app.advance(1500);
+ app.run('select("'+id+'")');await app.settle();
+ await app.click(app.stage.querySelector('[data-chip-action="more"]'));await app.advance(40);
+ const menu=app.$('#object-menu');
+ assert.equal(menu.querySelector('[data-menu="connected"]').getAttribute('aria-checked'),'true');
+ await app.click(menu.querySelector('[data-menu="connected"]'));
+ assert.match(menu.querySelector('.card-confirm').textContent,/Disconnect Third <lamp>\?/);
+ await app.click(menu.querySelector('[data-menu="disconnect-cancel"]'));
+ assert.equal(calls.length,0);assert.equal(menu.querySelector('.card-confirm'),null);
+ await app.click(menu.querySelector('[data-menu="connected"]'));
+ await app.click(menu.querySelector('[data-menu="disconnect-ok"]'));
+ assert.deepEqual(calls,[['/api/lights/remove',{id}]]);
+ lights=[];await app.advance(1500);
+ assert.equal(app.run('lamps.find(l=>l.id==="'+id+'").unbound'),true,'not connected again');
+ assert.match(app.$('#toast').textContent,/Disconnected Third <lamp>/);
+});
+
+test('a refused or failed connect says why and can be tried again',async()=>{
+ let answer={status:409,body:{accepted:false,reason:'sync_active'}};
+ const app=await harness({lights:()=>answer});
+ await placeFound(app);
+ await app.click(app.$('#object-menu [data-menu="connect-now"]'));await app.advance(40);
+ assert.match(app.$('#toast').textContent,/Stop Sync to connect or disconnect a lamp/);
+ assert.equal(app.run('linking.size'),0);
+ answer={status:409,body:{accepted:false,reason:'channels_shared'}};
+ await app.click(app.$('#object-menu [data-menu="connected"]'));await app.advance(40);
+ assert.match(app.$('#toast').textContent,/same channels as another lamp/);
+ answer={status:503,body:{accepted:false}};
+ await app.click(app.$('#object-menu [data-menu="connected"]'));
+ assert.match(app.$('#toast').textContent,/Connect failed: the adapter is not responding/);
+});
+
+test('a connect the core never confirms gives up and says so',async()=>{
+ const app=await harness({live:()=>liveOk({lights:[]}),lights:()=>({status:200,body:{accepted:true,restarting:true}})});
+ await placeFound(app);
+ await app.click(app.$('#object-menu [data-menu="connect-now"]'));
+ await app.advance(95000);
+ assert.equal(app.run('linking.size'),0);
+ assert.match(app.$('#toast').textContent,/Connecting Third <lamp> did not finish/);
 });

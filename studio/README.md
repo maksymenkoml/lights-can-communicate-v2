@@ -131,6 +131,23 @@ lamps are always connected. A connected lamp shows its live light and Sync
 problems and can blink and be calibrated; a connected Govee lamp also takes
 Warmth, Tint and Low light, stored in its layout row.
 
+Connecting is always the owner's choice; placing a found lamp only adds its
+layout row. After placing it, a prompt beside the lamp asks "Connect <name>?"
+(Not now / Connect). A row that is not connected offers Connect in the Lamps
+panel, and the card of a `device-` row has a Connected switch; switching it off
+asks "Disconnect <name>?" inline. Connect sends `POST /api/lights/enroll` and
+Disconnect `POST /api/lights/remove`, both with `{"id": "device-<32 hex>"}` and
+the local-origin protections of layout writes. The core restarts with the new
+light set: the lamp shows "Connecting…" or "Disconnecting…" until `/api/live`
+lists it (or no longer lists it), then "Connected <name>" or "Disconnected
+<name>"; after 90 s without that change it says the change did not finish. A
+refusal is said in words: `sync_active` (stop Sync first), `restarting`,
+`enrolled`, `not_enrolled`, `unavailable`, `area_full` (the Hue entertainment
+area is full) and `channels_shared` (Hue gives the lamp the same channels as
+another lamp). The answers are 200 `{"accepted": true, "restarting": true}`, 409
+`{"accepted": false, "reason"}`, 400 for a malformed body and 503 when the adapter
+is not reachable. Removing a row from the layout does not disconnect its light.
+
 ## Found lamps
 
 The Lamps panel polls `/api/discovery` every 3 s only while it is open. Found
