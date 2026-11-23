@@ -46,6 +46,12 @@ class VideoOutput:
         return (self.lease.active() or self.cleanup_pending
                 or ((self.ready or self.handoff) and self.lease.holding()))
 
+    def owns_lights(self):
+        """True while Sync frames drive the lamps. A pending native cleanup alone does
+        not count: it can wait on an area that only a light set change repairs, and a
+        Hue area change itself is refused while the area streams."""
+        return self.lease.active() or ((self.ready or self.handoff) and self.lease.holding())
+
     def submit(self, message):
         return self.lease.submit(message)
 

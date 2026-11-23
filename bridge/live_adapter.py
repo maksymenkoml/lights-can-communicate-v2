@@ -1093,7 +1093,8 @@ def main(argv=None, service_info=None):
         area = None
     enrollment = LightEnrollment(
         args.registry, registry, catalog,
-        busy=lambda: video is not None and video.active(), restart=restart_with_new_lights,
+        busy=lambda: video is not None and video.owns_lights(),
+        restart=restart_with_new_lights,
         area=area)
     server = ThreadingHTTPServer(
         (args.bind, args.port),

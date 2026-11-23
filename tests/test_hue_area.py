@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from hue_area import AreaBusy, HueArea  # noqa: E402
+from hue_area import AreaBusy, AreaShared, HueArea  # noqa: E402
 
 AREA = "e5555555-5555-4555-8555-555555555555"
 LIGHT = "a0000000-0000-4000-8000-00000000000a"
@@ -58,8 +58,10 @@ class Bridge:
     SEGMENTS = {SERVICE: 3, OTHER_SERVICE: 1}
     RENDERERS = {SERVICE: LIGHT, OTHER_SERVICE: OTHER_LIGHT}
 
-    def __init__(self, services=(OTHER_SERVICE,), status="inactive"):
-        self.status, self.writes = status, []
+    def __init__(self, services=(OTHER_SERVICE,), status="inactive", shared=False):
+        # shared: the bridge folds the new light into the other light's channel, as it
+        # does for a second gradient light.
+        self.status, self.writes, self.shared = status, [], shared
         self.rows = [{"service": {"rid": service, "rtype": "entertainment"},
                       "positions": [{"x": -0.5, "y": 0.8, "z": 0}],
                       "equalization_factor": 0.7} for service in services]
@@ -68,8 +70,14 @@ class Bridge:
         channels = []
         for row in self.rows:
             service = row["service"]["rid"]
-            channels += [channel(len(channels), service, index)
-                         for index in range(self.SEGMENTS[service])]
+            if self.shared and service == SERVICE and channels:
+                channels[0]["members"].append({"service": {"rid": service,
+                                                           "rtype": "entertainment"},
+                                               "index": 0})
+                continue
+            for index in range(self.SEGMENTS[service]):
+                channels.append({**channel(len(channels), service, index),
+                                 "position": dict(row["positions"][0])})
         return {"errors": [], "data": [{
             "id": AREA, "type": "entertainment_configuration", "status": self.status,
             "light_services": [{"rid": self.RENDERERS[row["service"]["rid"]], "rtype": "light"}
@@ -138,11 +146,23 @@ class HueAreaChangeTests(unittest.TestCase):
         self.assertEqual(hue.join(LIGHT), ({"service": SERVICE, "segments": 3}, True))
         rows = bridge.writes[0]["locations"]["service_locations"]
         self.assertEqual(rows[0], Bridge().rows[0])
+        # The new light takes the free point farthest from the other channels.
         self.assertEqual(rows[1], {"service": {"rid": SERVICE, "rtype": "entertainment"},
-                                   "positions": [{"x": 0, "y": 0, "z": 0}]})
+                                   "positions": [{"x": 1, "y": -1, "z": -1}]})
         # A member is kept as it is.
         self.assertEqual(hue.join(LIGHT), ({"service": SERVICE, "segments": 3}, False))
         self.assertEqual(len(bridge.writes), 1)
+
+    def test_shared_channels_are_refused_and_the_area_is_restored(self):
+        bridge = Bridge(shared=True)
+        with self.assertRaises(AreaShared):
+            HueArea(CONFIG, AREA, requester=bridge).join(LIGHT)
+        self.assertEqual(bridge.writes[-1], {"locations": {"service_locations": Bridge().rows}})
+        self.assertEqual(bridge.rows, Bridge().rows)
+        # A member that shares channels cannot be read either.
+        shared = Bridge((OTHER_SERVICE, SERVICE), shared=True)
+        with self.assertRaises(AreaShared):
+            HueArea(CONFIG, AREA, requester=shared).member(LIGHT)
 
     def test_leave_removes_only_the_light(self):
         bridge = Bridge((OTHER_SERVICE, SERVICE))

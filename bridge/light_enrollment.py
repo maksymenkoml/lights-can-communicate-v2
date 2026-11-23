@@ -14,7 +14,7 @@ the registry, and an enrollment that is refused after the change undoes it.
 
 import threading
 
-from hue_area import AreaBusy
+from hue_area import AreaBusy, AreaShared
 
 from lights_can_communicate_v2_core.light_registry import (
     DEVICE_ID,
@@ -105,7 +105,7 @@ class LightEnrollment:
             if added:
                 try:
                     self.area.leave(hue["light"])
-                except (AreaBusy, OSError, ValueError):
+                except (AreaBusy, AreaShared, OSError, ValueError):
                     pass  # The relay refuses the unknown member until it is enrolled.
             raise
         self.restart()
@@ -124,6 +124,8 @@ class LightEnrollment:
             return call(light)
         except AreaBusy:
             raise LightRefused("sync_active") from None
+        except AreaShared:
+            raise LightRefused("channels_shared") from None
         except (OSError, ValueError):
             raise LightRefused("unavailable") from None
 

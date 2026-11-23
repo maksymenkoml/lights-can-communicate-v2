@@ -366,6 +366,16 @@ class VideoTests(unittest.TestCase):
         self.assertFalse(self.output.cleanup_pending)
         self.assertEqual(self.relay.stopped, 1)
 
+    def test_a_failed_cleanup_alone_does_not_hold_the_light_set(self):
+        # The restarted relay could not release an area that only a light set
+        # change repairs; enrollment and removal must stay possible.
+        self.assertFalse(self.output.owns_lights())
+        self.output.cleanup_pending = True
+        self.assertTrue(self.output.active())
+        self.assertFalse(self.output.owns_lights())
+        self.lease.submit(envelope())
+        self.assertTrue(self.output.owns_lights())
+
     def test_handshake_stale_cache_waits_for_fresh_native_poll_without_blocking_session(self):
         original = self.relay.start
 

@@ -9,6 +9,7 @@ while nothing streams to it.
 
 import http.client
 import json
+import math
 import ssl
 import time
 import urllib.error
@@ -18,6 +19,26 @@ import uuid
 import lights_can_communicate_v2 as lan
 
 _MAX_BYTES = 1024 * 1024
+
+
+# Where a light with one channel is placed: the bridge merges lights at one position
+# into one channel, so a new light takes the free point farthest from all channels.
+_CANDIDATES = [{"x": x, "y": y, "z": z} for x in (-1, -0.5, 0, 0.5, 1)
+               for y in (-1, 0, 1) for z in (-1, 0, 1)]
+
+
+def _free_position(area):
+    taken = []
+    for channel in area.get("channels") or ():
+        position = channel.get("position") if isinstance(channel, dict) else None
+        if isinstance(position, dict) and all(
+                type(position.get(axis)) in (int, float) and math.isfinite(position[axis])
+                for axis in "xyz"):
+            taken.append(position)
+    if not taken:
+        return {"x": 0, "y": 0, "z": 0}
+    return dict(max(_CANDIDATES, key=lambda point: min(
+        sum((point[axis] - other[axis]) ** 2 for axis in "xyz") for other in taken)))
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -36,6 +57,12 @@ def _uuid(value):
 
 class AreaBusy(Exception):
     """The area streams now, so its membership is not changed."""
+
+
+class AreaShared(Exception):
+    """The bridge gave the light channels that other lights share, so the light
+    cannot be driven on its own. A second gradient light shares the first one's
+    channels in every area type."""
 
 
 class HueArea:
@@ -132,10 +159,12 @@ class HueArea:
             members = channel.get("members") if isinstance(channel, dict) else None
             if not isinstance(members, list):
                 raise ValueError("Invalid Hue area response")
-            for member in members:
-                reference = member.get("service") if isinstance(member, dict) else None
-                if isinstance(reference, dict) and _uuid(reference.get("rid")) == service:
-                    indexes.append(member.get("index"))
+            mine = [member for member in members
+                    if isinstance(member, dict) and isinstance(member.get("service"), dict)
+                    and _uuid(member["service"].get("rid")) == service]
+            if mine and len(members) != 1:
+                raise AreaShared()
+            indexes += [member.get("index") for member in mine]
         if (not indexes or any(type(index) is not int for index in indexes)
                 or sorted(indexes) != list(range(len(indexes)))):
             raise ValueError("Invalid Hue channel layout")
@@ -194,14 +223,24 @@ class HueArea:
             service = self._service(light)
             return {"service": service, "segments": self._segments(area, service)}, False
         service = self._service(light)
-        rows = self._locations(area)
-        rows.append({"service": {"rid": service, "rtype": "entertainment"},
-                     "positions": [{"x": 0, "y": 0, "z": 0}]})
-        self._write(rows)
-        member = self.member(light)
-        if member is None or member["service"] != service:
-            raise ValueError("Hue light did not join the area")
-        return member, True
+        before = self._locations(area)
+        self._write(before + [{"service": {"rid": service, "rtype": "entertainment"},
+                               "positions": [_free_position(area)]}])
+        try:
+            changed = self._area()
+            if not self._contains(changed, light):
+                raise ValueError("Hue light did not join the area")
+            if any(isinstance(channel, dict) and isinstance(channel.get("members"), list)
+                   and len(channel["members"]) != 1 for channel in changed.get("channels", [])):
+                raise AreaShared()
+            return {"service": service, "segments": self._segments(changed, service)}, True
+        except BaseException:
+            # Restore the area as it was; the bridge then rebuilds the other lights' channels.
+            try:
+                self._write(before)
+            except (OSError, ValueError):
+                pass  # The relay refuses the unknown member until the area is repaired.
+            raise
 
     def leave(self, light):
         """Take native ``light`` out of the inactive area; a non-member is a no-op.

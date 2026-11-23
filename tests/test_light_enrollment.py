@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
-from hue_area import AreaBusy  # noqa: E402
+from hue_area import AreaBusy, AreaShared  # noqa: E402
 from light_enrollment import LightEnrollment  # noqa: E402
 from test_light_registry import AREA, sample  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
@@ -195,6 +195,7 @@ class HueEnrollmentTests(unittest.TestCase):
         for area, reason, calls in (
                 (None, "unavailable", None),
                 (Area(error=AreaBusy()), "sync_active", [("join", HUE_LIGHT)]),
+                (Area(error=AreaShared()), "channels_shared", [("join", HUE_LIGHT)]),
                 (Area(error=OSError()), "unavailable", [("join", HUE_LIGHT)]),
                 (Area(error=ValueError()), "unavailable", [("join", HUE_LIGHT)]),
                 # Too many channels: the light that joined leaves again.

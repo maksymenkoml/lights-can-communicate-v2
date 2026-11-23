@@ -238,9 +238,15 @@ still own the fixed layout rows.
 
 A Hue light is enrolled into the native Entertainment area that the existing
 pairing uses (#60 adds the choice of area later). With Sync off, the adapter adds
-the light to that area through the bridge with the paired credentials, at the
-area's center; positions in the area do not matter, because the Light Studio
-layout gives the light its Sync zone. The light's entertainment service is the
+the light to that area through the bridge with the paired credentials. The
+bridge merges lights at one position into one channel, so the light takes the
+free point farthest from the area's channels; otherwise positions in the area do
+not matter, because the Light Studio layout gives the light its Sync zone. The
+bridge places every gradient light on the same fixed template, whatever its
+position and the area type, so a second gradient light shares the first one's
+channels (verified on a Hue Bridge on 2026-11-23). A light whose channels are
+shared cannot be driven on its own: the area is restored and the enrollment is
+refused. The light's entertainment service is the
 one whose renderer is the light, and its channels are the area's channels of
 that service. A light that is already a member is kept as it is. The registry
 appends the light's channels after the channels of the lights enrolled before
@@ -254,7 +260,11 @@ A change is refused with 409 and a reason while Sync output is active
 (`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled
 (`not_enrolled`), when discovery does not offer it now or the area cannot be read
 or changed (`unavailable`), when the area would exceed ten lights or twenty
-channels (`area_full`), and after a change until the restart (`restarting`). A changed registry is saved atomically,
+channels (`area_full`), when the bridge gives the light shared channels
+(`channels_shared`), and after a change until the restart (`restarting`). A
+native cleanup that is still pending does not block a change: it can wait on an
+area that only the change repairs, and the area itself is not changed while it
+streams. A changed registry is saved atomically,
 then the adapter stops and Docker restarts it with the new light set. The
 gateway also restarts when the set of virtual lights changes (see "Virtual
 lights"). Place the light in the Light Studio layout to give it a
