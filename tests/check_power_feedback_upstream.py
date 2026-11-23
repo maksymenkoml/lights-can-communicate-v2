@@ -72,7 +72,7 @@ class UpstreamFeedbackTests(unittest.TestCase):
         }
         self.output = BridgeOutput("http://unused", "test", sender=self.sent.append)
         self.ns = {
-            "GRADIENT_MODE": True, "validate_gradient": validate_gradient,
+            "gradient_slots": {"1", "2"}, "validate_gradient": validate_gradient,
             "play_guard": self.guard, "original_set_state": ORIGINALS["_setV1State"],
             "original_light_event": ORIGINALS["genStreamEvent"],
             "original_light_api": ORIGINALS["getV2Api"],

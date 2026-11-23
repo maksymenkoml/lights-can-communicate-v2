@@ -38,7 +38,7 @@ class CaptureCompositionTests(unittest.TestCase):
             selected.append(copy.deepcopy(state))
 
         output = SimpleNamespace(slots={'1':'left'}, submit=submit)
-        ns = {'GRADIENT_MODE':True,'validate_gradient':lambda _:None,'play_guard':guard,
+        ns = {'gradient_slots':{'1'},'validate_gradient':lambda _:None,'play_guard':guard,
               'power_feedback':None,'original_set_state':set_state,'selected_slots':{'1'},
               'live_output':output,'layout_store':SimpleNamespace(present=lambda _:membership[0])}
         exec(bootstrap_functions('forward_selected_state','resume_power_color'), ns)

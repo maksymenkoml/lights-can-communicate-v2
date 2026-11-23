@@ -143,7 +143,8 @@ class PlayGuard:
 
 class BridgeOutput:
     def __init__(
-        self, url, token, sender=None, clock=time.time, include_strip=False, include_hue_play=False
+        self, url, token, sender=None, clock=time.time, include_strip=False, include_hue_play=False,
+        govee_slots=None,
     ):
         self.url, self.token, self.clock = url.rstrip("/"), token, clock
         self.sender = sender or self.post
@@ -153,12 +154,15 @@ class BridgeOutput:
         self.inflight = {}
         self.forwarded = 0
         self.last_error = None
-        self.slots = {"1": "govee-left", "2": "govee-right"}
+        # Virtual slot -> Govee light id from the registry; the migrated lamps by default.
+        govee = dict(govee_slots) if govee_slots is not None else {
+            "1": "govee-left", "2": "govee-right"}
+        self.slots = dict(govee)
         if include_strip:
             self.slots["3"] = "strip"
         if include_hue_play:
             self.slots.update({"4": "hue_left", "5": "hue_center", "6": "hue_right"})
-        self.hue_roles = set(self.slots.values()) - {"govee-left", "govee-right"}
+        self.hue_roles = set(self.slots.values()) - set(govee.values())
 
     def submit(self, light_id, state, transitiontime):
         light = self.slots.get(str(light_id))

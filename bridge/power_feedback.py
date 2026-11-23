@@ -8,7 +8,7 @@ import urllib.request
 
 
 class PowerFeedback:
-    # The Govee lights behind the virtual slots; other Govee lights follow with stage 4.
+    # The Govee light behind each virtual slot; the bridge passes the registry map.
     SLOTS = {"1": "govee-left", "2": "govee-right"}
     # Native Hue lights mirror the genuine bridge as the adapter last read it.
     NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
@@ -16,9 +16,11 @@ class PowerFeedback:
     NATIVE_HOLD = 15.0
 
     def __init__(self, url, token, lights, lock, resume, publish_groups, fetcher=None,
-                 clock=time.monotonic, native_slots=None):
+                 clock=time.monotonic, native_slots=None, slots=None):
         if native_slots is not None:
             self.NATIVE_SLOTS = dict(native_slots)
+        if slots is not None:
+            self.SLOTS = dict(slots)
         self.url, self.token = url.rstrip("/"), token
         self.lights, self.lock = lights, lock
         self.resume, self.publish_groups = resume, publish_groups

@@ -39,7 +39,6 @@ from hue_names import (  # noqa: E402
     ROOM_NAME,
     SLOT_ROLES,
     OwnerNames,
-    govee_name,
     hue_play_name,
     rename_legacy,
 )
@@ -53,6 +52,9 @@ from HueObjects import (  # noqa: E402
     StreamEvent,
 )
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
+from virtual_lights import default_name, plan  # noqa: E402
+from virtual_lights import load as load_registry  # noqa: E402
+from virtual_lights import signature as registry_signature  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
@@ -105,21 +107,30 @@ settings["tradfri"] = {}
 include_strip = os.environ.get("PROBE_HUE_STRIP", "false").lower() == "true"
 include_hue_play = os.environ.get("PROBE_HUE_PLAY", "false").lower() == "true"
 include_entertainment = os.environ.get("PROBE_ENTERTAINMENT", "false").lower() == "true"
+# One virtual light per enrolled Govee light (see virtual_lights). The migrated
+# lamps keep slots 1 and 2; a light enrolled later gets its registry slot and a
+# UUID seeded from its registry id. A segmented light is a gradient light in the
+# gradient mode, any other one a color bulb.
+registry_at_start = registry_signature(state)
+govee_lights, retired_slots = plan(load_registry(state))
+govee_slots = {item["slot"]: item["light"] for item in govee_lights}
+gradient_slots = {item["slot"] for item in govee_lights if GRADIENT_MODE and item["segmented"]}
 selected_slots = (
-    {"1", "2"}
+    set(govee_slots)
     | ({"3"} if include_strip else set())
     | ({"4", "5", "6"} if include_hue_play else set())
 )
 if any(light.protocol != "dummy" for light in config["lights"].values()):
     raise RuntimeError("This probe refuses physical-device protocols")
-for index, side in enumerate(("Left", "Right"), start=1):
-    identifier = str(index)
+for item in govee_lights:
+    identifier = item["slot"]
     if identifier not in config["lights"]:
         lamp = Light.Light(
             {
                 "id_v1": identifier,
-                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{IDENTITY_NAMESPACE}/{side}")),
-                "name": govee_name(side),
+                "id_v2": str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                        f"{IDENTITY_NAMESPACE}/{item['seed']}")),
+                "name": default_name(item),
                 "modelid": "LCT015",
                 "protocol": "dummy",
             }
@@ -127,7 +138,13 @@ for index, side in enumerate(("Left", "Right"), start=1):
         lamp.state.update({"on": True, "bri": 200, "reachable": True})
         config["lights"][identifier] = lamp
         config["groups"]["0"].add_light(lamp)
-    configure_signe(config["lights"][identifier], GRADIENT_MODE)
+    lamp = config["lights"][identifier]
+    lamp.state["reachable"] = True
+    configure_signe(lamp, identifier in gradient_slots)
+for identifier in retired_slots:
+    # A removed light keeps its virtual light for a rejoin; it is not driven.
+    if identifier in config["lights"]:
+        config["lights"][identifier].state["reachable"] = False
 if "1" not in config["groups"]:
     room = Group.Group(
         {"id_v1": "1", "name": ROOM_NAME, "type": "Room", "class": "Office"}
@@ -135,6 +152,12 @@ if "1" not in config["groups"]:
     for lamp in config["lights"].values():
         room.add_light(lamp)
     config["groups"]["1"] = room
+for identifier in govee_slots:
+    # A light enrolled later joins the room, so Hue app scenes and power reach it,
+    # but not the Entertainment area: the Sync Box pairing stays as it is.
+    room = config["groups"]["1"]
+    if not any(reference() is config["lights"][identifier] for reference in room.lights):
+        room.add_light(config["lights"][identifier])
 if include_strip:
     if "3" not in config["lights"]:
         lamp = Light.Light(
@@ -282,7 +305,9 @@ def publish_light_names(lamps):
 # A name set in Light Studio for a role lamp names its virtual light. Resource
 # IDs stay; without an owner name the current name stays.
 owner_names = OwnerNames(
-    config["lights"], {slot: role for slot, role in SLOT_ROLES.items() if slot in selected_slots},
+    config["lights"],
+    {**govee_slots, **{slot: role for slot, role in SLOT_ROLES.items()
+                       if slot in selected_slots and role not in govee_slots.values()}},
     layout_store.names, save=lambda: configManager.bridgeConfig.save_config(backup=False),
     publish=publish_light_names,
 )
@@ -343,6 +368,7 @@ if (
         local_secret("adapter-token", 24),
         include_strip=include_strip,
         include_hue_play=include_hue_play,
+        govee_slots=govee_slots,
     )
 
 original_set_state = Light.Light._setV1State
@@ -376,7 +402,7 @@ Scene.Scene.activate = serialized_activate
 
 
 def forward_selected_state(lamp, values, advertise=True):
-    if GRADIENT_MODE and lamp.id_v1 in {"1", "2"} and "gradient" in values:
+    if lamp.id_v1 in gradient_slots and "gradient" in values:
         try:
             validate_gradient(values["gradient"])
         except ValueError:
@@ -409,7 +435,7 @@ def forward_selected_state(lamp, values, advertise=True):
                 for key in ("on", "bri", "colormode", "xy", "ct", "hue", "sat", "gradient")
                 if key in lamp.state
             }
-            if lamp.id_v1 in {"3", "4", "5", "6"} or (GRADIENT_MODE and lamp.id_v1 in {"1", "2"}):
+            if lamp.id_v1 in {"3", "4", "5", "6"} or lamp.id_v1 in gradient_slots:
                 selected["_changed"] = sorted(values)
                 selected["_color_kind"] = lamp.protocol_cfg.get(
                     "proxy_color_kind", "ct" if lamp.state.get("colormode") == "ct" else "xy"
@@ -475,6 +501,29 @@ def watch_owner_names():
 threading.Thread(target=watch_owner_names, daemon=True, name='desk-names').start()
 
 
+def watch_registry():
+    """Restart the bridge when the enrolled lights change (see light_enrollment).
+
+    The adapter changes the registry only while Sync output is off. Docker
+    restarts the finished container, and the bootstrap creates the new virtual
+    lights from the registry.
+    """
+    while True:
+        time.sleep(2)
+        try:
+            changed = registry_signature(state) != registry_at_start
+        except (OSError, ValueError):
+            continue
+        if changed:
+            print("Light registry changed; restarting the bridge.", flush=True)
+            with play_guard.lock:
+                configManager.bridgeConfig.save_config(backup=False)
+            os._exit(0)
+
+
+threading.Thread(target=watch_registry, daemon=True, name='desk-registry').start()
+
+
 def publish_power_groups(changed_slots):
     for group in config["groups"].values():
         if group.id_v1 != "0" and group.type not in {"Room", "Zone"}:
@@ -516,13 +565,13 @@ if live_output is not None:
     power_feedback = PowerFeedback(
         live_output.url, live_output.token, config["lights"], play_guard.lock,
         resume=resume_power_color, publish_groups=publish_power_groups,
-        native_slots=native_power_slots,
+        native_slots=native_power_slots, slots=govee_slots,
     )
     power_feedback.refresh_once()
     power_requests = HuePowerRequests(
         live_output.url, live_output.token, config["lights"], config["groups"], power_feedback,
         enabled=lambda: not (state / "live-output-hold").exists(),
-        native_slots=native_power_slots,
+        native_slots=native_power_slots, slots=govee_slots,
     )
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
