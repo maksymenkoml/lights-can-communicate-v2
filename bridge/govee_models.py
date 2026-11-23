@@ -33,9 +33,11 @@ MODELS = {
 }
 TIERS = (None, "basic")
 BASIC = {"tier": "basic", "segments": 0}
-# Targets from before the capability table carry no model; the adapter drove every
-# such lamp with these values (and enabled its segments only in the gradient mode).
+# The two lamps migrated from the live targets file carry no model; the adapter
+# always drove them with these values (and enabled their segments only in the
+# gradient mode). Any other light without a model is basic.
 LEGACY_MODEL = "H6076"
+LEGACY_LIGHTS = ("govee-left", "govee-right")
 
 
 def capabilities(model, tier=None):
@@ -49,11 +51,11 @@ def capabilities(model, tier=None):
 def target_capabilities(target):
     """Return the capabilities of an adapter target from its model and tier.
 
-    A target without a model and without a tier predates the table and keeps the
-    values the adapter always used for it.
+    A migrated lamp without a model and without a tier predates the table and
+    keeps the values the adapter always used for it.
     """
     model = target.get("sku") or target.get("model")
     tier = target.get("tier")
-    if model is None and tier is None:
+    if model is None and tier is None and target.get("light") in LEGACY_LIGHTS:
         return capabilities(LEGACY_MODEL)
     return capabilities(model, tier)

@@ -49,6 +49,20 @@ class FeedbackTests(unittest.TestCase):
                         "hue_play": {"hue_left": {"native_on": left, "native_age": age},
                                      "hue_center": {"native_on": None, "native_age": age}}}
 
+    def test_a_registry_with_one_legacy_lamp_still_follows_its_slot(self):
+        self.current = status(left=False)
+        del self.current["power_owner"]["lights"]["govee-right"]
+        self.assertTrue(self.feedback.refresh_once())
+        self.assertIsNone(self.feedback.last_error)
+        self.assertFalse(self.lights["1"].state["on"])
+        self.assertTrue(self.lights["2"].state["on"])
+        self.assertEqual(self.lights["2"].events, [])
+
+    def test_no_enrolled_lamp_is_an_unavailable_authority(self):
+        self.current = {"power_owner": {"enforced": True, "lights": {}}}
+        self.assertFalse(self.feedback.refresh_once())
+        self.assertEqual(self.feedback.last_error, "ValueError")
+
     def test_native_hue_power_mirrors_the_genuine_bridge(self):
         self.native(strip=False, left=True)
         self.feedback.refresh_once()

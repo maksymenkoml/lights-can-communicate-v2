@@ -68,12 +68,26 @@ class PrepareTargetsTests(unittest.TestCase):
         self.assertEqual([item["tier"] for item in controller.snapshot()["targets"]],
                          ["basic", "segmented"])
 
-    def test_a_declared_segment_count_is_kept_for_a_model_outside_the_table(self):
+    def test_a_model_outside_the_table_drops_a_stored_segment_count(self):
         selected = targets()
         selected[0].update(segment_count=7, model="H6008")
         selected[1].update(model="H6008")
         adapter.prepare_targets(selected, {"lights": {}})
-        self.assertEqual([item["segment_count"] for item in selected], [7, 0])
+        self.assertEqual([item["segment_count"] for item in selected], [0, 0])
+        controller = adapter.GoveeController(selected)
+        self.assertEqual([item["tier"] for item in controller.snapshot()["targets"]],
+                         ["basic", "basic"])
+
+    def test_a_new_light_without_a_model_is_basic_even_in_the_gradient_mode(self):
+        with patch.object(adapter, "GRADIENT_MODE", True):
+            selected = targets()
+            selected.append({"light": THIRD_ID, "device": THIRD, "ip": "192.168.10.52",
+                             "brightness_scale": 1})
+            adapter.prepare_targets(selected, {"lights": {}})
+            self.assertEqual([item["segment_count"] for item in selected], [7, 7, 0])
+            controller = adapter.GoveeController(selected)
+            self.assertEqual([item["tier"] for item in controller.snapshot()["targets"]],
+                             ["segmented", "segmented", "basic"])
 
 
     def test_migrated_lights_without_a_model_keep_the_gradient_mode_segments(self):

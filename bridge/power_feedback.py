@@ -112,10 +112,14 @@ class PowerFeedback:
             if not isinstance(authority, dict) or authority.get("enforced") is not True:
                 raise ValueError("Power authority unavailable")
             lights = authority.get("lights")
-            if not isinstance(lights, dict) or not set(self.SLOTS.values()) <= set(lights):
+            # A slot follows its light only when the registry enrolls it; each
+            # enrolled slot is validated and updated on its own.
+            enrolled = ({slot: light for slot, light in self.SLOTS.items() if light in lights}
+                        if isinstance(lights, dict) else {})
+            if not enrolled:
                 raise ValueError("Invalid power lights")
             updates = {}
-            for slot, light in self.SLOTS.items():
+            for slot, light in enrolled.items():
                 value = lights[light]
                 if not isinstance(value, dict):
                     raise ValueError("Invalid role state")
@@ -155,7 +159,7 @@ class PowerFeedback:
                 if fallback and missing:
                     self.restore_known({slot: value for slot, value in fallback.items()
                                         if slot in missing})
-                unavailable = set(self.SLOTS) - updates.keys()
+                unavailable = set(enrolled) - updates.keys()
                 self.last_error = "PowerAuthorityUnavailable" if unavailable else None
             return not unavailable
         except (OSError, ValueError, TypeError, KeyError) as error:

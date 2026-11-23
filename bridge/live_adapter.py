@@ -684,7 +684,8 @@ def prepare_targets(targets, composition_profile):
         # gradient mode enables its segments.
         modelled = bool(device.get("sku") or device.get("model"))
         auto_segments = composition_profile is not None and segments > 0 and modelled
-        if device.get("tier") == "basic":
+        if caps["tier"] == "basic":
+            # A basic light gets one color for the whole lamp, whatever count is stored.
             device["segment_count"] = 0
         elif segments and device.get("segment_count", 0) != segments and (
                 GRADIENT_MODE or auto_segments):
