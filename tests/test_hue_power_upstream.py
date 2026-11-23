@@ -15,11 +15,11 @@ def fixture_request(g):
     from hue_power_requests import HuePowerRequests
     from power_feedback import PowerFeedback
     lights = g['config']['lights']
-    roles = {role: {'requested_on': True, 'revision': 1, 'grant_remaining': 1.5}
-             for role in ('left', 'right')}
+    owner = {light: {'requested_on': True, 'revision': 1, 'grant_remaining': 1.5}
+             for light in ('govee-left', 'govee-right')}
     feedback = PowerFeedback('http://unused', 'test', lights, g['play_guard'].lock,
         g['resume_power_color'], g['publish_power_groups'], fetcher=lambda: {
-            'power_owner': {'enforced': True, 'roles': copy.deepcopy(roles)}})
+            'power_owner': {'enforced': True, 'lights': copy.deepcopy(owner)}})
     g['power_feedback'] = feedback
     feedback.refresh_once()
     calls = []
@@ -28,9 +28,9 @@ def fixture_request(g):
         calls.append(states)
         if unavailable[0]:
             raise OSError('Synthetic unavailable controller')
-        for role, value in states.items():
-            roles[role]['requested_on'] = value
-            roles[role]['revision'] += 1
+        for light, value in states.items():
+            owner[light]['requested_on'] = value
+            owner[light]['revision'] += 1
     native_calls = []
     g['power_requests'] = HuePowerRequests('http://unused', 'test', lights,
         g['config']['groups'], feedback, sender=sender,
@@ -44,23 +44,23 @@ def fixture_request(g):
     for value in (False, True):
         response = client.put(light_path, json={'on': {'on': value}}, headers=headers)
         assert response.status_code == 200, response.get_json()
-        assert calls[-1] == {'right': value}
+        assert calls[-1] == {'govee-right': value}
         assert lights['2'].getV2Api()['on']['on'] is value
     response = client.put('/api/' + g['api_key'] + '/lights/1/state', json={'on': False})
     assert response.status_code == 200, response.get_json()
-    assert calls[-1] == {'left': False}
+    assert calls[-1] == {'govee-left': False}
     group_id = g['config']['groups']['0'].getV2GroupedLight()['id']
     response = client.put('/clip/v2/resource/grouped_light/' + group_id,
                            json={'on': {'on': True}}, headers=headers)
     assert response.status_code == 200, response.get_json()
-    assert calls[-1] == {'left': True, 'right': True}
+    assert calls[-1] == {'govee-left': True, 'govee-right': True}
     native_roles = {slot: role for slot, role in HuePowerRequests.NATIVE_SLOTS.items()
                     if slot in lights}
     if native_roles:
         assert native_calls[-1] == {role: True for role in native_roles.values()}, native_calls
     response = client.put('/api/' + g['api_key'] + '/groups/0/action', json={'on': False})
     assert response.status_code == 200, response.get_json()
-    assert calls[-1] == {'left': False, 'right': False}
+    assert calls[-1] == {'govee-left': False, 'govee-right': False}
 
     # A real gallery-style scene recall retains external Off and sends no power.
     room = client.get('/clip/v2/resource/room', headers=headers).get_json()['data'][0]
@@ -87,7 +87,7 @@ def fixture_request(g):
     assert response.status_code == 503, response.get_json()
     assert response.get_json()['errors']
     assert lights['2'].getV2Api()['on']['on'] is True
-    roles['right']['grant_remaining'] = 0
+    owner['govee-right']['grant_remaining'] = 0
     response = client.put(light_path, json={'on': {'on': False}}, headers=headers)
     assert response.status_code == 503, response.get_json()
     assert lights['2'].getV2Api()['on']['on'] is True
