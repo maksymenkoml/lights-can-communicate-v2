@@ -157,12 +157,13 @@ class BridgeOutput:
         # Virtual slot -> Govee light id from the registry; the migrated lamps by default.
         govee = dict(govee_slots) if govee_slots is not None else {
             "1": "govee-left", "2": "govee-right"}
-        self.slots = dict(govee)
+        govee_lights = set(govee.values())
+        self.slots = govee
         if include_strip:
             self.slots["3"] = "strip"
         if include_hue_play:
             self.slots.update({"4": "hue_left", "5": "hue_center", "6": "hue_right"})
-        self.hue_roles = set(self.slots.values()) - set(govee.values())
+        self.hue_roles = set(self.slots.values()) - govee_lights
 
     def submit(self, light_id, state, transitiontime):
         light = self.slots.get(str(light_id))

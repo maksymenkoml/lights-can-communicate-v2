@@ -112,7 +112,7 @@ include_entertainment = os.environ.get("PROBE_ENTERTAINMENT", "false").lower() =
 # UUID seeded from its registry id. A segmented light is a gradient light in the
 # gradient mode, any other one a color bulb.
 registry_at_start = registry_signature(state)
-govee_lights, retired_slots = plan(load_registry(state))
+govee_lights, _retired = plan(load_registry(state))
 govee_slots = {item["slot"]: item["light"] for item in govee_lights}
 gradient_slots = {item["slot"] for item in govee_lights if GRADIENT_MODE and item["segmented"]}
 selected_slots = (
@@ -141,10 +141,11 @@ for item in govee_lights:
     lamp = config["lights"][identifier]
     lamp.state["reachable"] = True
     configure_signe(lamp, identifier in gradient_slots)
-for identifier in retired_slots:
-    # A removed light keeps its virtual light for a rejoin; it is not driven.
-    if identifier in config["lights"]:
-        config["lights"][identifier].state["reachable"] = False
+for identifier, lamp in config["lights"].items():
+    # A removed light keeps its virtual light for a rejoin, and so does a light
+    # of a registry that is gone or invalid. Neither is driven.
+    if identifier not in selected_slots:
+        lamp.state["reachable"] = False
 if "1" not in config["groups"]:
     room = Group.Group(
         {"id_v1": "1", "name": ROOM_NAME, "type": "Room", "class": "Office"}

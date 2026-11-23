@@ -12,8 +12,9 @@ from pathlib import Path
 
 from govee_models import target_capabilities
 
-# The core archive, mounted read-only next to the gateway modules.
-ARCHIVE = Path("/probe/lights-can-communicate-v2.pyz")
+# The core archive, which the release mounts read-only next to the gateway modules.
+ARCHIVE = "lights-can-communicate-v2.pyz"
+PACKAGE = "lights_can_communicate_v2_core"
 REGISTRY_FILE = "lights.json"
 # Without a registry the gateway keeps the migrated lamps.
 LEGACY = (
@@ -24,10 +25,13 @@ LEGACY_SLOTS = frozenset(item["slot"] for item in LEGACY)
 
 
 def _registry_class():
-    # The release mounts the archive; a source checkout has the package next door.
-    source = Path(__file__).resolve().parents[1]
-    for path, present in ((ARCHIVE, ARCHIVE.is_file()),
-                          (source, (source / "lights_can_communicate_v2_core").is_dir())):
+    # The release mounts the archive next to this module. The development
+    # Compose file mounts the package there, and a source checkout has it one
+    # level up.
+    here = Path(__file__).resolve().parent
+    for path, present in ((here / ARCHIVE, (here / ARCHIVE).is_file()),
+                          (here, (here / PACKAGE).is_dir()),
+                          (here.parent, (here.parent / PACKAGE).is_dir())):
         if present and str(path) not in sys.path:
             sys.path.append(str(path))
     from lights_can_communicate_v2_core.light_registry import LightRegistry

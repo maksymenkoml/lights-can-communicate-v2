@@ -43,6 +43,8 @@ services:
       - ./light_geometry.py:/probe/light_geometry.py:ro
       - ./govee_models.py:/probe/govee_models.py:ro
       - ./virtual_lights.py:/probe/virtual_lights.py:ro
+      # The gateway validates the light registry with the core package.
+      - ../lights_can_communicate_v2_core:/probe/lights_can_communicate_v2_core:ro
     networks:
       - probe
 networks:

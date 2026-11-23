@@ -186,6 +186,9 @@ class ManagedServiceTests(unittest.TestCase):
         text = (ROOT / "bridge/compose.yaml").read_text()
         mounted = re.findall(r"\./(\w+)\.py:/probe/\1\.py:ro", text)
         self.assertEqual(sorted(mounted), sorted(services.GATEWAY_MODULES))
+        # The gateway reads the light registry with the core package.
+        self.assertIn("../lights_can_communicate_v2_core:/probe/lights_can_communicate_v2_core:ro",
+                      text)
 
     # Supervisors ----------------------------------------------------------
 

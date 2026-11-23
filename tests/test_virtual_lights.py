@@ -123,6 +123,12 @@ def fixture_request(g):
         assert third.state["reachable"] is True
         assert g["govee_slots"]["7"] == "device-" + "c" * 32
         state.joinpath("third-id.txt").write_text(third.id_v2)
+    elif phase == "missing":
+        # Without a registry only the migrated lamps are driven and reachable.
+        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6"}
+        assert lights["7"].state["reachable"] is False
+        assert lights["8"].state["reachable"] is False
+        assert lights["1"].state["reachable"] is True
     else:
         assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "8"}
         third = lights["7"]
@@ -137,6 +143,7 @@ def fixture_request(g):
                      "Requires the pinned public diyHue image")
 class VirtualLightsBootstrapTests(unittest.TestCase):
     def test_enrolled_lights_join_the_room_but_not_the_area_and_survive_removal(self):
+        # Phases: enrolled, one light removed, then the registry file deleted.
         start = DRIVER.index("def fixture_request(g):")
         end = DRIVER.index("def signal_main(g):")
         driver = DRIVER[:start] + VIRTUAL_FIXTURE + "\n\n" + DRIVER[end:]
@@ -146,9 +153,13 @@ class VirtualLightsBootstrapTests(unittest.TestCase):
             path = state / "tmp_virtual_driver.py"
             path.write_text(driver)
             for phase, current in (("enrolled", registry(fourth=True)),
-                                   ("removed", registry(fourth=True, remove_third=True))):
+                                   ("removed", registry(fourth=True, remove_third=True)),
+                                   ("missing", None)):
                 with self.subTest(phase=phase):
-                    current.save(state / "lights.json")
+                    if current is None:
+                        (state / "lights.json").unlink()
+                    else:
+                        current.save(state / "lights.json")
                     result = subprocess.run(
                         [sys.executable, "-B", str(path), phase, folder, str(source)],
                         cwd=folder, capture_output=True, text=True, timeout=30,
