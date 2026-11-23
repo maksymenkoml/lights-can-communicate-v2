@@ -387,10 +387,14 @@ class StudioStatusTests(unittest.TestCase):
         self.assertEqual(len(basic["lamps"]["govee-left"]["colors"]), 1)
         self.assertEqual(len(segmented["lamps"]["govee-left"]["colors"]), 7)
 
-    def test_lights_outside_the_six_lamps_stay_out_of_the_projection(self):
+    def test_an_enrolled_light_joins_the_projection_and_unknown_ids_stay_out(self):
         data = self.status("segmented")
         data["targets"].append({"light": THIRD_ID, "status_age": 0.1, "native": {"onOff": 1}})
-        self.assertEqual(len(studio.project_status(data, source_active=False)["lamps"]), 6)
+        data["targets"].append({"light": "third-govee", "status_age": 0.1,
+                                "native": {"onOff": 1}})
+        lamps = studio.project_status(data, source_active=False)["lamps"]
+        self.assertEqual(len(lamps), 7)
+        self.assertIn(THIRD_ID, lamps)
 
 
 class StartupTests(unittest.TestCase):

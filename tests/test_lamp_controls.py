@@ -913,8 +913,13 @@ class StudioIdentifyTests(unittest.TestCase):
                 self.assertEqual(self.post({"lamp": lamp}), (200, {"accepted": True}))
                 self.assertEqual(self.calls[-1], role)
 
+    def test_an_enrolled_device_light_is_forwarded_by_its_registry_id(self):
+        light = "device-" + "a" * 32
+        self.assertEqual(self.post({"lamp": light}), (200, {"accepted": True}))
+        self.assertEqual(self.calls[-1], light)
+
     def test_validation_and_protections(self):
-        for lamp in ("device-" + "a" * 32, "virtual-lamp1", "left"):
+        for lamp in ("device-" + "a" * 31, "virtual-lamp1", "left"):
             with self.subTest(lamp=lamp):
                 self.assertEqual(self.post({"lamp": lamp})[0], 404)
         for body in ({}, {"lamp": 1}, {"lamp": "govee-left", "role": "govee-left"}, [], b"{"):

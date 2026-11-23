@@ -182,7 +182,11 @@ himself, so API and automated DOM checks were used without opening his tab.
 `0.1.0.dev3` adds a passive shared recorder to the existing successful output
 operations and appends bounded `preview` data to authenticated `/status`. It
 records emitted Govee zones, accepted Hue scene PUTs and calibrated native RGB16
-frames. These are command colors, not optical measurements or segment readback.
+frames. It covers every enrolled light by registry id: the six
+migrated lamps first, then the lights enrolled later; with a Sync profile a later
+light is included while its layout row is composed. `/status` also lists the
+enrolled lights for Light Studio in `lights` (id, provider, model, zone count and
+whether it is migrated), without device identities or addresses. These are command colors, not optical measurements or segment readback.
 Scene/video transitions share the recorder; failed sends do not advance the
 cache, and observer failures do not change transport results or sequencing.
 

@@ -696,6 +696,30 @@ def prepare_targets(targets, composition_profile):
             device.setdefault("segment_count", 0)
 
 
+def registry_lights(registry, controller):
+    """The enrolled lights for Light Studio: id, provider, model and zone count.
+
+    A Hue light has one zone per channel; a Govee light one per active segment, or one
+    when it is driven as a single color. Device identities and addresses stay here.
+    """
+    native = registry.native_profile()
+    channels = native.channels if native is not None else {}
+    result = []
+    for item in registry.to_dict()["lights"]:
+        light, provider = item["id"], item["provider"]
+        if provider == "hue":
+            zones, model = len(channels.get(light, ())), item["hue"].get("model")
+        else:
+            target = controller.by_light.get(light, {}) if controller is not None else {}
+            zones = target.get("segment_count", 0)
+            model = item["govee"].get("model") or item["govee"].get("sku")
+        result.append({"id": light, "provider": provider,
+                       "model": model if isinstance(model, str) else None,
+                       "zones": zones if type(zones) is int and zones > 0 else 1,
+                       "migrated": not light.startswith("device-")})
+    return result
+
+
 def handler_for(controller, token, hue_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
                 power_requests=None, homekit=None, identify=None, sync_off=None,
@@ -767,6 +791,8 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                 }
             if hue_proxies:
                 result["hue"] = {light: proxy.snapshot() for light, proxy in hue_proxies.items()}
+            if getattr(lights, "registry", None) is not None:
+                result["lights"] = registry_lights(lights.registry, controller)
             if video_output is not None:
                 result["video"] = video_output.snapshot()
             if power_owner is not None:

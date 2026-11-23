@@ -88,8 +88,8 @@ correction (0-100 %) of the configuration the Settings switch shows ("with Sync"
 colour to zero and brightness to 100 % (unsaved); Save stores the values in the
 layout; back, Cancel and Esc discard them.
 
-- **With the test** (a role lamp while Sync is not running): the page adds
-  "Compare with" (other role lamps, default the nearest lit Hue Play, off lamps
+- **With the test** (a connected lamp while Sync is not running): the page adds
+  "Compare with" (other connected lamps, default the nearest lit Hue Play, off lamps
   disabled) and Test light Bright/Dim. `POST /api/calibration` with `{"lamp",
   "reference", "level", "view", "correction"}` plus `"calibration"` for a Govee
   lamp asks the adapter to show the test white on the lamp (candidate values)
@@ -110,15 +110,26 @@ See `docs/design/2026-11-19-light-studio-lamp-card.md`.
 
 ## Blink
 
-`POST /api/identify` with `{"lamp": "<role lamp id>"}` (for example
-`"govee-left"`) asks the adapter to blink that lamp so the owner can find it. It
-has the same local-origin protections as layout writes (Host, Origin,
-`Sec-Fetch-Site`, `application/json`). Only the six role lamps can blink: other
-ids return 404, a malformed body 400. The answer is 200 `{"accepted": true}`,
+`POST /api/identify` with `{"lamp": "<registry light id>"}` (for example
+`"govee-left"` or `"device-<32 hex>"`) asks the adapter to blink that lamp so the
+owner can find it. It has the same local-origin protections as layout writes
+(Host, Origin, `Sec-Fetch-Site`, `application/json`). An id that is not a registry
+light id returns 404, a malformed body 400; the adapter refuses a light it does
+not drive. The answer is 200 `{"accepted": true}`,
 409 `{"accepted": false, "reason"}` when the adapter refuses (`lamp off`,
 `writer closed`, `sync active`, `busy`, `unavailable`, `brightness unknown`, or
 `paused` during the owner's live-output hold) and 503 when the adapter is not
 reachable or the blink was not delivered. Only an owner click triggers it.
+
+## Connected lamps
+
+`/api/live` lists the enrolled lights in `lights` (`id`, `provider`, `model`,
+`zones`, `migrated`) and reports `lamps` for each of them: the six migrated lamps
+first, then every light enrolled later. A drawn `device-` row is connected while
+that list holds its id, and shows "Not connected" otherwise; the six migrated
+lamps are always connected. A connected lamp shows its live light and Sync
+problems and can blink and be calibrated; a connected Govee lamp also takes
+Warmth, Tint and Low light, stored in its layout row.
 
 ## Found lamps
 

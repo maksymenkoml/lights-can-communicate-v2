@@ -49,10 +49,13 @@ PREVIEW_FIELDS = {
 # from their ``hue-monitor`` row and ``monitorInches``.
 LAYOUT_VERSION = 7
 LAYOUT_VERSIONS = (3, 4, 5, 6, LAYOUT_VERSION)
-# Calibration controls of a Govee role row: name -> (lowest, highest). Zero is
-# neutral; an all-zero calibration is not stored.
+# Calibration controls of a Govee row: name -> (lowest, highest). Zero is neutral;
+# an all-zero calibration is not stored. The migrated Govee rows and every enrolled
+# device row take one; the layout does not know a device's provider, and the
+# adapter applies a calibration only to a Govee light.
 CALIBRATION_RANGES = {"warmth": (-100, 100), "tint": (-100, 100), "lowLight": (0, 100)}
 CALIBRATION_ROWS = ("govee-left", "govee-right")
+DEVICE_ROW = re.compile(r"device-[a-f0-9]{32}\Z")
 # Fade switches are stored only when they differ from these defaults.
 FALLOFF_DEFAULTS = {"syncFalloff": True, "sceneFalloff": False}
 # "off" switches a role lamp off for each Sync session (see sync_off.py); only the
@@ -203,7 +206,7 @@ def validate_layout(value):
         if sync_role != "sync":
             device["syncRole"] = sync_role
         if "calibration" in row:
-            if key not in CALIBRATION_ROWS:
+            if key not in CALIBRATION_ROWS and not DEVICE_ROW.match(key):
                 raise ValueError("Only a Govee lamp takes a calibration")
             values = calibration_values(row["calibration"])
             if any(values.values()):

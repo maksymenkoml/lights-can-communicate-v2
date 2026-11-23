@@ -272,6 +272,21 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_layout(data)
 
+    def test_a_calibration_is_kept_on_govee_and_enrolled_device_rows_only(self):
+        data = layout()
+        calibration = {"warmth": 10, "tint": -5, "lowLight": 20}
+        data["devices"][0]["calibration"] = dict(calibration)
+        data["devices"].append({"id": "device-" + "c" * 32, "name": "Govee H6008",
+                                "model": "H6008", "shape": "bar", "zones": 1, "scale": 80,
+                                "positionCm": {"x": 40, "height": 30},
+                                "calibration": dict(calibration)})
+        rows = {row["id"]: row for row in validate_layout(data)["devices"]}
+        self.assertEqual(rows["govee-left"]["calibration"], calibration)
+        self.assertEqual(rows["device-" + "c" * 32]["calibration"], calibration)
+        data["devices"][3]["calibration"] = dict(calibration)  # play-left
+        with self.assertRaises(ValueError):
+            validate_layout(data)
+
     def test_rejects_duplicates_nonfinite_values_and_control_fields(self):
         for mutate in [
             lambda d: d["devices"].append(copy.deepcopy(d["devices"][0])),

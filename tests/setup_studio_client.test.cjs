@@ -829,6 +829,23 @@ test('a drawn lamp that is not connected shows a broken-link badge where problem
  assert.equal(app.lamp(discovered().id).querySelector('[data-link-badge]'),null,'hidden while the chip is shown');
 });
 
+test('a drawn lamp is connected while the core lists it, and shows its live light',async()=>{
+ const id=discovered().id,remote=saved();
+ remote.devices.push({id,name:'Third <lamp>',model:'H6008',shape:'bar',zones:1,scale:80,positionCm:{x:150,height:40},calibration:{warmth:10,tint:0,lowLight:0}});
+ let lights=[{id,provider:'govee',model:'H6008',zones:1,migrated:false}];
+ const app=await harness({layout:remote,live:()=>liveOk({lights,lamps:{[id]:lit([[0,0,255]])}})});
+ await app.advance(1500);
+ assert.equal(app.lamp(id).querySelector('[data-link-badge]'),null,'an enrolled lamp is connected');
+ assert.equal(app.run('lamps.find(l=>l.id==="'+id+'").unbound'),false);
+ assert.ok(app.run('emittedColors(lamps.find(l=>l.id==="'+id+'"))'),'its live light is drawn');
+ assert.equal(app.run('calMode(lamps.find(l=>l.id==="'+id+'"))'),'live','a connected Govee lamp can be calibrated');
+ // The calibration of an enrolled Govee row is saved with the row.
+ app.run('setLamp(lamps.find(l=>l.id==="'+id+'"),l=>{l.scale=70})');await app.advance(300);
+ assert.deepEqual(app.posts.at(-1).body.devices.find(r=>r.id===id).calibration,{warmth:10,tint:0,lowLight:0});
+ lights=[];await app.advance(1500);
+ assert.ok(app.lamp(id).querySelector('[data-link-badge]'),'a removed light is not connected again');
+});
+
 test('Blink asks the server once and explains a refusal; Off is saved for role lamps only',async()=>{
  const calls=[];
  const app=await harness({identify:body=>{calls.push(body);return calls.length===1?{status:200,body:{accepted:true}}:{status:409,body:{accepted:false,reason:'lamp off'}}}});
