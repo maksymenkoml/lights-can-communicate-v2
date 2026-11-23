@@ -18,8 +18,8 @@ const LEFT = 'AA:AA:AA:AA:AA:AA:AA:AA';
 const RIGHT = 'BB:BB:BB:BB:BB:BB:BB:BB';
 const TABLE = 'CC:CC:CC:CC:CC:CC:CC:CC';
 const LAMPS = [
-  { role: 'left', deviceId: LEFT, name: 'Mykola office L' },
-  { role: 'right', deviceId: RIGHT, name: 'Mykola office R' },
+  { deviceId: LEFT, name: 'Mykola office L' },
+  { deviceId: RIGHT, name: 'Mykola office R' },
 ];
 
 /** The relevant surface of Homebridge's PlatformAccessory. */
@@ -40,18 +40,18 @@ class FakeClient {
   constructor() {
     this.sent = [];
     this.fail = false;
-    this.roles = { left: { on: true, brightness: 40 }, right: { on: false } };
+    this.lights = { [LEFT]: { on: true, brightness: 40 }, [RIGHT]: { on: false } };
   }
 
   async set(intent) {
     this.sent.push(intent);
     if (this.fail) throw new Error('Core did not confirm the HomeKit intent (503)');
-    return this.roles;
+    return this.lights;
   }
 
   async state() {
     if (this.fail) throw new Error('Core state unavailable (0)');
-    return this.roles;
+    return this.lights;
   }
 }
 
@@ -121,8 +121,8 @@ test('the plugin reuses the AIDs and IIDs that the Govee accessories had on the 
   const { platform } = harness();
   await platform.start();
   const after = new hap.Bridge('Govee', hap.uuid.generate('govee-child-bridge'));
-  const leftAccessory = platform.lamps.get('left').accessory._associatedHAPAccessory;
-  const rightAccessory = platform.lamps.get('right').accessory._associatedHAPAccessory;
+  const leftAccessory = platform.lamps.get(LEFT).accessory._associatedHAPAccessory;
+  const rightAccessory = platform.lamps.get(RIGHT).accessory._associatedHAPAccessory;
   after.addBridgedAccessories([leftAccessory, rightAccessory]);
   const reloaded = new IdentifierCache('0E:00:00:00:00:01');
   reloaded._cache = JSON.parse(JSON.stringify(saved));
@@ -153,13 +153,13 @@ test('new lamps register with the Govee-derived UUID; stale cache entries are re
   assert.deepEqual(registered[0].slice(0, 2), [PLUGIN_NAME, PLATFORM_NAME]);
   assert.deepEqual(registered[0][2].map(a => a.UUID), [hap.uuid.generate(RIGHT)]);
   assert.deepEqual(unregistered[0][2], [stale]);
-  assert.equal(platform.lamps.get('left').accessory, cachedLeft);
+  assert.equal(platform.lamps.get(LEFT).accessory, cachedLeft);
   assert.equal(cachedLeft.context.deviceId, LEFT);
 });
 
 test('invalid lamp configuration does not start or register anything', async () => {
-  for (const lamps of [[], [{ ...LAMPS[0], role: 'strip' }], [LAMPS[0], { ...LAMPS[1], role: 'left' }],
-    [{ ...LAMPS[0], deviceId: 'aa:aa' }]]) {
+  for (const lamps of [[], [LAMPS[0], { ...LAMPS[1], deviceId: LEFT }],
+    [{ ...LAMPS[0], deviceId: 'aa:aa' }], [{ ...LAMPS[0], name: '  ' }], [{ name: 'No ID' }]]) {
     const { platform, registered, logs } = harness({ lamps });
     await platform.start();
     assert.equal(registered.length, 0);
@@ -167,10 +167,34 @@ test('invalid lamp configuration does not start or register anything', async () 
   }
 });
 
+test('a role left over from an older configuration is ignored', async () => {
+  const lamps = [{ ...LAMPS[0], role: 'right' }, { ...LAMPS[1], role: 'right' },
+    { deviceId: TABLE, name: 'Table', role: 'strip' }];
+  const { platform, client, registered } = harness({ lamps });
+  await platform.start();
+  assert.deepEqual([...platform.lamps.keys()], [LEFT, RIGHT, TABLE]);
+  assert.equal(registered.length, 1);
+  assert.equal(platform.lamps.get(TABLE).accessory.context.role, undefined);
+  await platform.lamps.get(TABLE).service.getCharacteristic(hap.Characteristic.On)
+    .handleSetRequest(true);
+  assert.deepEqual(client.sent, [{ device: TABLE, on: true }]);
+});
+
+test('a core with the side-keyed HomeKit API 1 is refused', async () => {
+  const token = 'b'.repeat(64);
+  const fetch = async (url, init) => {
+    const body = JSON.stringify({ version: 1, roles: { right: { on: true } } });
+    return new Response(body, { headers: {
+      'X-LCC-Response': signResponse(token, init.headers['X-LCC-Nonce'], 200, body) } });
+  };
+  const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token }, { fetch });
+  await assert.rejects(client.state(), /HomeKit API 1 is not supported \(plugin expects 2\)/);
+});
+
 test('HomeKit writes become core intents; hue and saturation are sent as one color', async () => {
   const { platform, client } = harness();
   await platform.start();
-  const service = platform.lamps.get('left').service;
+  const service = platform.lamps.get(LEFT).service;
   await service.getCharacteristic(hap.Characteristic.On).handleSetRequest(false);
   await service.getCharacteristic(hap.Characteristic.Brightness).handleSetRequest(55);
   await Promise.all([
@@ -179,10 +203,10 @@ test('HomeKit writes become core intents; hue and saturation are sent as one col
   ]);
   await service.getCharacteristic(hap.Characteristic.ColorTemperature).handleSetRequest(300);
   assert.deepEqual(client.sent, [
-    { role: 'left', on: false },
-    { role: 'left', brightness: 55 },
-    { role: 'left', hue: 120, saturation: 80 },
-    { role: 'left', color_temperature: 300 },
+    { device: LEFT, on: false },
+    { device: LEFT, brightness: 55 },
+    { device: LEFT, hue: 120, saturation: 80 },
+    { device: LEFT, color_temperature: 300 },
   ]);
 });
 
@@ -190,7 +214,7 @@ test('an unconfirmed intent is a HomeKit communication failure', async () => {
   const { platform, client } = harness();
   await platform.start();
   client.fail = true;
-  const on = platform.lamps.get('right').service.getCharacteristic(hap.Characteristic.On);
+  const on = platform.lamps.get(RIGHT).service.getCharacteristic(hap.Characteristic.On);
   // HAP converts the thrown HapStatusError into the status sent to the controller.
   await assert.rejects(on.handleSetRequest(true),
     error => error === hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
@@ -199,10 +223,10 @@ test('an unconfirmed intent is a HomeKit communication failure', async () => {
 test('polling mirrors the core state and marks the lamps unavailable only after a timeout', async () => {
   const { platform, client, time } = harness();
   await platform.start();
-  const service = platform.lamps.get('left').service;
+  const service = platform.lamps.get(LEFT).service;
   assert.equal(service.getCharacteristic(hap.Characteristic.On).value, true);
   assert.equal(service.getCharacteristic(hap.Characteristic.Brightness).value, 40);
-  client.roles.left = { on: false, brightness: null, hue: 30, saturation: 100 };
+  client.lights[LEFT] = { on: false, brightness: null, hue: 30, saturation: 100 };
   await platform.poll();
   assert.equal(service.getCharacteristic(hap.Characteristic.On).value, false);
   assert.equal(service.getCharacteristic(hap.Characteristic.Brightness).value, 40);
@@ -220,25 +244,25 @@ test('polling mirrors the core state and marks the lamps unavailable only after 
 test('an owner name from the core renames the accessory without changing identifiers', async () => {
   const { platform, client } = harness();
   await platform.start();
-  const lamp = platform.lamps.get('left');
+  const lamp = platform.lamps.get(LEFT);
   const accessory = lamp.accessory._associatedHAPAccessory;
   const info = accessory.getService(hap.Service.AccessoryInformation);
   const before = { ...identifiers(accessory), aid: accessory.aid, uuid: accessory.UUID };
   // No name from the core: the configured name stays.
   assert.equal(lamp.accessory.displayName, 'Mykola office L');
-  client.roles.left = { on: true, name: '  Desk left  ' };
+  client.lights[LEFT] = { on: true, name: '  Desk left  ' };
   await platform.poll();
   assert.equal(lamp.accessory.displayName, 'Desk left');
   assert.equal(accessory.displayName, 'Desk left');
   assert.equal(info.getCharacteristic(hap.Characteristic.Name).value, 'Desk left');
   assert.equal(info.getCharacteristic(hap.Characteristic.ConfiguredName).value, 'Desk left');
-  assert.equal(platform.lamps.get('right').accessory.displayName, 'Mykola office R');
+  assert.equal(platform.lamps.get(RIGHT).accessory.displayName, 'Mykola office R');
   assert.deepEqual({ ...identifiers(accessory), aid: accessory.aid, uuid: accessory.UUID }, before);
   // A later answer without a name keeps the last name; another name renames again.
-  client.roles.left = { on: true };
+  client.lights[LEFT] = { on: true };
   await platform.poll();
   assert.equal(lamp.accessory.displayName, 'Desk left');
-  client.roles.left = { on: true, name: 'Left floor' };
+  client.lights[LEFT] = { on: true, name: 'Left floor' };
   await platform.poll();
   assert.equal(lamp.accessory.displayName, 'Left floor');
 });
@@ -246,10 +270,10 @@ test('an owner name from the core renames the accessory without changing identif
 test('the Lightbulb Name and ConfiguredName follow only where the accessory has them', async () => {
   const { platform, client } = harness();
   await platform.start();
-  const lamp = platform.lamps.get('left');
+  const lamp = platform.lamps.get(LEFT);
   const { Characteristic } = hap;
   assert.equal(lamp.service.testCharacteristic(Characteristic.Name), false);
-  client.roles.left = { on: true, name: 'Desk left' };
+  client.lights[LEFT] = { on: true, name: 'Desk left' };
   await platform.poll();
   // The renaming added no characteristic that would need a new IID.
   assert.equal(lamp.service.testCharacteristic(Characteristic.Name), false);
@@ -257,7 +281,7 @@ test('the Lightbulb Name and ConfiguredName follow only where the accessory has 
 
   lamp.service.getCharacteristic(Characteristic.Name);
   lamp.service.getCharacteristic(Characteristic.ConfiguredName);
-  client.roles.left = { on: true, name: 'Left floor' };
+  client.lights[LEFT] = { on: true, name: 'Left floor' };
   await platform.poll();
   assert.equal(lamp.service.getCharacteristic(Characteristic.Name).value, 'Left floor');
   assert.equal(lamp.service.getCharacteristic(Characteristic.ConfiguredName).value, 'Left floor');
@@ -266,16 +290,16 @@ test('the Lightbulb Name and ConfiguredName follow only where the accessory has 
 test('an unusable core name is ignored; Homebridge updateDisplayName is preferred', async () => {
   const { platform, client } = harness();
   await platform.start();
-  const lamp = platform.lamps.get('left');
+  const lamp = platform.lamps.get(LEFT);
   const calls = [];
   lamp.accessory.updateDisplayName = name => { calls.push(name); lamp.accessory.displayName = name; };
   for (const name of ['', '   ', 'x'.repeat(65), 7, null]) {
-    client.roles.left = { on: true, name };
+    client.lights[LEFT] = { on: true, name };
     await platform.poll();
   }
   assert.deepEqual(calls, []);
   assert.equal(lamp.accessory.displayName, 'Mykola office L');
-  client.roles.left = { on: true, name: 'Desk left' };
+  client.lights[LEFT] = { on: true, name: 'Desk left' };
   await platform.poll();
   assert.deepEqual(calls, ['Desk left']);
 });
@@ -288,14 +312,14 @@ test('requests are signed and never carry the credential itself', async () => {
   const seen = [];
   const fetch = async (url, init) => {
     seen.push({ url, init });
-    const body = JSON.stringify({ accepted: true, version: 1, roles: {} });
+    const body = JSON.stringify({ accepted: true, version: 2, lights: {} });
     return new Response(body, { headers: {
       'X-LCC-Response': signResponse(token, init.headers['X-LCC-Nonce'], 200, body) } });
   };
   const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token },
     { fetch, now: () => 1000000 });
-  await client.set({ role: 'right', on: true });
-  await client.set({ role: 'right', on: true });
+  await client.set({ device: RIGHT, on: true });
+  await client.set({ device: RIGHT, on: true });
   const [first, second] = seen;
   assert.equal(first.url, 'http://192.168.99.10:19880/homekit');
   assert.ok(!JSON.stringify(first.init).includes(token));
@@ -308,15 +332,15 @@ test('requests are signed and never carry the credential itself', async () => {
 
 test('unsigned, altered or replayed core responses are not trusted', async () => {
   const token = 'b'.repeat(64);
-  const forged = JSON.stringify({ accepted: true, version: 1, roles: { right: { on: true } } });
+  const forged = JSON.stringify({ accepted: true, version: 2, lights: { [RIGHT]: { on: true } } });
   let answer;
   const fetch = async (url, init) => answer(init.headers['X-LCC-Nonce']);
   const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token }, { fetch });
   answer = () => new Response(forged);
-  await assert.rejects(client.set({ role: 'right', on: true }), /not authentic/);
+  await assert.rejects(client.set({ device: RIGHT, on: true }), /not authentic/);
   answer = nonce => new Response(forged, { headers: {
     'X-LCC-Response': signResponse(token, nonce, 200, '{"accepted":true}') } });
-  await assert.rejects(client.set({ role: 'right', on: true }), /not authentic/);
+  await assert.rejects(client.set({ device: RIGHT, on: true }), /not authentic/);
   answer = () => new Response(forged, { headers: {
     'X-LCC-Response': signResponse(token, 'd'.repeat(32), 200, forged) } });
   await assert.rejects(client.state(), /not authentic/);
@@ -326,14 +350,14 @@ test('a core with another HomeKit API version is refused before any write', asyn
   const token = 'b'.repeat(64);
   let version = CORE_API + 1;
   const fetch = async (url, init) => {
-    const body = JSON.stringify({ version, roles: { right: { on: true } } });
+    const body = JSON.stringify({ version, lights: { [RIGHT]: { on: true } } });
     return new Response(body, { headers: {
       'X-LCC-Response': signResponse(token, init.headers['X-LCC-Nonce'], 200, body) } });
   };
   const client = new CoreClient({ endpoint: 'http://192.168.99.10:19880', token }, { fetch });
-  await assert.rejects(client.state(), /HomeKit API 2 is not supported \(plugin expects 1\)/);
+  await assert.rejects(client.state(), /HomeKit API 3 is not supported \(plugin expects 2\)/);
   version = CORE_API;
-  assert.deepEqual(await client.state(), { right: { on: true } });
+  assert.deepEqual(await client.state(), { [RIGHT]: { on: true } });
 });
 
 test('the core credential must be a private, well-formed file', () => {

@@ -1,10 +1,9 @@
-"""Translate the side-keyed wire formats of ``/power-owner`` and ``/homekit``.
+"""Translate the side-keyed wire format of ``/power-owner``.
 
-The Homebridge overlay (``/power-owner``) and the Homebridge plugin (``/homekit``)
-still name the two migrated lamps ``left`` and ``right``. Everything inside the
-adapter uses registry light ids, so these two routes translate at the HTTP boundary
-and only for the two legacy lights. A Govee light without a legacy side is not
-visible there. The ``/homekit`` contract moves to light ids together with the plugin.
+The obsolete Homebridge overlay (``/power-owner``) still names the two migrated
+lamps ``left`` and ``right``. Everything inside the adapter uses registry light ids,
+so this route translates at the HTTP boundary and only for the two legacy lights. A
+Govee light without a legacy side is not visible there.
 """
 
 from lights_can_communicate_v2_core.light_registry import LEGACY_SIDES
@@ -52,17 +51,3 @@ def owner_exchange(result):
             for wire in result["power_requests"]
         ]
     return result
-
-
-def homekit_intent(payload):
-    """Light-keyed ``/homekit`` intent from one that names its ``role`` as a side."""
-    if type(payload) is not dict or payload.get("role") not in SIDE_LIGHTS:
-        raise ValueError("Invalid HomeKit intent")
-    result = {key: value for key, value in payload.items() if key != "role"}
-    result["light"] = SIDE_LIGHTS[payload["role"]]
-    return result
-
-
-def homekit_state(state):
-    """The ``/homekit`` document of version one: the legacy lights under ``roles``."""
-    return {"version": 1, "roles": _sides(state["lights"])}

@@ -21,7 +21,7 @@ STATE_SCHEMAS = {"desk_layout": 7, "homekit_power": 2, "scene_play_intent": 1}
 CONFIG_VERSIONS = [1]
 PYTHON = "3.10"
 # Version of the signed /homekit API the bundled Homebridge plugin expects.
-CORE_API = {"homekit": 1}
+CORE_API = {"homekit": 2}
 # npm's fixed package mtime (1985-10-26T08:15:00Z) keeps the tarball reproducible.
 _NPM_MTIME = 499162500
 

@@ -6,7 +6,7 @@ export const CREDENTIAL_FILE = 'lights-can-communicate-v2.json';
 
 /** Read the private core endpoint and owner credential from Homebridge storage. */
 /** Version of the signed /homekit API; the release manifest records it as core_api.homekit. */
-export const CORE_API = 1;
+export const CORE_API = 2;
 
 export function readCredentials(path) {
   const info = statSync(path);
@@ -105,18 +105,18 @@ export class CoreClient {
       // A core upgraded or rolled back without this plugin: never write power.
       throw new Error(`Core HomeKit API ${value.version} is not supported (plugin expects ${CORE_API})`);
     }
-    if (status !== 200 || !value || typeof value.roles !== 'object') {
+    if (status !== 200 || !value || !value.lights || typeof value.lights !== 'object') {
       throw new Error(`Core state unavailable (${status})`);
     }
-    return value.roles;
+    return value.lights;
   }
 
-  /** Resolve with the new roles state when the core confirmed the intent. */
+  /** Resolve with the lamps keyed by Govee device ID when the core confirmed the intent. */
   async set(intent) {
     const { status, value } = await this.request('POST', intent);
     if (status !== 200 || value?.accepted !== true) {
       throw new Error(`Core did not confirm the HomeKit intent (${status})`);
     }
-    return value.roles;
+    return value.lights;
   }
 }

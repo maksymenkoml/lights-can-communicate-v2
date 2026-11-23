@@ -19,7 +19,7 @@ from homekit_power import (  # noqa: E402
 )
 from live_adapter import GoveeController, handler_for  # noqa: E402
 from power_requests import PowerRequestUnavailable  # noqa: E402
-from test_live_adapter import targets  # noqa: E402
+from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 
 TOKEN, OWNER = "a" * 48, "b" * 64
 
@@ -364,30 +364,31 @@ class HomeKitRouteTests(unittest.TestCase):
             with error:
                 return error.code, json.load(error)
 
-    # /homekit keeps its version-one wire format: the two lamps are named left and right.
+    # /homekit names every lamp by its Govee device ID.
     def test_routes_require_the_owner_credential_and_fence_the_legacy_owner(self):
         self.assertEqual(self.call("/homekit", token=TOKEN)[0], 403)
         self.assertEqual(self.call("/homekit", token=TOKEN, header="X-Adapter-Token")[0], 403)
         status, body = self.call("/homekit")
         self.assertEqual(status, 200)
-        self.assertEqual(body["roles"]["left"]["on"], True)
+        self.assertEqual(body["version"], 2)
+        self.assertEqual(body["lights"][LEFT]["on"], True)
         self.assertEqual(self.call("/power-owner", {"session": "x"})[0], 404)
-        status, body = self.call("/homekit", {"role": "right", "on": False})
-        self.assertEqual((status, body["accepted"], body["roles"]["right"]["on"]),
+        status, body = self.call("/homekit", {"device": RIGHT, "on": False})
+        self.assertEqual((status, body["accepted"], body["lights"][RIGHT]["on"]),
                          (200, True, False))
-        self.assertEqual(self.call("/homekit", {"role": "right", "on": "no"})[0], 400)
+        self.assertEqual(self.call("/homekit", {"device": RIGHT, "on": "no"})[0], 400)
         status, body = self.call("/status", token=TOKEN, header="X-Adapter-Token")
         self.assertEqual(body["power_owner"]["authority"], "homekit")
         self.assertFalse(body["power_owner"]["lights"]["govee-right"]["requested_on"])
         self.assertNotIn(OWNER, json.dumps(body))
 
     def test_signed_requests_cannot_be_replayed_altered_or_replaced_by_the_token(self):
-        body = json.dumps({"role": "left", "on": False}).encode()
+        body = json.dumps({"device": LEFT, "on": False}).encode()
         headers = self.signed("POST", "/homekit", body)
         self.assertEqual(self.call("/homekit", data=body, headers=headers)[0], 200)
         # The same capture cannot be sent again.
         self.assertEqual(self.call("/homekit", data=body, headers=headers)[0], 403)
-        altered = json.dumps({"role": "left", "on": True}).encode()
+        altered = json.dumps({"device": LEFT, "on": True}).encode()
         self.assertEqual(self.call("/homekit", data=altered,
                                    headers=self.signed("POST", "/homekit", body))[0], 403)
         stale = self.signed("POST", "/homekit", altered, issued=time.time() - 3)
@@ -400,7 +401,7 @@ class HomeKitRouteTests(unittest.TestCase):
         self.assertFalse(self.power.intent["govee-left"]["on"])
 
     def test_responses_are_signed_for_the_request_nonce(self):
-        body = json.dumps({"role": "left", "on": False}).encode()
+        body = json.dumps({"device": LEFT, "on": False}).encode()
         headers = self.signed("POST", "/homekit", body)
         request = urllib.request.Request(self.url + "/homekit", data=body, headers=headers)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -422,8 +423,8 @@ class HomeKitRouteTests(unittest.TestCase):
 
     def test_owner_names_are_reported_per_lamp_and_the_response_stays_signed(self):
         status, body = self.call("/homekit")
-        self.assertTrue(all("name" not in lamp for lamp in body["roles"].values()))
-        # Owner names are keyed by light id (Hue lamps by role); /homekit shows only the two sides.
+        self.assertTrue(all("name" not in lamp for lamp in body["lights"].values()))
+        # Owner names are keyed by light id (Hue lamps by role); /homekit shows Govee lamps only.
         self.owner_names.update({"govee-left": "Desk left", "strip": "Not a HomeKit lamp"})
         headers = self.signed("GET", "/homekit", b"")
         request = urllib.request.Request(self.url + "/homekit", headers=headers)
@@ -432,12 +433,12 @@ class HomeKitRouteTests(unittest.TestCase):
             data = response.read()
             self.assertEqual(response.headers["X-LCC-Response"], response_signature(
                 OWNER, headers["X-LCC-Nonce"], 200, data))
-        roles = json.loads(data)["roles"]
-        self.assertEqual(roles["left"]["name"], "Desk left")
-        self.assertNotIn("name", roles["right"])
-        self.assertEqual(set(roles), {"left", "right"})
-        status, body = self.call("/homekit", {"role": "right", "on": False})
-        self.assertEqual(body["roles"]["left"]["name"], "Desk left")
+        lights = json.loads(data)["lights"]
+        self.assertEqual(lights[LEFT]["name"], "Desk left")
+        self.assertNotIn("name", lights[RIGHT])
+        self.assertEqual(set(lights), {LEFT, RIGHT})
+        status, body = self.call("/homekit", {"device": RIGHT, "on": False})
+        self.assertEqual(body["lights"][LEFT]["name"], "Desk left")
 
     def test_signature_matches_the_plugin_vector(self):
         # Same vector as tests/homebridge_plugin.test.mjs.
@@ -448,7 +449,7 @@ class HomeKitRouteTests(unittest.TestCase):
 
     def test_unconfirmed_power_returns_service_unavailable(self):
         self.lamps.ignore.add("govee-left")
-        status, body = self.call("/homekit", {"role": "left", "on": False})
+        status, body = self.call("/homekit", {"device": LEFT, "on": False})
         self.assertEqual((status, body["accepted"]), (503, False))
 
 

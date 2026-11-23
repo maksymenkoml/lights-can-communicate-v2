@@ -11,13 +11,14 @@ export class Lamp {
   constructor(api, accessory, lamp, client, log) {
     this.hap = api.hap;
     this.accessory = accessory;
-    this.role = lamp.role;
+    this.deviceId = lamp.deviceId;
     this.client = client;
     this.log = log;
     this.pending = null;
     this.values = {};
     const { Service, Characteristic } = this.hap;
-    accessory.context.role = lamp.role;
+    // Accessories cached by an older plugin still carry the side they were bound to.
+    delete accessory.context.role;
     accessory.context.deviceId = lamp.deviceId;
 
     const info = this.info = accessory.getService(Service.AccessoryInformation)
@@ -67,8 +68,8 @@ export class Lamp {
 
   async forward(fields) {
     try {
-      const roles = await this.client.set({ role: this.role, ...fields });
-      this.update(roles?.[this.role]);
+      const lights = await this.client.set({ device: this.deviceId, ...fields });
+      this.update(lights?.[this.deviceId]);
     } catch (error) {
       this.log.warn(`${this.accessory.displayName}: ${error.message}`);
       throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
