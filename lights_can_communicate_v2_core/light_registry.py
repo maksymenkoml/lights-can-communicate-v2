@@ -327,7 +327,7 @@ class LightRegistry:
         if item is None:
             raise RegistryError("Light is not enrolled.")
         data["lights"].remove(item)
-        retired = [record for record in data.pop("retired", []) if record["id"] != light_id]
+        retired = data.pop("retired", [])
         retired.append({"id": light_id, "virtual": item["virtual"]})
         data["retired"] = retired[-_MAX_RETIRED:]
         return LightRegistry.from_dict(data)

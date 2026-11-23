@@ -12,9 +12,6 @@ import threading
 
 from lights_can_communicate_v2_core.light_registry import DEVICE_ID, RegistryError
 
-# Reasons a valid request is refused (HTTP 409); Light Studio shows only these.
-REASONS = ("sync_active", "restarting", "enrolled", "not_enrolled", "unavailable")
-
 
 class LightRefused(Exception):
     def __init__(self, reason):
@@ -31,6 +28,8 @@ class LightEnrollment:
         self.busy = busy
         # Called once after a changed registry is saved.
         self.restart = restart
+        # Serializes light set changes with Sync frames (see stream), so Sync
+        # cannot start between the busy check and the registry write.
         self.lock = threading.Lock()
         self.pending = False
 
@@ -75,6 +74,13 @@ class LightEnrollment:
                 raise LightRefused("not_enrolled")
             self._apply(self.registry.without_govee_light(light_id))
         self.restart()
+
+    def stream(self, submit):
+        """Pass a Sync frame to ``submit`` unless a new light set awaits the restart."""
+        with self.lock:
+            if self.pending:
+                return False
+            return submit()
 
     def remember(self, targets):
         """Record the lamps' current addresses; skipped once a new light set is saved."""

@@ -87,6 +87,34 @@ class EnrollmentTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(self.restarts, [])
 
+    def test_sync_frames_and_light_changes_are_serialized(self):
+        frames = []
+        self.assertTrue(self.lights.stream(lambda: frames.append(1) or True))
+        started = threading.Event()
+        release = threading.Event()
+
+        def busy():
+            started.set()
+            release.wait(2)
+            return False
+
+        self.lights.busy = busy
+        worker = threading.Thread(target=self.lights.enroll, args=(self.new,))
+        worker.start()
+        started.wait(2)
+        # A frame that arrives during the check waits, then sees the pending set.
+        result = []
+        frame = threading.Thread(target=lambda: result.append(
+            self.lights.stream(lambda: frames.append(2) or True)))
+        frame.start()
+        frame.join(0.2)
+        self.assertTrue(frame.is_alive())
+        release.set()
+        worker.join(2)
+        frame.join(2)
+        self.assertEqual((result, frames), ([False], [1]))
+        self.assertEqual(self.restarts, [True])
+
     def test_removal_keeps_the_identity_and_stops_address_updates(self):
         enrolled = self.registry.with_govee_light(self.new, NEW_DEVICE, "192.168.10.52", "H6008")
         enrolled.save(self.path)

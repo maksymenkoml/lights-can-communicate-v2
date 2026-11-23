@@ -901,7 +901,9 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                         confirmed = False
                     return self.respond(200 if confirmed else 503, {"accepted": confirmed})
                 elif self.path == "/stream":
-                    accepted = video_output.submit(payload)
+                    # No Sync session starts while the light set is being changed.
+                    accepted = (video_output.submit(payload) if lights is None
+                                else lights.stream(lambda: video_output.submit(payload)))
                     # Only an authenticated, fully consumed stream envelope may
                     # reuse its connection. Other routes retain legacy closure.
                     self.stream_keep_alive = (
