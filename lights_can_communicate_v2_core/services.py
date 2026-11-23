@@ -34,6 +34,7 @@ GATEWAY_MODULES = (
     "sync_projection",
     "sync_zone",
     "light_geometry",
+    "govee_models",
 )
 _HEALTH = ("import urllib.request;"
            "urllib.request.urlopen('http://127.0.0.1/api/config', timeout=3)")

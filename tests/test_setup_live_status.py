@@ -22,7 +22,7 @@ def status():
     for side in ("left", "right"):
         data["targets"].append(
             {
-                "side": side,
+                "light": "govee-" + side,
                 "device": "PRIVATE_DEVICE",
                 "status_age": 0.1,
                 "native": {"identity_verified": True, "onOff": 1, "brightness": 65},
@@ -73,7 +73,8 @@ class SetupLiveStatusTests(unittest.TestCase):
             {"state": "waiting", "reason": "native_unavailable", "metrics": {}}]}
         result = studio.project_status(data, source_active=True)
         self.assertEqual(result["sync"]["reason"], "native_unavailable")
-        self.assertEqual(result["sync"]["blockers"], [{"role": "right", "code": "native_off"}])
+        self.assertEqual(result["sync"]["blockers"],
+                         [{"role": "govee-right", "code": "native_off"}])
         self.assertNotIn("PRIVATE", json.dumps(result))
         unclassified = studio.project_status(status(), source_active=False)
         self.assertEqual(unclassified["sync"]["state"], "off")

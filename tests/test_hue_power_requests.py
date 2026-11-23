@@ -40,7 +40,8 @@ class HuePowerRequestTests(unittest.TestCase):
     def test_explicit_v2_light_and_group_use_only_existing_selected_roles(self):
         self.v2("light", "light-2", {"on": {"on": True}})
         self.v2("grouped_light", "group-all", {"on": {"on": False}})
-        self.assertEqual(self.calls, [{"right": True}, {"left": False, "right": False}])
+        self.assertEqual(self.calls, [{"govee-right": True},
+                                      {"govee-left": False, "govee-right": False}])
         self.assertEqual(len(self.refreshed), 2)
         # The room also switches the native Hue lights through their own path.
         self.assertEqual(self.native, [{"strip": False, "hue_left": False}])
@@ -94,7 +95,8 @@ class HuePowerRequestTests(unittest.TestCase):
             address = f"/{resource}/{rid}/{field}/on"
             self.gateway.after_request("PUT", f"/api/key/{resource}/{rid}/{field}", 200,
                                        {"on": True}, [{"success": {address: True}}])
-        self.assertEqual(self.calls, [{"right": True}, {"left": True, "right": True}])
+        self.assertEqual(self.calls, [{"govee-right": True},
+                                      {"govee-left": True, "govee-right": True}])
 
     def test_scenes_colors_internal_or_unselected_resources_never_send_power(self):
         self.v2("scene", "scene-id", {"recall": {"action": "active"}, "on": {"on": True}})

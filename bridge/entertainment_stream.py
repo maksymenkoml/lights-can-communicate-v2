@@ -19,7 +19,7 @@ AREA_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, GROUP_ID + "entertainment_configura
 GRADIENT_MODE = os.environ.get("PROBE_GOVEE_GRADIENT", "false").lower() == "true"
 CHANNELS = set(range(18 if GRADIENT_MODE else 14))
 SLOT_CHANNELS = {"1": [0], "2": [1], "3": list(range(2, 11)), "4": [11], "5": [12], "6": [13]}
-GOVEE_CHANNELS = {"left": [0], "right": [1]}
+GOVEE_CHANNELS = {"govee-left": [0], "govee-right": [1]}
 STRIP_POSITIONS = [
     (-0.4, 0.8, -0.4),
     (-0.4, 0.8, 0),
@@ -41,7 +41,7 @@ POSITIONS = [
 ]
 if GRADIENT_MODE:
     SLOT_CHANNELS.update({"1": [0, 14, 15], "2": [1, 16, 17]})
-    GOVEE_CHANNELS = {"left": SLOT_CHANNELS["1"], "right": SLOT_CHANNELS["2"]}
+    GOVEE_CHANNELS = {"govee-left": SLOT_CHANNELS["1"], "govee-right": SLOT_CHANNELS["2"]}
     POSITIONS[0], POSITIONS[1] = (-0.7, 0.8, -0.8), (0.7, 0.8, -0.8)
     POSITIONS.extend([(-0.7, 0.8, 0), (-0.7, 0.8, 0.8), (0.7, 0.8, 0), (0.7, 0.8, 0.8)])
 

@@ -41,6 +41,7 @@ services:
       - ./sync_projection.py:/probe/sync_projection.py:ro
       - ./sync_zone.py:/probe/sync_zone.py:ro
       - ./light_geometry.py:/probe/light_geometry.py:ro
+      - ./govee_models.py:/probe/govee_models.py:ro
     networks:
       - probe
 networks:

@@ -97,16 +97,16 @@ class LayoutFieldTests(StoreCase):
         row(data, "play-left")["syncRole"] = "own"
         row(data, "play-right")["enabled"] = False
         self.save(data)
-        self.assertEqual(self.store.scene_scale("left", 1), 0.4)
-        self.assertEqual(self.store.scale("left", 1), 0.65)
-        self.assertEqual(self.store.scene_scale("right", 1), 0.65)
+        self.assertEqual(self.store.scene_scale("govee-left", 1), 0.4)
+        self.assertEqual(self.store.scale("govee-left", 1), 0.65)
+        self.assertEqual(self.store.scene_scale("govee-right", 1), 0.65)
         self.assertEqual(self.store.scene_scale("unknown", 0.7), 0.7)
         # The copy is stored: a later Sync correction change keeps it.
         saved = self.store.snapshot()
         row(saved, "govee-right")["scale"] = 20
         self.save(saved)
-        self.assertEqual(self.store.scale("right", 1), 0.2)
-        self.assertEqual(self.store.scene_scale("right", 1), 0.65)
+        self.assertEqual(self.store.scale("govee-right", 1), 0.2)
+        self.assertEqual(self.store.scene_scale("govee-right", 1), 0.65)
         self.assertFalse(self.store.enabled("hue_left"))
         self.assertTrue(self.store.present("hue_left"))
         self.assertTrue(self.store.present("play-left"))
@@ -115,9 +115,9 @@ class LayoutFieldTests(StoreCase):
 
     def test_corrupt_saved_layout_removes_scene_membership_like_sync_membership(self):
         self.path.write_text("{")
-        self.assertFalse(self.store.present("left"))
-        self.assertFalse(self.store.enabled("left"))
-        self.assertTrue(LayoutStore(self.path.with_name("missing.json")).present("left"))
+        self.assertFalse(self.store.present("govee-left"))
+        self.assertFalse(self.store.enabled("govee-left"))
+        self.assertTrue(LayoutStore(self.path.with_name("missing.json")).present("govee-left"))
 
     def test_zone_points_resolve_the_scene_zone_independently(self):
         data = validate_layout(v5(sceneZone=custom_zone()))
@@ -154,12 +154,13 @@ class FadeProjectionTests(unittest.TestCase):
         self.assertEqual(flat[12], raw[12])
 
     def test_scene_fade_follows_the_scene_switch_and_zone_not_the_sync_ones(self):
-        self.assertEqual(scene_fade(v5()), {"left": [1] * 7, "right": [1] * 7, "strip": 1,
+        self.assertEqual(scene_fade(v5()), {"govee-left": [1] * 7, "govee-right": [1] * 7,
+                                            "strip": 1,
                                             "hue_left": 1, "hue_center": 1, "hue_right": 1})
         on = scene_fade(v5(sceneFalloff=True))
-        self.assertEqual(on["left"][:3], [0, 0, 0])
-        self.assertTrue(0 < on["left"][3] < on["left"][4] < 1)
-        self.assertEqual(on["left"][5:], [1, 1])
+        self.assertEqual(on["govee-left"][:3], [0, 0, 0])
+        self.assertTrue(0 < on["govee-left"][3] < on["govee-left"][4] < 1)
+        self.assertEqual(on["govee-left"][5:], [1, 1])
         self.assertEqual(on["hue_center"], 0)
         self.assertEqual(on["strip"], 1)
         low = v5(sceneFalloff=True)
@@ -216,7 +217,8 @@ class ControllerTests(StoreCase):
             controller = self.make(configuration)
             controller.submit(command(transitiontime=0))
             with self.subTest(configuration=configuration):
-                self.assertEqual(controller.effective_target("left")["brightness"], brightness)
+                self.assertEqual(
+                    controller.effective_target("govee-left")["brightness"], brightness)
 
     def test_scene_scale_change_resends_only_brightness(self):
         data = v5()
@@ -232,35 +234,35 @@ class ControllerTests(StoreCase):
 
     def test_scene_fade_converts_colour_to_attenuated_segments_and_sync_does_not(self):
         self.save(v5(sceneFalloff=True))
-        gains = scene_fade(v5(sceneFalloff=True))["left"]
+        gains = scene_fade(v5(sceneFalloff=True))["govee-left"]
         scene = self.make("scene")
         scene.submit(command(transitiontime=0))
-        target = scene.effective_target("left")
+        target = scene.effective_target("govee-left")
         self.assertNotIn("rgb", target)
         self.assertEqual(len(target["segments"]), 7)
-        base = scene.target("left")["rgb"]
+        base = scene.target("govee-left")["rgb"]
         self.assertEqual(target["segments"][:3], [(0, 0, 0)] * 3)
         self.assertEqual(target["segments"][3], tuple(round(v * gains[3]) for v in base))
         self.assertEqual(target["segments"][6], base)
-        self.assertEqual(scene.jobs["left"]["to"].get("rgb"), base)
+        self.assertEqual(scene.jobs["govee-left"]["to"].get("rgb"), base)
         scene.render()
         self.assertEqual({name for name, _ in self.sent}, {"ptReal", "brightness"})
         sync = self.make("sync")
         sync.submit(command(transitiontime=0))
-        self.assertNotIn("segments", sync.effective_target("left"))
+        self.assertNotIn("segments", sync.effective_target("govee-left"))
 
     def test_scene_fade_attenuates_native_segments_and_kelvin_targets(self):
         self.save(v5(sceneFalloff=True))
         controller = self.make("scene")
         state = {"on": True, "bri": 254, "colormode": "ct", "ct": 250}
         controller.submit(command(state=state, transitiontime=0))
-        target = controller.effective_target("left")
+        target = controller.effective_target("govee-left")
         self.assertNotIn("kelvin", target)
         self.assertEqual(target["segments"][:3], [(0, 0, 0)] * 3)
         segments = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (10, 20, 30)] + [(200, 100, 50)] * 3
         controller.submit(command(sequence=2, transitiontime=0,
                                   state={"on": True, "bri": 254, "segments": segments}))
-        target = controller.effective_target("left")
+        target = controller.effective_target("govee-left")
         self.assertEqual(target["segments"][:3], [(0, 0, 0)] * 3)
         self.assertEqual(target["segments"][6], (200, 100, 50))
 
@@ -268,48 +270,48 @@ class ControllerTests(StoreCase):
         self.save(v5())
         controller = self.make("scene")
         controller.submit(command(transitiontime=0))
-        target = controller.effective_target("left")
+        target = controller.effective_target("govee-left")
         self.assertIn("rgb", target)
         self.assertNotIn("segments", target)
 
     def test_device_without_segments_is_dimmed_by_the_mean_gain(self):
         self.save(v5(sceneFalloff=True))
-        mean = sum(scene_fade(v5(sceneFalloff=True))["left"]) / 7
+        mean = sum(scene_fade(v5(sceneFalloff=True))["govee-left"]) / 7
         controller = self.make("scene", segmented=False)
         controller.submit(command(transitiontime=0))
-        target = controller.effective_target("left")
+        target = controller.effective_target("govee-left")
         self.assertIn("rgb", target)
         self.assertEqual(target["brightness"], max(1, round(65 * mean)))
         sync = self.make("sync", segmented=False)
         sync.submit(command(transitiontime=0))
-        self.assertEqual(sync.effective_target("left")["brightness"], 65)
+        self.assertEqual(sync.effective_target("govee-left")["brightness"], 65)
 
     def test_initial_native_brightness_is_not_scaled_twice(self):
         self.save(v5(sceneFalloff=True))
-        mean = sum(scene_fade(v5(sceneFalloff=True))["left"]) / 7
+        mean = sum(scene_fade(v5(sceneFalloff=True))["govee-left"]) / 7
         controller = self.make("scene", segmented=False)
         native = max(1, round(65 * mean))
         controller.update_statuses(
             {LEFT: ({"onOff": 1, "brightness": native, "color": {"r": 255, "g": 0, "b": 0}}, 0)})
         controller.submit(command(transitiontime=20))
-        self.assertEqual(controller.effective_target("left")["brightness"], native)
+        self.assertEqual(controller.effective_target("govee-left")["brightness"], native)
 
     def test_own_light_lamp_belongs_to_scene_output_but_not_to_sync(self):
         data = v5()
         row(data, "govee-left")["syncRole"] = "own"
         self.save(data)
         scene, sync = self.make("scene"), self.make("sync")
-        self.assertTrue(scene.included("left"))
-        self.assertFalse(sync.included("left"))
+        self.assertTrue(scene.included("govee-left"))
+        self.assertFalse(sync.included("govee-left"))
         scene.submit(command(transitiontime=0))
         sync.submit(command(transitiontime=0))
-        self.assertIn("left", scene.jobs)
-        self.assertNotIn("left", sync.jobs)
+        self.assertIn("govee-left", scene.jobs)
+        self.assertNotIn("govee-left", sync.jobs)
         data["devices"][0]["enabled"] = False
         self.save(data)
         scene.render()
-        self.assertFalse(scene.included("left"))
-        self.assertNotIn("left", scene.jobs)
+        self.assertFalse(scene.included("govee-left"))
+        self.assertNotIn("govee-left", scene.jobs)
 
 
 class HueProxyTests(StoreCase):
@@ -320,7 +322,7 @@ class HueProxyTests(StoreCase):
             client.native["id"] = client.resource_id
         proxy = HueStripProxy(client, role=role, clock=lambda: 10, wall_clock=lambda: 1000,
                               layout_store=self.store)
-        proxy.submit(hue_command(side=role, transitiontime=0, state={
+        proxy.submit(hue_command(light=role, transitiontime=0, state={
             "on": True, "bri": 254, "colormode": "xy", "xy": [.2, .3],
             "_changed": ["on", "bri", "xy"]}))
         return proxy, client

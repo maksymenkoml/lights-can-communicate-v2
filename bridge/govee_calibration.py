@@ -7,7 +7,7 @@ The owner sets a Govee lamp's calibration in Light Studio: the layout row's
 ``lowLight``. ``curve()`` turns them into channel gains and a brightness
 exponent (sent brightness is ``100 * (b / 100) ** exponent``). Everything above
 the transport keeps logical values: commands are converted on the way out and
-statuses on the way back. A calibration session may override a side's values.
+statuses on the way back. A calibration session may override a light's values.
 """
 
 import base64
@@ -132,32 +132,32 @@ class GoveeCalibration:
     def __init__(self, targets, layout_store=None):
         self.lock = threading.Lock()
         self.layout_store = layout_store
-        self.sides, self.lamps, self.overrides = {}, {}, {}
+        self.lights, self.lamps, self.overrides = {}, {}, {}
         for item in targets:
             if "color_gains" in item or "brightness_exponent" in item:
                 raise ValueError("Govee calibration belongs in the Light Studio layout, "
                                  "not in the target profile")
             key = lan.device_key(item)
-            self.sides[key] = item.get("side")
+            self.lights[key] = item.get("light")
             self.lamps[key] = _Lamp()
 
-    def override(self, side, values):
-        """Use ``values`` for ``side`` instead of the layout (None ends it)."""
+    def override(self, light, values):
+        """Use ``values`` for ``light`` instead of the layout (None ends it)."""
         with self.lock:
             if values is None:
-                self.overrides.pop(side, None)
+                self.overrides.pop(light, None)
             else:
-                self.overrides[side] = dict(values)
+                self.overrides[light] = dict(values)
 
     def _current(self, key):
         """The lamp with its present gains and exponent, or None if neutral."""
         lamp = self.lamps.get(key)
         if lamp is None:
             return None
-        side = self.sides[key]
-        values = self.overrides.get(side)
+        light = self.lights[key]
+        values = self.overrides.get(light)
         if values is None and self.layout_store is not None:
-            values = self.layout_store.calibration(side)
+            values = self.layout_store.calibration(light)
         lamp.gains, lamp.exponent = curve(values or {})
         if lamp.gains is None and lamp.exponent is None and lamp.brightness is None:
             return None

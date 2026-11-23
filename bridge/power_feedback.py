@@ -1,4 +1,4 @@
-"""Project fresh NAS power intent into the two selected virtual Hue lights."""
+"""Project fresh NAS power intent into the selected virtual Hue lights."""
 
 import json
 import math
@@ -8,7 +8,8 @@ import urllib.request
 
 
 class PowerFeedback:
-    SLOTS = {"1": "left", "2": "right"}
+    # The Govee lights behind the virtual slots; other Govee lights follow with stage 4.
+    SLOTS = {"1": "govee-left", "2": "govee-right"}
     # Native Hue lights mirror the genuine bridge as the adapter last read it.
     NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
     NATIVE_FRESH = 5.0
@@ -110,12 +111,16 @@ class PowerFeedback:
             authority = payload.get("power_owner") if isinstance(payload, dict) else None
             if not isinstance(authority, dict) or authority.get("enforced") is not True:
                 raise ValueError("Power authority unavailable")
-            roles = authority.get("roles")
-            if not isinstance(roles, dict) or set(roles) != {"left", "right"}:
-                raise ValueError("Invalid power roles")
+            lights = authority.get("lights")
+            # A slot follows its light only when the registry enrolls it; each
+            # enrolled slot is validated and updated on its own.
+            enrolled = ({slot: light for slot, light in self.SLOTS.items() if light in lights}
+                        if isinstance(lights, dict) else {})
+            if not enrolled:
+                raise ValueError("Invalid power lights")
             updates = {}
-            for slot, side in self.SLOTS.items():
-                value = roles[side]
+            for slot, light in enrolled.items():
+                value = lights[light]
                 if not isinstance(value, dict):
                     raise ValueError("Invalid role state")
                 enabled, revision, remaining = (
@@ -154,7 +159,7 @@ class PowerFeedback:
                 if fallback and missing:
                     self.restore_known({slot: value for slot, value in fallback.items()
                                         if slot in missing})
-                unavailable = set(self.SLOTS) - updates.keys()
+                unavailable = set(enrolled) - updates.keys()
                 self.last_error = "PowerAuthorityUnavailable" if unavailable else None
             return not unavailable
         except (OSError, ValueError, TypeError, KeyError) as error:

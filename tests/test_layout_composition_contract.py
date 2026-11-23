@@ -79,7 +79,7 @@ class LayoutCompositionTests(unittest.TestCase):
             profile = store.sync_profile()
             self.assertFalse(store.enabled('hue_center'))
             self.assertFalse(store.enabled('play-center'))
-            self.assertFalse(store.enabled('left'))
+            self.assertFalse(store.enabled('govee-left'))
             self.assertTrue(store.enabled('hue_left'))
             self.assertEqual(profile['enabled_roles'], ['right', 'strip', 'hue_left', 'hue_right'])
             self.assertEqual(profile['native_roles'], ['strip', 'hue_left', 'hue_right'])

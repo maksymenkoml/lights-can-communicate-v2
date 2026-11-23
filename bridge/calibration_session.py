@@ -19,7 +19,7 @@ import math
 import threading
 import time
 
-from desk_layout import CALIBRATION_ROWS, ROLES, calibration_values
+from desk_layout import HUE_ROLES, calibration_values
 from govee_segments import razer_mode
 
 import lights_can_communicate_v2 as lan
@@ -34,7 +34,6 @@ VIEWS = ("sync", "scene")
 DARK_HUE_DIMMING = 0.1
 # A lit test level never drops to what reads as off.
 LIT_HUE_DIMMING = 0.5
-GOVEE_SIDES = ("left", "right")
 
 
 class CalibrationRefused(RuntimeError):
@@ -71,14 +70,14 @@ class CalibrationSession:
     # -- fences -------------------------------------------------------------
     def wrap(self, sender):
         """Reject controller writes to the Govee lamps while a session runs."""
-        sides = {lan.device_key(device): side
-                 for side, device in self.controller.by_side.items()}
+        lights = {lan.device_key(device): light
+                  for light, device in self.controller.by_light.items()}
         if self.sender is None:
             self.sender = sender
 
         def send(device, command, data):
             with self.lock:
-                if self.active is not None and sides.get(lan.device_key(device)):
+                if self.active is not None and lights.get(lan.device_key(device)):
                     return False
             return sender(device, command, data)
 
@@ -92,9 +91,9 @@ class CalibrationSession:
     def _sync_active(self):
         return self.video is not None and self.video.active()
 
-    def _govee_on(self, side):
+    def _govee_on(self, light):
         controller = self.controller
-        device = controller.by_side.get(side)
+        device = controller.by_light.get(light)
         if device is None:
             return False
         with controller.lock:
@@ -112,7 +111,8 @@ class CalibrationSession:
                 and math.isfinite(age) and 0 <= age <= NATIVE_SECONDS)
 
     def _on(self, role):
-        return self._govee_on(role) if role in GOVEE_SIDES else self._native_on(role)
+        return (self._govee_on(role) if role in self.controller.by_light
+                else self._native_on(role))
 
     def _saved_correction(self, role, view):
         """The reference's saved correction (0-100) for ``view``."""
@@ -121,18 +121,23 @@ class CalibrationSession:
         return 100 * reader(role, 1.0) if reader is not None else 100
 
     # -- requests -----------------------------------------------------------
+    def _role(self, lamp):
+        """The session key of a layout row: a Govee light id or the role of a Hue row."""
+        return lamp if lamp in self.controller.by_light else HUE_ROLES.get(lamp)
+
     def update(self, payload):
         """Start or renew the session; apply the outputs when anything changed."""
         if (not isinstance(payload, dict) or not isinstance(payload.get("lamp"), str)
-                or payload["lamp"] not in ROLES):
+                or self._role(payload["lamp"]) is None):
             raise ValueError("Invalid calibration request")
         lamp = payload["lamp"]
-        govee = lamp in CALIBRATION_ROWS
+        govee = lamp in self.controller.by_light
         keys = {"lamp", "reference", "level", "view", "correction"}
         if set(payload) != (keys | {"calibration"} if govee else keys):
             raise ValueError("Invalid calibration request")
         reference, level, view = payload["reference"], payload["level"], payload["view"]
-        if not isinstance(reference, str) or reference not in ROLES or reference == lamp:
+        if (not isinstance(reference, str) or self._role(reference) is None
+                or reference == lamp):
             raise ValueError("Invalid reference lamp")
         if level not in LEVELS or view not in VIEWS:
             raise ValueError("Invalid test level")
@@ -140,7 +145,7 @@ class CalibrationSession:
         if type(correction) is not int or not 0 <= correction <= 100:
             raise ValueError("Invalid correction")
         values = calibration_values(payload["calibration"]) if govee else None
-        wanted = {"role": ROLES[lamp], "reference": ROLES[reference], "level": level,
+        wanted = {"role": self._role(lamp), "reference": self._role(reference), "level": level,
                   "view": view, "correction": correction, "values": values}
         with self.lock:
             if self.active is not None and self.active["role"] != wanted["role"]:
@@ -202,8 +207,8 @@ class CalibrationSession:
                     "last_end": self.last_end}
 
     # -- outputs ------------------------------------------------------------
-    def _send(self, side, command, data):
-        device = self.controller.by_side[side]
+    def _send(self, light, command, data):
+        device = self.controller.by_light[light]
         try:
             return self.sender(device, command, data) is True
         except OSError:
@@ -219,17 +224,17 @@ class CalibrationSession:
 
     def _apply(self, starting):
         lit = self._levels()
-        for side in GOVEE_SIDES:
-            if side not in self.controller.by_side or not self._govee_on(side):
+        for light in self.controller.by_light:
+            if not self._govee_on(light):
                 continue
             if starting:
                 # DreamView ignores other colour commands; leave it first.
-                self._send(side, "razer", razer_mode(False))
-            rgb = TEST_COLOR if side in lit else (0, 0, 0)
-            self._send(side, "colorwc", {"color": dict(zip("rgb", rgb)),
-                                         "colorTemInKelvin": 0})
-            self._send(side, "brightness",
-                       {"value": max(1, round(lit[side])) if side in lit else 1})
+                self._send(light, "razer", razer_mode(False))
+            rgb = TEST_COLOR if light in lit else (0, 0, 0)
+            self._send(light, "colorwc", {"color": dict(zip("rgb", rgb)),
+                                          "colorTemInKelvin": 0})
+            self._send(light, "brightness",
+                       {"value": max(1, round(lit[light])) if light in lit else 1})
         for role, proxy in self.hue_proxies.items():
             if not self._native_on(role):
                 continue
@@ -250,9 +255,9 @@ class CalibrationSession:
         if active["values"] is not None:
             self.calibration.override(active["role"], None)
         with self.controller.lock:
-            for side in GOVEE_SIDES:
+            for light in self.controller.by_light:
                 # The next render resends each lamp's own scene.
-                self.controller.last_sent.pop(side, None)
+                self.controller.last_sent.pop(light, None)
         for proxy in self.hue_proxies.values():
             proxy.restore_scene()
         return True

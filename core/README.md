@@ -209,12 +209,56 @@ The core owns `state_dir/lights.json`, the registry of the enrolled lights: for
 each light its ID, provider, virtual bridge slot and identity seed, its Govee
 target fields, or its Hue light UUID with the native Entertainment channels, plus
 the Hue area UUID. The adapter reads only this file (`--registry`). The registry
-is strict: unknown fields, duplicate keys, invalid UUIDs and a light set other
-than the six current lights (`govee-left`, `govee-right`, `hue-monitor`,
-`play-left`, `play-center`, `play-right`, or the two Govee lights alone) are
-rejected. The file holds no credentials and is written atomically with
-owner-only permissions. The adapter also writes it when it follows a lamp to a
-new Govee address.
+is strict: unknown fields, duplicate keys, invalid UUIDs and a Hue light set
+other than the four current native lights (`hue-monitor`, `play-left`,
+`play-center`, `play-right`, all or none) are rejected. Govee lights are any
+number of entries whose ID is `govee-left`, `govee-right` (the migrated lamps)
+or `device-` followed by 32 lower-case hexadecimal digits (the discovery ID); a
+registry needs at least one light. The file holds no credentials and is written
+atomically with owner-only permissions. The adapter also writes it when it
+follows a lamp to a new Govee address. Only an entry in the registry makes a
+Govee light an output; discovery never does.
+
+### Govee lights and model tiers
+
+The adapter addresses every Govee light by its registry ID: `/command`,
+`/identify`, the power gates, HomeKit state, Sync-off records and `/status`
+targets (`light`) all use it. A `/command` for an ID that is not in the registry
+is refused with 400 and sends nothing. The fields of a Govee entry are the old
+target fields (`device`, `ip`, `brightness_scale`, `sku` or `model`, rate
+limits, `segment_count`) and the optional `tier`.
+
+`bridge/govee_models.py` is the capability table with the tested values of each
+model: tier, segment count, DreamView frame rate, gradient packet limit,
+DreamView idle and loss timing and the zone geometry. Today it holds the
+H6076. Tiers:
+
+- **segmented**: a model in the table. With a Sync profile (or the gradient
+  mode) the adapter enables its segments and the bounded gradient packet rate,
+  and Sync streams DreamView frames with the table's timing.
+- **basic**: any other model, or any light with `"tier": "basic"` in its
+  registry entry (the only value an owner can force; it wins over the table and
+  over a stored `segment_count`). A basic light has one color for the whole lamp
+  through `colorwc` plus brightness and power. It never gets segment, gradient
+  or DreamView packets. Sync gives it the projected color of the center of its
+  visible zones. A model that is not in the table keeps a `segment_count` that
+  its entry declares itself, but nothing enables segments for it automatically.
+
+The basic tier has no default command rate: it uses `max_commands_per_second`
+of its entry when present, else the adapter's 20 Hz render tick with change
+detection. The migrated lamps behave as before.
+
+The two legacy wire formats keep their side names for now. `/power-owner` (the
+Homebridge overlay) and `GET`/`POST /homekit` (the Homebridge plugin) name the
+two migrated lamps `left` and `right`; the adapter translates at that HTTP
+boundary (`bridge/legacy_wire.py`) and shows no other light there. Everything
+inside, including `/power-request` (`states` by light ID, unknown IDs refused
+with 400), the `/status` power snapshot (`power_owner.lights`) and
+`state_dir/homekit-power.json`, uses light IDs. The HomeKit file is
+`{"version": 2, "lights": {id: {...}}}`; a version-one file (`roles` by side)
+is converted once on the first start and rewritten, and its old keys are not
+read afterwards. The `/homekit` contract moves to light IDs together with the
+plugin.
 
 The first start without `lights.json` migrates once, in memory, from
 `adapter.targets_file` and the native profile (`adapter.native_profile_file`),
@@ -595,9 +639,12 @@ switches it off; at the end it switches the recorded lamps on again.
 - Native Hue: the confirmed `{"on": {"on": …}}` write of `/native-power`. The
   role is outside the composition, so the Sync safety fence does not require it
   to be on.
-- Crash safety: the roles switched off are written to
+- Crash safety: the roles switched off (Govee light IDs and the native Hue role
+  names) are written to
   `<state-dir>/sync-off-session.json` (`{"version": 1, "roles": [...]}`, atomic,
-  0600) before any command. On start, while no Sync runs, the adapter restores
+  0600) before any command. A file from before the light IDs lists `left` and
+  `right`; it is converted once on load and rewritten, and the old names are not
+  read afterwards. On start, while no Sync runs, the adapter restores
   them (a Govee lamp after its first fresh native reading, up to 15 s) and deletes
   the file. A clean shutdown restores immediately. A failed restore stays in the
   file and is retried every second.
@@ -608,8 +655,9 @@ switches it off; at the end it switches the recorded lamps on again.
 
 ### Blink
 
-`POST /identify` with `{"role": "left" | "right" | "strip" | "hue_left" |
-"hue_center" | "hue_right"}` and the `X-Adapter-Token` header blinks one lamp.
+`POST /identify` with `{"role": <Govee light ID> | "strip" | "hue_left" |
+"hue_center" | "hue_right"}` (Light Studio sends `govee-left` or `govee-right`
+for the two Govee rows) and the `X-Adapter-Token` header blinks one lamp.
 It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
 "reason"}` when refused, 503 when a command was not delivered and 400 on bad
 input. While Sync drives a lamp it refuses when that lamp's stream has stalled
@@ -640,13 +688,14 @@ Setup Studio forwards `POST /api/identify {"lamp"}` here.
 
 A role row of the layout may carry `name` (see `studio/README.md`;
 1-35 characters, 1-32 for `hue-monitor` and `play-*`, stripped, no control
-characters). `LayoutStore.names()` returns `{role: name}` for the rows that have
-one. A missing name means "no owner name": nothing is renamed anywhere, and
+characters). `LayoutStore.names()` returns `{key: name}` for the rows that have
+one; the key is the Govee light ID or the role of a Hue lamp. A missing name means "no owner name": nothing is renamed anywhere, and
 removing a name later does not undo earlier renames. A name is applied where
 the layout name changes, and once at start:
 
 - Virtual Hue bridge (`bootstrap.py`, `hue_names.OwnerNames`): the virtual light
-  of the role (slots 1-6, `hue_names.SLOT_ROLES`) takes the name, which diyHue
+  of the role (slots 1-6, `hue_names.SLOT_ROLES`: `govee-left`, `govee-right`, then the Hue
+  roles) takes the name, which diyHue
   serves as both v1 `name` and v2 `metadata.name`; the bridge configuration is
   saved and an `update` event with the light's `id`, `id_v1`, `type` and
   `metadata` goes to the Hue app through the normal diyHue event queue (and the

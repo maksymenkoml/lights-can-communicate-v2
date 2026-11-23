@@ -31,21 +31,22 @@ def status(**video):
     data = {
         "service": {"name": "lights-can-communicate-v2-adapter", "version": "0.1.0.dev9"},
         "targets": [
-            {"side": side, "device": "PRIVATE_DEVICE-" + side, "target": "192.168.10.5" + side[0],
+            {"light": "govee-" + side, "device": "PRIVATE_DEVICE-" + side,
+             "target": "192.168.10.5" + side[0],
              "segment_count": 7, "status_age": 0.2,
              "native": {"identity_verified": True, "onOff": 1, "brightness": 40}}
             for side in ("left", "right")
         ],
         "commands_sent": 12,
-        "rejected_sends": {"right": 1},
+        "rejected_sends": {"govee-right": 1},
         "skipped_state": {},
         "hue_strip": {"resource_id": "PRIVATE_RESOURCE-strip", "healthy": True, "native_on": True,
                       "native_mode": "normal", "native_age": 0.3, "last_result": "applied"},
         "hue_play": hue,
-        "power_owner": {"enforced": True, "roles": {
-            "left": {"requested_on": True, "color_allowed": True, "revision": 2,
+        "power_owner": {"enforced": True, "lights": {
+            "govee-left": {"requested_on": True, "color_allowed": True, "revision": 2,
                      "grant_remaining": 1.5},
-            "right": {"requested_on": True, "color_allowed": True, "revision": 4,
+            "govee-right": {"requested_on": True, "color_allowed": True, "revision": 4,
                       "grant_remaining": 1.5}}},
         "video": {
             "active": True, "frames_received": 1000, "frame_age": 0.05, "max_frame_gap": 0.2,
@@ -96,11 +97,11 @@ class DeriveTests(unittest.TestCase):
 
     def test_power_owner_off_and_fence_are_blockers(self):
         data = status()
-        data["power_owner"]["roles"]["right"].update(requested_on=False, color_allowed=False)
-        data["power_owner"]["roles"]["left"]["color_allowed"] = False
+        data["power_owner"]["lights"]["govee-right"].update(requested_on=False, color_allowed=False)
+        data["power_owner"]["lights"]["govee-left"]["color_allowed"] = False
         self.assertEqual(sync_health.derive(data)["blockers"], [
-            {"role": "left", "code": "color_fenced"},
-            {"role": "right", "code": "owner_off"},
+            {"role": "govee-left", "code": "color_fenced"},
+            {"role": "govee-right", "code": "owner_off"},
         ])
 
     def test_native_off_requires_a_fresh_verified_reading(self):
@@ -108,19 +109,19 @@ class DeriveTests(unittest.TestCase):
         data["targets"][1]["native"]["onOff"] = 0
         data["hue_play"]["hue_center"]["native_on"] = False
         blockers = sync_health.derive(data)["blockers"]
-        self.assertIn({"role": "right", "code": "native_off"}, blockers)
+        self.assertIn({"role": "govee-right", "code": "native_off"}, blockers)
         self.assertIn({"role": "hue_center", "code": "native_off"}, blockers)
         stale = status()
         stale["targets"][1]["native"]["onOff"] = 0
         stale["targets"][1]["status_age"] = 3
         stale["hue_play"]["hue_center"].update(native_on=False, native_age=5)
         blockers = sync_health.derive(stale)["blockers"]
-        self.assertIn({"role": "right", "code": "native_stale"}, blockers)
+        self.assertIn({"role": "govee-right", "code": "native_stale"}, blockers)
         self.assertIn({"role": "hue_center", "code": "native_stale"}, blockers)
-        self.assertNotIn({"role": "right", "code": "native_off"}, blockers)
+        self.assertNotIn({"role": "govee-right", "code": "native_off"}, blockers)
         unverified = status()
         unverified["targets"][0]["native"]["identity_verified"] = False
-        self.assertIn({"role": "left", "code": "native_stale"},
+        self.assertIn({"role": "govee-left", "code": "native_stale"},
                       sync_health.derive(unverified)["blockers"])
 
     def test_short_govee_status_miss_keeps_the_last_verified_reading(self):
@@ -135,25 +136,25 @@ class DeriveTests(unittest.TestCase):
 
         # Under DreamView a lamp misses a few replies in a row now and then.
         self.assertEqual(missed(1.6), [])
-        self.assertEqual(missed(1.6, on=0), [{"role": "right", "code": "native_off"}])
+        self.assertEqual(missed(1.6, on=0), [{"role": "govee-right", "code": "native_off"}])
         # A lasting loss is reported.
-        self.assertEqual(missed(2.01), [{"role": "right", "code": "native_stale"}])
+        self.assertEqual(missed(2.01), [{"role": "govee-right", "code": "native_stale"}])
         for age in (None, -1, float("nan"), True, "1"):
-            self.assertEqual(missed(age), [{"role": "right", "code": "native_stale"}])
+            self.assertEqual(missed(age), [{"role": "govee-right", "code": "native_stale"}])
         # Only a verified reading is held.
         data = status()
         data["targets"][1].update(
             status_age=0.9, verified_native={"identity_verified": False, "onOff": 1},
             verified_age=0.9)
         self.assertEqual(sync_health.derive(data)["blockers"],
-                         [{"role": "right", "code": "native_stale"}])
+                         [{"role": "govee-right", "code": "native_stale"}])
         # A fresh verified reading wins over an older held one.
         data = status()
         data["targets"][1].update(
             native={"identity_verified": True, "onOff": 0},
             verified_native={"identity_verified": True, "onOff": 1}, verified_age=0.1)
         self.assertEqual(sync_health.derive(data)["blockers"],
-                         [{"role": "right", "code": "native_off"}])
+                         [{"role": "govee-right", "code": "native_off"}])
 
     def test_foreign_native_stream_only_when_not_owned(self):
         data = status(native_owned=False)
@@ -166,8 +167,9 @@ class DeriveTests(unittest.TestCase):
 
     def test_only_selected_roles_are_reported(self):
         data = status()
-        data["composition"] = {"enabled_roles": ["left", "hue_left"], "signature": "x"}
-        data["power_owner"]["roles"]["right"]["requested_on"] = False
+        data["composition"] = {"enabled_roles": ["left", "hue_left"], "signature": "x",
+                               "lights": ["govee-left", "hue-monitor"]}
+        data["power_owner"]["lights"]["govee-right"]["requested_on"] = False
         data["hue_play"]["hue_right"]["native_on"] = False
         self.assertEqual(sync_health.derive(data)["blockers"], [])
 
@@ -206,19 +208,20 @@ class ExportTests(unittest.TestCase):
         self.assertEqual([e["reason"] for e in result["video"]["events"]],
                          ["starting", "frames_received"])
         self.assertEqual(result["video"]["last_safety_failure"]["native"][0]["native_on"], False)
-        self.assertEqual(result["power_owner"]["right"]["revision"], 4)
-        self.assertEqual(result["govee"]["right"], {
+        self.assertEqual(result["power_owner"]["govee-right"]["revision"], 4)
+        self.assertEqual(result["govee"]["govee-right"], {
             "on": True, "brightness": 40, "identity_verified": True, "status_age": 0.2,
             "segment_count": 7})
         self.assertEqual(result["native"]["strip"]["native_mode"], "normal")
-        self.assertEqual(result["forwarding"], {"commands_sent": 12, "rejected_sends": {"right": 1},
+        self.assertEqual(result["forwarding"], {"commands_sent": 12,
+                                                "rejected_sends": {"govee-right": 1},
                                                 "skipped_state": {}})
 
     def test_export_is_bounded_and_drops_malformed_values(self):
         data = status(diagnostics={"events": [event("streaming", "frames_received")] * 500},
                       transitions={"x" * 500: 1, "frames_received": "many"})
         data["hue_play"] = {"PRIVATE_RESOURCE": {"healthy": True}}
-        data["targets"].append({"side": "PRIVATE_DEVICE", "native": {}})
+        data["targets"].append({"light": "PRIVATE_DEVICE", "native": {}})
         result = sync_health.export(data)
         self.assertLessEqual(len(result["video"]["events"]), 64)
         self.assertEqual(result["video"]["transitions"], {})
@@ -232,7 +235,7 @@ class ExportTests(unittest.TestCase):
 
     def test_export_includes_sanitized_power_changes(self):
         data = status()
-        change = {"timestamp": "2026-11-18T20:00:00Z", "role": "right", "cause": "sync_hold",
+        change = {"timestamp": "2026-11-18T20:00:00Z", "role": "govee-right", "cause": "sync_hold",
                   "requested_on": True, "color_allowed": False, "sync_hold": True}
         data["power_owner"]["events"] = [
             change,
@@ -282,9 +285,9 @@ class AdapterEndpointTests(unittest.TestCase):
             self.assertEqual(code, 200)
             result = json.loads(body)
             self.assertEqual(result["version"], 1)
-            self.assertEqual(result["govee"]["left"]["on"], False)
-            self.assertIn({"role": "left", "code": "native_off"}, result["sync"]["blockers"])
-            self.assertIn({"role": "left", "code": "owner_off"}, result["sync"]["blockers"])
+            self.assertEqual(result["govee"]["govee-left"]["on"], False)
+            self.assertIn({"role": "govee-left", "code": "native_off"}, result["sync"]["blockers"])
+            self.assertIn({"role": "govee-left", "code": "owner_off"}, result["sync"]["blockers"])
             for target in targets():
                 self.assertNotIn(target["device"], body)
                 self.assertNotIn(target["ip"], body)

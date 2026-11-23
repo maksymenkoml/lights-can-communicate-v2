@@ -495,13 +495,13 @@ test('Sync states map to short labels and unknown reasons stay readable',async()
 });
 
 test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>{
- const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
  assert.equal(app.$('#sync-status span').textContent,'Govee Left off in HomeKit');
  const badge=app.lamp('govee-left').querySelector('[data-badge]');
  assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Off in HomeKit');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
  await app.click(app.$('#sync-status'));assert.equal(app.run('selected'),'govee-left');
- const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'hue_left',code:'native_stale'},{role:'strip',code:'color_fenced'},{role:'nobody',code:'x'},{role:'right',code:'future_code'}]}})});
+ const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'hue_left',code:'native_stale'},{role:'strip',code:'color_fenced'},{role:'nobody',code:'x'},{role:'govee-right',code:'future_code'}]}})});
  assert.equal(many.$('#sync-status span').textContent,'3 lamps not lit');
  assert.equal(many.lamp('govee-right').querySelector('[data-badge]').dataset.tooltip,'Not ready');
 });
@@ -1151,7 +1151,7 @@ test('the corner follows the box and stops asking while the page is hidden',asyn
 
 test('a lamp problem during Sync is the status, and clicking it shows the lamp',async()=>{
  const box=fakeBox({...BOX,syncing:true});
- const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
  assert.equal(status(app)+' | '+action(app),'Govee Left off in HomeKit | Stop Sync');
  await app.click(app.$('#sync-status'));
  assert.equal(app.run('selected'),'govee-left');

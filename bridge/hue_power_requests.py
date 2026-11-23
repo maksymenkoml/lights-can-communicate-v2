@@ -12,7 +12,7 @@ class HuePowerUnavailable(RuntimeError):
 
 
 class HuePowerRequests:
-    SLOTS = {"1": "left", "2": "right"}
+    SLOTS = {"1": "govee-left", "2": "govee-right"}
     # Pinned native Hue lights; their power belongs to the genuine Hue bridge.
     # The bridge passes the same slot map it uses for color, so every native
     # light enrolled for output also gets power; this is the default layout.

@@ -23,6 +23,7 @@ from sync_projection import (  # noqa: E402
 )
 from sync_zone import zone_points  # noqa: E402
 
+SIDES = {"govee-left": "left", "govee-right": "right"}
 FIXTURE = ROOT / "tests" / "golden" / "projection-v6.json"
 ROLE_ROWS = (
     # id, x (layout cm), height of the anchor, Sync scale, orientation
@@ -202,7 +203,9 @@ def compute(case):
         "native": {key: project_native_frame(frame, profile) for key, frame in capture.items()},
         "govee": {key: {side: project_govee_frame(frame, side, profile)
                         for side in ("left", "right")} for key, frame in capture.items()},
-        "scene_fade": scene_fade(layout),
+        # The pinned fixture keys the two floor lamps by side, as scene_fade did before
+        # it took light ids; only the keys differ.
+        "scene_fade": {SIDES.get(key, key): gains for key, gains in scene_fade(layout).items()},
         "positions": {"gradient": positions(layout, True),
                       "plain": positions(layout, False)},
         "zone": {"syncZone": zone_points(layout), "sceneZone": zone_points(layout, "sceneZone")},

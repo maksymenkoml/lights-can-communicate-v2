@@ -153,21 +153,21 @@ class BridgeOutput:
         self.inflight = {}
         self.forwarded = 0
         self.last_error = None
-        self.slots = {"1": "left", "2": "right"}
+        self.slots = {"1": "govee-left", "2": "govee-right"}
         if include_strip:
             self.slots["3"] = "strip"
         if include_hue_play:
             self.slots.update({"4": "hue_left", "5": "hue_center", "6": "hue_right"})
-        self.hue_roles = set(self.slots.values()) - {"left", "right"}
+        self.hue_roles = set(self.slots.values()) - {"govee-left", "govee-right"}
 
     def submit(self, light_id, state, transitiontime):
-        side = self.slots.get(str(light_id))
-        if side is None:
+        light = self.slots.get(str(light_id))
+        if light is None:
             return False
         with self.condition:
             state = copy.deepcopy(state)
-            if side in self.hue_roles and state.get("on") is True:
-                previous = self.pending.get(side) or self.inflight.get(side)
+            if light in self.hue_roles and state.get("on") is True:
+                previous = self.pending.get(light) or self.inflight.get(light)
                 changed = strip_changes(state)
                 if previous and previous["state"].get("on") is True:
                     old = strip_changes(previous["state"])
@@ -175,18 +175,18 @@ class BridgeOutput:
                         old -= STRIP_COLOR_FIELDS
                     changed |= old
                 state["_changed"] = sorted(changed)
-            sequence = self.sequences.get(side, 0) + 1
-            self.sequences[side] = sequence
+            sequence = self.sequences.get(light, 0) + 1
+            self.sequences[light] = sequence
             payload = {
-                "side": side,
+                "light": light,
                 "session": self.session,
                 "sequence": sequence,
                 "issued_at": self.clock(),
                 "transitiontime": transitiontime,
                 "state": copy.deepcopy(state),
             }
-            self.pending[side] = payload
-            self.latest[side] = {
+            self.pending[light] = payload
+            self.latest[light] = {
                 "sequence": sequence,
                 "transitiontime": transitiontime,
                 "issued_at": payload["issued_at"],
@@ -209,25 +209,25 @@ class BridgeOutput:
         with self.condition:
             if not self.pending:
                 return False
-            side = next(iter(self.pending))
-            payload = self.pending.pop(side)
-            self.inflight[side] = payload
+            light = next(iter(self.pending))
+            payload = self.pending.pop(light)
+            self.inflight[light] = payload
         if self.clock() - payload["issued_at"] > 5:
             self.last_error = "expired command"
             with self.condition:
-                self.inflight.pop(side, None)
+                self.inflight.pop(light, None)
             return False
         try:
             self.sender(payload)
         except (OSError, ValueError) as error:
             with self.condition:
-                if side not in self.pending:
-                    self.pending[side] = payload
-                self.inflight.pop(side, None)
+                if light not in self.pending:
+                    self.pending[light] = payload
+                self.inflight.pop(light, None)
                 self.last_error = type(error).__name__
             return False
         with self.condition:
-            self.inflight.pop(side, None)
+            self.inflight.pop(light, None)
             self.forwarded += 1
             self.last_error = None
         return True

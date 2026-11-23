@@ -59,13 +59,13 @@ class VideoTests(unittest.TestCase):
         self.assertEqual(sent, [])
         self.assertEqual(len(self.relay.frames), 1)
         gate.submit({'session': 'home', 'sequence': 1, 'issued_at': 1000,
-                     'states': {'left': True, 'right': True}})
+                     'states': {"govee-left": True, "govee-right": True}})
         self.lease.submit(envelope(sequence=2))
         self.output.process_once()
         self.output.render()
         self.assertEqual({device for device, _ in sent}, {LEFT, RIGHT})
         gate.submit({'session': 'home', 'sequence': 2, 'issued_at': 1000,
-                     'states': {'right': False}})
+                     'states': {"govee-right": False}})
         sent.clear()
         self.lease.submit(envelope(sequence=3, colors=[[i, 0, 0, 0] for i in range(14)]))
         self.output.process_once()
@@ -97,7 +97,7 @@ class VideoTests(unittest.TestCase):
             self.assertTrue(self.output.submit(message))
             self.assertTrue(self.output.process_once())
             self.output.render()
-        left, right = self.controller.target("left"), self.controller.target("right")
+        left, right = self.controller.target("govee-left"), self.controller.target("govee-right")
         self.assertEqual(left["segments"][0], (255, 0, 0))
         self.assertEqual(left["segments"][3], (0, 255, 0))
         self.assertEqual(left["segments"][6], (0, 0, 255))
@@ -123,7 +123,7 @@ class VideoTests(unittest.TestCase):
         self.controller.render()
         self.assertEqual([razer_colors(data) for cmd, data in self.sent if cmd == "razer"],
                          [None, None])
-        self.assertEqual(self.controller.snapshot()["dreamview_sides"], [])
+        self.assertEqual(self.controller.snapshot()["dreamview_lights"], [])
 
     def test_a_new_frame_wakes_the_output_worker(self):
         lease = VideoLease(clock=lambda: self.now, wall_clock=lambda: 1000)

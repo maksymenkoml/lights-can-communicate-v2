@@ -14,9 +14,13 @@ REGISTRY_FILE = "lights.json"
 LEGACY_SIDES = {"govee-left": "left", "govee-right": "right"}
 _MAX_REGISTRY_BYTES = 64 * 1024
 _ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
+# A Govee light is one of the two migrated lamps or a discovered device.
+GOVEE_ID = re.compile(r"(?:govee-left|govee-right|device-[0-9a-f]{32})\Z")
+# The only tier an owner can force; every model in the capability table is segmented.
+_GOVEE_TIERS = ("basic",)
 _ID_V1 = re.compile(r"[1-9][0-9]{0,3}\Z")
 _SEED = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-# Stage 1 supports the six lights of the current installation and nothing else.
+# Hue lights stay the four migrated ones until the list-based native profile (stage 5).
 _HUE_ROLES = {
     "hue-monitor": "strip",
     "play-left": "hue_left",
@@ -86,6 +90,8 @@ def _govee(value):
     for key in ("ip", "device"):
         if type(value.get(key)) is not str or not value[key]:
             raise _invalid()
+    if "tier" in value and value["tier"] not in _GOVEE_TIERS:
+        raise _invalid()
     return value
 
 
@@ -111,7 +117,7 @@ def _light(value):
     if provider not in ("govee", "hue"):
         raise _invalid()
     value = _object(value, ("id", "provider", "virtual", provider))
-    _text(value["id"], _ID)
+    _text(value["id"], GOVEE_ID if provider == "govee" else _ID)
     virtual = _object(value["virtual"], ("id_v1", "seed"))
     _text(virtual["id_v1"], _ID_V1)
     _text(virtual["seed"], _SEED)
@@ -124,7 +130,7 @@ def _validated(data):
     if type(data) is not dict:
         raise _invalid()
     lights = data.get("lights")
-    if type(lights) is not list:
+    if type(lights) is not list or not lights:
         raise _invalid()
     has_hue = any(type(item) is dict and item.get("provider") == "hue" for item in lights)
     root = _object(data, ("version", "lights", *(("hue",) if has_hue else ())))
@@ -139,9 +145,8 @@ def _validated(data):
             or len({item["virtual"]["id_v1"] for item in lights}) != len(ids)
             or len({item["virtual"]["seed"] for item in lights}) != len(ids)):
         raise RegistryError("Light registry lights must be distinct.")
-    govee = {item["id"] for item in lights if item["provider"] == "govee"}
     hue = {item["id"] for item in lights if item["provider"] == "hue"}
-    if govee != set(LEGACY_SIDES) or hue not in (set(), set(_HUE_ROLES)):
+    if hue not in (set(), set(_HUE_ROLES)):
         raise RegistryError("Light registry light set is unsupported.")
     try:
         return json.loads(json.dumps(root, allow_nan=False))
@@ -220,27 +225,26 @@ class LightRegistry:
         return tuple(item["id"] for item in self.to_dict()["lights"])
 
     def govee_targets(self):
-        """Return fresh adapter target dictionaries, each with its legacy side."""
+        """Return fresh adapter target dictionaries, each with its light id."""
         return [
-            {"side": LEGACY_SIDES[item["id"]], **item["govee"]}
+            {"light": item["id"], **item["govee"]}
             for item in self.to_dict()["lights"] if item["provider"] == "govee"
         ]
 
     def with_govee_targets(self, targets):
         """Return a registry whose Govee lights take the given adapter targets.
 
-        The adapter follows a lamp to a new address and keeps the sides, so the
-        result must carry the same two sides; ``side`` itself is not stored.
+        The adapter follows a lamp to a new address and keeps the lights, so the
+        result must carry the same light ids; ``light`` itself is not stored.
         """
         if type(targets) is not list:
             raise _invalid()
-        sides = {side: light_id for light_id, side in LEGACY_SIDES.items()}
         replacement = {}
         for target in targets:
-            if type(target) is not dict or target.get("side") not in sides:
+            if type(target) is not dict or type(target.get("light")) is not str:
                 raise _invalid()
-            replacement[sides[target["side"]]] = {
-                key: value for key, value in target.items() if key != "side"}
+            replacement[target["light"]] = {
+                key: value for key, value in target.items() if key != "light"}
         data = self.to_dict()
         govee = [item for item in data["lights"] if item["provider"] == "govee"]
         if len(replacement) != len(targets) or set(replacement) != {i["id"] for i in govee}:
@@ -311,6 +315,11 @@ def migrate(targets_file, native_profile_file):
     if type(targets) is not list:
         raise RegistryError(message)
     sides = {side: light_id for light_id, side in LEGACY_SIDES.items()}
+    # The legacy file always carries the two migrated lamps; anything else is not
+    # an installation this migration understands.
+    found = [target.get("side") if type(target) is dict else None for target in targets]
+    if len(found) != len(sides) or set(found) != set(sides):
+        raise RegistryError("Light registry migration found an unsupported target")
     lights = []
     for target in targets:
         if type(target) is not dict or target.get("side") not in sides:

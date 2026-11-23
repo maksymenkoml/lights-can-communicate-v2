@@ -1,4 +1,4 @@
-"""Local HomeKit power authority: the adapter is the only writer to both Govee.
+"""Local HomeKit power authority: the adapter is the only writer to the Govee lights.
 
 It replaces the remote owner heartbeat when the Homebridge plugin owns the
 accessories. HomeKit sends intent; this module executes power itself and keeps
@@ -22,8 +22,9 @@ from power_owner import GRANT_SECONDS, MAX_MESSAGE_AGE, switch_power
 from power_requests import PowerRequestUnavailable
 
 import lights_can_communicate_v2 as lan
+from lights_can_communicate_v2_core.light_registry import LEGACY_SIDES
 
-ROLES = ("left", "right")
+STATE_VERSION = 2
 CONFIRM_SECONDS = 3.0
 RESEND_SECONDS = 1.0
 SETTLE_SECONDS = 3.0
@@ -40,64 +41,81 @@ def _empty():
 
 
 class HomeKitPower:
-    def __init__(self, targets, state_file, sender, observe, idle=lambda side: True,
+    def __init__(self, targets, state_file, sender, observe, idle=lambda light: True,
                  clock=time.monotonic, sleep=time.sleep, names=dict, wall_clock=time.time,
-                 release=lambda side: None):
-        self.roles = {lan.device_key(device): device["side"] for device in targets}
-        if len(self.roles) != 2 or set(self.roles.values()) != set(ROLES):
-            raise ValueError("HomeKit power requires the two selected roles")
-        self.devices = {device["side"]: device for device in targets}
+                 release=lambda light: None):
+        self.roles = {lan.device_key(device): device["light"] for device in targets}
+        self.devices = {device["light"]: device for device in targets}
+        if len(self.roles) != len(targets) or len(self.devices) != len(targets):
+            raise ValueError("HomeKit power requires distinct Govee lights")
+        self.lights = tuple(self.devices)
         self.state_file = state_file
         self.sender, self.observe, self.idle = sender, observe, idle
         # Ends a Hue scene on a lamp so that an explicit Home brightness or
         # color takes over; it leaves Sync output alone.
         self.release = release
         self.clock, self.sleep = clock, sleep
-        # Owner names of the lamps from Light Studio: {role: name}, possibly empty.
+        # Owner names of the lamps from Light Studio: {light id: name}, possibly empty.
         self.names = names
         self.lock = threading.RLock()
-        self.transitions = {side: threading.Lock() for side in ROLES}
+        self.transitions = {light: threading.Lock() for light in self.lights}
+        self.migrated = False
         self.intent = self._load()
-        self.confirmed = {side: False for side in ROLES}
+        if self.migrated:
+            # Rewrite the converted state once; the old keys are never read again.
+            try:
+                self._save()
+            except OSError:
+                pass
+        self.confirmed = {light: False for light in self.lights}
         # A power command that native state has not confirmed (yet).
-        self.unconfirmed = {side: False for side in ROLES}
-        self.revisions = {side: 0 for side in ROLES}
-        self.last_command = {side: float("-inf") for side in ROLES}
-        self.disagree_since = {side: None for side in ROLES}
+        self.unconfirmed = {light: False for light in self.lights}
+        self.revisions = {light: 0 for light in self.lights}
+        self.last_command = {light: float("-inf") for light in self.lights}
+        self.disagree_since = {light: None for light in self.lights}
         # Sync holds (sync_off.py): lamps switched off for a Sync session. A hold
         # is not HomeKit intent, is never adopted by tick() and closes the gate.
         self.holds = set()
         self.history = PowerHistory(clock, wall_clock)
 
-    def _changed(self, side, cause):
+    def _changed(self, light, cause):
         """Advance the gate revision and record it; the caller holds the lock."""
-        self.revisions[side] += 1
-        self.history.record(side, cause, self.intent[side]["on"], self.allowed(side),
-                            side in self.holds)
+        self.revisions[light] += 1
+        self.history.record(light, cause, self.intent[light]["on"], self.allowed(light),
+                            light in self.holds)
 
     # Persistence ----------------------------------------------------------
 
     def _load(self):
-        result = {side: _empty() for side in ROLES}
+        result = {light: _empty() for light in self.lights}
         try:
             with open(self.state_file, "rb") as stream:
                 data = json.loads(stream.read(65536))
-            roles = data["roles"] if data.get("version") == 1 else {}
-            for side in ROLES:
-                saved = roles.get(side, {})
+            if data.get("version") == STATE_VERSION:
+                saved_lights = data["lights"]
+            elif data.get("version") == 1:
+                # Version 1 keyed the two lamps by side; convert it once.
+                saved_lights = {light: data["roles"][side]
+                                for light, side in LEGACY_SIDES.items() if side in data["roles"]}
+                self.migrated = True
+            else:
+                saved_lights = {}
+            for light in self.lights:
+                saved = saved_lights.get(light, {})
                 if type(saved.get("on")) is bool:
-                    result[side]["on"] = saved["on"]
+                    result[light]["on"] = saved["on"]
                 for key, low, high in (("brightness", 1, 100), ("hue", 0, 360),
                                        ("saturation", 0, 100), ("kelvin", 2000, 9000)):
                     if _number(saved.get(key), low, high):
-                        result[side][key] = saved[key]
+                        result[light][key] = saved[key]
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             # Unknown intent is adopted from the next fresh native reading.
-            pass
+            self.migrated = False
         return result
 
     def _save(self):
-        data = (json.dumps({"version": 1, "roles": self.intent}, sort_keys=True) + "\n").encode()
+        data = (json.dumps({"version": STATE_VERSION, "lights": self.intent},
+                           sort_keys=True) + "\n").encode()
         temporary = f"{self.state_file}.{os.getpid()}.tmp"
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
@@ -113,21 +131,21 @@ class HomeKitPower:
 
     # PowerOwner-compatible gate -------------------------------------------
 
-    def revision(self, side):
+    def revision(self, light):
         with self.lock:
-            return self.revisions.get(side, 0)
+            return self.revisions.get(light, 0)
 
-    def allowed(self, side):
+    def allowed(self, light):
         with self.lock:
-            return (self.intent.get(side, {}).get("on") is True and side not in self.holds
-                    and self.confirmed.get(side, False))
+            return (self.intent.get(light, {}).get("on") is True and light not in self.holds
+                    and self.confirmed.get(light, False))
 
-    def settled(self, side, on):
+    def settled(self, light, on):
         """Whether Home already wants, and the lamp already has, this power state."""
-        observed = self.observe().get(side, {})
+        observed = self.observe().get(light, {})
         with self.lock:
-            return (self.intent[side]["on"] is on and not self.unconfirmed[side]
-                    and (self.confirmed[side] or not on) and observed.get("on") is on)
+            return (self.intent[light]["on"] is on and not self.unconfirmed[light]
+                    and (self.confirmed[light] or not on) and observed.get("on") is on)
 
     def wrap(self, sender):
         def send(device, command, data):
@@ -145,15 +163,15 @@ class HomeKitPower:
                 "enforced": True,
                 "authority": "homekit",
                 "events": self.history.snapshot(),
-                "roles": {
-                    side: {"requested_on": self.intent[side]["on"] is True,
-                           "color_allowed": self.allowed(side),
-                           "revision": self.revisions[side],
-                           "sync_hold": side in self.holds,
+                "lights": {
+                    light: {"requested_on": self.intent[light]["on"] is True,
+                           "color_allowed": self.allowed(light),
+                           "revision": self.revisions[light],
+                           "sync_hold": light in self.holds,
                            # A local authority never expires; unknown intent is not published.
                            "grant_remaining": GRANT_SECONDS
-                           if self.intent[side]["on"] is not None else 0}
-                    for side in ROLES
+                           if self.intent[light]["on"] is not None else 0}
+                    for light in self.lights
                 },
             }
 
@@ -163,17 +181,17 @@ class HomeKitPower:
         observed = self.observe()
         names = self.names()
         with self.lock:
-            roles = {}
-            for side in ROLES:
-                intent = self.intent[side]
-                native = observed.get(side, {}).get("on")
+            lights = {}
+            for light in self.lights:
+                intent = self.intent[light]
+                native = observed.get(light, {}).get("on")
                 kelvin = intent["kelvin"]
                 # HomeKit shows the verified lamp, not an unconfirmed request.
-                shown = native if self.unconfirmed[side] and native is not None else intent["on"]
-                roles[side] = {
+                shown = native if self.unconfirmed[light] and native is not None else intent["on"]
+                lights[light] = {
                     "on": shown,
                     "requested_on": intent["on"],
-                    "confirmed": self.confirmed[side],
+                    "confirmed": self.confirmed[light],
                     "native_on": native,
                     "reachable": native is not None,
                     "brightness": intent["brightness"],
@@ -181,14 +199,14 @@ class HomeKitPower:
                     "saturation": intent["saturation"],
                     "color_temperature": round(1e6 / kelvin) if kelvin else None,
                 }
-                if side in names:
+                if light in names:
                     # Only an owner name is reported; without one HomeKit keeps its own.
-                    roles[side]["name"] = names[side]
-            return {"version": 1, "roles": roles}
+                    lights[light]["name"] = names[light]
+            return {"version": 1, "lights": lights}
 
     def set(self, payload):
-        if (type(payload) is not dict or payload.get("role") not in ROLES
-                or not set(payload) - {"role"} or set(payload) - _FIELDS - {"role"}
+        if (type(payload) is not dict or payload.get("light") not in self.devices
+                or not set(payload) - {"light"} or set(payload) - _FIELDS - {"light"}
                 or ("on" in payload and type(payload["on"]) is not bool)
                 or ("brightness" in payload and (type(payload["brightness"]) is not int
                                                  or not 0 <= payload["brightness"] <= 100))
@@ -198,17 +216,17 @@ class HomeKitPower:
                     and (type(payload["color_temperature"]) is not int
                          or not 140 <= payload["color_temperature"] <= 500))):
             raise ValueError("Invalid HomeKit intent")
-        side = payload["role"]
-        with self.transitions[side]:
+        light = payload["light"]
+        with self.transitions[light]:
             if payload.get("brightness") == 0:
                 # Like the Govee plugin: 0% is a coordinated Off, not a brightness.
                 payload = {**payload, "on": False}
                 del payload["brightness"]
             if "on" in payload:
                 # An owner power change during Sync ends the Sync hold: it wins.
-                self.owner_power(side)
+                self.owner_power(light)
             with self.lock:
-                intent = self.intent[side]
+                intent = self.intent[light]
                 previous = dict(intent)
                 if "brightness" in payload:
                     intent["brightness"] = payload["brightness"]
@@ -223,15 +241,15 @@ class HomeKitPower:
                 self._save()
             confirmed = True
             if "on" in payload:
-                confirmed = self._power(side, payload["on"])
+                confirmed = self._power(light, payload["on"])
             if confirmed and set(payload) & {"brightness", "hue", "saturation",
                                              "color_temperature"}:
                 # The last explicit setting wins, as in the Hue App: a Home
                 # brightness or color ends the Hue scene on this lamp. Power
                 # alone keeps the scene, so Home On resumes it.
-                self.release(side)
-            if confirmed and self.allowed(side) and self.idle(side):
-                failed = self._apply_static(side, payload)
+                self.release(light)
+            if confirmed and self.allowed(light) and self.idle(light):
+                failed = self._apply_static(light, payload)
                 if failed:
                     # HomeKit must keep showing what the lamp actually has:
                     # restore only the values whose command was not delivered.
@@ -240,12 +258,12 @@ class HomeKitPower:
                     with self.lock:
                         for name in failed:
                             for key in keys[name]:
-                                self.intent[side][key] = previous[key]
+                                self.intent[light][key] = previous[key]
                         self._save()
                     confirmed = False
             return confirmed
 
-    def _apply_static(self, side, payload):
+    def _apply_static(self, light, payload):
         """Home color applies only while no scene or Sync owns the lamp.
 
         An explicit Home brightness or color has already ended a Hue scene
@@ -254,7 +272,7 @@ class HomeKitPower:
         Returns the names ("brightness", "color") of commands that were not
         delivered to a verified route.
         """
-        device, intent = self.devices[side], self.intent[side]
+        device, intent = self.devices[light], self.intent[light]
         commands = []
         if ("brightness" in payload or payload.get("on") is True) and intent["brightness"]:
             commands.append(("brightness", "brightness", {"value": intent["brightness"]}))
@@ -277,103 +295,103 @@ class HomeKitPower:
                     failed.add(name)
         return failed
 
-    def _power(self, side, on):
-        device = self.devices[side]
+    def _power(self, light, on):
+        device = self.devices[light]
         with self.lock:
             # Holding the gate lock here waits out any in-flight color send.
-            self.intent[side]["on"] = on
-            self.confirmed[side] = False
-            self.unconfirmed[side] = True
-            self._changed(side, "intent")
-            self.disagree_since[side] = None
+            self.intent[light]["on"] = on
+            self.confirmed[light] = False
+            self.unconfirmed[light] = True
+            self._changed(light, "intent")
+            self.disagree_since[light] = None
             self._save()
-            started = self.last_command[side] = self.clock()
+            started = self.last_command[light] = self.clock()
             self.sender(device, "turn", {"value": 1 if on else 0})
         resent = False
         while self.clock() - started < CONFIRM_SECONDS:
-            observed = self.observe().get(side, {})
+            observed = self.observe().get(light, {})
             sample = observed.get("sample")
             if observed.get("on") is on and type(sample) in (int, float) and sample > started:
                 with self.lock:
-                    self.unconfirmed[side] = False
-                    if on and self.intent[side]["on"] is True:
-                        self.confirmed[side] = True
-                        self._changed(side, "confirmed")
+                    self.unconfirmed[light] = False
+                    if on and self.intent[light]["on"] is True:
+                        self.confirmed[light] = True
+                        self._changed(light, "confirmed")
                 return True
             if not resent and self.clock() - started >= RESEND_SECONDS:
                 resent = True
                 with self.lock:
-                    self.last_command[side] = self.clock()
+                    self.last_command[light] = self.clock()
                     self.sender(device, "turn", {"value": 1 if on else 0})
             self.sleep(0.05)
         return False
 
     # Sync hold ------------------------------------------------------------
 
-    def _send_turn(self, side, on):
+    def _send_turn(self, light, on):
         with self.lock:
-            sent = self.last_command[side] = self.clock()
-            self.sender(self.devices[side], "turn", {"value": 1 if on else 0})
+            sent = self.last_command[light] = self.clock()
+            self.sender(self.devices[light], "turn", {"value": 1 if on else 0})
             return sent
 
-    def sync_hold(self, side, send=True):
+    def sync_hold(self, light, send=True):
         """Switch a lamp off for Sync without changing intent; True when it is held.
 
         A lamp that is already off is not held. Without ``send`` (crash recovery)
         the hold is placed without a command, so tick() cannot adopt the Off.
         """
-        if side not in ROLES:
-            raise ValueError("Unknown Sync hold role")
-        with self.transitions[side]:
-            native = self.observe().get(side, {}).get("on") if send else None
+        if light not in self.devices:
+            raise ValueError("Unknown Sync hold light")
+        with self.transitions[light]:
+            native = self.observe().get(light, {}).get("on") if send else None
             with self.lock:
-                if side in self.holds:
+                if light in self.holds:
                     return True
                 if send and (native if native is not None
-                             else self.intent[side]["on"]) is not True:
+                             else self.intent[light]["on"]) is not True:
                     return False
-                self.holds.add(side)
-                self._changed(side, "sync_hold")
-                self.disagree_since[side] = None
+                self.holds.add(light)
+                self._changed(light, "sync_hold")
+                self.disagree_since[light] = None
             if send:
-                switch_power(lambda on: self._send_turn(side, on), self.observe, side, False,
+                switch_power(lambda on: self._send_turn(light, on), self.observe, light, False,
                              self.clock, self.sleep)
             return True
 
-    def sync_held(self, side):
+    def sync_held(self, light):
         with self.lock:
-            return side in self.holds
+            return light in self.holds
 
-    def sync_release(self, side):
+    def sync_release(self, light):
         """Restore On after Sync unless the owner changed the lamp.
 
         Returns "restored", "superseded" (no hold left, or the owner wants Off) or
         "failed"; a failed restore keeps the hold, so the session can retry it.
         """
-        with self.transitions[side]:
+        with self.transitions[light]:
             with self.lock:
-                if side not in self.holds:
+                if light not in self.holds:
                     return "superseded"
-                self.holds.discard(side)
-                self._changed(side, "sync_release")
-                if self.intent[side]["on"] is False:
+                self.holds.discard(light)
+                self._changed(light, "sync_release")
+                if self.intent[light]["on"] is False:
                     return "superseded"
             restored = False
             try:
-                restored = self._power(side, True)
+                restored = self._power(light, True)
             finally:
                 if not restored:
                     with self.lock:
-                        self.holds.add(side)
-                        self._changed(side, "sync_restore_failed")
+                        self.holds.add(light)
+                        self._changed(light, "sync_restore_failed")
             return "restored" if restored else "failed"
 
-    def owner_power(self, side):
+    def owner_power(self, light):
         """An explicit owner power request for this lamp ends its Sync hold."""
         with self.lock:
-            if side in self.holds:
-                self.holds.discard(side)
-                self._changed(side, "owner_power")
+            if light in self.holds:
+                self.holds.discard(light)
+                self._changed(light, "owner_power")
 
     # Native observation ---------------------------------------------------
 
@@ -381,45 +399,45 @@ class HomeKitPower:
         """Adopt verified native changes made outside HomeKit, such as the Govee app."""
         observed = self.observe()
         now = self.clock()
-        for side in ROLES:
-            if not self.transitions[side].acquire(blocking=False):
+        for light in self.lights:
+            if not self.transitions[light].acquire(blocking=False):
                 continue
             try:
-                native = observed.get(side, {}).get("on")
+                native = observed.get(light, {}).get("on")
                 with self.lock:
-                    intent = self.intent[side]["on"]
-                    if side in self.holds:
+                    intent = self.intent[light]["on"]
+                    if light in self.holds:
                         # A Sync hold's Off is never adopted as owner intent.
-                        self.disagree_since[side] = None
+                        self.disagree_since[light] = None
                     elif native is None:
-                        self.disagree_since[side] = None
+                        self.disagree_since[light] = None
                     elif intent is None:
-                        self._adopt(side, native)
-                    elif native is intent and self.unconfirmed[side]:
+                        self._adopt(light, native)
+                    elif native is intent and self.unconfirmed[light]:
                         # A late native reading confirms the earlier command.
-                        self.unconfirmed[side] = False
-                        if intent and not self.confirmed[side]:
-                            self.confirmed[side] = True
-                            self._changed(side, "confirmed")
-                    elif intent and native and not self.confirmed[side]:
-                        self.confirmed[side] = True
-                        self._changed(side, "confirmed")
-                    elif native is not intent and now - self.last_command[side] >= SETTLE_SECONDS:
-                        if self.disagree_since[side] is None:
-                            self.disagree_since[side] = now
-                        elif now - self.disagree_since[side] >= ADOPT_SECONDS:
-                            self._adopt(side, native)
+                        self.unconfirmed[light] = False
+                        if intent and not self.confirmed[light]:
+                            self.confirmed[light] = True
+                            self._changed(light, "confirmed")
+                    elif intent and native and not self.confirmed[light]:
+                        self.confirmed[light] = True
+                        self._changed(light, "confirmed")
+                    elif native is not intent and now - self.last_command[light] >= SETTLE_SECONDS:
+                        if self.disagree_since[light] is None:
+                            self.disagree_since[light] = now
+                        elif now - self.disagree_since[light] >= ADOPT_SECONDS:
+                            self._adopt(light, native)
                     else:
-                        self.disagree_since[side] = None
+                        self.disagree_since[light] = None
             finally:
-                self.transitions[side].release()
+                self.transitions[light].release()
 
-    def _adopt(self, side, native):
-        self.intent[side]["on"] = native
-        self.confirmed[side] = native
-        self.unconfirmed[side] = False
-        self._changed(side, "adopted")
-        self.disagree_since[side] = None
+    def _adopt(self, light, native):
+        self.intent[light]["on"] = native
+        self.confirmed[light] = native
+        self.unconfirmed[light] = False
+        self._changed(light, "adopted")
+        self.disagree_since[light] = None
         try:
             self._save()
         except OSError:
@@ -487,14 +505,14 @@ class HomeKitRequests:
                 or not _number(payload["issued_at"], -math.inf, math.inf)
                 or abs(self.wall_clock() - payload["issued_at"]) > MAX_MESSAGE_AGE
                 or type(payload["states"]) is not dict or not payload["states"]
-                or set(payload["states"]) - set(ROLES)
+                or set(payload["states"]) - set(self.power.lights)
                 or any(type(value) is not bool for value in payload["states"].values())):
             raise ValueError("Invalid explicit power request")
-        for side, on in payload["states"].items():
+        for light, on in payload["states"].items():
             # The Hue app repeats On with every scene; a settled lamp needs no write.
-            if self.power.settled(side, on):
+            if self.power.settled(light, on):
                 continue
-            if not self.power.set({"role": side, "on": on}):
+            if not self.power.set({"light": light, "on": on}):
                 raise PowerRequestUnavailable("Power request was not confirmed")
         return True
 

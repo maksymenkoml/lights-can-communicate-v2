@@ -66,7 +66,8 @@ class ActiveVideoProfileTests(unittest.TestCase):
 
     def grant(self, sequence, **states):
         self.gate.submit(
-            {"session": "home", "sequence": sequence, "issued_at": 1000, "states": states}
+            {"session": "home", "sequence": sequence, "issued_at": 1000,
+             "states": {"govee-" + side: value for side, value in states.items()}}
         )
 
     def test_profile_maps_expected_colors_to_only_selected_outputs_without_power(self):
@@ -74,7 +75,7 @@ class ActiveVideoProfileTests(unittest.TestCase):
         self.frame()
         self.assertEqual({device for device, _ in self.sent}, {LEFT, RIGHT})
         self.assertFalse(any(command == "turn" for _, command in self.sent))
-        left, right = self.controller.target("left"), self.controller.target("right")
+        left, right = self.controller.target("govee-left"), self.controller.target("govee-right")
         self.assertEqual(left["brightness"], 65)
         if GRADIENT_MODE:
             self.assertEqual(len(left["segments"]), 7)

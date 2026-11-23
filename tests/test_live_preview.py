@@ -33,7 +33,7 @@ def metadata():
     return {
         "targets": [
             {
-                "side": "left",
+                "light": "govee-left",
                 "status_age": 0.1,
                 "native": {"identity_verified": True, "onOff": 1, "brightness": 65},
             }
@@ -122,7 +122,7 @@ class PreviewTests(unittest.TestCase):
             ("ptReal", {"command": ["invalid"] * 7}),
         ]:
             self.send(self.device, cmd, data)
-        self.send({"side": "unbound", "device": "secret"}, "brightness", {"value": 50})
+        self.send({"light": "unbound", "device": "secret"}, "brightness", {"value": 50})
         self.assertEqual(self.store.snapshot(), {})
         self.assertEqual(self.lamp()["colors"], [])
 
@@ -386,7 +386,7 @@ class ProducerTests(unittest.TestCase):
         )
         proxy.submit(
             command(
-                side="hue_center",
+                light="hue_center",
                 state={
                     "on": True,
                     "bri": 254,
@@ -450,7 +450,7 @@ class ProducerTests(unittest.TestCase):
         controller.update_statuses({LEFT: ({"onOff": 1, "brightness": 65}, 10)})
         controller.submit(
             {
-                "side": "left",
+                "light": "govee-left",
                 "session": "test",
                 "sequence": 1,
                 "issued_at": 1000,
@@ -460,7 +460,7 @@ class ProducerTests(unittest.TestCase):
         )
         controller.render()
         self.assertEqual(controller.snapshot()["commands_sent"], 2)
-        self.assertEqual(controller.snapshot()["rejected_sends"]["left"], 0)
+        self.assertEqual(controller.snapshot()["rejected_sends"]["govee-left"], 0)
 
     def test_video_snapshot_distinguishes_live_fence_from_cleanup_and_handshake_waiting(self):
         fixture = video_tests.VideoTests()

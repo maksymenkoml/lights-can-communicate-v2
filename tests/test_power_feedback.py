@@ -23,10 +23,10 @@ class Lamp:
 
 
 def status(left=True, right=False, revision=1, remaining=1.5):
-    return {"power_owner": {"enforced": True, "roles": {
+    return {"power_owner": {"enforced": True, "lights": {
         side: {"requested_on": value, "revision": revision, "grant_remaining": remaining,
                "color_allowed": value}
-        for side, value in (("left", left), ("right", right))
+        for side, value in (("govee-left", left), ("govee-right", right))
     }}}
 
 
@@ -48,6 +48,20 @@ class FeedbackTests(unittest.TestCase):
         self.current = {**status(), "hue_strip": {"native_on": strip, "native_age": age},
                         "hue_play": {"hue_left": {"native_on": left, "native_age": age},
                                      "hue_center": {"native_on": None, "native_age": age}}}
+
+    def test_a_registry_with_one_legacy_lamp_still_follows_its_slot(self):
+        self.current = status(left=False)
+        del self.current["power_owner"]["lights"]["govee-right"]
+        self.assertTrue(self.feedback.refresh_once())
+        self.assertIsNone(self.feedback.last_error)
+        self.assertFalse(self.lights["1"].state["on"])
+        self.assertTrue(self.lights["2"].state["on"])
+        self.assertEqual(self.lights["2"].events, [])
+
+    def test_no_enrolled_lamp_is_an_unavailable_authority(self):
+        self.current = {"power_owner": {"enforced": True, "lights": {}}}
+        self.assertFalse(self.feedback.refresh_once())
+        self.assertEqual(self.feedback.last_error, "ValueError")
 
     def test_native_hue_power_mirrors_the_genuine_bridge(self):
         self.native(strip=False, left=True)
@@ -144,7 +158,7 @@ class FeedbackTests(unittest.TestCase):
         self.feedback.refresh_once()
         self.resumed.clear()
         self.current = status(right=True, revision=2)
-        self.current["power_owner"]["roles"]["left"]["revision"] = 1
+        self.current["power_owner"]["lights"]["govee-left"]["revision"] = 1
         self.feedback.refresh_once()
         self.feedback.refresh_once()
         self.assertTrue(self.lights["2"].state["on"])
@@ -169,13 +183,13 @@ class FeedbackTests(unittest.TestCase):
         self.assertNotIn("private-token", str(self.feedback.snapshot()))
 
     def test_malformed_authority_is_rejected_before_any_light_change(self):
-        for bad in (None, {}, {"enforced": False, "roles": {}},
-                    {"enforced": True, "roles": {"left": {"requested_on": False}}}):
+        for bad in (None, {}, {"enforced": False, "lights": {}},
+                    {"enforced": True, "lights": {"govee-left": {"requested_on": False}}}):
             self.current = {"power_owner": bad}
             self.assertFalse(self.feedback.refresh_once())
             self.assertTrue(self.lights["1"].state["on"])
         self.current = status(left=False)
-        self.current["power_owner"]["roles"]["right"]["requested_on"] = "false"
+        self.current["power_owner"]["lights"]["govee-right"]["requested_on"] = "false"
         self.assertFalse(self.feedback.refresh_once())
         self.assertTrue(self.lights["1"].state["on"])
 
@@ -212,7 +226,7 @@ class FeedbackTests(unittest.TestCase):
         self.current = status(right=True)
         self.feedback.refresh_once()
         self.resumed.clear()
-        self.current["power_owner"]["roles"]["right"]["revision"] = 3
+        self.current["power_owner"]["lights"]["govee-right"]["revision"] = 3
         self.feedback.refresh_once()
         self.assertEqual(self.resumed, ["2"])
 
@@ -241,7 +255,7 @@ class FeedbackTests(unittest.TestCase):
         self.feedback.refresh_once()
         self.feedback.after_request("PUT", "/clip/v2/resource/light/selected", 200,
                                     {"on": {"on": True}})
-        self.current["power_owner"]["roles"]["right"].update(requested_on=True, revision=2)
+        self.current["power_owner"]["lights"]["govee-right"].update(requested_on=True, revision=2)
         self.now += 1.1
         self.feedback.refresh_once()
         self.assertTrue(self.lights["2"].events[-1]["on"]["on"])

@@ -197,13 +197,16 @@ def sync_profile(validated_layout):
 def scene_fade(validated_layout):
     """Return the without-Sync fade gains per role from ``sceneZone``/``sceneFalloff``.
 
-    ``left``/``right`` hold seven Govee segment gains from bottom to top, ``strip`` the
-    mean of the nine monitor-strip anchor gains and ``hue_*`` one gain per Play. Every
-    gain is 1 while the scene fade is off (the default).
+    ``govee-left`` and ``govee-right`` (the light ids) hold seven Govee segment gains from
+    bottom to top, ``strip`` the mean of the nine monitor-strip anchor gains and
+    ``hue_*`` one gain per Play. Every gain is 1 while the scene fade is off (the
+    default). Scenes reach other Govee lights only with the virtual bridge stage, so
+    they have no entry yet.
     """
     entries = _light_entries(validated_layout, zone_key="sceneZone", fade_key="sceneFalloff",
                              fade_default=False)
-    result = {"left": entries["govee-left"]["gains"], "right": entries["govee-right"]["gains"]}
+    result = {"govee-left": entries["govee-left"]["gains"],
+              "govee-right": entries["govee-right"]["gains"]}
     strip = entries["hue-monitor"]["gains"]
     result["strip"] = sum(strip) / len(strip)
     for key, role in _ROLES.items():

@@ -21,6 +21,9 @@ ROLES = {
     "play-center": "hue_center",
     "play-right": "hue_right",
 }
+# The Govee rows are addressed by their row (light) id; only the Hue rows have a role name.
+GOVEE_ROWS = ("govee-left", "govee-right")
+HUE_ROLES = {row: role for row, role in ROLES.items() if row not in GOVEE_ROWS}
 PREVIEW_FIELDS = {
     "id",
     "scale",
@@ -357,36 +360,44 @@ class LayoutStore:
         data = self.snapshot()
         return {"layout": data, "revision": self.digest(data)}
 
-    def scale(self, role, fallback):
+    @staticmethod
+    def _row(device, key):
+        """True when ``key`` is the row's id (a light id) or the role of a Hue row."""
+        return device["id"] == key or HUE_ROLES.get(device["id"]) == key
+
+    def scale(self, key, fallback):
         data = self.snapshot()
         if data:
             for device in data["devices"]:
-                if ROLES.get(device["id"]) == role:
+                if self._row(device, key):
                     return device["scale"] / 100
         return fallback
 
     def names(self):
-        """Return ``{role: name}`` for the role lamps that have an owner name."""
+        """Return ``{key: name}`` for the role lamps that have an owner name.
+
+        The key is the Govee light id or the role of a Hue lamp.
+        """
         data = self.snapshot()
         if not data:
             return {}
-        return {ROLES[device["id"]]: device["name"] for device in data["devices"]
-                if device["id"] in ROLES and "name" in device}
+        return {HUE_ROLES.get(device["id"], device["id"]): device["name"]
+                for device in data["devices"] if device["id"] in ROLES and "name" in device}
 
-    def scene_scale(self, role, fallback):
+    def scene_scale(self, key, fallback):
         """Return the without-Sync correction (row ``sceneScale``)."""
         data = self.snapshot()
         if data:
             for device in data["devices"]:
-                if ROLES.get(device["id"]) == role:
+                if self._row(device, key):
                     return device["sceneScale"] / 100
         return fallback
 
-    def calibration(self, side):
-        """Return the calibration of the Govee lamp on ``side`` (zero if none)."""
+    def calibration(self, light):
+        """Return the calibration of the Govee row ``light`` (zero if none)."""
         data = self.snapshot()
         for device in (data or {}).get("devices", []):
-            if ROLES.get(device["id"]) == side and device["id"] in CALIBRATION_ROWS:
+            if device["id"] == light:
                 return dict(device.get("calibration") or calibration_values({}))
         return calibration_values({})
 
@@ -394,7 +405,7 @@ class LayoutStore:
         data = self.snapshot()
         if data:
             for device in data['devices']:
-                if device['id'] == role or ROLES.get(device['id']) == role:
+                if self._row(device, role):
                     return test(device)
         elif self.path.exists():
             # A corrupt saved selection is not permission to resume every lamp.
@@ -414,7 +425,7 @@ class LayoutStore:
         data = self.snapshot()
         if not data:
             return []
-        return [ROLES[device["id"]] for device in data["devices"]
+        return [HUE_ROLES.get(device["id"], device["id"]) for device in data["devices"]
                 if device["id"] in ROLES and device.get("enabled", True)
                 and device.get("syncRole") == "off"]
 
