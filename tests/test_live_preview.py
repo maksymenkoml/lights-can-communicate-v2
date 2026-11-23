@@ -38,8 +38,10 @@ def metadata():
                 "native": {"identity_verified": True, "onOff": 1, "brightness": 65},
             }
         ],
-        "hue_strip": copy.deepcopy(hue),
-        "hue_play": {role: copy.deepcopy(hue) for role in ("hue_left", "hue_center", "hue_right")},
+        "hue": {
+            light: copy.deepcopy(hue)
+            for light in ("hue-monitor", "play-left", "play-center", "play-right")
+        },
     }
 
 
@@ -128,7 +130,7 @@ class PreviewTests(unittest.TestCase):
 
     def test_hue_dimming_delta_retains_color_and_color_mode_changes_clear_gradient(self):
         self.store.record_hue(
-            "strip",
+            "hue-monitor",
             {
                 "gradient": {
                     "points": [
@@ -142,12 +144,12 @@ class PreviewTests(unittest.TestCase):
         first = self.lamp(key="hue-monitor")["colors"]
         self.assertEqual(len(first), 2)
         self.assertEqual(first[0], [128, 0, 0])
-        self.store.record_hue("strip", {"dimming": {"brightness": 20}})
+        self.store.record_hue("hue-monitor", {"dimming": {"brightness": 20}})
         self.assertEqual(self.lamp(key="hue-monitor")["colors"][0], [51, 0, 0])
-        self.store.record_hue("strip", {"color_temperature": {"mirek": 250}})
+        self.store.record_hue("hue-monitor", {"color_temperature": {"mirek": 250}})
         self.assertEqual(len(self.lamp(key="hue-monitor")["colors"]), 1)
         self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 41, 33]])
-        self.store.record_hue("strip", {"color": {"xy": {"x": 0.7, "y": 0.299}}})
+        self.store.record_hue("hue-monitor", {"color": {"xy": {"x": 0.7, "y": 0.299}}})
         self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 0, 0]])
 
     def test_govee_white_packet_replaces_segment_colors_with_its_emitted_temperature(self):
@@ -194,12 +196,12 @@ class PreviewTests(unittest.TestCase):
             self.assertIsNone(self.lamp(status)["on"])
             self.assertTrue(self.lamp(status)["stale"])
         status = metadata()
-        status["hue_strip"]["native_mode"] = "streaming"
+        status["hue"]["hue-monitor"]["native_mode"] = "streaming"
         self.assertEqual(build_preview(status, self.store.snapshot())["mode"], "foreign")
         self.assertEqual(self.lamp(status)["colors"], [])
         status["video"] = {"active": True, "ready": True, "frame_age": 0.6, "cleanup_pending": True}
         self.assertEqual(build_preview(status, self.store.snapshot())["mode"], "waiting")
-        status["hue_strip"].update(native_age=2.01, native_mode="normal")
+        status["hue"]["hue-monitor"].update(native_age=2.01, native_mode="normal")
         self.assertIsNone(self.lamp(status, "hue-monitor")["online"])
 
     def test_native_channels_are_bytes_without_repeating_calibration_and_snapshot_is_copied(self):
@@ -217,12 +219,12 @@ class PreviewTests(unittest.TestCase):
 
     def test_native_gain_does_not_override_scene_color_only_readback_brightness(self):
         self.store.record_native_channels({i: (32768, 0, 0) for i in range(12)})
-        self.store.record_hue("hue_center", {"color": {"xy": {"x": 0.7, "y": 0.299}}})
+        self.store.record_hue("play-center", {"color": {"xy": {"x": 0.7, "y": 0.299}}})
         status = metadata()
-        status["hue_play"]["hue_center"]["native_brightness"] = 25
+        status["hue"]["play-center"]["native_brightness"] = 25
         self.assertEqual(self.lamp(status, "play-center")["colors"], [[64, 0, 0]])
         self.assertEqual(self.lamp(status, "play-center")["brightness"], 25)
-        self.store.record_hue("hue_center", {"dimming": {"brightness": 12.5}})
+        self.store.record_hue("play-center", {"dimming": {"brightness": 12.5}})
         self.assertEqual(self.lamp(status, "play-center")["colors"], [[32, 0, 0]])
 
     def test_segment_checksum_masks_and_duplicates_are_rejected_atomically(self):
@@ -256,19 +258,19 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual(result["mode"], mode)
             self.assertEqual(result["lamps"]["play-center"]["colors"], [])
         status["video"] = {"active": True, "ready": True, "frame_age": 0.5}
-        status["hue_play"]["hue_center"]["native_age"] = 2
+        status["hue"]["play-center"]["native_age"] = 2
         self.assertEqual(self.lamp(status, "play-center")["colors"], [[255, 0, 0]])
 
     def test_expired_lease_waits_while_our_native_relay_is_still_held(self):
         self.store.record_hue(
-            "strip",
+            "hue-monitor",
             {
                 "color": {"xy": {"x": 0.7, "y": 0.299}},
                 "dimming": {"brightness": 50},
             },
         )
         status = metadata()
-        status["hue_strip"]["native_mode"] = "streaming"
+        status["hue"]["hue-monitor"]["native_mode"] = "streaming"
         status["video"] = {
             "active": False,
             "ready": True,
@@ -284,7 +286,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(build_preview(status, self.store.snapshot())["mode"], "waiting")
         status["video"]["native_owned"] = False
         self.assertEqual(build_preview(status, self.store.snapshot())["mode"], "foreign")
-        status["hue_strip"]["native_mode"] = "normal"
+        status["hue"]["hue-monitor"]["native_mode"] = "normal"
         self.assertEqual(build_preview(status, self.store.snapshot())["mode"], "scene")
 
     def test_short_govee_status_miss_keeps_the_glow_until_the_loss_lasts(self):
@@ -314,12 +316,12 @@ class PreviewTests(unittest.TestCase):
         for age in (10**1000, -1, True, "secret", None):
             status = metadata()
             status["targets"][0]["status_age"] = age
-            status["hue_strip"]["native_age"] = age
+            status["hue"]["hue-monitor"]["native_age"] = age
             result = build_preview(status, {})
             self.assertIsNone(result["lamps"]["govee-left"]["online"])
             self.assertIsNone(result["lamps"]["hue-monitor"]["online"])
         status = metadata()
-        status["hue_strip"]["native_mode"] = "streaming"
+        status["hue"]["hue-monitor"]["native_mode"] = "streaming"
         status["video"] = {"native_owned": "untrusted"}
         self.assertEqual(build_preview(status, {})["mode"], "foreign")
 
@@ -349,7 +351,9 @@ class ProducerTests(unittest.TestCase):
     def test_proxy_records_only_calibrated_accepted_writes_and_observer_cannot_break_success(self):
         store = OutputPreviewStore()
         client = FakeHue()
-        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000, preview=store)
+        proxy = HueStripProxy(
+            client, "hue-monitor", clock=lambda: 10, wall_clock=lambda: 1000, preview=store
+        )
         proxy.submit(command())
         self.assertTrue(proxy.process_once())
         self.assertEqual(store.snapshot()["hue-monitor"]["brightness"], 198 / 254 * 100)
@@ -374,19 +378,19 @@ class ProducerTests(unittest.TestCase):
 
         store = OutputPreviewStore()
         client = FakeHue()
-        client.resource_id = PLAY_IDS["hue_center"]
+        client.resource_id = PLAY_IDS["play-center"]
         client.native["id"] = client.resource_id
         proxy = HueStripProxy(
             client,
+            "play-center",
             clock=lambda: 10,
             wall_clock=lambda: 1000,
-            role="hue_center",
             layout_store=Layout(),
             preview=store,
         )
         proxy.submit(
             command(
-                light="hue_center",
+                light="play-center",
                 state={
                     "on": True,
                     "bri": 254,
@@ -489,11 +493,11 @@ class ProducerTests(unittest.TestCase):
         captured = {}
 
         def capture_handler(*args, **kwargs):
-            captured.update(controller=args[0], strip=args[2], plays=args[3], **kwargs)
+            captured.update(controller=args[0], proxies=args[2], **kwargs)
             return object()
 
         def client(_config, resource_id=None, profile=None):
-            self.assertEqual(profile.to_dict(), profile_data())
+            self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
             result = FakeHue()
             result.profile = profile
             if resource_id is not None:
@@ -533,8 +537,10 @@ class ProducerTests(unittest.TestCase):
                 with self.assertRaises(StopBeforeIO):
                     adapter.main(args)
         store = captured["preview"]
-        self.assertIs(captured["strip"].preview, store)
-        self.assertTrue(all(proxy.preview is store for proxy in captured["plays"].values()))
+        proxies = captured["proxies"]
+        self.assertEqual(set(proxies), {"hue-monitor", "play-left", "play-center", "play-right"})
+        self.assertTrue(all(proxies[light].light == light for light in proxies))
+        self.assertTrue(all(proxy.preview is store for proxy in proxies.values()))
         self.assertIs(captured["video_output"].relay.preview, store)
         device = targets()[0]
         captured["controller"].sender(device, "ptReal", segment_data([(255, 0, 0)] * 7))

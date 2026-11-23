@@ -39,7 +39,7 @@ class VideoOutput:
         self.transitions = {}
         self.last_event = None
         self.current_profile = None
-        self.native_membership = frozenset(("strip", "hue_left", "hue_center", "hue_right"))
+        self.native_membership = self.all_native()
         self.handoff = False
 
     def active(self):
@@ -49,11 +49,15 @@ class VideoOutput:
     def submit(self, message):
         return self.lease.submit(message)
 
+    def all_native(self):
+        """Return the native light ids of every proxy (the membership without a layout)."""
+        return frozenset(getattr(proxy, "light", None) for proxy in self.proxies)
+
     def selected_proxies(self):
         if self.current_profile is None:
             return self.proxies
-        roles = set(self.current_profile["native_roles"])
-        return [proxy for proxy in self.proxies if getattr(proxy, "role", None) in roles]
+        lights = set(self.current_profile["native_roles"])
+        return [proxy for proxy in self.proxies if getattr(proxy, "light", None) in lights]
 
     def fresh_off(self):
         return any(s.get("healthy") and s.get("native_on") is False
@@ -63,8 +67,8 @@ class VideoOutput:
     def safe(self, starting=False):
         proxies = self.selected_proxies()
         snapshots = [proxy.snapshot() for proxy in proxies]
-        complete = (len(snapshots) == 4 if self.current_profile is None else
-                    {getattr(proxy, "role", None) for proxy in proxies}
+        complete = (len(snapshots) == len(self.proxies) if self.current_profile is None else
+                    {getattr(proxy, "light", None) for proxy in proxies}
                     == set(self.current_profile["native_roles"]))
         allowed = complete and all(
             s.get("healthy")
@@ -113,8 +117,7 @@ class VideoOutput:
             loader = getattr(self.controller.layout_store, "sync_profile", None)
             self.current_profile = loader() if loader is not None else None
             membership = (frozenset(self.current_profile["native_roles"])
-                          if self.current_profile is not None else
-                          frozenset(("strip", "hue_left", "hue_center", "hue_right")))
+                          if self.current_profile is not None else self.all_native())
             if membership != self.native_membership:
                 self.blocked_session = None
                 self.next_retry = 0

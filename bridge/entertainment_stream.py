@@ -138,17 +138,45 @@ def decode_frame(data):
     return result
 
 
-def native_colors(frame, scales=None):
-    mapping = {0: 12, 1: 11, 2: 13, **{i + 3: i + 2 for i in range(9)}}
-    factors = {0: 0.5, **{i: 1 for i in range(1, 12)}}
-    if scales is not None:
-        for channel in mapping:
-            role = {0: "hue_center", 1: "hue_left", 2: "hue_right"}.get(channel, "strip")
-            factors[channel] = scales.get(role, factors[channel])
-    return {
-        channel: tuple(round(value * factors[channel]) for value in frame[source])
-        for channel, source in mapping.items()
-    }
+# Capture channels that feed each native Hue light, in segment order. Only the
+# migrated lights have them until new Hue lights are projected (#7 stage 5b).
+NATIVE_SOURCES = {
+    "play-center": (12,), "play-left": (11,), "play-right": (13,),
+    "hue-monitor": tuple(range(2, 11)),
+}
+# Canonical native channels of the migrated area (see NativeHueProfile.channels).
+MIGRATED_NATIVE_CHANNELS = {
+    "play-center": (0,), "play-left": (1,), "play-right": (2,),
+    "hue-monitor": tuple(range(3, 12)),
+}
+# Brightness scale of a native light without a layout row; the migrated center
+# Play light sits closest to the viewer.
+DEFAULT_SCALES = {"play-center": 0.5}
+
+
+def default_scale(light):
+    """Return the brightness scale of native light ``light`` without a layout row."""
+    return DEFAULT_SCALES.get(light, 1)
+
+
+def native_colors(frame, scales=None, channels=None):
+    """Return ``{canonical channel: RGB16}`` for the native lights.
+
+    ``channels`` maps each native light id to its canonical channels (the
+    profile's ``channels``); it defaults to the migrated area. ``scales`` maps a
+    light id to its brightness scale. A light without capture sources gets no
+    channels.
+    """
+    channels = MIGRATED_NATIVE_CHANNELS if channels is None else channels
+    result = {}
+    for light, ids in channels.items():
+        sources = NATIVE_SOURCES.get(light)
+        if sources is None or len(sources) != len(ids):
+            continue
+        factor = (scales or {}).get(light, default_scale(light))
+        for channel, source in zip(ids, sources):
+            result[channel] = tuple(round(value * factor) for value in frame[source])
+    return dict(sorted(result.items()))
 
 
 class FrameBuffer:

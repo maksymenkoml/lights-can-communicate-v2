@@ -16,14 +16,13 @@ from pathlib import Path
 ROLES = {
     "govee-left": "left",
     "govee-right": "right",
-    "hue-monitor": "strip",
-    "play-left": "hue_left",
-    "play-center": "hue_center",
-    "play-right": "hue_right",
+    "hue-monitor": "hue-monitor",
+    "play-left": "play-left",
+    "play-center": "play-center",
+    "play-right": "play-right",
 }
-# The Govee rows are addressed by their row (light) id; only the Hue rows have a role name.
+# Every row is addressed by its row (registry light) id.
 GOVEE_ROWS = ("govee-left", "govee-right")
-HUE_ROLES = {row: role for row, role in ROLES.items() if row not in GOVEE_ROWS}
 PREVIEW_FIELDS = {
     "id",
     "scale",
@@ -362,8 +361,8 @@ class LayoutStore:
 
     @staticmethod
     def _row(device, key):
-        """True when ``key`` is the row's id (a light id) or the role of a Hue row."""
-        return device["id"] == key or HUE_ROLES.get(device["id"]) == key
+        """True when ``key`` is the row's id (a registry light id)."""
+        return device["id"] == key
 
     def scale(self, key, fallback):
         data = self.snapshot()
@@ -374,14 +373,11 @@ class LayoutStore:
         return fallback
 
     def names(self):
-        """Return ``{key: name}`` for the role lamps that have an owner name.
-
-        The key is the Govee light id or the role of a Hue lamp.
-        """
+        """Return ``{light id: name}`` for the role lamps that have an owner name."""
         data = self.snapshot()
         if not data:
             return {}
-        return {HUE_ROLES.get(device["id"], device["id"]): device["name"]
+        return {device["id"]: device["name"]
                 for device in data["devices"] if device["id"] in ROLES and "name" in device}
 
     def scene_scale(self, key, fallback):
@@ -425,7 +421,7 @@ class LayoutStore:
         data = self.snapshot()
         if not data:
             return []
-        return [HUE_ROLES.get(device["id"], device["id"]) for device in data["devices"]
+        return [device["id"] for device in data["devices"]
                 if device["id"] in ROLES and device.get("enabled", True)
                 and device.get("syncRole") == "off"]
 

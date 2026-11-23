@@ -81,7 +81,7 @@ class ProfileClientIntegrationTests(unittest.TestCase):
         self.profile = NativeHueProfile.from_dict(profile_data())
 
     def test_explicit_profile_routes_each_light_without_credential_light_hint(self):
-        for role, resource in self.profile.light_ids.items():
+        for light, resource in self.profile.light_ids.items():
             calls = []
 
             def request(method, path, body):
@@ -102,19 +102,21 @@ class ProfileClientIntegrationTests(unittest.TestCase):
                 ("GET", "/clip/v2/resource/light/" + resource, None),
                 ("PUT", "/clip/v2/resource/light/" + resource, body),
             ])
-            proxy = HueStripProxy(client, role=role)
+            proxy = HueStripProxy(client, light)
             self.assertIs(proxy.profile, self.profile)
+            self.assertEqual(proxy.light, light)
             self.assertEqual(proxy.resource_id, resource)
-            self.assertEqual(proxy.brightness_scale, 0.5 if role == "hue_center" else 1)
-        default = PinnedHueClient(hue_config(), profile=self.profile)
-        self.assertEqual(default.resource_id, STRIP)
+            self.assertEqual(proxy.brightness_scale, 0.5 if light == "play-center" else 1)
+        # No light is chosen by default: the resource must always be explicit.
+        with self.assertRaises(ValueError):
+            PinnedHueClient(hue_config(), profile=self.profile)
 
     def test_explicit_profile_rejects_unknown_area_service_and_unselected_resources(self):
         for resource in (OTHER, AREA, CENTER_SERVICE, ZERO, "", []):
             with self.subTest(resource=resource), self.assertRaises(ValueError):
                 PinnedHueClient(hue_config(), resource_id=resource, profile=self.profile)
         client = PinnedHueClient(hue_config(), requester=lambda *_: {"data": [{"id": OTHER}]},
-                                 profile=self.profile)
+                                 resource_id=STRIP, profile=self.profile)
         with self.assertRaises(ValueError):
             client.read()
         client.requester = lambda *_: {"data": [{"rid": OTHER}]}
@@ -127,25 +129,30 @@ class ProfileClientIntegrationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     PinnedHueClient(hue_config(), profile=invalid)
                 with self.assertRaises(ValueError):
-                    HueStripProxy(types.SimpleNamespace(resource_id=STRIP), profile=invalid)
+                    HueStripProxy(types.SimpleNamespace(resource_id=STRIP), "hue-monitor",
+                                  profile=invalid)
                 with self.assertRaises(ValueError):
                     HueEntertainmentRelay(stream_config(), profile=invalid)
 
-    def test_proxy_requires_matching_role_and_consistent_client_profile(self):
-        client = PinnedHueClient(hue_config(), profile=self.profile)
-        self.assertIs(HueStripProxy(client, profile=self.profile).profile, self.profile)
-        self.assertIs(HueStripProxy(client).profile, self.profile)
-        with self.assertRaises(ValueError):
-            HueStripProxy(client, role="hue_left", profile=self.profile)
+    def test_proxy_requires_matching_light_and_consistent_client_profile(self):
+        client = PinnedHueClient(hue_config(), resource_id=STRIP, profile=self.profile)
+        self.assertIs(HueStripProxy(client, "hue-monitor", profile=self.profile).profile,
+                      self.profile)
+        self.assertIs(HueStripProxy(client, "hue-monitor").profile, self.profile)
+        # Another profile light, the old role name and a Govee light do not match.
+        for light in ("play-left", "strip", "govee-left"):
+            with self.subTest(light=light), self.assertRaises(ValueError):
+                HueStripProxy(client, light, profile=self.profile)
         other_data = profile_data()
         other_data["lights"]["strip"] = OTHER
         other_profile = NativeHueProfile.from_dict(other_data)
         with self.assertRaises(ValueError):
-            HueStripProxy(client, profile=other_profile)
+            HueStripProxy(client, "hue-monitor", profile=other_profile)
         with self.assertRaises(ValueError):
-            HueStripProxy(types.SimpleNamespace(resource_id=STRIP, profile={}))
+            HueStripProxy(types.SimpleNamespace(resource_id=STRIP, profile={}), "hue-monitor")
         with self.assertRaises(ValueError):
-            HueStripProxy(types.SimpleNamespace(resource_id=OTHER), profile=self.profile)
+            HueStripProxy(types.SimpleNamespace(resource_id=OTHER), "hue-monitor",
+                          profile=self.profile)
 
     def test_credential_light_hints_cannot_authorize_output_without_profile(self):
         config = {**hue_config(), "light": STRIP_ID}
@@ -153,7 +160,7 @@ class ProfileClientIntegrationTests(unittest.TestCase):
             with self.subTest(resource=resource), self.assertRaises(ValueError):
                 PinnedHueClient(config, resource_id=resource)
         with self.assertRaises(ValueError):
-            HueStripProxy(types.SimpleNamespace(resource_id=STRIP_ID))
+            HueStripProxy(types.SimpleNamespace(resource_id=STRIP_ID), "hue-monitor")
 
 
 class ProfileRelayIntegrationTests(unittest.TestCase):
@@ -321,12 +328,17 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         self.assertEqual(len(objects["HueEntertainmentRelay"]), 1)
         profile = objects["PinnedHueClient"][0].profile
         self.assertIsInstance(profile, NativeHueProfile)
-        self.assertEqual(profile.to_dict(), profile_data())
+        self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
         for instances in objects.values():
             for instance in instances:
                 self.assertIs(instance.profile, profile)
+        # One client and proxy per profile light, in the profile's channel order.
         self.assertEqual([instance.resource_id for instance in objects["PinnedHueClient"]],
-                         [STRIP, LEFT, CENTER, RIGHT])
+                         [CENTER, LEFT, RIGHT, STRIP])
+        self.assertEqual([instance.light for instance in objects["HueStripProxy"]],
+                         ["play-center", "play-left", "play-right", "hue-monitor"])
+        self.assertEqual([instance.resource_id for instance in objects["HueStripProxy"]],
+                         [CENTER, LEFT, RIGHT, STRIP])
 
     def test_relative_profile_path_is_a_migration_input_and_arguments_pass_the_registry(self):
         config = self.config()

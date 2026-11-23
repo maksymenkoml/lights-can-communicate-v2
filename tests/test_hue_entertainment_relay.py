@@ -85,32 +85,34 @@ class RelayTests(unittest.TestCase):
         return {row[0]: row[1:] for row in (struct.unpack("!BHHH", frame[i:i + 7])
                                             for i in range(52, len(frame), 7))}
 
-    def test_an_override_replaces_only_its_roles_channels_until_released(self):
+    def test_an_override_replaces_only_its_lights_channels_until_released(self):
         self.assertTrue(self.relay.start())
         frame = {i: (1000, 2000, 3000) for i in range(14)}
-        self.assertFalse(self.relay.streams("hue_left"), "no frame sent yet")
+        self.assertFalse(self.relay.streams("play-left"), "no frame sent yet")
         self.relay.send(frame)
-        self.assertTrue(self.relay.streams("hue_left"))
-        self.relay.override("hue_left", (65535, 65535, 65535))
+        self.assertTrue(self.relay.streams("play-left"))
+        self.relay.override("play-left", (65535, 65535, 65535))
         self.relay.send(frame)
         shown = self.channels(self.connection.frames[-1])
         self.assertEqual(shown[1], (65535, 65535, 65535))
         self.assertNotEqual(shown[0], (65535, 65535, 65535))
         self.assertTrue(all(shown[c] != (65535, 65535, 65535) for c in range(2, 12)))
-        self.relay.override("strip", (0, 0, 0))
+        self.relay.override("hue-monitor", (0, 0, 0))
         self.relay.send(frame)
         shown = self.channels(self.connection.frames[-1])
         self.assertTrue(all(shown[c] == (0, 0, 0) for c in range(3, 12)))
-        self.relay.override("hue_left", None)
-        self.relay.override("strip", None)
+        self.relay.override("play-left", None)
+        self.relay.override("hue-monitor", None)
         self.relay.send(frame)
         self.assertNotEqual(self.channels(self.connection.frames[-1])[1], (65535, 65535, 65535))
-        self.relay.override("strip", (0, 0, 0))
+        self.relay.override("hue-monitor", (0, 0, 0))
         self.relay.stop()
         self.assertEqual(self.relay.overrides, {}, "stop ends every override")
-        self.assertFalse(self.relay.streams("strip"))
-        with self.assertRaises(ValueError):
-            self.relay.override("left", (0, 0, 0))
+        self.assertFalse(self.relay.streams("hue-monitor"))
+        # Govee sides and old role names are not native lights.
+        for light in ("left", "strip", "hue_left"):
+            with self.subTest(light=light), self.assertRaises(ValueError):
+                self.relay.override(light, (0, 0, 0))
 
     def test_foreign_stream_is_never_taken_over_or_stopped(self):
         self.area.update(status="active", active_streamer={"rid": "foreign"})

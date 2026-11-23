@@ -33,7 +33,7 @@ def state():
 
 def command(sequence=1, **values):
     return {
-        "light": "strip",
+        "light": "hue-monitor",
         "state": state(),
         "transitiontime": 47,
         "session": "scene-session",
@@ -75,9 +75,10 @@ class HueStripTests(unittest.TestCase):
 
     def test_center_play_halves_each_scene_brightness_and_restores_without_double_scaling(self):
         client = FakeHue()
-        client.resource_id = PLAY_IDS["hue_center"]
+        client.resource_id = PLAY_IDS["play-center"]
         client.native["id"] = client.resource_id
-        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000, role="hue_center")
+        proxy = HueStripProxy(client, "play-center", clock=lambda: 10,
+                              wall_clock=lambda: 1000)
         value = {
             "on": True,
             "bri": 254,
@@ -85,13 +86,13 @@ class HueStripTests(unittest.TestCase):
             "xy": [0.2, 0.3],
             "_changed": ["on", "bri", "xy"],
         }
-        proxy.submit(command(light="hue_center", state=value))
+        proxy.submit(command(light="play-center", state=value))
         self.assertTrue(proxy.process_once())
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 50)
         self.assertEqual(client.writes[-1]["color"]["xy"], {"x": 0.2, "y": 0.3})
         self.assertEqual(client.writes[-1]["dynamics"]["duration"], 4700)
         value.update({"bri": 127, "_changed": ["bri"]})
-        proxy.submit(command(sequence=2, light="hue_center", state=value))
+        proxy.submit(command(sequence=2, light="play-center", state=value))
         self.assertTrue(proxy.process_once())
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 25)
         self.assertNotIn("color", client.writes[-1])
@@ -107,9 +108,9 @@ class HueStripTests(unittest.TestCase):
         self.assertTrue(self.proxy.process_once())
         self.assertEqual(self.client.writes[-1]["dimming"]["brightness"], 100)
 
-    def test_confirmed_play_roles_pin_their_own_ids_without_allowing_other_hue_devices(self):
+    def test_confirmed_play_lights_pin_their_own_ids_without_allowing_other_hue_devices(self):
         requests = []
-        selected = PLAY_IDS["hue_left"]
+        selected = PLAY_IDS["play-left"]
 
         def request(method, path, body):
             requests.append((method, path, body))
@@ -127,7 +128,7 @@ class HueStripTests(unittest.TestCase):
 
     def test_native_power_is_a_separate_confirmed_write_for_the_pinned_light(self):
         requests, state = [], {"on": False}
-        selected = PLAY_IDS["hue_left"]
+        selected = PLAY_IDS["play-left"]
 
         def request(method, path, body):
             requests.append((method, path, body))
@@ -139,8 +140,7 @@ class HueStripTests(unittest.TestCase):
         client = PinnedHueClient({"bridge": "192.168.10.21", "hue_key": "test"},
                                  requester=request, resource_id=selected,
                                  profile=NativeHueProfile.from_dict(profile_data()))
-        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000,
-                              role="hue_left")
+        proxy = HueStripProxy(client, "play-left", clock=lambda: 10, wall_clock=lambda: 1000)
         self.assertTrue(proxy.set_power(True, sleep=lambda _: None))
         self.assertEqual(requests[0], ("PUT", "/clip/v2/resource/light/" + selected,
                                        {"on": {"on": True}}))
@@ -155,17 +155,18 @@ class HueStripTests(unittest.TestCase):
     def test_native_power_that_does_not_read_back_is_not_confirmed(self):
         client = FakeHue()
         client.power = lambda on: None
-        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000)
+        proxy = HueStripProxy(client, "hue-monitor", clock=lambda: 10, wall_clock=lambda: 1000)
         self.assertFalse(proxy.set_power(False, attempts=3, sleep=lambda _: None))
         # Status still reports the light's actual power from the read-back.
         self.assertTrue(proxy.snapshot()["native_on"])
 
-    def test_play_proxy_accepts_only_its_configured_role(self):
+    def test_play_proxy_accepts_only_its_configured_light(self):
         client = FakeHue()
-        client.resource_id = PLAY_IDS["hue_left"]
+        client.resource_id = PLAY_IDS["play-left"]
         client.native["id"] = client.resource_id
         client.native.pop("gradient")
-        proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000, role="hue_left")
+        proxy = HueStripProxy(client, "play-left", clock=lambda: 10,
+                              wall_clock=lambda: 1000)
         value = {
             "on": True,
             "bri": 198,
@@ -173,18 +174,18 @@ class HueStripTests(unittest.TestCase):
             "xy": [0.2, 0.3],
             "_changed": ["on", "bri", "xy"],
         }
-        proxy.submit(command(light="hue_left", state=value))
+        proxy.submit(command(light="play-left", state=value))
         self.assertTrue(proxy.process_once())
         self.assertNotIn("on", client.writes[-1])
         with self.assertRaises(ValueError):
-            proxy.submit(command(sequence=2, light="hue_right", state=value))
+            proxy.submit(command(sequence=2, light="play-right", state=value))
 
     def setUp(self):
         self.client = FakeHue()
         self.now = 10.0
         self.wall = 1000.0
         self.proxy = HueStripProxy(
-            self.client, clock=lambda: self.now, wall_clock=lambda: self.wall
+            self.client, "hue-monitor", clock=lambda: self.now, wall_clock=lambda: self.wall
         )
 
     def test_gradient_points_and_duration_preserved_without_power_fields(self):
@@ -286,7 +287,8 @@ class HueStripTests(unittest.TestCase):
         for changed in (["on", "transitiontime"], ["on", "bri"], ["on", "bri", "transitiontime"]):
             with self.subTest(changed=changed):
                 client = FakeHue()
-                proxy = HueStripProxy(client, clock=lambda: 10, wall_clock=lambda: 1000)
+                proxy = HueStripProxy(client, "hue-monitor", clock=lambda: 10,
+                                      wall_clock=lambda: 1000)
                 proxy.submit(command(state={"on": False}))
                 value = state()
                 value.update({"_changed": changed, "_color_kind": "gradient"})
@@ -316,6 +318,10 @@ class HueStripTests(unittest.TestCase):
     def test_pinned_client_rejects_other_resource_and_power_write(self):
         with self.assertRaises(ValueError):
             PinnedHueClient({"bridge": "192.168.10.21", "hue_key": "test", "light": "other"})
+        # The resource is always explicit: neither the config nor a default chooses it.
+        with self.assertRaises(ValueError):
+            PinnedHueClient({"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID},
+                            profile=NativeHueProfile.from_dict(profile_data()))
         requests = []
 
         def request(method, path, body):
@@ -324,7 +330,7 @@ class HueStripTests(unittest.TestCase):
 
         client = PinnedHueClient(
             {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID}, requester=request,
-            profile=NativeHueProfile.from_dict(profile_data()),
+            resource_id=STRIP_ID, profile=NativeHueProfile.from_dict(profile_data()),
         )
         client.read()
         client.write(hue_payload(state(), 47))
@@ -340,7 +346,7 @@ class FakeNames:
     def names(self):
         return dict(self.value)
 
-    def scale(self, role, fallback):
+    def scale(self, light, fallback):
         return fallback
 
 
@@ -357,7 +363,7 @@ class OwnerNameTests(unittest.TestCase):
 
         client = PinnedHueClient(
             {"bridge": "192.168.10.21", "hue_key": "test"}, requester=request,
-            profile=NativeHueProfile.from_dict(profile_data()))
+            resource_id=STRIP_ID, profile=NativeHueProfile.from_dict(profile_data()))
         return client, requests
 
     def test_rename_sends_only_the_name_and_refuses_unusable_names(self):
@@ -377,23 +383,23 @@ class OwnerNameTests(unittest.TestCase):
     def test_the_name_is_written_once_per_layout_change(self):
         client, requests = self.pinned()
         store = FakeNames({})
-        proxy = HueStripProxy(client, layout_store=store, clock=lambda: 10)
+        proxy = HueStripProxy(client, "hue-monitor", layout_store=store, clock=lambda: 10)
         writes = lambda: [r for r in requests if r[0] == "PUT"]  # noqa: E731
         # No owner name: nothing is read or written, however often it runs.
         self.assertFalse(proxy.sync_owner_name())
         self.assertEqual(requests, [])
-        store.value = {"strip": "Desk strip"}
+        store.value = {"hue-monitor": "Desk strip"}
         self.assertTrue(proxy.sync_owner_name())
         self.assertEqual([r[2] for r in writes()], [{"metadata": {"name": "Desk strip"}}])
         count = len(requests)
         for _ in range(3):
             self.assertFalse(proxy.sync_owner_name())
         self.assertEqual(len(requests), count)
-        # Another role's name never reaches this light.
-        store.value = {"strip": "Desk strip", "hue_left": "Left"}
+        # Another light's name never reaches this light.
+        store.value = {"hue-monitor": "Desk strip", "play-left": "Left"}
         self.assertFalse(proxy.sync_owner_name())
         self.assertEqual(len(requests), count)
-        store.value = {"strip": "Monitor bar"}
+        store.value = {"hue-monitor": "Monitor bar"}
         self.assertTrue(proxy.sync_owner_name())
         self.assertEqual(writes()[-1][2], {"metadata": {"name": "Monitor bar"}})
         # Removing the owner name leaves the light's name alone.
@@ -403,7 +409,8 @@ class OwnerNameTests(unittest.TestCase):
 
     def test_a_light_that_already_has_the_name_is_not_written(self):
         client, requests = self.pinned(light_name="Desk strip")
-        proxy = HueStripProxy(client, layout_store=FakeNames({"strip": "Desk strip"}),
+        proxy = HueStripProxy(client, "hue-monitor",
+                              layout_store=FakeNames({"hue-monitor": "Desk strip"}),
                               clock=lambda: 10)
         self.assertFalse(proxy.sync_owner_name())
         self.assertEqual([r[0] for r in requests], ["GET"])
@@ -412,8 +419,8 @@ class OwnerNameTests(unittest.TestCase):
 
     def test_a_name_set_in_the_hue_app_stays_until_the_layout_name_changes(self):
         client, requests = self.pinned()
-        store = FakeNames({"strip": "Desk strip"})
-        proxy = HueStripProxy(client, layout_store=store, clock=lambda: 10)
+        store = FakeNames({"hue-monitor": "Desk strip"})
+        proxy = HueStripProxy(client, "hue-monitor", layout_store=store, clock=lambda: 10)
         proxy.sync_owner_name()
         client.rename("Chosen in Hue app")
         count = len(requests)
@@ -429,7 +436,8 @@ class OwnerNameTests(unittest.TestCase):
                 calls.append("read")
                 raise OSError("bridge unreachable")
 
-        proxy = HueStripProxy(Broken(), layout_store=FakeNames({"strip": "Desk strip"}),
+        proxy = HueStripProxy(Broken(), "hue-monitor",
+                              layout_store=FakeNames({"hue-monitor": "Desk strip"}),
                               clock=lambda: clock[0])
         self.assertFalse(proxy.sync_owner_name())
         self.assertFalse(proxy.sync_owner_name())
@@ -480,7 +488,8 @@ class KeptAliveClientTests(unittest.TestCase):
 
         client = PinnedHueClient(
             {"bridge": "192.168.10.21", "hue_key": "test", "light": STRIP_ID},
-            profile=NativeHueProfile.from_dict(profile_data()), connection_factory=factory)
+            resource_id=STRIP_ID, profile=NativeHueProfile.from_dict(profile_data()),
+            connection_factory=factory)
         return client, made
 
     def test_requests_reuse_one_connection(self):

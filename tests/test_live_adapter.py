@@ -38,17 +38,17 @@ def command(sequence=1, xy=(0.7, 0.299), **values):
 
 
 class LiveAdapterTests(unittest.TestCase):
-    def test_http_routes_each_confirmed_hue_play_role_and_rejects_unknown_role(self):
+    def test_http_routes_each_confirmed_hue_play_light_and_rejects_unknown_light(self):
         from hue_strip_proxy import HueStripProxy
         from test_hue_strip_proxy import FakeHue
         from test_native_profile import PLAY_IDS
 
         proxies = {}
-        for role, resource in PLAY_IDS.items():
+        for light, resource in PLAY_IDS.items():
             client = FakeHue()
             client.resource_id = resource
             client.native["id"] = resource
-            proxies[role] = HueStripProxy(client, wall_clock=lambda: 1000, role=role)
+            proxies[light] = HueStripProxy(client, light, wall_clock=lambda: 1000)
         from entertainment_stream import VideoLease
         from test_entertainment_stream import envelope
 
@@ -56,7 +56,7 @@ class LiveAdapterTests(unittest.TestCase):
         server = ThreadingHTTPServer(
             ("127.0.0.1", 0),
             adapter.handler_for(
-                self.controller, "test", hue_play_proxies=proxies, video_output=lease
+                self.controller, "test", hue_proxies=proxies, video_output=lease
             ),
         )
         worker = threading.Thread(target=server.serve_forever)
@@ -73,28 +73,35 @@ class LiveAdapterTests(unittest.TestCase):
             with opener.open(request) as response:
                 self.assertTrue(json.load(response)["accepted"])
             self.assertTrue(lease.active())
-            for role in PLAY_IDS:
+            for light in PLAY_IDS:
                 request = urllib.request.Request(
                     url + "/command",
-                    data=json.dumps(command(light=role)).encode(),
+                    data=json.dumps(command(light=light)).encode(),
                     headers={"X-Adapter-Token": "test"},
                     method="POST",
                 )
                 with opener.open(request) as response:
                     self.assertTrue(json.load(response)["accepted"])
-                self.assertIsNotNone(proxies[role].desired)
-            request = urllib.request.Request(
-                url + "/command",
-                data=json.dumps(command(light="other_hue")).encode(),
-                headers={"X-Adapter-Token": "test"},
-                method="POST",
-            )
-            with self.assertRaises(urllib.error.HTTPError) as rejected:
-                opener.open(request)
-            self.assertEqual(rejected.exception.code, 400)
+                self.assertIsNotNone(proxies[light].desired)
+            # An unknown light and an old role name are both refused.
+            for light in ("other_hue", "hue_left"):
+                request = urllib.request.Request(
+                    url + "/command",
+                    data=json.dumps(command(light=light)).encode(),
+                    headers={"X-Adapter-Token": "test"},
+                    method="POST",
+                )
+                with self.subTest(light=light), \
+                        self.assertRaises(urllib.error.HTTPError) as rejected:
+                    opener.open(request)
+                rejected.exception.close()
+                self.assertEqual(rejected.exception.code, 400)
             request = urllib.request.Request(url + "/status", headers={"X-Adapter-Token": "test"})
             with opener.open(request) as response:
-                self.assertEqual(set(json.load(response)["hue_play"]), set(PLAY_IDS))
+                status = json.load(response)
+            self.assertEqual(set(status["hue"]), set(PLAY_IDS))
+            self.assertNotIn("hue_play", status)
+            self.assertNotIn("hue_strip", status)
         finally:
             server.shutdown()
             server.server_close()

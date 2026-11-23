@@ -50,15 +50,15 @@ def rename_legacy(config):
                 resource.name = replacement
 
 
-# Virtual light slot of each adapter role (see ``BridgeOutput.slots``).
-SLOT_ROLES = {"1": "govee-left", "2": "govee-right", "3": "strip",
-              "4": "hue_left", "5": "hue_center", "6": "hue_right"}
+# Registry light id behind each migrated virtual light slot (see ``BridgeOutput.slots``).
+SLOT_ROLES = {"1": "govee-left", "2": "govee-right", "3": "hue-monitor",
+              "4": "play-left", "5": "play-center", "6": "play-right"}
 
 
 class OwnerNames:
     """Give the virtual lights the names the owner set in Light Studio.
 
-    ``names()`` returns ``{role: name}`` for the roles that have an owner name.
+    ``names()`` returns ``{light id: name}`` for the lamps that have an owner name.
     A light is renamed when its owner name differs from the last one this
     object applied, which is at the first call and after each layout change.
     Without an owner name the light keeps its current name, and a later rename

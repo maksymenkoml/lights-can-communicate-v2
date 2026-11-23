@@ -17,7 +17,7 @@ class HuePowerRequests:
     # Pinned native Hue lights; their power belongs to the genuine Hue bridge.
     # The bridge passes the same slot map it uses for color, so every native
     # light enrolled for output also gets power; this is the default layout.
-    NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
+    NATIVE_SLOTS = {"3": "hue-monitor", "4": "play-left", "5": "play-center", "6": "play-right"}
 
     def __init__(self, url, token, lights, groups, feedback, sender=None, enabled=lambda: True,
                  native_sender=None, native_slots=None, slots=None):
@@ -44,8 +44,8 @@ class HuePowerRequests:
             if type(result) is not dict or result.get("accepted") is not True:
                 raise ValueError("Power was not confirmed")
 
-    def send_native(self, roles):
-        self._post("/native-power", {"roles": roles})
+    def send_native(self, lights):
+        self._post("/native-power", {"lights": lights})
 
     def send(self, states):
         self._post("/power-request", {"id": uuid.uuid4().hex, "issued_at": time.time(),

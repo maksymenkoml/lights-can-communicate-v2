@@ -1,4 +1,4 @@
-"""Proxy only the selected monitor strip and confirmed Play lights through their bridge."""
+"""Proxy only the native Hue lights of the profile through their bridge."""
 
 import copy
 import http.client
@@ -9,15 +9,16 @@ import threading
 import time
 
 from bridge_output import strip_changes
+from entertainment_stream import default_scale
 
 import lights_can_communicate_v2 as lan
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 # Hue bridges accept at most 32 characters in a light's name. The layout limits
-# the Hue role names to the same length, so a longer name is refused, not cut.
+# the Hue lamp names to the same length, so a longer name is refused, not cut.
 HUE_NAME_MAX = 32
 NAME_RETRY_SECONDS = 30
-HUE_BRIGHTNESS_SCALES = {"strip": 1.0, "hue_left": 1.0, "hue_center": 0.5, "hue_right": 1.0}
+
 
 
 def finite(value, low, high):
@@ -95,7 +96,7 @@ class PinnedHueClient:
         if not isinstance(profile, NativeHueProfile):
             raise ValueError("An explicit native Hue profile is required")
         self.profile = profile
-        self.resource_id = profile.strip_id if resource_id is None else resource_id
+        self.resource_id = resource_id
         if (not isinstance(self.resource_id, str)
                 or self.resource_id not in profile.resource_ids):
             raise ValueError("Only the selected profile Hue lights are allowed")
@@ -219,7 +220,7 @@ def merge_hue_body(previous, update):
 
 class HueStripProxy:
     def __init__(
-        self, client, clock=time.monotonic, wall_clock=time.time, role="strip", layout_store=None,
+        self, client, light, clock=time.monotonic, wall_clock=time.time, layout_store=None,
         preview=None, profile=None,
     ):
         client_profile = getattr(client, "profile", None)
@@ -233,12 +234,13 @@ class HueStripProxy:
             raise ValueError("An explicit native Hue profile is required")
         self.layout_store = layout_store
         self.preview = preview
-        self.role = role
+        # The registry id of the native light; commands and layout rows use it.
+        self.light = light
         resources = self.profile.light_ids
-        self.resource_id = getattr(client, "resource_id", resources["strip"])
-        if role not in resources or resources[role] != self.resource_id:
-            raise ValueError("Hue role does not match the selected resource")
-        self.brightness_scale = HUE_BRIGHTNESS_SCALES[role]
+        self.resource_id = getattr(client, "resource_id", None)
+        if light not in resources or resources[light] != self.resource_id:
+            raise ValueError("Hue light does not match the selected resource")
+        self.brightness_scale = default_scale(light)
         self.applied_scale = self.layout_factor()
         self.client, self.clock, self.wall_clock = client, clock, wall_clock
         self.command_lock = threading.RLock()
@@ -263,23 +265,23 @@ class HueStripProxy:
         self.name_failed = float("-inf")
 
     def layout_factor(self):
-        """Return the scene correction times the role's scene fade gain."""
+        """Return the scene correction times the light's scene fade gain."""
         store = self.layout_store
         if store is None:
             return self.brightness_scale
-        scale = getattr(store, "scene_scale", store.scale)(self.role, self.brightness_scale)
+        scale = getattr(store, "scene_scale", store.scale)(self.light, self.brightness_scale)
         loader = getattr(store, "scene_fade", None)
         fade = loader() if loader is not None else None
-        return scale * (fade.get(self.role, 1) if fade else 1)
+        return scale * (fade.get(self.light, 1) if fade else 1)
 
     def submit(self, payload):
         if (
             not isinstance(payload, dict)
             or set(payload)
             != {"light", "state", "transitiontime", "session", "sequence", "issued_at"}
-            or payload["light"] != self.role
+            or payload["light"] != self.light
         ):
-            raise ValueError("Invalid strip command")
+            raise ValueError("Invalid Hue command")
         session = payload["session"]
         sequence = payload["sequence"]
         if (
@@ -333,7 +335,7 @@ class HueStripProxy:
     def included(self):
         # Scenes keep every present lamp, including those with their own light in Sync.
         present = getattr(self.layout_store, "present", None)
-        return present(self.role) if present is not None else True
+        return present(self.light) if present is not None else True
 
     def govee_allowed(self):
         if not self.included():
@@ -420,7 +422,7 @@ class HueStripProxy:
                     self.client.write(body)
                     if self.preview is not None:
                         try:
-                            self.preview.record_hue(self.role, body)
+                            self.preview.record_hue(self.light, body)
                         except Exception:
                             pass  # Passive telemetry cannot change successful output.
                 self.applied = self.generation
@@ -472,7 +474,7 @@ class HueStripProxy:
         NAME_RETRY_SECONDS. Returns True after a write.
         """
         names = getattr(self.layout_store, "names", None)
-        name = names().get(self.role) if names is not None else None
+        name = names().get(self.light) if names is not None else None
         if (name is None or name == self.named
                 or self.clock() - self.name_failed < NAME_RETRY_SECONDS):
             return False

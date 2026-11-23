@@ -16,6 +16,7 @@ from lights_can_communicate_v2_core.light_registry import (
     ensure,
     migrate,
 )
+from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 ROOT = Path(__file__).resolve().parents[1]
 STRIP = "a1111111-1111-4111-8111-111111111111"
@@ -116,7 +117,7 @@ class RegistryModelTests(unittest.TestCase):
         updated = registry.with_govee_targets(targets)
         self.assertEqual(updated.govee_targets(), targets)
         self.assertEqual(updated.ids, registry.ids)
-        self.assertEqual(updated.native_profile().to_dict(), registry.native_profile().to_dict())
+        self.assertEqual(updated.native_profile(), registry.native_profile())
         self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
         for bad in (None, [], targets[:1], [targets[0], targets[0]],
                     [targets[0], {**targets[1], "light": "govee-middle"}],
@@ -145,7 +146,8 @@ class RegistryModelTests(unittest.TestCase):
             hue_light("play-right", lights["hue_right"],
                       [(2, channels[2]["rid"], 0)], "6", "HuePlayRight"),
         ]
-        self.assertEqual(LightRegistry.from_dict(data).native_profile().to_dict(), profile)
+        self.assertEqual(LightRegistry.from_dict(data).native_profile(),
+                         NativeHueProfile.from_dict(profile))
 
     def test_govee_only_has_no_profile(self):
         registry = LightRegistry.from_dict(sample(hue=False))
@@ -392,7 +394,7 @@ class MigrationTests(unittest.TestCase):
     def test_migrate_example_round_trips_behavior(self):
         registry = migrate(self.targets, self.profile)
         self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
-        self.assertEqual(registry.native_profile().to_dict(), example_profile())
+        self.assertEqual(registry.native_profile(), NativeHueProfile.from_dict(example_profile()))
         self.assertEqual(registry.ids, (
             "govee-left", "govee-right", "hue-monitor", "play-left", "play-center",
             "play-right"))

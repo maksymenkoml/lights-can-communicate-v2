@@ -35,8 +35,10 @@ from video_output import VideoOutput  # noqa: E402
 
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile  # noqa: E402
 
-LAMPS = {"govee-left": "govee-left", "govee-right": "govee-right", "hue-monitor": "strip",
-         "play-left": "hue_left", "play-center": "hue_center", "play-right": "hue_right"}
+# Every role lamp reaches the adapter by its registry light id.
+LAMPS = {"govee-left": "govee-left", "govee-right": "govee-right",
+         "hue-monitor": "hue-monitor", "play-left": "play-left", "play-center": "play-center",
+         "play-right": "play-right"}
 
 
 def with_roles(**roles):
@@ -105,13 +107,13 @@ class LayoutOffTests(unittest.TestCase):
             store.save(data)
             self.assertFalse(store.enabled("govee-left"))
             self.assertTrue(store.present("govee-left"))
-            self.assertFalse(store.enabled("strip"))
-            self.assertTrue(store.present("strip"))
+            self.assertFalse(store.enabled("hue-monitor"))
+            self.assertTrue(store.present("hue-monitor"))
             profile = store.sync_profile()
-            self.assertEqual(profile["enabled_roles"], ["right", "hue_right"])
-            self.assertEqual(profile["native_roles"], ["hue_right"])
+            self.assertEqual(profile["enabled_roles"], ["right", "play-right"])
+            self.assertEqual(profile["native_roles"], ["play-right"])
             # A removed row is never switched, even when it says "off".
-            self.assertEqual(store.sync_off_roles(), ["govee-left", "strip"])
+            self.assertEqual(store.sync_off_roles(), ["govee-left", "hue-monitor"])
 
 
 class SessionFixture(unittest.TestCase):
@@ -124,7 +126,8 @@ class SessionFixture(unittest.TestCase):
         self.store.save(with_roles(**{"govee-left": "off", "hue-monitor": "off"}))
         self.lamps = FakeLamps()
         self.hue = PowerHue()
-        self.strip = HueStripProxy(self.hue, clock=self.lamps.clock, wall_clock=lambda: 1000)
+        self.strip = HueStripProxy(self.hue, "hue-monitor", clock=self.lamps.clock,
+                                   wall_clock=lambda: 1000)
         self.strip.process_once()
         self.active = False
 
@@ -149,7 +152,7 @@ class SessionFixture(unittest.TestCase):
 
     def session(self, govee):
         return SyncOffSession(self.store, lambda: self.active, self.state, govee=govee,
-                              native={"strip": self.strip}, observe=self.lamps.observe,
+                              native={"hue-monitor": self.strip}, observe=self.lamps.observe,
                               clock=self.lamps.clock)
 
     def turns(self, side):
@@ -184,7 +187,7 @@ class SyncOffSessionTests(SessionFixture):
         self.assertTrue(power.snapshot()["lights"]["govee-left"]["sync_hold"])
         self.assertTrue(power.snapshot()["lights"]["govee-left"]["requested_on"])
         saved = json.loads(self.state.read_text())
-        self.assertEqual(saved, {"version": 1, "roles": ["govee-left", "strip"]})
+        self.assertEqual(saved, {"version": 1, "roles": ["govee-left", "hue-monitor"]})
         self.assertEqual(stat.S_IMODE(os.stat(self.state).st_mode), 0o600)
         self.active = False
         session.step()
@@ -221,7 +224,7 @@ class SyncOffSessionTests(SessionFixture):
         self.assertTrue(power.set({"light": "govee-left", "on": False}))
         self.assertFalse(power.sync_held("govee-left"))
         # Hue app On through the virtual bridge's native power route.
-        session.owner_power("strip")
+        session.owner_power("hue-monitor")
         self.assertEqual(json.loads(self.state.read_text())["roles"], ["govee-left"])
         # The watcher drops the Govee record once the authority dropped its hold.
         session.step()
@@ -265,7 +268,7 @@ class SyncOffSessionTests(SessionFixture):
         session.step()
         self.assertEqual(self.turns("govee-left"), [0])
         self.assertEqual(self.hue.power_calls, [False])
-        self.assertEqual(session.snapshot()["roles"], ["govee-left", "strip"])
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "hue-monitor"])
         # The owner switches the left lamp on again: it is not switched off again.
         self.assertTrue(power.set({"light": "govee-left", "on": True}))
         for _ in range(5):
@@ -273,7 +276,7 @@ class SyncOffSessionTests(SessionFixture):
             power.tick()
             session.step()
         self.assertEqual(self.turns("govee-left"), [0, 1])
-        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.assertEqual(session.snapshot()["roles"], ["hue-monitor"])
         # The strip leaves Off while Sync runs: its power comes back at once.
         self.store.save(with_roles(**{"govee-left": "off"}))
         session.step()
@@ -298,10 +301,10 @@ class SyncOffSessionTests(SessionFixture):
         self.hue.fail_power = True
         self.store.save(with_roles(**{"govee-left": "off"}))
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.assertEqual(session.snapshot()["roles"], ["hue-monitor"])
         self.hue.fail_power = False
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["strip"], "retry waits a second")
+        self.assertEqual(session.snapshot()["roles"], ["hue-monitor"], "retry waits a second")
         self.lamps.now += 1.5
         session.step()
         self.assertEqual(session.snapshot()["roles"], [])
@@ -312,15 +315,15 @@ class SyncOffSessionTests(SessionFixture):
         session = self.session(power)
         self.active = True
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["govee-left", "strip"])
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "hue-monitor"])
         self.hue.fail_power = True
         self.store.save(with_roles(**{"govee-left": "off"}))
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["govee-left", "strip"])
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "hue-monitor"])
         # The left lamp leaves Off on the next step: restored at once.
         self.store.save(with_roles())
         session.step()
-        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.assertEqual(session.snapshot()["roles"], ["hue-monitor"])
         self.assertFalse(power.sync_held("govee-left"))
         self.assertTrue(self.lamps.native["govee-left"])
 
@@ -357,7 +360,7 @@ class SyncOffSessionTests(SessionFixture):
         self.active = True
         session.step()
         self.assertEqual(self.lamps.sent, [])
-        self.assertEqual(session.snapshot()["roles"], ["strip"])
+        self.assertEqual(session.snapshot()["roles"], ["hue-monitor"])
         self.active = False
         session.step()
         self.assertEqual(self.hue.power_calls, [False, True])
@@ -421,7 +424,7 @@ class SyncOffSessionTests(SessionFixture):
         self.hue.fail_power = True
         self.active = False
         session.step()
-        self.assertEqual(json.loads(self.state.read_text())["roles"], ["strip"])
+        self.assertEqual(json.loads(self.state.read_text())["roles"], ["hue-monitor"])
         self.hue.fail_power = False
         self.lamps.now += 2
         session.step()
@@ -433,7 +436,7 @@ class SyncOffSessionTests(SessionFixture):
         self.lamps.native["govee-left"] = False
         self.hue.native["on"]["on"] = False
         self.strip.process_once()
-        self.state.write_text(json.dumps({"version": 1, "roles": ["govee-left", "strip"]}))
+        self.state.write_text(json.dumps({"version": 1, "roles": ["govee-left", "hue-monitor"]}))
         restarted = HomeKitPower(targets(), self.folder / "homekit-power.json", self.lamps.send,
                                  self.lamps.observe, clock=self.lamps.clock,
                                  sleep=self.lamps.sleep)
@@ -448,6 +451,21 @@ class SyncOffSessionTests(SessionFixture):
         session.step()
         self.assertTrue(self.lamps.native["govee-left"])
         self.assertTrue(restarted.allowed("govee-left"))
+        self.assertTrue(self.hue.native["on"]["on"])
+        self.assertFalse(self.state.exists())
+
+    def test_crash_file_with_legacy_role_names_is_restored(self):
+        power = self.homekit()
+        self.lamps.native["govee-left"] = False
+        self.hue.native["on"]["on"] = False
+        self.strip.process_once()
+        # A file written before the registry ids names the lamps by side and native role.
+        self.state.write_text(json.dumps({"version": 1, "roles": ["left", "strip"]}))
+        session = self.session(power)
+        self.assertEqual(session.snapshot()["roles"], ["govee-left", "hue-monitor"])
+        self.lamps.now += 2
+        session.step()
+        self.assertTrue(self.lamps.native["govee-left"])
         self.assertTrue(self.hue.native["on"]["on"])
         self.assertFalse(self.state.exists())
 
@@ -490,9 +508,9 @@ class FenceTests(unittest.TestCase):
                                          clock=lambda: now[0], wall_clock=lambda: 1000,
                                          layout_store=store)
             proxies = []
-            for role in ("strip", "hue_left", "hue_center", "hue_right"):
+            for light in ("hue-monitor", "play-left", "play-center", "play-right"):
                 proxy = FakeProxy()
-                proxy.role = role
+                proxy.light = light
                 proxies.append(proxy)
             # Sync switched the strip off: fresh, healthy and native Off.
             proxies[0].value["native_on"] = False
@@ -531,9 +549,10 @@ class IdentifyFixture(unittest.TestCase):
         self.controller.update_statuses({key: ({"onOff": 1, "brightness": 65}, self.now)
                                          for key in (LEFT, RIGHT)})
         self.hue = PowerHue()
-        self.strip = HueStripProxy(self.hue, clock=lambda: self.now, wall_clock=lambda: 1000)
+        self.strip = HueStripProxy(self.hue, "hue-monitor", clock=lambda: self.now,
+                                   wall_clock=lambda: 1000)
         self.strip.process_once()
-        self.identify = Identify(self.controller, {"strip": self.strip}, sleep=self.pause)
+        self.identify = Identify(self.controller, {"hue-monitor": self.strip}, sleep=self.pause)
         self.identify.sender = lambda device, name, data: self.sent.append(
             ("blink", device["light"], name, data["value"])) or True
         self.controller.sender = self.identify.wrap(self.controller.sender)
@@ -634,7 +653,7 @@ class IdentifyTests(IdentifyFixture):
     def test_sync_refuses_composed_native_roles_and_spares_the_others(self):
         self.sync_video()
         with self.assertRaises(IdentifyRefused) as refused:
-            self.identify("strip")
+            self.identify("hue-monitor")
         self.assertEqual(refused.exception.reason, "sync active")
         self.assertTrue(self.identify("govee-right"))
 
@@ -690,7 +709,7 @@ class IdentifyTests(IdentifyFixture):
         self.identify.video.relay = relay
 
         def pause(seconds):
-            relay.shown.append(relay.overrides.get("strip"))
+            relay.shown.append(relay.overrides.get("hue-monitor"))
             relay.sequence += 1
 
         self.identify.sleep = pause
@@ -698,7 +717,7 @@ class IdentifyTests(IdentifyFixture):
 
     def test_a_syncing_hue_light_blinks_on_its_stream_channels(self):
         relay = self.native_relay()
-        self.assertTrue(self.identify("strip"))
+        self.assertTrue(self.identify("hue-monitor"))
         white = (65535, 65535, 65535)
         self.assertEqual(relay.shown, [white, (0, 0, 0)] * 2)
         self.assertEqual(relay.overrides, {}, "the Sync colors come back")
@@ -707,14 +726,14 @@ class IdentifyTests(IdentifyFixture):
     def test_a_syncing_hue_light_without_frames_cannot_blink(self):
         self.native_relay(streams=False)
         with self.assertRaises(IdentifyRefused) as refused:
-            self.identify("strip")
+            self.identify("hue-monitor")
         self.assertEqual(refused.exception.reason, "sync active")
 
     def test_a_hue_blink_with_no_frame_sent_fails(self):
         relay = self.native_relay()
         self.identify.sleep = lambda seconds: None
         with self.assertRaises(IdentifyFailed):
-            self.identify("strip")
+            self.identify("hue-monitor")
         self.assertEqual(relay.overrides, {})
 
     def test_blinks_in_a_row_keep_dreamview_fresh(self):
@@ -737,20 +756,20 @@ class IdentifyTests(IdentifyFixture):
         self.assertEqual(sent[-1], 65)
 
     def test_native_identify_only_while_on(self):
-        self.assertTrue(self.identify("strip"))
+        self.assertTrue(self.identify("hue-monitor"))
         self.assertEqual(self.hue.identified, 1)
         self.hue.native["on"]["on"] = False
         self.strip.process_once()
         with self.assertRaises(IdentifyRefused):
-            self.identify("strip")
+            self.identify("hue-monitor")
         with self.assertRaises(IdentifyRefused) as refused:
-            self.identify("hue_left")
+            self.identify("play-left")
         self.assertEqual(refused.exception.reason, "unavailable")
         self.assertEqual(self.hue.identified, 1)
 
     def test_pinned_client_identify_is_a_separate_single_field_write(self):
         requests = []
-        selected = PLAY_IDS["hue_left"]
+        selected = PLAY_IDS["play-left"]
 
         def request(method, path, body):
             requests.append((method, path, body))
@@ -778,7 +797,7 @@ class IdentifyTests(IdentifyFixture):
 class IdentifyRouteTests(IdentifyFixture):
     def serve(self, **kwargs):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(
-            self.controller, "adapter-key", hue_proxy=self.strip, **kwargs))
+            self.controller, "adapter-key", hue_proxies={"hue-monitor": self.strip}, **kwargs))
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
 
@@ -805,13 +824,13 @@ class IdentifyRouteTests(IdentifyFixture):
         self.identify.sleep = lambda seconds: None
         port = self.serve(identify=self.identify)
         self.assertEqual(self.post(port, {"role": "govee-left"}), (200, {"accepted": True}))
-        self.assertEqual(self.post(port, {"role": "strip"}), (200, {"accepted": True}))
+        self.assertEqual(self.post(port, {"role": "hue-monitor"}), (200, {"accepted": True}))
         self.assertEqual(self.hue.identified, 1)
         self.controller.update_statuses({RIGHT: ({"onOff": 0}, self.now)})
         self.assertEqual(self.post(port, {"role": "govee-right"}),
                          (409, {"accepted": False, "reason": "lamp off"}))
         self.hue.identify = lambda: (_ for _ in ()).throw(OSError("bridge unreachable"))
-        self.assertEqual(self.post(port, {"role": "strip"}), (503, {"accepted": False}))
+        self.assertEqual(self.post(port, {"role": "hue-monitor"}), (503, {"accepted": False}))
         for body in ({"role": "left"}, {"role": 1}, {}, {"role": "govee-left", "x": 1}, []):
             with self.subTest(body=body):
                 self.assertEqual(self.post(port, body)[0], 400)
@@ -831,13 +850,13 @@ class IdentifyRouteTests(IdentifyFixture):
                 marked.append(role)
 
             def snapshot(self):
-                return {"running": True, "roles": ["strip"], "last_result": "session"}
+                return {"running": True, "roles": ["hue-monitor"], "last_result": "session"}
 
         self.strip.set_power = lambda on: True
         port = self.serve(sync_off=Session())
-        self.assertEqual(self.post(port, {"roles": {"strip": True}}, path="/native-power"),
+        self.assertEqual(self.post(port, {"lights": {"hue-monitor": True}}, path="/native-power"),
                          (200, {"accepted": True}))
-        self.assertEqual(marked, ["strip"])
+        self.assertEqual(marked, ["hue-monitor"])
 
 
 spec = importlib.util.spec_from_file_location(

@@ -10,14 +10,14 @@ from operator import xor
 
 import lights_can_communicate_v2 as lan
 
-HUE_ROLES = {
-    "strip": "hue-monitor",
-    "hue_left": "play-left",
-    "hue_center": "play-center",
-    "hue_right": "play-right",
-}
-LAMP_IDS = ("govee-left", "govee-right", *HUE_ROLES.values())
-ROLE_LAMPS = {'left':'govee-left', 'right':'govee-right', **HUE_ROLES}
+# Canonical native channels of the migrated Hue lights (NativeHueProfile.channels).
+MIGRATED_NATIVE_CHANNELS = {"play-center": (0,), "play-left": (1,), "play-right": (2,),
+                            "hue-monitor": tuple(range(3, 12))}
+HUE_LAMPS = tuple(MIGRATED_NATIVE_CHANNELS)
+LAMP_IDS = ("govee-left", "govee-right", "hue-monitor", "play-left", "play-center",
+            "play-right")
+ROLE_LAMPS = {'left': 'govee-left', 'right': 'govee-right',
+              **{lamp: lamp for lamp in HUE_LAMPS}}
 SOURCES = ("scene-output", "sync-output")
 GOVEE_FRESH_SECONDS = 0.75
 # A Govee lamp under DreamView misses a few status replies in a row now and
@@ -123,8 +123,10 @@ def _xy(value):
 class OutputPreviewStore:
     """Share only successful emitted color/brightness state across output paths."""
 
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, native_channels=None):
         self.clock = clock
+        # Native light id -> its canonical channels; the adapter passes its profile's.
+        self.native_channels = dict(native_channels or MIGRATED_NATIVE_CHANNELS)
         self.lock = threading.RLock()
         self.outputs = {}
 
@@ -133,7 +135,7 @@ class OutputPreviewStore:
             sample = self.outputs.setdefault(lamp, {})
             if colors is not None:
                 if (
-                    lamp in HUE_ROLES.values()
+                    lamp in self.native_channels
                     and source == "scene-output"
                     and sample.get("brightness_source") == "sync-output"
                     and brightness is None
@@ -196,7 +198,7 @@ class OutputPreviewStore:
         self._update(light, source, colors, brightness)
 
     def record_hue(self, role, body):
-        if role not in HUE_ROLES or not isinstance(body, dict):
+        if role not in self.native_channels or not isinstance(body, dict):
             return
         colors = brightness = None
         if "gradient" in body:
@@ -216,26 +218,22 @@ class OutputPreviewStore:
             if not _number(brightness, 0, 100):
                 raise ValueError("Invalid output brightness")
         if colors is not None or brightness is not None:
-            self._update(HUE_ROLES[role], "scene-output", colors, brightness)
+            self._update(role, "scene-output", colors, brightness)
 
     def record_native_channels(self, channels):
         # These channels already include layout calibration and video intensity.
-        if isinstance(channels, (tuple, list)) and len(channels) == 12:
+        count = sum(len(indices) for indices in self.native_channels.values())
+        if isinstance(channels, (tuple, list)) and len(channels) == count:
             channels = dict(enumerate(channels))
         if (not isinstance(channels, dict)
-                or any(type(index) is not int or not 0 <= index < 12 for index in channels)):
+                or any(type(index) is not int or not 0 <= index < count for index in channels)):
             raise ValueError('Invalid native preview channels')
         samples = {
             index: [round(value / 65535 * 255) for value in _rgb(rgb, 65535)]
             for index, rgb in channels.items()
         }
         with self.lock:
-            for lamp, indices in (
-                ("play-center", [0]),
-                ("play-left", [1]),
-                ("play-right", [2]),
-                ("hue-monitor", range(3, 12)),
-            ):
+            for lamp, indices in self.native_channels.items():
                 if all(index in samples for index in indices):
                     self._update(lamp, "sync-output", [samples[index] for index in indices], 100)
 
@@ -260,12 +258,9 @@ def build_preview(adapter_status, output_snapshot):
     output = output_snapshot if isinstance(output_snapshot, dict) else {}
     video = status.get("video")
     video = video if isinstance(video, dict) else {}
-    hue_play = status.get("hue_play")
-    hue_play = hue_play if isinstance(hue_play, dict) else {}
-    hue = {
-        "hue-monitor": status.get("hue_strip"),
-        **{lamp: hue_play.get(role) for role, lamp in HUE_ROLES.items() if role != "strip"},
-    }
+    hue = status.get("hue")
+    hue = {lamp: hue.get(lamp) for lamp in HUE_LAMPS} if isinstance(hue, dict) else {
+        lamp: None for lamp in HUE_LAMPS}
     composition = status.get('composition')
     included = set(ROLE_LAMPS.values())
     if composition is not None:

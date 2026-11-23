@@ -323,9 +323,14 @@ the newer release.
 
 The initial `0.1.0.dev4` extraction introduced optional
 `adapter.native_profile_file`. The profile is now a migration input of the light
-registry (see "Light registry"): the registry holds the same four light roles,
-native Entertainment area and twelve service/index mappings, and the loader
-rebuilds the strict version-one profile from them. The profile file resolves
+registry (see "Light registry"). The registry holds a list of native Hue lights,
+each keyed by its registry light ID (`hue-monitor`, `play-left`, `play-center`,
+`play-right` for the migrated lights), with its native light UUID and its
+ordered channels (canonical channel ID, entertainment service UUID, segment
+index), and the native Entertainment area. The loader builds the profile from
+that list: canonical channel IDs number the area's channels from zero, all
+channels of a light share one service and their indexes follow the segment
+order, and an area holds at most ten lights and twenty channels. The profile file resolves
 relative to the service configuration and is read only while `lights.json` does
 not exist. The loader
 rejects duplicate/unknown fields, invalid UUIDs, overlapping resources and changed
@@ -335,8 +340,13 @@ An explicit profile controls each client/proxy/relay instance; it overrides old
 credential light/area hints. The runtime contains no physical identity defaults.
 Resource membership, channel order/index and resource types must match live metadata before stream
 start. Configuration without a required profile now fails before initialization.
-The native topology still has four light roles. Newly placed discovery items remain
-configuration-only until a separate enrollment component is implemented.
+The adapter creates one proxy per native light and addresses every native light
+by its registry light ID: `/command` (`light`), `/native-power`, `/identify`,
+calibration, Sync Off and `/status` (`"hue": {<light ID>: snapshot}`). The
+relay derives each light's channels from the profile and keeps the packet bytes
+of the migrated area. The registry still accepts only the four migrated Hue
+lights: enrolling another light of the paired area, and projecting Sync colors
+onto it, is the next stage.
 
 The owner's same-selection profile replaced dev3 locally after read-only metadata
 parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six roles,
@@ -351,8 +361,7 @@ forward only color and brightness. On/Off from the Hue app was accepted but
 never reached the lights.
 
 An explicit On/Off for these lights now goes to the adapter's authenticated
-`POST /native-power` with `{"roles": {"strip" | "hue_left" | "hue_center" |
-"hue_right": bool}}`. This applies to a single light and to a room.
+`POST /native-power` with `{"lights": {<native Hue light ID>: bool}}`. This applies to a single light and to a room.
 - The adapter switches only the pinned profile resource with a separate
   `{"on": {"on": …}}` write. The color path still refuses power changes.
 - The write counts as confirmed only after a read-back shows the new state.
@@ -685,12 +694,13 @@ switches it off; at the end it switches the recorded lamps on again.
 - Native Hue: the confirmed `{"on": {"on": …}}` write of `/native-power`. The
   role is outside the composition, so the Sync safety fence does not require it
   to be on.
-- Crash safety: the roles switched off (Govee light IDs and the native Hue role
-  names) are written to
+- Crash safety: the lamps switched off (Govee and native Hue light IDs) are
+  written to
   `<state-dir>/sync-off-session.json` (`{"version": 1, "roles": [...]}`, atomic,
-  0600) before any command. A file from before the light IDs lists `left` and
-  `right`; it is converted once on load and rewritten, and the old names are not
-  read afterwards. On start, while no Sync runs, the adapter restores
+  0600) before any command. A file from before the light IDs lists `left`,
+  `right` or the native role names (`strip`, `hue_left`, `hue_center`,
+  `hue_right`); it is converted once on load and rewritten, and the old names
+  are not read afterwards. On start, while no Sync runs, the adapter restores
   them (a Govee lamp after its first fresh native reading, up to 15 s) and deletes
   the file. A clean shutdown restores immediately. A failed restore stays in the
   file and is retried every second.
@@ -701,9 +711,8 @@ switches it off; at the end it switches the recorded lamps on again.
 
 ### Blink
 
-`POST /identify` with `{"role": <Govee light ID> | "strip" | "hue_left" |
-"hue_center" | "hue_right"}` (Light Studio sends `govee-left` or `govee-right`
-for the two Govee rows) and the `X-Adapter-Token` header blinks one lamp.
+`POST /identify` with `{"role": <Govee or native Hue light ID>}` (Light Studio
+sends the row ID of one of the six role lamps) and the `X-Adapter-Token` header blinks one lamp.
 It returns 200 `{"accepted": true}` after the blink, 409 `{"accepted": false,
 "reason"}` when refused, 503 when a command was not delivered and 400 on bad
 input. While Sync drives a lamp it refuses when that lamp's stream has stalled

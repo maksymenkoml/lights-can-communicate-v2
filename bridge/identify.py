@@ -26,11 +26,14 @@ import math
 import threading
 import time
 
+from desk_layout import GOVEE_ROWS, ROLES
 from govee_segments import razer_data
 
 import lights_can_communicate_v2 as lan
 
-NATIVE_ROLES = ("strip", "hue_left", "hue_center", "hue_right")
+# The native Hue rows of the layout; one without a proxy is refused as unavailable.
+NATIVE_ROWS = tuple(row for row in ROLES if row not in GOVEE_ROWS)
+
 DIP_BRIGHTNESS = 10
 STEP_SECONDS = 0.3
 STATUS_SECONDS = 0.75
@@ -98,7 +101,7 @@ class Identify:
 
     def __call__(self, role):
         govee = role in self.controller.by_light
-        if not govee and role not in NATIVE_ROLES:
+        if not govee and role not in self.hue_proxies and role not in NATIVE_ROWS:
             raise ValueError("Unknown identify role")
         syncing = self.sync_owns(role)
         # Taking the light's fence waits for an in-flight controller write to finish.

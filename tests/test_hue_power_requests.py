@@ -44,13 +44,13 @@ class HuePowerRequestTests(unittest.TestCase):
                                       {"govee-left": False, "govee-right": False}])
         self.assertEqual(len(self.refreshed), 2)
         # The room also switches the native Hue lights through their own path.
-        self.assertEqual(self.native, [{"strip": False, "hue_left": False}])
+        self.assertEqual(self.native, [{"hue-monitor": False, "play-left": False}])
 
     def test_native_hue_lights_switch_through_the_genuine_bridge(self):
         self.v2("light", "light-3", {"on": {"on": True}})
         self.gateway.after_request("PUT", "/api/key/lights/4/state", 200,
                                    {"on": False}, [{"success": {"/lights/4/state/on": False}}])
-        self.assertEqual(self.native, [{"strip": True}, {"hue_left": False}])
+        self.assertEqual(self.native, [{"hue-monitor": True}, {"play-left": False}])
         self.assertEqual(self.calls, [])
         self.assertEqual(self.feedback_calls, [("hold", {"3"}), ("release", {"3"}),
                                                ("hold", {"4"}), ("release", {"4"})])
@@ -60,10 +60,19 @@ class HuePowerRequestTests(unittest.TestCase):
             "http://127.0.0.1:19880", "adapter-key", self.lights, {}, self.gateway.feedback,
             sender=lambda states: self.calls.append(states),
             native_sender=lambda roles: self.native.append(roles),
-            native_slots={"7": "hue_desk"})
+            native_slots={"7": "hue-desk"})
         self.v2("light", "light-7", {"on": {"on": True}})
         self.v2("light", "light-3", {"on": {"on": True}})
-        self.assertEqual(self.native, [{"hue_desk": True}])
+        self.assertEqual(self.native, [{"hue-desk": True}])
+
+    def test_default_native_sender_posts_light_ids_to_the_adapter(self):
+        gateway = HuePowerRequests("http://127.0.0.1:19880", "adapter-key", self.lights, {},
+                                   self.gateway.feedback)
+        posted = []
+        gateway._post = lambda path, body: posted.append((path, body))
+        gateway.native_sender({"hue-monitor": True, "play-left": False})
+        self.assertEqual(posted, [("/native-power",
+                                   {"lights": {"hue-monitor": True, "play-left": False}})])
 
     def test_unconfirmed_native_power_restores_the_real_state(self):
         def refuse(roles):

@@ -86,7 +86,8 @@ class SlotMapTests(unittest.TestCase):
                               include_hue_play=True, govee_slots=self.SLOTS)
         self.assertTrue(output.submit("7", {"on": True}, 0))
         self.assertEqual(output.pending[THIRD]["light"], THIRD)
-        self.assertEqual(output.hue_roles, {"strip", "hue_left", "hue_center", "hue_right"})
+        self.assertEqual(output.hue_roles,
+                         {"hue-monitor", "play-left", "play-center", "play-right"})
         self.assertFalse(output.submit("8", {"on": True}, 0))
         legacy = BridgeOutput("http://adapter", "t")
         self.assertEqual(legacy.slots, {"1": "govee-left", "2": "govee-right"})

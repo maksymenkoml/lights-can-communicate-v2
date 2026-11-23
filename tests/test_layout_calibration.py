@@ -13,7 +13,7 @@ from test_native_profile import PLAY_IDS  # noqa: E402
 
 class Scales:
     def __init__(self):
-        self.values = {"govee-left": 0.65, "govee-right": 0.65, "hue_center": 0.5}
+        self.values = {"govee-left": 0.65, "govee-right": 0.65, "play-center": 0.5}
 
     def scale(self, role, fallback):
         return self.values.get(role, fallback)
@@ -67,27 +67,28 @@ class CalibrationTests(unittest.TestCase):
     def test_native_scene_scale_updates_existing_desired_state_without_power(self):
         scales = Scales()
         client = FakeHue()
-        client.resource_id = PLAY_IDS["hue_center"]
+        client.resource_id = PLAY_IDS["play-center"]
         client.native["id"] = client.resource_id
         proxy = HueStripProxy(
-            client, role="hue_center", clock=lambda: 0, wall_clock=lambda: 1000, layout_store=scales
+            client, "play-center", clock=lambda: 0, wall_clock=lambda: 1000, layout_store=scales
         )
-        proxy.submit(command(light="hue_center", transitiontime=0))
+        proxy.submit(command(light="play-center", transitiontime=0))
         proxy.process_once()
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 50)
-        scales.values["hue_center"] = 0.25
+        scales.values["play-center"] = 0.25
         self.assertTrue(proxy.process_once())
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 25)
         count = len(client.writes)
         client.native["on"]["on"] = False
-        scales.values["hue_center"] = 0.8
+        scales.values["play-center"] = 0.8
         proxy.process_once()
         self.assertEqual(len(client.writes), count)
 
     def test_video_native_scales_are_per_role_and_keep_existing_channel_mapping(self):
         frame = {i: (10000, 20000, 30000) for i in range(18)}
         out = native_colors(
-            frame, scales={"hue_center": 0.25, "hue_left": 0.8, "hue_right": 1, "strip": 0.6}
+            frame,
+            scales={"play-center": 0.25, "play-left": 0.8, "play-right": 1, "hue-monitor": 0.6},
         )
         self.assertEqual(out[0], (2500, 5000, 7500))
         self.assertEqual(out[1], (8000, 16000, 24000))

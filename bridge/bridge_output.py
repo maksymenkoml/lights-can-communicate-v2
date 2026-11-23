@@ -160,9 +160,9 @@ class BridgeOutput:
         govee_lights = set(govee.values())
         self.slots = govee
         if include_strip:
-            self.slots["3"] = "strip"
+            self.slots["3"] = "hue-monitor"
         if include_hue_play:
-            self.slots.update({"4": "hue_left", "5": "hue_center", "6": "hue_right"})
+            self.slots.update({"4": "play-left", "5": "play-center", "6": "play-right"})
         self.hue_roles = set(self.slots.values()) - govee_lights
 
     def submit(self, light_id, state, transitiontime):

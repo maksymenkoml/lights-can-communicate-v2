@@ -107,11 +107,10 @@ class LayoutFieldTests(StoreCase):
         self.save(saved)
         self.assertEqual(self.store.scale("govee-right", 1), 0.2)
         self.assertEqual(self.store.scene_scale("govee-right", 1), 0.65)
-        self.assertFalse(self.store.enabled("hue_left"))
-        self.assertTrue(self.store.present("hue_left"))
+        self.assertFalse(self.store.enabled("play-left"))
         self.assertTrue(self.store.present("play-left"))
-        self.assertFalse(self.store.present("hue_right"))
-        self.assertTrue(self.store.present("strip"))
+        self.assertFalse(self.store.present("play-right"))
+        self.assertTrue(self.store.present("hue-monitor"))
 
     def test_corrupt_saved_layout_removes_scene_membership_like_sync_membership(self):
         self.path.write_text("{")
@@ -155,17 +154,17 @@ class FadeProjectionTests(unittest.TestCase):
 
     def test_scene_fade_follows_the_scene_switch_and_zone_not_the_sync_ones(self):
         self.assertEqual(scene_fade(v5()), {"govee-left": [1] * 7, "govee-right": [1] * 7,
-                                            "strip": 1,
-                                            "hue_left": 1, "hue_center": 1, "hue_right": 1})
+                                            "hue-monitor": 1,
+                                            "play-left": 1, "play-center": 1, "play-right": 1})
         on = scene_fade(v5(sceneFalloff=True))
         self.assertEqual(on["govee-left"][:3], [0, 0, 0])
         self.assertTrue(0 < on["govee-left"][3] < on["govee-left"][4] < 1)
         self.assertEqual(on["govee-left"][5:], [1, 1])
-        self.assertEqual(on["hue_center"], 0)
-        self.assertEqual(on["strip"], 1)
+        self.assertEqual(on["play-center"], 0)
+        self.assertEqual(on["hue-monitor"], 1)
         low = v5(sceneFalloff=True)
         row(low, "hue-monitor")["positionCm"]["height"] = 90
-        self.assertTrue(0 < scene_fade(low)["strip"] < 1)
+        self.assertTrue(0 < scene_fade(low)["hue-monitor"] < 1)
         # The Sync profile is not affected by the scene switch, nor the scene by Sync's.
         self.assertEqual(sync_profile(v5(sceneFalloff=True))["govee"],
                          sync_profile(v5())["govee"])
@@ -177,7 +176,7 @@ class FadeProjectionTests(unittest.TestCase):
         data = v5(sceneFalloff=True, syncFalloff=True)
         row(data, "hue-monitor")["positionCm"]["height"] = 90
         mean = sum(sync_profile(data)["strip_gains"]) / 9
-        self.assertAlmostEqual(scene_fade(data)["strip"], mean)
+        self.assertAlmostEqual(scene_fade(data)["hue-monitor"], mean)
 
     def test_store_scene_fade_is_cached_per_file_version_and_none_without_a_layout(self):
         with TemporaryDirectory(prefix="tmp_two_configurations_") as folder:
@@ -185,11 +184,11 @@ class FadeProjectionTests(unittest.TestCase):
             self.assertIsNone(store.scene_fade())
             store.save(v5(sceneFalloff=True))
             first = store.scene_fade()
-            self.assertEqual(first["hue_center"], 0)
-            first["hue_center"] = 9
-            self.assertEqual(store.scene_fade()["hue_center"], 0)
+            self.assertEqual(first["play-center"], 0)
+            first["play-center"] = 9
+            self.assertEqual(store.scene_fade()["play-center"], 0)
             store.save(v5())
-            self.assertEqual(store.scene_fade()["hue_center"], 1)
+            self.assertEqual(store.scene_fade()["play-center"], 1)
 
 
 class ControllerTests(StoreCase):
@@ -315,14 +314,14 @@ class ControllerTests(StoreCase):
 
 
 class HueProxyTests(StoreCase):
-    def proxy(self, role="hue_center"):
+    def proxy(self, light="play-center"):
         client = FakeHue()
-        if role in PLAY_IDS:
-            client.resource_id = PLAY_IDS[role]
+        if light in PLAY_IDS:
+            client.resource_id = PLAY_IDS[light]
             client.native["id"] = client.resource_id
-        proxy = HueStripProxy(client, role=role, clock=lambda: 10, wall_clock=lambda: 1000,
+        proxy = HueStripProxy(client, light, clock=lambda: 10, wall_clock=lambda: 1000,
                               layout_store=self.store)
-        proxy.submit(hue_command(light=role, transitiontime=0, state={
+        proxy.submit(hue_command(light=light, transitiontime=0, state={
             "on": True, "bri": 254, "colormode": "xy", "xy": [.2, .3],
             "_changed": ["on", "bri", "xy"]}))
         return proxy, client
@@ -330,7 +329,7 @@ class HueProxyTests(StoreCase):
     def test_scene_factor_is_scene_scale_times_fade_gain_and_toggles_with_one_restore(self):
         data = v5(sceneFalloff=True)
         row(data, "play-center")["positionCm"]["height"] = 80
-        gain = scene_fade(data)["hue_center"]
+        gain = scene_fade(data)["play-center"]
         self.assertTrue(0 < gain < 1)
         row(data, "play-center")["scale"] = 50
         row(data, "play-center")["sceneScale"] = 80
@@ -364,11 +363,11 @@ class HueProxyTests(StoreCase):
         data = v5(sceneFalloff=True)
         row(data, "hue-monitor")["positionCm"]["height"] = 90
         self.save(data)
-        proxy, client = self.proxy("strip")
-        self.assertAlmostEqual(proxy.layout_factor(), scene_fade(data)["strip"])
+        proxy, client = self.proxy("hue-monitor")
+        self.assertAlmostEqual(proxy.layout_factor(), scene_fade(data)["hue-monitor"])
         self.assertTrue(proxy.process_once())
         self.assertAlmostEqual(client.writes[-1]["dimming"]["brightness"],
-                               max(0.1, 100 * scene_fade(data)["strip"]))
+                               max(0.1, 100 * scene_fade(data)["hue-monitor"]))
 
     def test_own_light_lamp_keeps_scene_membership_and_removal_excludes_it(self):
         data = v5()

@@ -15,7 +15,7 @@ def status():
     lamps = {}
     data = {
         "targets": [],
-        "hue_play": {},
+        "hue": {},
         "video": {"active": False, "ready": False},
         "hue_key": "PRIVATE_CREDENTIAL",
     }
@@ -36,28 +36,19 @@ def status():
             "source": "scene-output",
             "stale": False,
         }
-    for role, identifier in (
-        ("strip", "hue-monitor"),
-        ("hue_left", "play-left"),
-        ("hue_center", "play-center"),
-        ("hue_right", "play-right"),
-    ):
-        native = {
+    for identifier in ("hue-monitor", "play-left", "play-center", "play-right"):
+        data["hue"][identifier] = {
             "healthy": True,
             "native_age": 0.1,
             "native_on": True,
-            "native_brightness": 50 if role == "hue_center" else 100,
+            "native_brightness": 50 if identifier == "play-center" else 100,
             "native_mode": "normal",
         }
-        if role == "strip":
-            data["hue_strip"] = native
-        else:
-            data["hue_play"][role] = native
         lamps[identifier] = {
             "online": True,
             "on": True,
             "brightness": 100,
-            "colors": [[0, 128, 0]] * (9 if role == "strip" else 1),
+            "colors": [[0, 128, 0]] * (9 if identifier == "hue-monitor" else 1),
             "source": "scene-output",
             "stale": False,
         }
@@ -157,7 +148,7 @@ class SetupLiveStatusTests(unittest.TestCase):
 
     def test_foreign_fallback_ignores_stale_or_unselected_native_metadata(self):
         data = status()
-        data["hue_strip"]["native_mode"] = "streaming"
+        data["hue"]["hue-monitor"]["native_mode"] = "streaming"
         for change in (
             {"healthy": False},
             {"native_age": None},
@@ -166,7 +157,7 @@ class SetupLiveStatusTests(unittest.TestCase):
         ):
             with self.subTest(change=change):
                 candidate = json.loads(json.dumps(data))
-                candidate["hue_strip"].update(change)
+                candidate["hue"]["hue-monitor"].update(change)
                 self.assertEqual(
                     studio.project_status(candidate, source_active=False)["sync"]["state"], "off"
                 )
@@ -176,8 +167,8 @@ class SetupLiveStatusTests(unittest.TestCase):
         self.assertEqual(
             studio.project_status(data, source_active=False)["sync"]["state"], "foreign"
         )
-        data["hue_strip"]["native_mode"] = "normal"
-        data["hue_play"]["unselected"] = {
+        data["hue"]["hue-monitor"]["native_mode"] = "normal"
+        data["hue"]["unselected"] = {
             "healthy": True,
             "native_age": 0.1,
             "native_on": True,
@@ -225,7 +216,8 @@ class SetupLiveStatusTests(unittest.TestCase):
                 self.assertEqual(calls, [])
                 data["video"].update(active=False, ready=False)
                 data["preview"]["mode"] = "scene"
-                data["hue_strip"].update(healthy=False, native_age=None, native_mode="streaming")
+                data["hue"]["hue-monitor"].update(
+                    healthy=False, native_age=None, native_mode="streaming")
                 with urllib.request.urlopen(url) as response:
                     self.assertEqual(json.load(response)["sync"]["state"], "off")
                 self.assertEqual(calls, ["source"])

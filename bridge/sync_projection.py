@@ -14,15 +14,17 @@ from desk_layout import composed, screen_size
 from light_geometry import geometry_for, segment_spans
 from sync_zone import vertical_bounds, zone_points
 
+# The migrated rows; the two Govee lamps keep their side names in ``enabled_roles``.
 _ROLES = {
     "govee-left": "left",
     "govee-right": "right",
-    "hue-monitor": "strip",
-    "play-left": "hue_left",
-    "play-center": "hue_center",
-    "play-right": "hue_right",
+    "hue-monitor": "hue-monitor",
+    "play-left": "play-left",
+    "play-center": "play-center",
+    "play-right": "play-right",
 }
-_PLAY_CHANNELS = {"hue_left": 11, "hue_center": 12, "hue_right": 13}
+# Capture channel of each migrated Play light (see entertainment_stream.NATIVE_SOURCES).
+_PLAY_CHANNELS = {"play-left": 11, "play-center": 12, "play-right": 13}
 _DESK_CENTER_CM = 100
 _EDGE_FADE_CM = 15
 # Clockwise perimeter distance from the bottom-left corner; coordinates have v up.
@@ -195,11 +197,11 @@ def sync_profile(validated_layout):
 
 
 def scene_fade(validated_layout):
-    """Return the without-Sync fade gains per role from ``sceneZone``/``sceneFalloff``.
+    """Return the without-Sync fade gains per light from ``sceneZone``/``sceneFalloff``.
 
-    ``govee-left`` and ``govee-right`` (the light ids) hold seven Govee segment gains from
-    bottom to top, ``strip`` the mean of the nine monitor-strip anchor gains and
-    ``hue_*`` one gain per Play. Every gain is 1 while the scene fade is off (the
+    ``govee-left`` and ``govee-right`` hold seven Govee segment gains from bottom to
+    top, ``hue-monitor`` the mean of the nine monitor-strip anchor gains and
+    ``play-*`` one gain per Play. Every gain is 1 while the scene fade is off (the
     default). Scenes reach other Govee lights only with the virtual bridge stage, so
     they have no entry yet.
     """
@@ -208,7 +210,7 @@ def scene_fade(validated_layout):
     result = {"govee-left": entries["govee-left"]["gains"],
               "govee-right": entries["govee-right"]["gains"]}
     strip = entries["hue-monitor"]["gains"]
-    result["strip"] = sum(strip) / len(strip)
+    result["hue-monitor"] = sum(strip) / len(strip)
     for key, role in _ROLES.items():
         if role in _PLAY_CHANNELS:
             result[role] = entries[key]["gains"][0]
@@ -263,7 +265,7 @@ def project_native_frame(frame, profile):
     """Project enabled physical Play colors from the original capture palette."""
     _validate_frame(frame)
     result = copy.deepcopy(frame)
-    if 'strip' in profile['native_roles'] and 'strip_gains' in profile:
+    if 'hue-monitor' in profile['native_roles'] and 'strip_gains' in profile:
         if len(profile['strip_gains']) != 9:
             raise ValueError('Expected nine monitor-strip visibility gains')
         # The strip's nine zones sit on capture channels 2-10, so each keeps its own

@@ -30,16 +30,15 @@ class LayoutCompositionTests(unittest.TestCase):
     def test_store_recomputes_membership_and_projection_without_losing_geometry(self):
         with TemporaryDirectory(prefix='tmp_composition_contract_') as folder:
             store = LayoutStore(Path(folder) / 'layout.json')
-            self.assertTrue(store.enabled('hue_center'))
+            self.assertTrue(store.enabled('play-center'))
             self.assertIsNone(store.sync_profile())
             data = layout()
             store.save(data)
             before = store.sync_profile()
             data['devices'][4]['enabled'] = False
             store.save(data)
-            self.assertFalse(store.enabled('hue_center'))
             self.assertFalse(store.enabled('play-center'))
-            self.assertNotIn('hue_center', store.sync_profile()['native_roles'])
+            self.assertNotIn('play-center', store.sync_profile()['native_roles'])
             self.assertEqual(store.snapshot()['devices'][4]['positionCm'],
                              data['devices'][4]['positionCm'])
             self.assertNotEqual(store.sync_profile()['signature'], before['signature'])
@@ -77,12 +76,12 @@ class LayoutCompositionTests(unittest.TestCase):
             data['devices'][0]['syncRole'] = 'own'
             store.save(data)
             profile = store.sync_profile()
-            self.assertFalse(store.enabled('hue_center'))
             self.assertFalse(store.enabled('play-center'))
             self.assertFalse(store.enabled('govee-left'))
-            self.assertTrue(store.enabled('hue_left'))
-            self.assertEqual(profile['enabled_roles'], ['right', 'strip', 'hue_left', 'hue_right'])
-            self.assertEqual(profile['native_roles'], ['strip', 'hue_left', 'hue_right'])
+            self.assertTrue(store.enabled('play-left'))
+            self.assertEqual(profile['enabled_roles'],
+                             ['right', 'hue-monitor', 'play-left', 'play-right'])
+            self.assertEqual(profile['native_roles'], ['hue-monitor', 'play-left', 'play-right'])
             removed = layout()
             removed['devices'][4]['enabled'] = False
             removed['devices'][0]['enabled'] = False
@@ -106,12 +105,13 @@ class LayoutCompositionTests(unittest.TestCase):
         with TemporaryDirectory(prefix='tmp_invalid_composition_') as folder:
             path = Path(folder) / 'layout.json'
             path.write_text('{broken')
-            self.assertFalse(LayoutStore(path).enabled('hue_center'))
+            self.assertFalse(LayoutStore(path).enabled('play-center'))
 
     def test_excluded_native_stream_cannot_glow_or_latch_foreign_state(self):
         data = metadata()
-        data['composition'] = {'enabled_roles':['left','right','strip','hue_left','hue_right']}
-        data['hue_play']['hue_center']['native_mode'] = 'streaming'
+        data['composition'] = {
+            'enabled_roles': ['left', 'right', 'hue-monitor', 'play-left', 'play-right']}
+        data['hue']['play-center']['native_mode'] = 'streaming'
         outputs = {'play-center':{'colors':[[255,0,0]], 'color_source':'scene-output',
                                   'source':'scene-output','brightness':100}}
         preview = build_preview(data, outputs)

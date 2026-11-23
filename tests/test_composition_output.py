@@ -19,7 +19,7 @@ from test_live_adapter import LEFT, RIGHT, command, targets  # noqa: E402
 from test_video_output import FakeProxy, FakeRelay  # noqa: E402
 from video_output import VideoOutput  # noqa: E402
 
-NATIVE = ('strip', 'hue_left', 'hue_center', 'hue_right')
+NATIVE = ('hue-monitor', 'play-left', 'play-center', 'play-right')
 
 
 def envelope(*args, **kwargs):
@@ -56,7 +56,7 @@ class Layout:
                 'basis': 'screen-perimeter-v1',
                 'enabled_roles': sorted(role.removeprefix("govee-") for role in self.roles),
                 'native_roles': [role for role in NATIVE if role in self.roles],
-                'plays': {role: (0, 1) for role in NATIVE if role != 'strip'},
+                'plays': {role: (0, 1) for role in NATIVE if role != 'hue-monitor'},
                 'lights': {light: {'samples': samples, 'gains': [1] * 7} for light in govee}}
 
 
@@ -77,7 +77,7 @@ class CompositionOutputTests(unittest.TestCase):
         self.proxies = []
         for role in NATIVE:
             proxy = FakeProxy()
-            proxy.role = role
+            proxy.light = role
             self.proxies.append(proxy)
         self.relay = FakeRelay()
         original = self.relay.start
@@ -114,15 +114,16 @@ class CompositionOutputTests(unittest.TestCase):
 
     def test_excluded_hue_skips_io_retains_latest_scene_and_restores_on_rejoin(self):
         client = FakeHue()
-        proxy = HueStripProxy(client, layout_store=self.layout, wall_clock=lambda: 1000)
-        self.layout.roles.remove('strip')
-        proxy.submit(command(light='strip'))
+        proxy = HueStripProxy(client, 'hue-monitor', layout_store=self.layout,
+                              wall_clock=lambda: 1000)
+        self.layout.roles.remove('hue-monitor')
+        proxy.submit(command(light='hue-monitor'))
         client.read = lambda: (_ for _ in ()).throw(AssertionError('Excluded native read'))
         self.assertFalse(proxy.process_once())
         self.assertTrue(proxy.restore)
         self.assertIsNotNone(proxy.desired)
         client.read = lambda: copy.deepcopy(client.native)
-        self.layout.roles.add('strip')
+        self.layout.roles.add('hue-monitor')
         self.assertTrue(proxy.process_once())
         self.assertEqual(len(client.writes), 1)
 
@@ -140,11 +141,11 @@ class CompositionOutputTests(unittest.TestCase):
         self.assertEqual(target['segments'][-1], (0, 0, 255))
 
     def test_excluded_off_play_does_not_block_remaining_and_native_empty_allows_govee(self):
-        self.layout.roles.remove('hue_left')
+        self.layout.roles.remove('play-left')
         self.proxies[1].value.update(healthy=False, native_on=False)
         self.lease.submit(envelope())
         self.assertTrue(self.output.process_once())
-        self.assertNotIn('hue_left', self.relay.profiles[-1]['native_roles'])
+        self.assertNotIn('play-left', self.relay.profiles[-1]['native_roles'])
         self.layout.roles.difference_update(NATIVE)
         self.lease.submit(envelope(sequence=2))
         self.assertTrue(self.output.process_once())
@@ -157,7 +158,7 @@ class CompositionOutputTests(unittest.TestCase):
         self.lease.submit(envelope(sequence=2))
         self.assertTrue(self.output.process_once())
         self.assertEqual(self.relay.started, 1)
-        self.layout.roles.remove('hue_left')
+        self.layout.roles.remove('play-left')
         self.lease.submit(envelope(sequence=3))
         self.assertTrue(self.output.process_once())
         self.assertEqual(self.relay.stopped, 1)
@@ -184,7 +185,7 @@ class CompositionOutputTests(unittest.TestCase):
         self.lease.submit(envelope(sequence=2))
         self.assertFalse(self.output.process_once())
         self.assertEqual(self.output.blocked_session, 'test-session')
-        self.layout.roles.remove('hue_left')
+        self.layout.roles.remove('play-left')
         self.lease.submit(envelope(sequence=3))
         self.assertTrue(self.output.process_once())
         self.assertIsNone(self.output.blocked_session)

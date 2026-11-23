@@ -88,14 +88,11 @@ def prepare(config, *, write_registry):
             hue = read_json(config.hue_config_file, "Hue configuration")
             if not _hue_identity(hue.get("hue_key")):
                 raise ConfigError("Invalid Hue credential")
-            live_adapter.HueStripProxy(live_adapter.PinnedHueClient(hue, profile=profile),
-                                       profile=profile)
-            if config.hue_play:
-                for role, resource in profile.play_ids.items():
-                    live_adapter.HueStripProxy(
-                        live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
-                        role=role, profile=profile,
-                    )
+            for light, resource in profile.light_ids.items():
+                live_adapter.HueStripProxy(
+                    live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
+                    light, profile=profile,
+                )
         if config.hue_stream_config_file:
             stream = read_json(config.hue_stream_config_file, "Hue stream configuration")
             if not _hue_identity(stream.get("hue_key")) or (

@@ -402,13 +402,18 @@ class SyncOffLightSetTests(unittest.TestCase):
 
     def test_legacy_roles_convert_once_and_the_file_is_rewritten(self):
         self.state.write_text(json.dumps({"version": 1, "roles": ["left", "strip", "right"]}))
-        session = self.session(native={})
-        self.assertEqual(session.snapshot()["roles"], ["govee-left", "govee-right", "strip"])
+        # The old native role name becomes the registry id of its configured proxy.
+        session = self.session(native={"hue-monitor": object()})
+        self.assertEqual(session.snapshot()["roles"],
+                         ["govee-left", "govee-right", "hue-monitor"])
         self.assertEqual(json.loads(self.state.read_text()),
-                         {"version": 1, "roles": ["govee-left", "govee-right", "strip"]})
+                         {"version": 1, "roles": ["govee-left", "govee-right", "hue-monitor"]})
         self.assertTrue(self.owner.sync_held("govee-left"))
         self.assertTrue(self.owner.sync_held("govee-right"))
         self.assertFalse(self.owner.sync_held(THIRD_ID))
+        # Without a proxy for that light the converted record is dropped.
+        self.state.write_text(json.dumps({"version": 1, "roles": ["strip", "right"]}))
+        self.assertEqual(self.session(native={}).snapshot()["roles"], ["govee-right"])
 
     def test_light_ids_survive_a_restart_and_unknown_ones_are_dropped(self):
         self.state.write_text(json.dumps({"version": 1, "roles": [

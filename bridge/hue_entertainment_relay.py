@@ -12,7 +12,13 @@ import time
 import urllib.error
 import urllib.request
 
-from entertainment_stream import POSITIONS, encode_frame, native_colors
+from entertainment_stream import (
+    NATIVE_SOURCES,
+    POSITIONS,
+    default_scale,
+    encode_frame,
+    native_colors,
+)
 from native_location_cache import NativeLocationCache
 
 import lights_can_communicate_v2 as lan
@@ -79,9 +85,6 @@ class DtlsConnection:
                 stream.close()
 
 
-# Canonical native channels of each role (see entertainment_stream.native_colors).
-ROLE_CHANNELS = {"hue_center": (0,), "hue_left": (1,), "hue_right": (2,),
-                 "strip": tuple(range(3, 12))}
 # A frame this recent shows the relay is streaming.
 STREAMING_SECONDS = 1.0
 
@@ -113,7 +116,7 @@ class HueEntertainmentRelay:
         self.composition = False
         self.applied_roles = None
         self.channel_map = {}
-        # Role -> RGB16 shown instead of its Sync colors (an owner Blink while syncing).
+        # Light id -> RGB16 shown instead of its Sync colors (an owner Blink while syncing).
         self.overrides = {}
         self.last_send_at = None
         self.location_cache = (
@@ -158,16 +161,14 @@ class HueEntertainmentRelay:
         return result
 
     def inventory(self):
-        members = self.profile.expected_members
-        roles = ("hue_center", "hue_left", "hue_right", "strip")
-        lights = self.profile.light_ids
-        return members, roles, lights
+        """Return the canonical members, the native light ids and their light UUIDs."""
+        return self.profile.expected_members, self.profile.ids, self.profile.light_ids
 
     def composition_area(self, area, expected_roles=None, *, persist_locations=True):
         """Validate enrollment; cleanup can validate without depending on cache storage."""
-        members, roles, lights = self.inventory()
+        members, _, lights = self.inventory()
         canonical = {member: index for index, member in enumerate(members)}
-        services = {members[i][0]: role for i, role in enumerate(roles)}
+        services = {service: light for light, service in self.profile.service_ids.items()}
         if area.get("id") != self.area_id:
             raise ValueError("Native area membership changed")
         rows = area.get("light_services")
@@ -265,7 +266,7 @@ class HueEntertainmentRelay:
         services = area.get("light_services")
         if (
             not isinstance(services, list)
-            or len(services) != 4
+            or len(services) != len(self.profile.ids)
             or any(not isinstance(item, dict) or not isinstance(item.get("rid"), str)
                    for item in services)
             or any(item.get("rtype") != "light" for item in services)
@@ -291,7 +292,7 @@ class HueEntertainmentRelay:
         ):
             raise ValueError("Invalid native channel layout")
         channels = sorted(channels, key=lambda x: x["channel_id"])
-        if len(channels) != 12 or any(
+        if len(channels) != len(expected) or any(
             channel["channel_id"] != index
             or len(channel["members"]) != 1
             or (channel["members"][0]["service"].get("rid"), channel["members"][0].get("index"))
@@ -308,7 +309,7 @@ class HueEntertainmentRelay:
         )
 
     def start(self, composition_profile=None):
-        members, roles, _ = self.inventory()
+        _, roles, _ = self.inventory()
         if composition_profile is not None:
             self.composition = True
             selected = composition_profile.get("native_roles")
@@ -358,19 +359,22 @@ class HueEntertainmentRelay:
                 return True
             if observed != selected:
                 rows = []
-                for i, role in enumerate(roles):
+                for role in roles:
                     if role not in selected:
                         continue
-                    service = members[i][0]
-                    if self.location_cache is not None and service not in self.locations:
+                    service = self.profile.service_ids[role]
+                    sources = NATIVE_SOURCES.get(role)
+                    if service not in self.locations and (
+                            self.location_cache is not None or sources is None):
                         raise ValueError("Native location metadata is unavailable")
-                    # After restart an excluded service may lack location metadata. Use its
-                    # known canonical position; physical sampling is projected upstream.
-                    source = (12, 11, 13, 6)[i]
-                    row = self.locations.get(service, {
+                    # After restart an excluded service may lack location metadata. Use the
+                    # capture position of its middle channel; physical sampling is
+                    # projected upstream.
+                    source = sources[len(sources) // 2] if sources else None
+                    row = self.locations.get(service) or {
                         "service": {"rid": service, "rtype": "entertainment"},
                         "positions": [dict(zip(("x", "y", "z"), POSITIONS[source]))],
-                    })
+                    }
                     rows.append(copy.deepcopy(row))
                 self.requester("PUT", {"locations": {"service_locations": rows}})
                 area = self.area(selected)
@@ -411,22 +415,15 @@ class HueEntertainmentRelay:
             if self.composition:
                 _, self.channel_map = self.composition_area(area, self.applied_roles)
             self.ownership_checked = time.monotonic()
+        lights = self.profile.channels
         scales = (
-            {
-                role: self.layout_store.scale(role, fallback)
-                for role, fallback in {
-                    "strip": 1,
-                    "hue_left": 1,
-                    "hue_center": 0.5,
-                    "hue_right": 1,
-                }.items()
-            }
+            {light: self.layout_store.scale(light, default_scale(light)) for light in lights}
             if self.layout_store is not None
             else None
         )
-        channels = native_colors(frame, scales)
-        for role, rgb in dict(self.overrides).items():
-            for channel in ROLE_CHANNELS[role]:
+        channels = native_colors(frame, scales, lights)
+        for light, rgb in dict(self.overrides).items():
+            for channel in lights[light]:
                 channels[channel] = rgb
         if self.composition:
             # IDs are bridge-owned; source/calibration indices remain canonical.
@@ -445,16 +442,16 @@ class HueEntertainmentRelay:
                 pass  # Passive telemetry cannot interrupt the native stream.
 
     def streams(self, role):
-        """True while this relay streams the role's light and frames keep coming."""
+        """True while this relay streams native light ``role`` and frames keep coming."""
         sent = self.last_send_at
-        return (self.owned and self.connection is not None and role in ROLE_CHANNELS
+        return (self.owned and self.connection is not None and role in self.profile.channels
                 and (not self.composition or role in (self.applied_roles or ()))
                 and sent is not None and 0 <= time.monotonic() - sent <= STREAMING_SECONDS)
 
     def override(self, role, rgb):
-        """Show `rgb` (RGB16) on the role's channels in the next frames; None ends it."""
-        if role not in ROLE_CHANNELS:
-            raise ValueError("Unknown native role")
+        """Show `rgb` (RGB16) on native light ``role`` in the next frames; None ends it."""
+        if role not in self.profile.channels:
+            raise ValueError("Unknown native light")
         if rgb is None:
             self.overrides.pop(role, None)
         else:

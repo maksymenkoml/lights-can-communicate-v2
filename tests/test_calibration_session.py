@@ -29,16 +29,16 @@ HUE_REQUEST = {"lamp": "play-center", "reference": "govee-left", "level": "brigh
 
 
 class FakeCorrections:
-    """Saved corrections per role: Sync ``scale`` and ``sceneScale`` (0-1)."""
+    """Saved corrections per layout row: Sync ``scale`` and ``sceneScale`` (0-1)."""
 
     def __init__(self, sync=None, scene=None):
         self.sync, self.scene = sync or {}, scene or {}
 
-    def scale(self, role, fallback):
-        return self.sync.get(role, fallback)
+    def scale(self, row, fallback):
+        return self.sync.get(row, fallback)
 
-    def scene_scale(self, role, fallback):
-        return self.scene.get(role, fallback)
+    def scene_scale(self, row, fallback):
+        return self.scene.get(row, fallback)
 
 
 class FakeClient:
@@ -82,8 +82,8 @@ class SessionFixture(unittest.TestCase):
 
         self.controller = GoveeController(targets(), sender=transport, clock=lambda: self.now,
                                           wall_clock=lambda: 1000)
-        self.proxies = {role: FakeProxy() for role in ("strip", "hue_left", "hue_center",
-                                                        "hue_right")}
+        self.proxies = {light: FakeProxy() for light in ("hue-monitor", "play-left",
+                                                          "play-center", "play-right")}
         self.video = FakeVideo()
         self.session = CalibrationSession(self.controller, self.calibration, self.proxies,
                                           video=self.video, clock=lambda: self.now)
@@ -111,10 +111,11 @@ class CalibrationSessionTests(SessionFixture):
         right = self.govee("govee-right")
         self.assertEqual(right[1][1]["color"], {"r": 0, "g": 0, "b": 0})
         self.assertEqual(right[2], ("brightness", {"value": 1}))
-        self.assertEqual(self.proxies["hue_left"].client.writes[-1]["dimming"], {"brightness": 100})
-        self.assertIn("xy", self.proxies["hue_left"].client.writes[-1]["color"])
-        for role in ("strip", "hue_center", "hue_right"):
-            self.assertEqual(self.proxies[role].client.writes,
+        self.assertEqual(self.proxies["play-left"].client.writes[-1]["dimming"],
+                         {"brightness": 100})
+        self.assertIn("xy", self.proxies["play-left"].client.writes[-1]["color"])
+        for light in ("hue-monitor", "play-center", "play-right"):
+            self.assertEqual(self.proxies[light].client.writes,
                              [{"dimming": {"brightness": DARK_HUE_DIMMING}}])
         self.assertEqual(self.store.calibration("govee-left")["warmth"], 0, "nothing is saved")
 
@@ -139,17 +140,17 @@ class CalibrationSessionTests(SessionFixture):
         self.assertEqual(len(self.sent), count)
         self.session.update({**REQUEST, "level": "dim"})
         self.assertEqual(self.govee("govee-left")[-1], ("brightness", {"value": 33}))
-        self.assertEqual(self.proxies["hue_left"].client.writes[-1]["dimming"], {"brightness": 10})
+        self.assertEqual(self.proxies["play-left"].client.writes[-1]["dimming"], {"brightness": 10})
 
     def test_the_session_ends_without_renewal_when_sync_starts_or_a_lamp_turns_off(self):
         for change, reason in ((lambda: None, "expired"),
                                (lambda: setattr(self.video, "running", True), "sync active"),
                                (lambda: self.lamps_on(left=0), "lamp off"),
-                               (lambda: setattr(self.proxies["hue_left"], "on", False),
+                               (lambda: setattr(self.proxies["play-left"], "on", False),
                                 "reference off")):
             with self.subTest(reason=reason):
                 self.video.running = False
-                self.proxies["hue_left"].on = True
+                self.proxies["play-left"].on = True
                 self.lamps_on()
                 self.session.update(dict(REQUEST))
                 change()
@@ -168,12 +169,12 @@ class CalibrationSessionTests(SessionFixture):
             self.session.update(dict(REQUEST))
         self.assertEqual(refused.exception.reason, "sync active")
         self.video.running = False
-        self.proxies["hue_left"].on = False
+        self.proxies["play-left"].on = False
         with self.assertRaises(CalibrationRefused) as refused:
             self.session.update(dict(REQUEST))
         self.assertEqual(refused.exception.reason, "reference off")
         self.assertEqual(self.sent, [])
-        self.proxies["hue_left"].on = True
+        self.proxies["play-left"].on = True
         self.session.update(dict(REQUEST))
         with self.assertRaises(CalibrationRefused) as refused:
             self.session.update({**REQUEST, "lamp": "govee-right", "reference": "govee-left"})
@@ -185,33 +186,33 @@ class CalibrationSessionTests(SessionFixture):
                 self.session.update(bad)
 
     def test_each_lamp_shows_its_correction_for_the_edited_configuration(self):
-        self.controller.layout_store = FakeCorrections(scene={"hue_right": 0.7})
+        self.controller.layout_store = FakeCorrections(scene={"play-right": 0.7})
         self.session.update(dict(RIGHT_REQUEST))
         self.assertEqual(self.govee("govee-right")[-1], ("brightness", {"value": 40}),
                          "the candidate correction, unsaved")
-        self.assertEqual(self.proxies["hue_right"].client.writes[-1]["dimming"],
+        self.assertEqual(self.proxies["play-right"].client.writes[-1]["dimming"],
                          {"brightness": 70}, "the reference's saved correction")
         self.session.update({**RIGHT_REQUEST, "correction": 0})
         self.assertEqual(self.govee("govee-right")[-1], ("brightness", {"value": 1}),
                          "a lit lamp never looks off")
-        self.controller.layout_store = FakeCorrections(scene={"hue_right": 0})
+        self.controller.layout_store = FakeCorrections(scene={"play-right": 0})
         self.session.update({**RIGHT_REQUEST, "level": "dim"})
-        self.assertEqual(self.proxies["hue_right"].client.writes[-1]["dimming"],
+        self.assertEqual(self.proxies["play-right"].client.writes[-1]["dimming"],
                          {"brightness": 0.5})
 
     def test_a_hue_lamp_is_calibrated_against_a_govee_reference(self):
         self.controller.layout_store = FakeCorrections(sync={"govee-left": 0.35})
         self.assertEqual(self.session.update(dict(HUE_REQUEST)), {"active": True})
-        write = self.proxies["hue_center"].client.writes[-1]
+        write = self.proxies["play-center"].client.writes[-1]
         self.assertIn("xy", write["color"])
         self.assertEqual(write["dimming"], {"brightness": 60})
         left = self.govee("govee-left")
         self.assertNotEqual(left[-2][1]["color"], {"r": 0, "g": 0, "b": 0})
         self.assertEqual(self.govee("govee-right")[-1], ("brightness", {"value": 1}))
-        for role in ("strip", "hue_left", "hue_right"):
-            self.assertEqual(self.proxies[role].client.writes,
+        for light in ("hue-monitor", "play-left", "play-right"):
+            self.assertEqual(self.proxies[light].client.writes,
                              [{"dimming": {"brightness": DARK_HUE_DIMMING}}])
-        self.assertEqual(self.session.snapshot()["lamp"], "hue_center")
+        self.assertEqual(self.session.snapshot()["lamp"], "play-center")
         self.assertTrue(self.session.end())
 
     def test_requests_are_checked_per_lamp(self):
@@ -226,11 +227,11 @@ class CalibrationSessionTests(SessionFixture):
         self.assertEqual(self.sent, [])
 
     def test_a_lamp_that_is_off_stays_untouched(self):
-        self.proxies["strip"].on = False
+        self.proxies["hue-monitor"].on = False
         self.lamps_on(right=0)
         self.session.update(dict(REQUEST))
         self.assertEqual(self.govee("govee-right"), [])
-        self.assertEqual(self.proxies["strip"].client.writes, [])
+        self.assertEqual(self.proxies["hue-monitor"].client.writes, [])
 
 
 class CalibrationRouteTests(SessionFixture):

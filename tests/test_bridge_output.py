@@ -29,7 +29,8 @@ class BridgeOutputTests(unittest.TestCase):
             self.assertTrue(output.submit(slot, {"on": True, "bri": 198}, 4))
         for _ in range(3):
             output.forward_once()
-        self.assertEqual([item["light"] for item in sent], ["hue_left", "hue_center", "hue_right"])
+        self.assertEqual([item["light"] for item in sent],
+                         ["play-left", "play-center", "play-right"])
         self.assertFalse(output.submit("7", {"on": True}, 4))
 
     def test_strip_slot_requires_explicit_opt_in_and_is_not_a_third_govee(self):
@@ -44,7 +45,7 @@ class BridgeOutputTests(unittest.TestCase):
         self.assertTrue(output.submit("3", {"on": True, "bri": 198}, 47))
         self.assertFalse(output.submit("4", {"on": True}, 4))
         output.forward_once()
-        self.assertEqual(sent[0]["light"], "strip")
+        self.assertEqual(sent[0]["light"], "hue-monitor")
         self.assertNotIn("device", sent[0])
 
     def test_strip_coalescing_keeps_unforwarded_gradient_on_brightness_update(self):
