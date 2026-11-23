@@ -30,7 +30,7 @@ from homekit_power import (  # noqa: E402
     SignatureVerifier,
     response_signature,
 )
-from hue_area import HueAreaReader  # noqa: E402
+from hue_area import HueArea  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
@@ -1084,10 +1084,10 @@ def main(argv=None, service_info=None):
         # Leave time for the HTTP answer; Docker restarts the finished container.
         threading.Timer(0.5, stop.set).start()
 
-    # A new Hue light is enrolled from the paired Entertainment area (#60 chooses it later).
-    # Without usable paired credentials a Hue enrollment is refused as outside the area.
+    # A new Hue light is enrolled into the paired Entertainment area (#60 chooses it later).
+    # Without usable paired credentials a Hue enrollment is refused as unavailable.
     try:
-        area = (HueAreaReader(hue_config, native_profile.area_id)
+        area = (HueArea(hue_config, native_profile.area_id)
                 if hue_config is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None

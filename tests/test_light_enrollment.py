@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
+from hue_area import AreaBusy  # noqa: E402
 from light_enrollment import LightEnrollment  # noqa: E402
 from test_light_registry import AREA, sample  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
@@ -139,18 +140,23 @@ BRIDGE_ID = "001788FFFE123456"
 
 
 class Area:
-    """The paired Entertainment area of the tests, as HueAreaReader reads it."""
+    """The paired Entertainment area of the tests, as HueArea changes it."""
 
     area_id = AREA
 
-    def __init__(self, member=None, error=None):
-        self.result, self.error, self.calls = member, error, []
+    def __init__(self, member=None, error=None, added=True):
+        self.result, self.error, self.added, self.calls = member, error, added, []
 
-    def member(self, light):
-        self.calls.append(light)
+    def join(self, light):
+        self.calls.append(("join", light))
         if self.error is not None:
             raise self.error
-        return self.result
+        return self.result, self.added
+
+    def leave(self, light):
+        self.calls.append(("leave", light))
+        if self.error is not None:
+            raise self.error
 
 
 class HueEnrollmentTests(unittest.TestCase):
@@ -169,14 +175,14 @@ class HueEnrollmentTests(unittest.TestCase):
         self.new = self.catalog.snapshot()["devices"][0]["id"]
         self.restarts = []
 
-    def enrollment(self, area):
-        return LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+    def enrollment(self, area, registry=None, busy=lambda: False):
+        return LightEnrollment(self.path, registry or self.registry, self.catalog, busy=busy,
                                restart=lambda: self.restarts.append(True), area=area)
 
-    def test_a_hue_light_of_the_paired_area_is_enrolled_with_its_channels(self):
+    def test_a_hue_light_joins_the_paired_area_and_is_enrolled_with_its_channels(self):
         area = Area({"service": HUE_SERVICE, "segments": 7})
         self.enrollment(area).enroll(self.new)
-        self.assertEqual(area.calls, [HUE_LIGHT])
+        self.assertEqual(area.calls, [("join", HUE_LIGHT)])
         self.assertEqual(self.restarts, [True])
         stored = LightRegistry.load(self.path)
         light = stored.to_dict()["lights"][-1]
@@ -184,43 +190,64 @@ class HueEnrollmentTests(unittest.TestCase):
                          (self.new, "hue", "LCX005"))
         self.assertEqual(stored.native_profile().channels[self.new], tuple(range(12, 19)))
 
-    def test_hue_refusals_leave_the_registry_unchanged(self):
+    def test_hue_refusals_leave_the_registry_and_the_area_unchanged(self):
         before = self.path.read_bytes()
-        for area, reason in ((None, "not_in_area"), (Area(None), "not_in_area"),
-                             (Area(error=OSError()), "unavailable"),
-                             (Area(error=ValueError()), "unavailable"),
-                             (Area({"service": HUE_SERVICE, "segments": 9}), "area_full")):
-            with self.subTest(reason=reason), self.assertRaises(adapter.LightRefused) as refused:
+        for area, reason, calls in (
+                (None, "unavailable", None),
+                (Area(error=AreaBusy()), "sync_active", [("join", HUE_LIGHT)]),
+                (Area(error=OSError()), "unavailable", [("join", HUE_LIGHT)]),
+                (Area(error=ValueError()), "unavailable", [("join", HUE_LIGHT)]),
+                # Too many channels: the light that joined leaves again.
+                (Area({"service": HUE_SERVICE, "segments": 9}), "area_full",
+                 [("join", HUE_LIGHT), ("leave", HUE_LIGHT)]),
+                # A light that was already a member stays there.
+                (Area({"service": HUE_SERVICE, "segments": 9}, added=False), "area_full",
+                 [("join", HUE_LIGHT)])):
+            with self.subTest(reason=reason, calls=calls), \
+                    self.assertRaises(adapter.LightRefused) as refused:
                 self.enrollment(area).enroll(self.new)
             self.assertEqual(refused.exception.reason, reason)
-        self.clock.now += 30  # the light went offline
+            if area is not None:
+                self.assertEqual(area.calls, calls)
         area = Area({"service": HUE_SERVICE, "segments": 1})
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(area, busy=lambda: True).enroll(self.new)
+        self.assertEqual((refused.exception.reason, area.calls), ("sync_active", []))
+        self.clock.now += 30  # the light went offline
         with self.assertRaises(adapter.LightRefused) as refused:
             self.enrollment(area).enroll(self.new)
         self.assertEqual((refused.exception.reason, area.calls), ("unavailable", []))
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(self.restarts, [])
 
-    def test_a_light_that_goes_offline_during_the_area_read_is_refused(self):
+    def test_a_light_that_goes_offline_while_it_joins_is_refused_and_leaves(self):
         catalog = self.catalog
 
         class Offline(Area):
-            def member(self, light):
-                result = super().member(light)
+            def join(self, light):
+                result = super().join(light)
                 catalog._entries[next(iter(catalog._entries))]["seen"] = -100
                 return result
 
+        area = Offline({"service": HUE_SERVICE, "segments": 1})
         with self.assertRaises(adapter.LightRefused) as refused:
-            self.enrollment(Offline({"service": HUE_SERVICE, "segments": 1})).enroll(self.new)
+            self.enrollment(area).enroll(self.new)
         self.assertEqual(refused.exception.reason, "unavailable")
+        self.assertEqual(area.calls, [("join", HUE_LIGHT), ("leave", HUE_LIGHT)])
         self.assertEqual(self.restarts, [])
 
-    def test_an_enrolled_hue_light_is_removed_and_keeps_its_identity(self):
-        lights = self.enrollment(Area({"service": HUE_SERVICE, "segments": 2}))
-        lights.enroll(self.new)
-        lights = LightEnrollment(self.path, LightRegistry.load(self.path), self.catalog,
-                                 busy=lambda: False, restart=lambda: self.restarts.append(True))
-        lights.remove(self.new)
+    def test_an_enrolled_hue_light_leaves_the_area_and_keeps_its_identity(self):
+        self.enrollment(Area({"service": HUE_SERVICE, "segments": 2})).enroll(self.new)
+        enrolled = self.path.read_bytes()
+        for area, reason in ((None, "unavailable"), (Area(error=AreaBusy()), "sync_active"),
+                             (Area(error=OSError()), "unavailable")):
+            with self.subTest(reason=reason), self.assertRaises(adapter.LightRefused) as refused:
+                self.enrollment(area, LightRegistry.load(self.path)).remove(self.new)
+            self.assertEqual(refused.exception.reason, reason)
+        self.assertEqual(self.path.read_bytes(), enrolled)
+        area = Area()
+        self.enrollment(area, LightRegistry.load(self.path)).remove(self.new)
+        self.assertEqual(area.calls, [("leave", HUE_LIGHT)])
         data = LightRegistry.load(self.path).to_dict()
         self.assertEqual([item["id"] for item in data["lights"]],
                          [item["id"] for item in sample()["lights"]])

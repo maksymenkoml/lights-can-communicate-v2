@@ -203,11 +203,12 @@ this profile from the bridge.
 The native relay maps each enrolled Hue light's channels to projected colors and
 keeps the current packet bytes for the migrated set.
 
-Before #60, a new Hue light is enrolled from the physical area that the existing
-pairing already uses. The owner adds the light to that area in the Hue app. The
-core then reads the area's light, service and channel resources with the
-existing Hue credentials and creates the profile entry. A Hue light outside that
-area cannot be enrolled for Sync until #60. #60 keeps pairing and the area
+Before #60, a new Hue light is enrolled into the physical area that the existing
+pairing already uses. Owner decision (2026-11-23): area membership is managed
+from Light Studio, not in the Hue app. With Sync off, the core adds the light to
+that area through the bridge with the existing Hue credentials, then reads the
+area's light, service and channel resources and creates the profile entry. A
+removal takes the light out of the area again. #60 keeps pairing and the area
 choice.
 
 ### Virtual bridge
@@ -282,7 +283,7 @@ Each stage is a separate PR, verified live on the NAS before it is offered.
    list keyed by registry id, and the relay, proxies, adapter routes, status,
    Sync Off, identify, calibration, Light Studio and the gateway address native
    lights by registry id, with the migrated packet bytes unchanged. 5b: enroll
-   a Hue light from the paired area, its projection and its virtual light.
+   a Hue light into the paired area, its projection and its virtual light.
 6. Light Studio: enroll and remove lights; no fixed seed.
 
 ## Verification

@@ -1,11 +1,12 @@
-"""Reading a light's channels in the paired native Entertainment area (#7 stage 5b)."""
+"""A light's membership in the paired native Entertainment area (#7 stage 5b)."""
 
+import copy
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from hue_area import HueAreaReader  # noqa: E402
+from hue_area import AreaBusy, HueArea  # noqa: E402
 
 AREA = "e5555555-5555-4555-8555-555555555555"
 LIGHT = "a0000000-0000-4000-8000-00000000000a"
@@ -44,11 +45,45 @@ def reader(area_response=None, services=SERVICES):
     }
     calls = []
 
-    def requester(path):
+    def requester(path, method="GET", body=None):
         calls.append(path)
         return responses[path]
 
-    return HueAreaReader(CONFIG, AREA, requester=requester), calls
+    return HueArea(CONFIG, AREA, requester=requester), calls
+
+
+class Bridge:
+    """A bridge that rebuilds the area's lights and channels from written locations."""
+
+    SEGMENTS = {SERVICE: 3, OTHER_SERVICE: 1}
+    RENDERERS = {SERVICE: LIGHT, OTHER_SERVICE: OTHER_LIGHT}
+
+    def __init__(self, services=(OTHER_SERVICE,), status="inactive"):
+        self.status, self.writes = status, []
+        self.rows = [{"service": {"rid": service, "rtype": "entertainment"},
+                      "positions": [{"x": -0.5, "y": 0.8, "z": 0}],
+                      "equalization_factor": 0.7} for service in services]
+
+    def area(self):
+        channels = []
+        for row in self.rows:
+            service = row["service"]["rid"]
+            channels += [channel(len(channels), service, index)
+                         for index in range(self.SEGMENTS[service])]
+        return {"errors": [], "data": [{
+            "id": AREA, "type": "entertainment_configuration", "status": self.status,
+            "light_services": [{"rid": self.RENDERERS[row["service"]["rid"]], "rtype": "light"}
+                               for row in self.rows],
+            "channels": channels, "locations": {"service_locations": copy.deepcopy(self.rows)}}]}
+
+    def __call__(self, path, method="GET", body=None):
+        if path == "/clip/v2/resource/entertainment":
+            return SERVICES
+        if method == "PUT":
+            self.writes.append(copy.deepcopy(body))
+            self.rows = copy.deepcopy(body["locations"]["service_locations"])
+            return {"errors": [], "data": [{"rid": AREA, "rtype": "entertainment_configuration"}]}
+        return self.area()
 
 
 class HueAreaReaderTests(unittest.TestCase):
@@ -93,7 +128,64 @@ class HueAreaReaderTests(unittest.TestCase):
         for config, area_id in (({}, AREA), ({"bridge": "192.168.10.20"}, AREA),
                                 (CONFIG, "not-an-area"), (CONFIG, None)):
             with self.subTest(config=config, area_id=area_id), self.assertRaises(ValueError):
-                HueAreaReader(config, area_id, requester=lambda path: self.fail(path))
+                HueArea(config, area_id, requester=lambda *call: self.fail(call))
+
+
+class HueAreaChangeTests(unittest.TestCase):
+    def test_join_appends_the_light_at_the_center_and_keeps_the_other_rows(self):
+        bridge = Bridge()
+        hue = HueArea(CONFIG, AREA, requester=bridge)
+        self.assertEqual(hue.join(LIGHT), ({"service": SERVICE, "segments": 3}, True))
+        rows = bridge.writes[0]["locations"]["service_locations"]
+        self.assertEqual(rows[0], Bridge().rows[0])
+        self.assertEqual(rows[1], {"service": {"rid": SERVICE, "rtype": "entertainment"},
+                                   "positions": [{"x": 0, "y": 0, "z": 0}]})
+        # A member is kept as it is.
+        self.assertEqual(hue.join(LIGHT), ({"service": SERVICE, "segments": 3}, False))
+        self.assertEqual(len(bridge.writes), 1)
+
+    def test_leave_removes_only_the_light(self):
+        bridge = Bridge((OTHER_SERVICE, SERVICE))
+        hue = HueArea(CONFIG, AREA, requester=bridge)
+        hue.leave(LIGHT)
+        self.assertEqual(bridge.writes, [{"locations": {"service_locations": Bridge().rows}}])
+        self.assertIsNone(hue.member(LIGHT))
+        hue.leave(LIGHT)
+        self.assertEqual(len(bridge.writes), 1)
+
+    def test_a_streaming_area_is_not_changed(self):
+        for status in ("active", None):
+            with self.subTest(status=status):
+                bridge = Bridge((OTHER_SERVICE, SERVICE), status=status)
+                hue = HueArea(CONFIG, AREA, requester=bridge)
+                with self.assertRaises(AreaBusy):
+                    hue.join(LIGHT)
+                with self.assertRaises(AreaBusy):
+                    hue.leave(LIGHT)
+                self.assertEqual(bridge.writes, [])
+
+    def test_a_write_that_the_bridge_ignores_or_rejects_raises(self):
+        class Ignoring(Bridge):
+            def __call__(self, path, method="GET", body=None):
+                if method == "PUT":
+                    self.writes.append(body)
+                    return {"errors": [], "data": []}
+                return super().__call__(path, method, body)
+
+        class Rejecting(Bridge):
+            def __call__(self, path, method="GET", body=None):
+                if method == "PUT":
+                    return {"errors": [{"description": "too many channels"}], "data": []}
+                return super().__call__(path, method, body)
+
+        with self.assertRaises(ValueError):
+            HueArea(CONFIG, AREA, requester=Ignoring()).join(LIGHT)
+        with self.assertRaises(ValueError):
+            HueArea(CONFIG, AREA, requester=Ignoring((OTHER_SERVICE, SERVICE))).leave(LIGHT)
+        with self.assertRaises(ValueError):
+            HueArea(CONFIG, AREA, requester=Rejecting()).join(LIGHT)
+        with self.assertRaises(ValueError):
+            HueArea(CONFIG, AREA, requester=Bridge()).join("not-a-uuid")
 
 
 if __name__ == "__main__":

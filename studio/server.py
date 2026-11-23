@@ -32,7 +32,7 @@ DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
 # Owner enrollment of a discovered light (adapter /lights/enroll and /lights/remove).
 LIGHT_ROUTES = {"/api/lights/enroll": "/lights/enroll", "/api/lights/remove": "/lights/remove"}
 LIGHT_REASONS = ("sync_active", "restarting", "enrolled", "not_enrolled", "unavailable",
-                 "not_in_area", "area_full")
+                 "area_full")
 IDENTIFY_REASONS = ("lamp off", "writer closed", "sync active", "busy", "unavailable",
                     "brightness unknown", "paused")
 # Calibration refusals passed through to the UI; anything else is "refused".
