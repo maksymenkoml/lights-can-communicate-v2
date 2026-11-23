@@ -707,7 +707,7 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
     broker = power_requests or (PowerRequests(power_owner) if power_owner is not None else None)
     signatures = SignatureVerifier(power_token) if homekit is not None else None
     # Native Hue light id (registry id) -> its proxy.
-    hue_proxies = dict(hue_proxies or {})
+    hue_proxies = hue_proxies or {}
 
     class Handler(BaseHTTPRequestHandler):
         power_requests = broker
