@@ -229,6 +229,30 @@ class DeviceCatalog:
                 self._providers[provider] = state if isinstance(state, str) and state in states \
                     else "unavailable"
 
+    def govee_enrollment(self, identifier):
+        """Return the device ID, address and model of an enrollable Govee light, or None.
+
+        The binding rules of a layout placement apply at this moment: the light is
+        discovered, online, unambiguous and not one of the migrated lamps. Any model
+        qualifies; one outside the capability table is driven as a basic light.
+        """
+        now = self._now()
+        with self._lock:
+            self._prune(now)
+            entry = self._entries.get(identifier)
+            if (entry is None or entry["provider"] != "govee"
+                    or self._providers["govee"] != "ready" or not self._fresh(entry["seen"], now)
+                    or not entry["model"]
+                    or (entry["provider"], entry["physical_id"]) in self._legacy_roles
+                    or self._govee_blocked_until >= now or entry["blocked_until"] >= now
+                    or len(entry["addresses"]) != 1):
+                return None
+            address = next(iter(entry["addresses"]))
+            if any(other is not entry and other["provider"] == "govee"
+                   and address in other["addresses"] for other in self._entries.values()):
+                return None
+            return {"device": entry["physical_id"], "ip": address, "model": entry["model"]}
+
     def snapshot(self):
         now = self._now()
         with self._lock:

@@ -38,6 +38,7 @@ from legacy_wire import (  # noqa: E402
     owner_exchange,
     owner_observed,
 )
+from light_enrollment import LightEnrollment, LightRefused  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
@@ -52,7 +53,6 @@ from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # n
 from lights_can_communicate_v2_core.light_registry import (  # noqa: E402
     LEGACY_SIDES,
     LightRegistry,
-    RegistryError,
 )
 from lights_can_communicate_v2_core.live_preview import OutputPreviewStore, build_preview  # noqa: E402
 
@@ -698,7 +698,7 @@ def prepare_targets(targets, composition_profile):
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
                 power_requests=None, homekit=None, identify=None, sync_off=None,
-                calibration=None):
+                calibration=None, lights=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -807,9 +807,11 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                 return self.respond(403, {"error": "unauthorized"})
             if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
                                  "/native-power", "/identify", "/calibration",
-                                 "/calibration/end", "/homekit") or (
+                                 "/calibration/end", "/homekit", "/lights/enroll",
+                                 "/lights/remove") or (
                 self.path == "/stream" and video_output is None
             ) or (self.path == "/identify" and identify is None) or (
+                self.path.startswith("/lights/") and lights is None) or (
                 self.path.startswith("/calibration") and calibration is None):
                 return self.respond(404, {"error": "not found"})
             try:
@@ -866,6 +868,18 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                         return self.respond(200, calibration.update(payload))
                     except CalibrationRefused as refused:
                         return self.respond(409, {"active": False, "reason": refused.reason})
+                elif self.path in ("/lights/enroll", "/lights/remove"):
+                    if not isinstance(payload, dict) or set(payload) != {"id"}:
+                        raise ValueError("Invalid light request")
+                    change = lights.enroll if self.path == "/lights/enroll" else lights.remove
+                    try:
+                        change(payload["id"])
+                    except LightRefused as refused:
+                        return self.respond(409, {"accepted": False, "reason": refused.reason})
+                    except OSError:
+                        return self.respond(503, {"accepted": False})
+                    # The adapter restarts with the new light set (see light_enrollment).
+                    return self.respond(200, {"accepted": True, "restarting": True})
                 elif self.path == "/calibration/end":
                     if payload != {}:
                         raise ValueError("Invalid calibration end request")
@@ -887,7 +901,9 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                         confirmed = False
                     return self.respond(200 if confirmed else 503, {"accepted": confirmed})
                 elif self.path == "/stream":
-                    accepted = video_output.submit(payload)
+                    # No Sync session starts while the light set is being changed.
+                    accepted = (video_output.submit(payload) if lights is None
+                                else lights.stream(lambda: video_output.submit(payload)))
                     # Only an authenticated, fully consumed stream envelope may
                     # reuse its connection. Other routes retain legacy closure.
                     self.stream_keep_alive = (
@@ -1051,10 +1067,7 @@ def main(argv=None, service_info=None):
         # The adapter follows a lamp to a new address; persist it in the registry,
         # the only source of lights. A failed write is an OSError for the
         # transport, which restarts its receive loop as it did for the old file.
-        try:
-            registry.with_govee_targets(controller.targets).save(args.registry)
-        except RegistryError:
-            raise OSError("Light registry could not be written") from None
+        enrollment.remember(controller.targets)
 
     legacy_roles = {("govee", lan.device_key(device)): device["light"]
                     for device in controller.targets if device["light"] in LEGACY_SIDES}
@@ -1068,6 +1081,15 @@ def main(argv=None, service_info=None):
     catalog.provider_state("govee", "discovering")
     catalog.provider_state("hue", "discovering" if hue_config is not None else "not_configured")
     stop = threading.Event()
+
+    def restart_with_new_lights():
+        print("Light registry changed; restarting the adapter.", flush=True)
+        # Leave time for the HTTP answer; Docker restarts the finished container.
+        threading.Timer(0.5, stop.set).start()
+
+    enrollment = LightEnrollment(
+        args.registry, registry, catalog,
+        busy=lambda: video is not None and video.active(), restart=restart_with_new_lights)
     server = ThreadingHTTPServer(
         (args.bind, args.port),
         handler_for(
@@ -1086,6 +1108,7 @@ def main(argv=None, service_info=None):
             identify=identify,
             sync_off=sync_off,
             calibration=calibration_session,
+            lights=enrollment,
         ),
     )
     video_thread = http_thread = None

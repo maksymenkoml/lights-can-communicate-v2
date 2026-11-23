@@ -29,6 +29,9 @@ ASSETS = {
 }
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
 # Adapter refusal reasons passed through to the UI; anything else is "refused".
+# Owner enrollment of a discovered Govee light (adapter /lights/enroll and /lights/remove).
+LIGHT_ROUTES = {"/api/lights/enroll": "/lights/enroll", "/api/lights/remove": "/lights/remove"}
+LIGHT_REASONS = ("sync_active", "restarting", "enrolled", "not_enrolled", "unavailable")
 IDENTIFY_REASONS = ("lamp off", "writer closed", "sync active", "busy", "unavailable",
                     "brightness unknown", "paused")
 # Calibration refusals passed through to the UI; anything else is "refused".
@@ -333,7 +336,7 @@ def _post_local_json(url, body, timeout, headers):
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
-                sync_box=None, hosts=()):
+                sync_box=None, hosts=(), lights_post=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
     # The Sync Box token lives with the other private state, never in the layout.
     box = sync_box or SyncBox(store.path.parent / "sync-box.json")
@@ -432,6 +435,30 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             return 400, {"error": "invalid calibration request"}
         return 503, {"active": False, "reason": "adapter unavailable"}
 
+    def change_lights(route, light_id):
+        """Forward an owner enrollment or removal to the adapter; return (status, body)."""
+        try:
+            if lights_post is not None:
+                status, answer = lights_post(route, {"id": light_id})
+            else:
+                token = token_file.read_text().strip()
+                status, answer = _post_local_json(adapter_url + route, {"id": light_id}, 3,
+                                                  {"X-Adapter-Token": token})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return 503, {"accepted": False, "reason": "adapter unavailable"}
+        if status == 200 and isinstance(answer, dict) and answer.get("accepted") is True:
+            # The adapter restarts with the new light set.
+            return 200, {"accepted": True, "restarting": True}
+        if status == 409:
+            reason = answer.get("reason") if isinstance(answer, dict) else None
+            return 409, {"accepted": False,
+                         "reason": reason if reason in LIGHT_REASONS else "refused"}
+        if status == 400:
+            return 400, {"error": "invalid light request"}
+        return 503, {"accepted": False, "reason": "adapter unavailable"}
+
     def stream_state():
         sync = live().get("sync")
         return sync.get("state") if isinstance(sync, dict) else None
@@ -521,7 +548,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
         def do_POST(self):
             path = urlsplit(self.path).path
             if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES,
-                            *SYNC_BOX_ROUTES):
+                            *SYNC_BOX_ROUTES, *LIGHT_ROUTES):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
@@ -533,6 +560,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.calibrate(CALIBRATION_ROUTES[path])
             if path in SYNC_BOX_ROUTES:
                 return self.sync_box(path.rsplit("/", 1)[1])
+            if path in LIGHT_ROUTES:
+                return self.lights(LIGHT_ROUTES[path])
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 16384:
@@ -582,6 +611,19 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 # Only the six role lamps can blink; discovered lamps come later.
                 return self.respond(404, {"error": "unknown lamp"})
             return self.respond(*identify(role))
+
+        def lights(self, route):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 256:
+                    return self.respond(413, {"error": "light payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if (not isinstance(data, dict) or set(data) != {"id"}
+                        or not isinstance(data["id"], str) or not DEVICE_ID.fullmatch(data["id"])):
+                    raise ValueError("Expected a discovered light id")
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid light request"})
+            return self.respond(*change_lights(route, data["id"]))
 
         def calibrate(self, route):
             try:

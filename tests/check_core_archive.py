@@ -77,6 +77,7 @@ RUNTIME = [
     "native_location_cache",
     "identify",
     "legacy_wire",
+    "light_enrollment",
     "sync_off",
 ]
 

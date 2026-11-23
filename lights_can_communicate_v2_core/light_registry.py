@@ -16,6 +16,11 @@ _MAX_REGISTRY_BYTES = 64 * 1024
 _ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 # A Govee light is one of the two migrated lamps or a discovered device.
 GOVEE_ID = re.compile(r"(?:govee-left|govee-right|device-[0-9a-f]{32})\Z")
+# Only a discovered device can be enrolled or removed by the owner.
+DEVICE_ID = re.compile(r"device-[0-9a-f]{32}\Z")
+# Removed lights keep their virtual identity, so a rejoin gets the same virtual
+# light and HomeKit accessory; the oldest records go first beyond this bound.
+_MAX_RETIRED = 64
 # The only tier an owner can force; every model in the capability table is segmented.
 _GOVEE_TIERS = ("basic",)
 _ID_V1 = re.compile(r"[1-9][0-9]{0,3}\Z")
@@ -133,17 +138,34 @@ def _validated(data):
     if type(lights) is not list or not lights:
         raise _invalid()
     has_hue = any(type(item) is dict and item.get("provider") == "hue" for item in lights)
-    root = _object(data, ("version", "lights", *(("hue",) if has_hue else ())))
+    optional = (("hue",) if has_hue else ()) + (("retired",) if "retired" in data else ())
+    root = _object(data, ("version", "lights", *optional))
     if type(root["version"]) is not int or root["version"] != 1:
         raise RegistryError("Light registry version is unsupported.")
     if has_hue:
         _uuid(_object(root["hue"], ("area_id",))["area_id"])
     for item in lights:
         _light(item)
-    ids = [item["id"] for item in lights]
+    retired = root.get("retired", [])
+    if "retired" in root and (type(retired) is not list or not retired
+                              or len(retired) > _MAX_RETIRED):
+        raise _invalid()
+    for record in retired:
+        record = _object(record, ("id", "virtual"))
+        _text(record["id"], DEVICE_ID)
+        virtual = _object(record["virtual"], ("id_v1", "seed"))
+        _text(virtual["id_v1"], _ID_V1)
+        _text(virtual["seed"], _SEED)
+    # Active and retired lights share one space of ids, slots and seeds.
+    records = lights + retired
+    ids = [item["id"] for item in records]
     if (len(set(ids)) != len(ids)
-            or len({item["virtual"]["id_v1"] for item in lights}) != len(ids)
-            or len({item["virtual"]["seed"] for item in lights}) != len(ids)):
+            or len({item["virtual"]["id_v1"] for item in records}) != len(ids)
+            or len({item["virtual"]["seed"] for item in records}) != len(ids)):
+        raise RegistryError("Light registry lights must be distinct.")
+    devices = [_device_key(item["govee"]["device"]) for item in lights
+               if item["provider"] == "govee"]
+    if len(set(devices)) != len(devices):
         raise RegistryError("Light registry lights must be distinct.")
     hue = {item["id"] for item in lights if item["provider"] == "hue"}
     if hue not in (set(), set(_HUE_ROLES)):
@@ -152,6 +174,11 @@ def _validated(data):
         return json.loads(json.dumps(root, allow_nan=False))
     except (TypeError, ValueError, RecursionError):
         raise _invalid() from None
+
+
+def _device_key(value):
+    """Compare Govee device IDs without regard to case or separators."""
+    return value.replace(":", "").upper()
 
 
 def _payload(data):
@@ -251,6 +278,58 @@ class LightRegistry:
             raise _invalid()
         for item in govee:
             item["govee"] = replacement[item["id"]]
+        return LightRegistry.from_dict(data)
+
+    def with_govee_light(self, light_id, device, ip, model):
+        """Return a registry that also drives the discovered Govee light ``light_id``.
+
+        A light removed earlier gets its virtual identity back; a new one takes the
+        lowest free virtual slot and its id as the identity seed.
+        """
+        if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
+            raise _invalid()
+        if type(model) is not str or not model:
+            raise _invalid()
+        data = self.to_dict()
+        if light_id in {item["id"] for item in data["lights"]}:
+            raise RegistryError("Light is already enrolled.")
+        if type(device) is str and any(
+                item["provider"] == "govee"
+                and _device_key(item["govee"]["device"]) == _device_key(device)
+                for item in data["lights"]):
+            raise RegistryError("Light is already enrolled.")
+        retired = data.pop("retired", [])
+        record = next((item for item in retired if item["id"] == light_id), None)
+        if record is not None:
+            retired.remove(record)
+            virtual = record["virtual"]
+        else:
+            used = {int(item["virtual"]["id_v1"]) for item in data["lights"] + retired}
+            virtual = {"id_v1": str(next(n for n in range(1, 10000) if n not in used)),
+                       "seed": light_id}
+        data["lights"].append({"id": light_id, "provider": "govee", "virtual": virtual,
+                               "govee": {"device": device, "ip": ip, "model": model}})
+        if retired:
+            data["retired"] = retired
+        return LightRegistry.from_dict(data)
+
+    def without_govee_light(self, light_id):
+        """Return a registry without the discovered Govee light ``light_id``.
+
+        The light's virtual identity is kept for a later rejoin. The migrated
+        lamps are not removed here: they still own the fixed layout rows.
+        """
+        if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
+            raise _invalid()
+        data = self.to_dict()
+        item = next((item for item in data["lights"]
+                     if item["id"] == light_id and item["provider"] == "govee"), None)
+        if item is None:
+            raise RegistryError("Light is not enrolled.")
+        data["lights"].remove(item)
+        retired = data.pop("retired", [])
+        retired.append({"id": light_id, "virtual": item["virtual"]})
+        data["retired"] = retired[-_MAX_RETIRED:]
         return LightRegistry.from_dict(data)
 
     def native_profile(self):
