@@ -95,7 +95,7 @@ class InstallTests(unittest.TestCase):
     def test_manifest_declares_compatibility_and_a_reproducible_plugin(self):
         compatibility = self.manifest["compatibility"]
         self.assertEqual(compatibility["config_version"], [1])
-        self.assertEqual(compatibility["core_api"], {"homekit": 1})
+        self.assertEqual(compatibility["core_api"], {"homekit": 2})
         self.assertEqual(compatibility["state"], STATE_SCHEMAS)
         plugin = compatibility["plugin"]
         self.assertIn(plugin["file"], self.manifest["files"])

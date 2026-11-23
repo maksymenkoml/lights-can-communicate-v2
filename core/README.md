@@ -248,17 +248,19 @@ The basic tier has no default command rate: it uses `max_commands_per_second`
 of its entry when present, else the adapter's 20 Hz render tick with change
 detection. The migrated lamps behave as before.
 
-The two legacy wire formats keep their side names for now. `/power-owner` (the
-Homebridge overlay) and `GET`/`POST /homekit` (the Homebridge plugin) name the
-two migrated lamps `left` and `right`; the adapter translates at that HTTP
-boundary (`bridge/legacy_wire.py`) and shows no other light there. Everything
+`/power-owner` (the obsolete Homebridge overlay) keeps its side names: it names
+the two migrated lamps `left` and `right`, and the adapter translates at that
+HTTP boundary (`bridge/legacy_wire.py`) and shows no other light there.
+`GET`/`POST /homekit` (the Homebridge plugin, API version 2) names every Govee
+lamp by its Govee device ID: `GET` answers `{"version": 2, "lights": {deviceId:
+{...}}}` and `POST` takes `{"device": deviceId, ...}`. The adapter resolves the
+device ID through the registry and refuses an unknown one with 400. Everything
 inside, including `/power-request` (`states` by light ID, unknown IDs refused
 with 400), the `/status` power snapshot (`power_owner.lights`) and
 `state_dir/homekit-power.json`, uses light IDs. The HomeKit file is
 `{"version": 2, "lights": {id: {...}}}`; a version-one file (`roles` by side)
 is converted once on the first start and rewritten, and its old keys are not
-read afterwards. The `/homekit` contract moves to light IDs together with the
-plugin.
+read afterwards.
 
 The first start without `lights.json` migrates once, in memory, from
 `adapter.targets_file` and the native profile (`adapter.native_profile_file`),
@@ -703,9 +705,9 @@ the layout name changes, and once at start:
   half second. A name that the owner later sets in the Hue app stays until the
   Light Studio name changes. The Hue app may show its cached name until it
   refreshes; the Sync box reads the name when it next lists the lights.
-- HomeKit: `GET /homekit` adds `name` to each lamp (`left`, `right`) that has an
-  owner name, and omits it otherwise. The signed body and `X-LCC-Response`
-  are computed as before; the API version stays 1 (the field is optional). The
+- HomeKit: `GET /homekit` adds `name` to each lamp (keyed by Govee device ID)
+  that has an owner name, and omits it otherwise. The signed body and
+  `X-LCC-Response` are computed as before; the field is optional. The
   Homebridge plugin renames the accessory display name, the AccessoryInformation
   `Name` and, only where present, the Lightbulb `Name` and `ConfiguredName`.
   UUID, AID and IID never change. See `homebridge/README.md`.

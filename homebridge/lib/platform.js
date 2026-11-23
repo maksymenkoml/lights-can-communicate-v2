@@ -6,19 +6,19 @@ export const PLUGIN_NAME = 'homebridge-lights-can-communicate-v2';
 export const PLATFORM_NAME = 'LightsCanCommunicateV2';
 export const POLL_MS = 1000;
 export const UNAVAILABLE_MS = 5000;
-const ROLES = new Set(['left', 'right']);
-
+/**
+ * Every lamp is addressed by its Govee device ID; the core resolves it through
+ * its light registry. A `role` left over from an older configuration is ignored.
+ */
 export function validateLamps(lamps) {
   if (!Array.isArray(lamps) || lamps.length === 0) throw new Error('No lamps configured');
-  const roles = new Set();
   const devices = new Set();
   for (const lamp of lamps) {
-    if (!lamp || !ROLES.has(lamp.role) || roles.has(lamp.role)
-      || typeof lamp.deviceId !== 'string' || !/^([0-9A-F]{2}:){7}[0-9A-F]{2}$/.test(lamp.deviceId)
+    if (!lamp || typeof lamp.deviceId !== 'string'
+      || !/^([0-9A-F]{2}:){7}[0-9A-F]{2}$/.test(lamp.deviceId)
       || devices.has(lamp.deviceId) || typeof lamp.name !== 'string' || !lamp.name.trim()) {
       throw new Error('Invalid lamp configuration');
     }
-    roles.add(lamp.role);
     devices.add(lamp.deviceId);
   }
   return lamps;
@@ -59,7 +59,7 @@ export class LightsCanCommunicateV2Platform {
           fresh.push(accessory);
         }
         this.cached.delete(uuid);
-        this.lamps.set(lamp.role, new Lamp(this.api, accessory, lamp, this.client, this.log));
+        this.lamps.set(lamp.deviceId, new Lamp(this.api, accessory, lamp, this.client, this.log));
       }
       if (fresh.length) this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, fresh);
       if (this.cached.size) {
@@ -78,9 +78,9 @@ export class LightsCanCommunicateV2Platform {
     if (this.polling) return;
     this.polling = true;
     try {
-      const roles = await this.client.state();
+      const lights = await this.client.state();
       this.lastState = this.now();
-      for (const [role, lamp] of this.lamps) lamp.update(roles[role]);
+      for (const [deviceId, lamp] of this.lamps) lamp.update(lights[deviceId]);
     } catch (error) {
       if (this.now() - this.lastState >= UNAVAILABLE_MS) {
         this.log.warn(`Core unavailable: ${error.message}`);

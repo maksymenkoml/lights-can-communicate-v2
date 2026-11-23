@@ -25,6 +25,8 @@ import lights_can_communicate_v2 as lan
 from lights_can_communicate_v2_core.light_registry import LEGACY_SIDES
 
 STATE_VERSION = 2
+# Version of the signed /homekit API: lamps keyed by their Govee device ID.
+HOMEKIT_API = 2
 CONFIRM_SECONDS = 3.0
 RESEND_SECONDS = 1.0
 SETTLE_SECONDS = 3.0
@@ -44,9 +46,9 @@ class HomeKitPower:
     def __init__(self, targets, state_file, sender, observe, idle=lambda light: True,
                  clock=time.monotonic, sleep=time.sleep, names=dict, wall_clock=time.time,
                  release=lambda light: None):
-        self.roles = {lan.device_key(device): device["light"] for device in targets}
+        self.by_device = {lan.device_key(device): device["light"] for device in targets}
         self.devices = {device["light"]: device for device in targets}
-        if len(self.roles) != len(targets) or len(self.devices) != len(targets):
+        if len(self.by_device) != len(targets) or len(self.devices) != len(targets):
             raise ValueError("HomeKit power requires distinct Govee lights")
         self.lights = tuple(self.devices)
         self.state_file = state_file
@@ -151,7 +153,7 @@ class HomeKitPower:
         def send(device, command, data):
             # Closing the gate takes this lock, so it waits for an in-flight send.
             with self.lock:
-                if not self.allowed(self.roles.get(lan.device_key(device))):
+                if not self.allowed(self.by_device.get(lan.device_key(device))):
                     return False
                 return sender(device, command, data)
 
@@ -203,6 +205,29 @@ class HomeKitPower:
                     # Only an owner name is reported; without one HomeKit keeps its own.
                     lights[light]["name"] = names[light]
             return {"version": 1, "lights": lights}
+
+    def wire_state(self):
+        """The ``/homekit`` document: every Govee lamp keyed by its device ID."""
+        lights = self.state()["lights"]
+        return {"version": HOMEKIT_API,
+                "lights": {lan.device_key(self.devices[light]): value
+                           for light, value in lights.items()}}
+
+    def wire_intent(self, payload):
+        """Light-keyed intent from a ``/homekit`` intent that names the Govee ``device``."""
+        # The wire names a lamp only by its device ID; a light id is refused.
+        if (type(payload) is not dict or type(payload.get("device")) is not str
+                or "light" in payload):
+            raise ValueError("Invalid HomeKit intent")
+        try:
+            light = self.by_device.get(lan.device_key(payload))
+        except ValueError:
+            light = None
+        if light is None:
+            raise ValueError("Unknown HomeKit lamp")
+        result = {key: value for key, value in payload.items() if key != "device"}
+        result["light"] = light
+        return result
 
     def set(self, payload):
         if (type(payload) is not dict or payload.get("light") not in self.devices

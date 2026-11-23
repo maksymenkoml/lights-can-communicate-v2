@@ -1,6 +1,7 @@
 # homebridge-lights-can-communicate-v2
 
-Homebridge platform `LightsCanCommunicateV2` for the two desk Govee H6076 lamps.
+Homebridge platform `LightsCanCommunicateV2` for the Govee lamps that the core
+drives.
 It replaces the version-specific overlay of `@homebridge-plugins/homebridge-govee`
 (see `../homebridge-power`). Design:
 `../docs/design/2026-11-17-homebridge-lights-can-communicate-v2.md`.
@@ -14,9 +15,10 @@ It replaces the version-specific overlay of `@homebridge-plugins/homebridge-gove
   HAP-NodeJS therefore resolves the same AID and IIDs, and Apple Home keeps
   rooms, scenes and automations.
 - The plugin never talks to a lamp. Every HomeKit write is sent to the core
-  (`POST /homekit`); the core executes power itself, keeps the color writer
-  closed until native On is confirmed, and applies Home brightness and color
-  only while no scene or Sync owns the lamp. A write that the core cannot
+  (`POST /homekit` with the lamp's Govee device ID); the core resolves the
+  device ID through its light registry, executes power itself, keeps the
+  color writer closed until native On is confirmed, and applies Home
+  brightness and color only while no scene or Sync owns the lamp. A write that the core cannot
   confirm is reported to HomeKit as a communication failure.
 - Requests to `/homekit` are signed with HMAC-SHA256 over method, path, time,
   a one-time nonce and the body hash; the credential itself never travels, a
@@ -46,12 +48,18 @@ its own name per accessory); in that case rename the accessory in Home too.
 {
   "platform": "LightsCanCommunicateV2",
   "lamps": [
-    {"role": "left", "deviceId": "<Govee device ID>", "name": "Mykola office L"},
-    {"role": "right", "deviceId": "<Govee device ID>", "name": "Mykola office R"}
+    {"deviceId": "<Govee device ID>", "name": "Mykola office L"},
+    {"deviceId": "<Govee device ID>", "name": "Mykola office R"}
   ],
   "_bridge": {"username": "<the Govee child bridge username>", "pin": "...", "port": 0}
 }
 ```
+
+Each lamp is addressed by `deviceId`; the core must have the light in its
+registry. A `role` field from an older configuration is ignored, so existing
+configurations keep working without an edit. Plugin 0.2.0 speaks `/homekit`
+API version 2 and refuses a core with another version (and the reverse), so
+update the plugin together with the core.
 
 `lights-can-communicate-v2.json` in the Homebridge storage directory, mode 0600:
 

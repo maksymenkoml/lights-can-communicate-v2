@@ -34,8 +34,6 @@ from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
 from legacy_wire import (  # noqa: E402
-    homekit_intent,
-    homekit_state,
     owner_envelope,
     owner_exchange,
     owner_observed,
@@ -754,7 +752,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             if self.path == "/homekit":
                 if homekit is None:
                     return self.respond(404, {"error": "not found"})
-                return self.respond(200, homekit_state(homekit.state()))
+                return self.respond(200, homekit.wire_state())
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
             if self.path not in ("/status", "/diagnostics"):
@@ -840,9 +838,9 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                                               **owner_exchange(broker.exchange(
                                                   envelope, capability, observed, accepted))})
                 elif self.path == "/homekit":
-                    confirmed = homekit.set(homekit_intent(payload))
+                    confirmed = homekit.set(homekit.wire_intent(payload))
                     return self.respond(200 if confirmed else 503,
-                                        {"accepted": confirmed, **homekit_state(homekit.state())})
+                                        {"accepted": confirmed, **homekit.wire_state()})
                 elif self.path == "/power-request":
                     if broker is None:
                         return self.respond(503, {"accepted": False})

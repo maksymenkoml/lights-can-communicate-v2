@@ -22,7 +22,7 @@ from power_owner import PowerOwner  # noqa: E402
 from power_requests import PowerRequests, PowerRequestUnavailable  # noqa: E402
 from sync_off import STATE_FILE, SyncOffSession  # noqa: E402
 from test_govee_light_set import FOURTH, FOURTH_ID, THIRD, THIRD_ID  # noqa: E402
-from test_live_adapter import targets  # noqa: E402
+from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
 
 TOKEN, OWNER = "a" * 48, "b" * 64
 
@@ -165,7 +165,7 @@ class HomeKitLightSetTests(unittest.TestCase):
 
 
 class HomeKitWireTests(unittest.TestCase):
-    """/homekit still speaks sides; the third light is not visible there."""
+    """/homekit names every Govee lamp, the third one included, by its device ID."""
 
     def setUp(self):
         temp = TemporaryDirectory(prefix="tmp_homekit_wire_")
@@ -206,23 +206,30 @@ class HomeKitWireTests(unittest.TestCase):
             with error:
                 return error.code, json.load(error)
 
-    def test_get_lists_the_two_legacy_lamps_by_side(self):
+    def test_get_lists_every_govee_lamp_by_device_id(self):
         status, body = self.call("/homekit")
         self.assertEqual(status, 200)
-        self.assertEqual(set(body), {"version", "roles"})
-        self.assertEqual(set(body["roles"]), {"left", "right"})
-        self.assertEqual(body["version"], 1)
+        self.assertEqual(set(body), {"version", "lights"})
+        self.assertEqual(set(body["lights"]), {LEFT, RIGHT, THIRD})
+        self.assertEqual(body["version"], 2)
 
-    def test_post_names_the_role_and_answers_by_side(self):
-        status, body = self.call("/homekit", {"role": "right", "on": False})
-        self.assertEqual((status, body["accepted"], body["roles"]["right"]["on"]),
+    def test_post_names_the_device_and_reaches_a_third_lamp(self):
+        status, body = self.call("/homekit", {"device": THIRD, "on": False})
+        self.assertEqual((status, body["accepted"], body["lights"][THIRD]["on"]),
                          (200, True, False))
-        self.assertFalse(self.power.allowed("govee-right"))
-        self.assertTrue(self.power.allowed(THIRD_ID))
+        self.assertFalse(self.power.allowed(THIRD_ID))
+        self.assertTrue(self.power.allowed("govee-right"))
+        # The device ID is matched without regard to case or separators.
+        status, body = self.call("/homekit", {"device": RIGHT.lower().replace(":", ""),
+                                              "on": False})
+        self.assertEqual((status, body["lights"][RIGHT]["on"]), (200, False))
 
-    def test_the_wire_refuses_light_ids_and_unknown_sides(self):
-        for payload in ({"role": THIRD_ID, "on": False}, {"role": "govee-left", "on": False},
-                        {"role": "middle", "on": False}, {"light": "govee-left", "on": False},
+    def test_the_wire_refuses_roles_light_ids_and_unknown_devices(self):
+        for payload in ({"role": "right", "on": False}, {"device": FOURTH, "on": False},
+                        {"device": THIRD_ID, "on": False}, {"light": "govee-left", "on": False},
+                        {"device": "middle", "on": False}, {"device": LEFT, "role": "left",
+                                                            "on": False},
+                        {"device": LEFT, "light": "govee-right", "on": False},
                         {"on": False}):
             with self.subTest(payload=payload):
                 self.assertEqual(self.call("/homekit", payload)[0], 400)
@@ -319,15 +326,10 @@ class LegacyWireTests(unittest.TestCase):
         self.assertEqual(legacy_wire.owner_observed(
             {"govee-left": {"on": True}, THIRD_ID: {"on": False}}), {"left": {"on": True}})
 
-    def test_homekit_documents(self):
-        self.assertEqual(legacy_wire.homekit_intent({"role": "left", "on": True}),
-                         {"light": "govee-left", "on": True})
-        for bad in ({"role": THIRD_ID}, {"on": True}, [], None):
-            with self.subTest(bad=bad), self.assertRaises(ValueError):
-                legacy_wire.homekit_intent(bad)
-        self.assertEqual(legacy_wire.homekit_state({"version": 1, "lights": {
-            "govee-left": {"on": True}, THIRD_ID: {"on": False}}}),
-            {"version": 1, "roles": {"left": {"on": True}}})
+    def test_legacy_wire_no_longer_translates_homekit(self):
+        # /homekit names lamps by Govee device ID (HomeKitPower.wire_state/wire_intent).
+        self.assertFalse(hasattr(legacy_wire, "homekit_intent"))
+        self.assertFalse(hasattr(legacy_wire, "homekit_state"))
 
 
 class FakeDiyHueLight:
