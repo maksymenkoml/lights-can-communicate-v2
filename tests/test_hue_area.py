@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 import json
+import ssl
 import stat
 import sys
 import tempfile
@@ -233,15 +234,18 @@ class HueAreaChangeTests(unittest.TestCase):
 class FakeConnection:
     """An HTTPS connection to a bridge that presents ``certificate``."""
 
-    certificate = b"bridge certificate"
+    certificate = {"subject": ((("countryName", "NL"),), (("organizationName", "Philips Hue"),),
+                               (("commonName", "ECB5FAFFFEA26D51"),))}
     instances = []
+    ORIGINAL = None
 
     def __init__(self, host, port, timeout, context):
+        self.context = context
         self.host, self.requests, self.closed = host, [], False
         FakeConnection.instances.append(self)
 
     def connect(self):
-        self.sock = mock.Mock(getpeercert=lambda binary_form: self.certificate)
+        self.sock = mock.Mock(getpeercert=lambda: self.certificate)
 
     def request(self, method, path, body=None, headers=None):
         self.requests.append((method, path, headers))
@@ -254,37 +258,53 @@ class FakeConnection:
         self.closed = True
 
 
+FakeConnection.ORIGINAL = copy.deepcopy(FakeConnection.certificate)
+
+
+def certificate_for(name):
+    return {"subject": ((("commonName", name),),)}
+
+
 class PinnedTransportTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="tmp_hue_pin_")
         self.addCleanup(temp.cleanup)
         self.pin = Path(temp.name) / "state" / "hue-bridge-certificate.sha256"
         FakeConnection.instances = []
-        FakeConnection.certificate = b"bridge certificate"
+        FakeConnection.certificate = copy.deepcopy(FakeConnection.ORIGINAL)
         patcher = mock.patch.object(hue_area.http.client, "HTTPSConnection", FakeConnection)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.hue = HueArea(CONFIG, AREA, pin_file=self.pin)
 
-    def test_the_first_certificate_is_pinned_and_later_ones_must_match(self):
+    def test_the_signify_root_ca_is_required_and_the_first_bridge_is_pinned(self):
         self.hue._request("/clip/v2/resource/entertainment")
-        self.assertEqual(self.pin.read_text().strip(),
-                         hashlib.sha256(b"bridge certificate").hexdigest())
+        context = FakeConnection.instances[-1].context
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertEqual(len(context.get_ca_certs()), 1)
+        self.assertEqual(self.pin.read_text().strip(), "ecb5fafffea26d51")
         self.assertEqual(stat.S_IMODE(self.pin.stat().st_mode), 0o600)
         self.hue._request("/clip/v2/resource/entertainment")
         sent = FakeConnection.instances[-1].requests
         self.assertEqual(sent[0][2]["hue-application-key"], CONFIG["hue_key"])
         self.assertTrue(all(connection.closed for connection in FakeConnection.instances))
 
-    def test_another_certificate_never_receives_the_application_key(self):
+    def test_another_bridge_never_receives_the_application_key(self):
         self.hue._request("/clip/v2/resource/entertainment")
-        FakeConnection.certificate = b"impostor certificate"
-        with self.assertRaises(CertificateChanged):
-            self.hue._request("/clip/v2/resource/entertainment")
-        self.assertEqual(FakeConnection.instances[-1].requests, [])
-        self.assertTrue(FakeConnection.instances[-1].closed)
-        # A refused certificate is an unavailable bridge for enrollment.
+        for certificate in (certificate_for("001788fffe000000"), certificate_for("bridge"),
+                            {"subject": ()}, None):
+            with self.subTest(certificate=certificate):
+                FakeConnection.certificate = certificate
+                with self.assertRaises(OSError):
+                    self.hue._request("/clip/v2/resource/entertainment")
+                self.assertEqual(FakeConnection.instances[-1].requests, [])
+                self.assertTrue(FakeConnection.instances[-1].closed)
         self.assertIsInstance(CertificateChanged(), OSError)
+
+    def test_the_embedded_root_is_the_signify_hue_bridge_ca(self):
+        der = ssl.PEM_cert_to_DER_cert(hue_area.SIGNIFY_ROOT_CA)
+        self.assertEqual(hashlib.sha256(der).hexdigest().upper(),
+                         "F0BD8E6509E82F774D63BC009D5388C969FE3DCF7D6D541D6351B72B898D8ACF")
 
     def test_the_transport_requires_a_pin_file(self):
         with self.assertRaises(ValueError):

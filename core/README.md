@@ -258,11 +258,13 @@ light out again, and a failed or uncertain area write restores the earlier
 locations. Enrollments and removals run one at a time.
 
 The area client authenticates the bridge before it sends the application key.
-The bridge certificate is not checked against a public CA, so the first area
-request pins its SHA-256 in `state/hue-bridge-certificate.sha256`, and every
-later request refuses another certificate (`unavailable`). After a genuine
-bridge replacement, delete that file to trust the new certificate. The native
-relay and light proxies do not use this pin yet. The relay refuses an area with
+It verifies the certificate chain against the Signify root CA for Hue bridges
+(`root-bridge`, embedded in `bridge/hue_area.py`), and the certificate's common
+name is the bridge id. The first verified request pins that id in
+`state/hue-bridge-id`; every later request must name the same bridge, otherwise
+the change is refused (`unavailable`). After a bridge replacement, delete that
+file. A bridge whose certificate is not issued by that CA cannot change the area.
+The native relay and light proxies do not verify the bridge yet. The relay refuses an area with
 a member that is not enrolled, so do not add lights to this area in the Hue app.
 
 A change is refused with 409 and a reason while Sync output is active

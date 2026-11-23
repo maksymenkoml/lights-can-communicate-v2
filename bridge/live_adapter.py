@@ -1088,7 +1088,7 @@ def main(argv=None, service_info=None):
     # Without usable paired credentials a Hue enrollment is refused as unavailable.
     try:
         area = (HueArea(hue_config, native_profile.area_id,
-                        pin_file=state_dir / "hue-bridge-certificate.sha256")
+                        pin_file=state_dir / "hue-bridge-id")
                 if hue_config is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None

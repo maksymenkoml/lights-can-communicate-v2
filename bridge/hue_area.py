@@ -7,11 +7,11 @@ there, and adds a light to the area or takes it out. The area is changed only
 while nothing streams to it.
 """
 
-import hashlib
 import http.client
 import json
 import math
 import os
+import re
 import secrets
 import ssl
 import tempfile
@@ -44,17 +44,39 @@ def _free_position(area):
         sum((point[axis] - other[axis]) ** 2 for axis in "xyz") for other in taken)))
 
 
+# The Signify private root CA that signs Hue Bridge certificates ("Using HTTPS" in
+# the Hue developer documentation). SHA-256 F0:BD:8E:65:09:E8:2F:77:4D:63:BC:00:9D:
+# 53:88:C9:69:FE:3D:CF:7D:6D:54:1D:63:51:B7:2B:89:8D:8A:CF.
+SIGNIFY_ROOT_CA = """\
+-----BEGIN CERTIFICATE-----
+MIICMjCCAdigAwIBAgIUO7FSLbaxikuXAljzVaurLXWmFw4wCgYIKoZIzj0EAwIw
+OTELMAkGA1UEBhMCTkwxFDASBgNVBAoMC1BoaWxpcHMgSHVlMRQwEgYDVQQDDAty
+b290LWJyaWRnZTAiGA8yMDE3MDEwMTAwMDAwMFoYDzIwMzgwMTE5MDMxNDA3WjA5
+MQswCQYDVQQGEwJOTDEUMBIGA1UECgwLUGhpbGlwcyBIdWUxFDASBgNVBAMMC3Jv
+b3QtYnJpZGdlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjNw2tx2AplOf9x86
+aTdvEcL1FU65QDxziKvBpW9XXSIcibAeQiKxegpq8Exbr9v6LBnYbna2VcaK0G22
+jOKkTqOBuTCBtjAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNV
+HQ4EFgQUZ2ONTFrDT6o8ItRnKfqWKnHFGmQwdAYDVR0jBG0wa4AUZ2ONTFrDT6o8
+ItRnKfqWKnHFGmShPaQ7MDkxCzAJBgNVBAYTAk5MMRQwEgYDVQQKDAtQaGlsaXBz
+IEh1ZTEUMBIGA1UEAwwLcm9vdC1icmlkZ2WCFDuxUi22sYpLlwJY81Wrqy11phcO
+MAoGCCqGSM49BAMCA0gAMEUCIEBYYEOsa07TH7E5MJnGw557lVkORgit2Rm1h3B2
+sFgDAiEA1Fj/C3AN5psFMjo0//mrQebo0eKd3aWRx+pQY08mk48=
+-----END CERTIFICATE-----
+"""
+_BRIDGE_ID = re.compile(r"[0-9a-f]{16}\Z")
+
+
 class CertificateChanged(OSError):
-    """The bridge presented another certificate than the pinned one."""
+    """The bridge certificate does not name the pinned bridge."""
 
 
-def _check_pin(path, fingerprint):
-    """Trust the bridge certificate seen first and refuse any other one later.
+def _check_pin(path, bridge_id):
+    """Bind the area client to one bridge.
 
-    The bridge certificate is not checked against a public CA, so this client pins
-    it, like the Sync Box client: the first area request records its SHA-256 and
-    every later request compares before it sends the application key. After a
-    genuine bridge replacement, delete the pin file to trust the new certificate.
+    The certificate chain is verified against the Signify root CA, and its common
+    name is the bridge id. The first verified request records that id; every later
+    request must present a certificate for the same bridge before the application
+    key is sent. After a bridge replacement, delete the pin file.
     """
     path = Path(path)
     try:
@@ -62,15 +84,37 @@ def _check_pin(path, fingerprint):
     except FileNotFoundError:
         pinned = None
     if pinned is not None:
-        if not secrets.compare_digest(pinned, fingerprint):
-            raise CertificateChanged("Unexpected Hue bridge certificate")
+        if not secrets.compare_digest(pinned, bridge_id):
+            raise CertificateChanged("Unexpected Hue bridge")
         return
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", dir=path.parent, prefix=".hue-pin-", suffix=".tmp",
                                      delete=False) as stream:
-        stream.write(fingerprint + "\n")
+        stream.write(bridge_id + "\n")
     os.chmod(stream.name, 0o600)
     os.replace(stream.name, path)
+
+
+def bridge_context():
+    """A TLS context that accepts only certificates issued by the Signify root CA.
+
+    Bridge certificates name the bridge id instead of its address, so the host name
+    is not checked here; the caller compares the common name with the pinned id.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_verify_locations(cadata=SIGNIFY_ROOT_CA)
+    return context
+
+
+def bridge_id(certificate):
+    """Return the bridge id that a verified certificate names, or raise OSError."""
+    subject = dict(item[0] for item in (certificate or {}).get("subject", ()) if item)
+    name = subject.get("commonName")
+    if not isinstance(name, str) or _BRIDGE_ID.match(name.lower()) is None:
+        raise OSError("Hue bridge certificate names no bridge")
+    return name.lower()
 
 
 def _uuid(value):
@@ -110,19 +154,13 @@ class HueArea:
         self._requester = requester or self._request
 
     def _request(self, path, method="GET", body=None):
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE  # Trust comes from the pin (see _check_pin).
         connection = http.client.HTTPSConnection(self._bridge, 443, timeout=self._timeout,
-                                                 context=context)
+                                                 context=bridge_context())
         deadline = time.monotonic() + self._timeout
         try:
             connection.connect()
-            certificate = connection.sock.getpeercert(binary_form=True)
-            if not certificate:
-                raise OSError("No Hue bridge certificate")
-            # The application key is sent only after the certificate matched.
-            _check_pin(self._pin_file, hashlib.sha256(certificate).hexdigest())
+            # The application key is sent only to the verified, pinned bridge.
+            _check_pin(self._pin_file, bridge_id(connection.sock.getpeercert()))
             headers = {"hue-application-key": self._key, "Accept": "application/json"}
             data = None
             if body is not None:
