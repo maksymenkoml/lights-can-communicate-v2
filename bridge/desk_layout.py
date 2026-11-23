@@ -327,8 +327,11 @@ def positions(layout, gradient=True):
 
 
 class LayoutStore:
-    def __init__(self, path):
+    def __init__(self, path, native=None):
         self.path = Path(path)
+        # Channel count of each native Hue light outside the migrated rows; its
+        # Sync zones follow its channels (see sync_projection.sync_profile).
+        self.native = dict(native or {})
         self.lock = threading.RLock()
         self.signature = None
         self.data = None
@@ -441,7 +444,7 @@ class LayoutStore:
         from sync_projection import sync_profile
 
         data = self.snapshot()
-        return sync_profile(data) if data is not None else None
+        return sync_profile(data, self.native) if data is not None else None
 
     def save(self, value):
         data = validate_layout(value)

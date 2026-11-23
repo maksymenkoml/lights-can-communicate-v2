@@ -20,12 +20,13 @@ class FakeRelay:
         self.started = 0
         self.stopped = 0
 
-    def start(self):
+    def start(self, profile=None):
         self.started += 1
         return True
 
-    def send(self, frame):
+    def send(self, frame, projected=None):
         self.frames.append(copy.deepcopy(frame))
+        self.projected = copy.deepcopy(projected)
 
     def stop(self):
         self.stopped += 1
@@ -162,6 +163,40 @@ class VideoTests(unittest.TestCase):
         self.output = VideoOutput(
             self.controller, self.relay, self.proxies, lease=self.lease, clock=lambda: self.now
         )
+
+    def test_an_enrolled_hue_light_gets_its_projected_zones(self):
+        import sync_projection
+        from test_sync_projection import current, layout
+
+        new = "device-" + "a" * 32
+        data = layout()
+        data["devices"].append({"id": new, "positionCm": {"x": 100, "height": 20}, "scale": 100})
+        profile = sync_projection.sync_profile(current(data), {new: 3})
+
+        class Layout:
+            def sync_profile(self):
+                return profile
+
+            def scale(self, light, fallback):
+                return fallback
+
+        self.controller.layout_store = Layout()
+        for proxy, light in zip(self.proxies, ("hue-monitor", "play-left", "play-center",
+                                               "play-right")):
+            proxy.light = light
+        extra = FakeProxy()
+        extra.light = new
+        self.proxies.append(extra)
+        self.output = VideoOutput(self.controller, self.relay, self.proxies, lease=self.lease,
+                                  clock=lambda: self.now)
+        message = envelope(colors=[[i, 1000 * i, 0, 0] for i in range(14)])
+        self.lease.submit(message)
+        result = self.output.process_once()
+        self.assertTrue(result, (self.output.last_result, self.output.last_safety_failure))
+        frame = {i: (1000 * i, 0, 0) for i in range(14)}
+        self.assertEqual(self.relay.projected,
+                         {new: sync_projection.project_light_frame(frame, new, profile)})
+        self.assertEqual(len(self.relay.projected[new]), 3)
 
     def test_black_video_frame_is_color_black_without_power_command(self):
         self.lease.submit(envelope(colors=[[i, 0, 0, 0] for i in range(14)]))

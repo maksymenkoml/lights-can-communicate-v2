@@ -1,10 +1,11 @@
-"""Virtual bridge lights of the enrolled Govee lights, from the light registry.
+"""Virtual bridge lights of the enrolled lights, from the light registry.
 
 The gateway creates one virtual light per enrolled light. The two migrated Govee
 lamps keep slots 1 and 2 and their seeds; a light enrolled later has the slot
-and seed the registry gave it. The four native Hue lights keep slots 3-6 and are
-handled by role elsewhere. A removed light keeps its virtual light, unreachable
-and not driven, so a rejoin finds the same light and its scenes.
+and seed the registry gave it. The four migrated native Hue lights keep slots 3-6
+and are handled by role elsewhere; a Hue light enrolled later is planned here
+(see hue_plan). A removed light keeps its virtual light, unreachable and not
+driven, so a rejoin finds the same light and its scenes.
 """
 
 import sys
@@ -22,6 +23,8 @@ LEGACY = (
     {"slot": "2", "light": "govee-right", "seed": "Right", "model": "H6076", "segmented": True},
 )
 LEGACY_SLOTS = frozenset(item["slot"] for item in LEGACY)
+# The migrated native Hue lights; the gateway gives them slots 3-6 by role.
+MIGRATED_HUE = ("hue-monitor", "play-left", "play-center", "play-right")
 
 
 def _registry_class():
@@ -75,15 +78,35 @@ def plan(data):
     return lights, retired
 
 
+def hue_plan(data):
+    """Return the Hue lights enrolled after the migration, in slot order.
+
+    Each is ``{slot, light, seed, model, channels}``. A light with several channels
+    is a gradient light, any other one a color bulb, like its native light.
+    """
+    if data is None:
+        return []
+    lights = [{"slot": item["virtual"]["id_v1"], "light": item["id"],
+               "seed": item["virtual"]["seed"], "model": item["hue"].get("model", "unknown"),
+               "channels": len(item["hue"]["channels"])}
+              for item in data["lights"]
+              if item["provider"] == "hue" and item["id"] not in MIGRATED_HUE]
+    return sorted(lights, key=lambda item: int(item["slot"]))
+
+
 def signature(state):
     """A comparable summary of the virtual lights the registry asks for."""
-    lights, retired = plan(load(state))
+    data = load(state)
+    lights, retired = plan(data)
     return (tuple((item["slot"], item["light"], item["segmented"]) for item in lights),
-            tuple(sorted(retired)))
+            tuple(sorted(retired)),
+            tuple((item["slot"], item["light"], item["channels"]) for item in hue_plan(data)))
 
 
 def default_name(item):
     """The name of a new virtual light before the owner names it in Light Studio."""
+    if "channels" in item:
+        return f"Hue {item['model']} {item['light'][-4:]}"
     if item["light"] == "govee-left":
         return "Govee Left"
     if item["light"] == "govee-right":

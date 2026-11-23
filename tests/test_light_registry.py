@@ -309,6 +309,8 @@ class RegistryModelTests(unittest.TestCase):
 
 NEW = "device-" + "c" * 32
 OTHER = "device-" + "d" * 32
+NEW_STRIP = "a0000000-0000-4000-8000-00000000000a"
+NEW_SERVICE = "b0000000-0000-4000-8000-00000000000b"
 
 
 class EnrollmentTests(unittest.TestCase):
@@ -331,7 +333,7 @@ class EnrollmentTests(unittest.TestCase):
             NEW, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52", "H6008")
         registry = registry.with_govee_light(OTHER, "DD:DD:DD:DD:DD:DD:DD:DD",
                                              "192.168.10.53", "H6076")
-        removed = registry.without_govee_light(NEW)
+        removed = registry.without_light(NEW)
         data = removed.to_dict()
         self.assertNotIn(NEW, removed.ids)
         self.assertEqual(data["retired"], [{"id": NEW, "virtual": {"id_v1": "7", "seed": NEW}}])
@@ -361,7 +363,73 @@ class EnrollmentTests(unittest.TestCase):
         registry = LightRegistry.from_dict(sample())
         for light_id in ("govee-left", "hue-monitor", NEW):
             with self.subTest(light_id=light_id), self.assertRaises(RegistryError):
-                registry.without_govee_light(light_id)
+                registry.without_light(light_id)
+
+    def test_a_hue_light_gets_the_channels_after_the_enrolled_ones(self):
+        strip, service = NEW_STRIP, NEW_SERVICE
+        registry = LightRegistry.from_dict(sample()).with_hue_light(
+            NEW, AREA, strip, service, 3, "LCX005")
+        light = registry.to_dict()["lights"][-1]
+        self.assertEqual(light, {
+            "id": NEW, "provider": "hue", "virtual": {"id_v1": "7", "seed": NEW},
+            "hue": {"light": strip, "model": "LCX005", "channels": [
+                {"channel_id": 12 + index, "rid": service, "index": index}
+                for index in range(3)]}})
+        profile = registry.native_profile()
+        self.assertEqual(profile.channels[NEW], (12, 13, 14))
+        # The migrated channels keep their canonical ids.
+        before = LightRegistry.from_dict(sample()).native_profile()
+        self.assertEqual(profile.expected_members[:12], before.expected_members)
+        self.assertEqual({k: v for k, v in profile.channels.items() if k != NEW},
+                         before.channels)
+
+    def test_a_hue_light_needs_the_paired_area_and_distinct_resources(self):
+        strip, service = NEW_STRIP, NEW_SERVICE
+        registry = LightRegistry.from_dict(sample())
+        other_area = "c0000000-0000-4000-8000-00000000000c"
+        for args in ((NEW, other_area, strip, service, 3, "LCX005"),
+                     (NEW, AREA, STRIP, service, 3, "LCX005"),
+                     (NEW, AREA, strip, STRIP_SERVICE, 3, "LCX005"),
+                     (NEW, AREA, strip, service, 0, "LCX005"),
+                     (NEW, AREA, strip, service, 9, "LCX005"),  # 21 channels
+                     ("play-left", AREA, strip, service, 1, "LCX005"),
+                     (NEW, AREA, strip, service, 1, "bad model")):
+            with self.subTest(args=args), self.assertRaises(RegistryError):
+                registry.with_hue_light(*args)
+        enrolled = registry.with_hue_light(NEW, AREA, strip, service, 1, "LCX005")
+        with self.assertRaises(RegistryError):
+            enrolled.with_hue_light(NEW, AREA, strip, service, 1, "LCX005")
+
+    def test_a_hue_light_in_a_govee_only_registry_starts_the_area(self):
+        strip, service = NEW_STRIP, NEW_SERVICE
+        registry = LightRegistry.from_dict(sample(hue=False)).with_hue_light(
+            NEW, AREA, strip, service, 2, "LCX005")
+        self.assertEqual(registry.to_dict()["hue"], {"area_id": AREA})
+        self.assertEqual(registry.native_profile().channels, {NEW: (0, 1)})
+        removed = registry.without_light(NEW)
+        self.assertNotIn("hue", removed.to_dict())
+        self.assertIsNone(removed.native_profile())
+
+    def test_removing_a_hue_light_renumbers_the_later_channels(self):
+        first, first_service = ("a0000000-0000-4000-8000-00000000000a",
+                                "b0000000-0000-4000-8000-00000000000b")
+        second, second_service = ("c0000000-0000-4000-8000-00000000000c",
+                                  "d0000000-0000-4000-8000-00000000000d")
+        registry = (LightRegistry.from_dict(sample())
+                    .with_hue_light(NEW, AREA, first, first_service, 2, "LCX005")
+                    .with_hue_light(OTHER, AREA, second, second_service, 3, "LCX006"))
+        self.assertEqual(registry.native_profile().channels[OTHER], (14, 15, 16))
+        removed = registry.without_light(NEW)
+        profile = removed.native_profile()
+        self.assertEqual(profile.channels[OTHER], (12, 13, 14))
+        self.assertEqual(profile.expected_members[12:],
+                         tuple((second_service, index) for index in range(3)))
+        self.assertEqual(removed.to_dict()["retired"],
+                         [{"id": NEW, "virtual": {"id_v1": "7", "seed": NEW}}])
+        rejoined = removed.with_hue_light(NEW, AREA, first, first_service, 2, "LCX005")
+        self.assertEqual(rejoined.to_dict()["lights"][-1]["virtual"],
+                         {"id_v1": "7", "seed": NEW})
+        self.assertEqual(rejoined.native_profile().channels[NEW], (15, 16))
 
     def test_retired_records_are_validated_and_bounded(self):
         data = sample()
@@ -377,7 +445,7 @@ class EnrollmentTests(unittest.TestCase):
         for index in range(70):
             light_id = f"device-{index:032x}"
             registry = registry.with_govee_light(
-                light_id, f"{index:016X}", "192.168.10.52", "H6008").without_govee_light(light_id)
+                light_id, f"{index:016X}", "192.168.10.52", "H6008").without_light(light_id)
         self.assertEqual(len(registry.to_dict()["retired"]), 64)
 
 

@@ -3,7 +3,7 @@
 import threading
 import time
 
-from entertainment_stream import GOVEE_CHANNELS, VideoLease
+from entertainment_stream import GOVEE_CHANNELS, NATIVE_SOURCES, VideoLease
 from stream_diagnostics import StreamDiagnostics
 from sync_projection import project_light_frame, project_native_frame
 
@@ -206,9 +206,15 @@ class VideoOutput:
                     else "native state stale; waiting to retry"
                 )
                 return False
-            native_frame = (project_native_frame(frame, self.current_profile)
-                            if self.current_profile is not None else frame)
-            self.relay.send(native_frame)
+            if self.current_profile is not None:
+                native_frame = project_native_frame(frame, self.current_profile)
+                # A Hue light enrolled later has no capture sources; it shows its zones.
+                projected = {light: project_light_frame(frame, light, self.current_profile)
+                             for light in self.current_profile["native_roles"]
+                             if light not in NATIVE_SOURCES}
+                self.relay.send(native_frame, projected)
+            else:
+                self.relay.send(frame)
             for light in self.controller.by_light:
                 if self.current_profile is not None:
                     if light not in self.current_profile["lights"]:

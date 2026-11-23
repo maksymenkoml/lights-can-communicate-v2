@@ -71,6 +71,34 @@ class CatalogTests(unittest.TestCase):
                        if row["provider"] == "hue")
         self.assertIsNone(self.catalog.govee_enrollment(hue_row["id"]))
 
+    def test_an_online_unambiguous_hue_light_is_enrollable(self):
+        self.catalog.observe_hue(BRIDGE, *hue())
+        identifier = self.one()["id"]
+        self.assertEqual(self.catalog.hue_enrollment(identifier),
+                         {"light": LIGHT, "model": "LCX005"})
+        self.assertIsNone(self.catalog.govee_enrollment(identifier))
+        self.now = 121  # stale: offline
+        self.assertIsNone(self.catalog.hue_enrollment(identifier))
+        self.assertIsNone(self.catalog.hue_enrollment("device-" + "0" * 32))
+        self.scan()
+        govee = next(row["id"] for row in self.catalog.snapshot()["devices"]
+                     if row["provider"] == "govee")
+        self.assertIsNone(self.catalog.hue_enrollment(govee))
+
+    def test_ambiguous_or_migrated_hue_lights_are_not_enrollable(self):
+        lights, devices = hue()
+        self.catalog.observe_hue(BRIDGE, lights * 2, devices)
+        self.assertIsNone(self.catalog.hue_enrollment(self.one()["id"]))
+        legacy = DeviceCatalog(clock=lambda: self.now, ttl=20,
+                               legacy_roles={("hue", LIGHT): "hue-monitor"})
+        legacy.observe_hue(BRIDGE, *hue())
+        self.assertIsNone(legacy.hue_enrollment(legacy.snapshot()["devices"][0]["id"]))
+        unavailable = DeviceCatalog(clock=lambda: self.now, ttl=20)
+        unavailable.observe_hue(BRIDGE, *hue())
+        unavailable.provider_state("hue", "unavailable")
+        self.assertIsNone(unavailable.hue_enrollment(
+            unavailable.snapshot()["devices"][0]["id"]))
+
     def test_identity_survives_name_case_and_address_change(self):
         self.scan(device=MAC.lower(), deviceName="First")
         original = self.one()["id"]

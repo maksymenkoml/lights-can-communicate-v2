@@ -6,8 +6,9 @@ stage 3b (`/homekit` API 2 and plugin 0.2.0 by Govee device ID; only the
 obsolete `/power-owner` keeps side names), stage 3c (enrollment and removal
 of discovered Govee lights through Light Studio and the adapter) and stage 4
 (virtual lights per registry entry; the sampler rule for new installations
-moved to #59) and stage 5a (list-based native Hue profile, native lights
-addressed by registry id everywhere) implemented. Implementation follows in stages; each stage is a
+moved to #59), stage 5a (list-based native Hue profile, native lights
+addressed by registry id everywhere) and stage 5b (enrollment of a Hue light from
+the paired area, its projection and its virtual light) implemented. Implementation follows in stages; each stage is a
 separate PR with live NAS verification.
 
 ## Intent

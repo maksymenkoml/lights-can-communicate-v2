@@ -138,8 +138,8 @@ def decode_frame(data):
     return result
 
 
-# Capture channels that feed each native Hue light, in segment order. Only the
-# migrated lights have them until new Hue lights are projected (#7 stage 5b).
+# Capture channels that feed each migrated native Hue light, in segment order. A
+# Hue light enrolled later gets projected zone colors instead (see native_colors).
 NATIVE_SOURCES = {
     "play-center": (12,), "play-left": (11,), "play-right": (13,),
     "hue-monitor": tuple(range(2, 11)),
@@ -159,23 +159,32 @@ def default_scale(light):
     return DEFAULT_SCALES.get(light, 1)
 
 
-def native_colors(frame, scales=None, channels=None):
+def native_colors(frame, scales=None, channels=None, projected=None):
     """Return ``{canonical channel: RGB16}`` for the native lights.
 
     ``channels`` maps each native light id to its canonical channels (the
     profile's ``channels``); it defaults to the migrated area. ``scales`` maps a
-    light id to its brightness scale. A light without capture sources gets no
-    channels.
+    light id to its brightness scale. A migrated light reads its capture sources;
+    any other light reads its zone colors from ``projected`` (light id -> colors),
+    each channel the zone at the same place along the light. A light without
+    either gets no channels.
     """
     channels = MIGRATED_NATIVE_CHANNELS if channels is None else channels
     result = {}
     for light, ids in channels.items():
         sources = NATIVE_SOURCES.get(light)
-        if sources is None or len(sources) != len(ids):
-            continue
+        if sources is not None:
+            if len(sources) != len(ids):
+                continue
+            colors = [frame[source] for source in sources]
+        else:
+            zones = (projected or {}).get(light)
+            if not zones:
+                continue
+            colors = [zones[index * len(zones) // len(ids)] for index in range(len(ids))]
         factor = (scales or {}).get(light, default_scale(light))
-        for channel, source in zip(ids, sources):
-            result[channel] = tuple(round(value * factor) for value in frame[source])
+        for channel, color in zip(ids, colors):
+            result[channel] = tuple(round(value * factor) for value in color)
     return dict(sorted(result.items()))
 
 

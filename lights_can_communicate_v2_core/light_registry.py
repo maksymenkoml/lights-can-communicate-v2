@@ -8,12 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from .native_profile import NativeHueProfile, NativeProfileError
+from .native_profile import MAX_CHANNELS, NativeHueProfile, NativeProfileError
 
 REGISTRY_FILE = "lights.json"
 LEGACY_SIDES = {"govee-left": "left", "govee-right": "right"}
 _MAX_REGISTRY_BYTES = 64 * 1024
-_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 # A Govee light is one of the two migrated lamps or a discovered device.
 GOVEE_ID = re.compile(r"(?:govee-left|govee-right|device-[0-9a-f]{32})\Z")
 # Only a discovered device can be enrolled or removed by the owner.
@@ -25,9 +24,11 @@ _MAX_RETIRED = 64
 _GOVEE_TIERS = ("basic",)
 _ID_V1 = re.compile(r"[1-9][0-9]{0,3}\Z")
 _SEED = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-# Hue lights stay the four migrated ones until a new Hue light can be enrolled
-# from the paired Entertainment area (#7 stage 5b).
+# The four migrated Hue lights; they come and go together. A Hue light enrolled
+# later is a discovered device of the paired Entertainment area.
 _HUE_LIGHTS = ("hue-monitor", "play-left", "play-center", "play-right")
+HUE_ID = re.compile(r"(?:hue-monitor|play-left|play-center|play-right|device-[0-9a-f]{32})\Z")
+MODEL_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
 
 
 # Virtual bridge slot and identity seed of each migrated light (see bridge/bootstrap.py).
@@ -97,8 +98,11 @@ def _govee(value):
 
 
 def _hue(value):
-    value = _object(value, ("light", "channels"))
+    value = _object(value, ("light", "channels", *(("model",) if type(value) is dict
+                                                     and "model" in value else ())))
     _uuid(value["light"])
+    if "model" in value:
+        _text(value["model"], MODEL_ID)
     channels = value["channels"]
     if type(channels) is not list:
         raise _invalid()
@@ -118,7 +122,7 @@ def _light(value):
     if provider not in ("govee", "hue"):
         raise _invalid()
     value = _object(value, ("id", "provider", "virtual", provider))
-    _text(value["id"], GOVEE_ID if provider == "govee" else _ID)
+    _text(value["id"], GOVEE_ID if provider == "govee" else HUE_ID)
     virtual = _object(value["virtual"], ("id_v1", "seed"))
     _text(virtual["id_v1"], _ID_V1)
     _text(virtual["seed"], _SEED)
@@ -163,8 +167,9 @@ def _validated(data):
                if item["provider"] == "govee"]
     if len(set(devices)) != len(devices):
         raise RegistryError("Light registry lights must be distinct.")
-    hue = {item["id"] for item in lights if item["provider"] == "hue"}
-    if hue not in (set(), set(_HUE_LIGHTS)):
+    migrated = {item["id"] for item in lights
+                if item["provider"] == "hue" and item["id"] in _HUE_LIGHTS}
+    if migrated not in (set(), set(_HUE_LIGHTS)):
         raise RegistryError("Light registry light set is unsupported.")
     try:
         return json.loads(json.dumps(root, allow_nan=False))
@@ -182,12 +187,32 @@ def _payload(data):
     return (json.dumps(data, indent=2) + "\n").encode()
 
 
+def _append(data, light_id, provider, details):
+    """Append a light; a light removed earlier gets its virtual identity back.
+
+    A new light takes the lowest free virtual slot and its id as the identity seed.
+    """
+    retired = data.pop("retired", [])
+    record = next((item for item in retired if item["id"] == light_id), None)
+    if record is not None:
+        retired.remove(record)
+        virtual = record["virtual"]
+    else:
+        used = {int(item["virtual"]["id_v1"]) for item in data["lights"] + retired}
+        virtual = {"id_v1": str(next(n for n in range(1, 10000) if n not in used)),
+                   "seed": light_id}
+    data["lights"].append({"id": light_id, "provider": provider, "virtual": virtual,
+                           provider: details})
+    if retired:
+        data["retired"] = retired
+
+
 def _profile(data):
     """Return the native Hue profile of registry data."""
     return NativeHueProfile.from_lights(
         data["hue"]["area_id"],
-        [{"id": item["id"], **item["hue"]} for item in data["lights"]
-         if item["provider"] == "hue"])
+        [{"id": item["id"], "light": item["hue"]["light"], "channels": item["hue"]["channels"]}
+         for item in data["lights"] if item["provider"] == "hue"])
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -284,35 +309,59 @@ class LightRegistry:
                 and _device_key(item["govee"]["device"]) == _device_key(device)
                 for item in data["lights"]):
             raise RegistryError("Light is already enrolled.")
-        retired = data.pop("retired", [])
-        record = next((item for item in retired if item["id"] == light_id), None)
-        if record is not None:
-            retired.remove(record)
-            virtual = record["virtual"]
-        else:
-            used = {int(item["virtual"]["id_v1"]) for item in data["lights"] + retired}
-            virtual = {"id_v1": str(next(n for n in range(1, 10000) if n not in used)),
-                       "seed": light_id}
-        data["lights"].append({"id": light_id, "provider": "govee", "virtual": virtual,
-                               "govee": {"device": device, "ip": ip, "model": model}})
-        if retired:
-            data["retired"] = retired
+        _append(data, light_id, "govee", {"device": device, "ip": ip, "model": model})
         return LightRegistry.from_dict(data)
 
-    def without_govee_light(self, light_id):
-        """Return a registry without the discovered Govee light ``light_id``.
+    def with_hue_light(self, light_id, area_id, light, service, segments, model):
+        """Return a registry that also drives the discovered Hue light ``light_id``.
+
+        The light is a member of the paired Entertainment area ``area_id`` with
+        the entertainment ``service`` and ``segments`` channels. Its canonical
+        channels follow the channels of the lights enrolled before it, so the
+        migrated channels and their packet bytes stay as they are.
+        """
+        if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
+            raise _invalid()
+        if type(segments) is not int or not 1 <= segments <= MAX_CHANNELS:
+            raise _invalid()
+        data = self.to_dict()
+        if light_id in {item["id"] for item in data["lights"]}:
+            raise RegistryError("Light is already enrolled.")
+        hue = [item for item in data["lights"] if item["provider"] == "hue"]
+        if any(item["hue"]["light"] == light for item in hue):
+            raise RegistryError("Light is already enrolled.")
+        if data.setdefault("hue", {"area_id": area_id})["area_id"] != area_id:
+            raise RegistryError("Light is outside the paired Entertainment area.")
+        first = sum(len(item["hue"]["channels"]) for item in hue)
+        channels = [{"channel_id": first + index, "rid": service, "index": index}
+                    for index in range(segments)]
+        _append(data, light_id, "hue", {"light": light, "channels": channels, "model": model})
+        return LightRegistry.from_dict(data)
+
+    def without_light(self, light_id):
+        """Return a registry without the discovered light ``light_id``.
 
         The light's virtual identity is kept for a later rejoin. The migrated
-        lamps are not removed here: they still own the fixed layout rows.
+        lamps are not removed here: they still own the fixed layout rows. The
+        canonical channels of the Hue lights enrolled after a removed Hue light
+        move down, so the channels stay numbered from zero.
         """
         if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
             raise _invalid()
         data = self.to_dict()
-        item = next((item for item in data["lights"]
-                     if item["id"] == light_id and item["provider"] == "govee"), None)
+        item = next((item for item in data["lights"] if item["id"] == light_id), None)
         if item is None:
             raise RegistryError("Light is not enrolled.")
         data["lights"].remove(item)
+        if item["provider"] == "hue":
+            removed = {channel["channel_id"] for channel in item["hue"]["channels"]}
+            hue = [other for other in data["lights"] if other["provider"] == "hue"]
+            for other in hue:
+                for channel in other["hue"]["channels"]:
+                    channel["channel_id"] -= sum(1 for cid in removed
+                                                 if cid < channel["channel_id"])
+            if not hue:
+                del data["hue"]
         retired = data.pop("retired", [])
         retired.append({"id": light_id, "virtual": item["virtual"]})
         data["retired"] = retired[-_MAX_RETIRED:]

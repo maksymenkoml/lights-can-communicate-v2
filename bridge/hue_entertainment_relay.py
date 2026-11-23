@@ -403,7 +403,9 @@ class HueEntertainmentRelay:
         self.owned = True
         self.stop()
 
-    def send(self, frame):
+    def send(self, frame, projected=None):
+        """Stream ``frame``; ``projected`` holds the zone colors of the lights without
+        capture sources (see native_colors)."""
         if self.composition and self.applied_roles == frozenset() and not self.owned:
             return
         if not self.owned or self.connection is None:
@@ -421,7 +423,7 @@ class HueEntertainmentRelay:
             if self.layout_store is not None
             else None
         )
-        channels = native_colors(frame, scales, lights)
+        channels = native_colors(frame, scales, lights, projected)
         for light, rgb in dict(self.overrides).items():
             for channel in lights[light]:
                 channels[channel] = rgb

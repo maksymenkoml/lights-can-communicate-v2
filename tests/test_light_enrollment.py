@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
 from light_enrollment import LightEnrollment  # noqa: E402
-from test_light_registry import sample  # noqa: E402
+from test_light_registry import AREA, sample  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 from test_setup_studio import studio  # noqa: E402
 
@@ -131,6 +131,87 @@ class EnrollmentTests(unittest.TestCase):
         # The running controller still has the old set; it must not write it back.
         lights.remember(moved)
         self.assertNotIn(self.new, self.stored().ids)
+
+
+HUE_LIGHT = "a0000000-0000-4000-8000-00000000000a"
+HUE_SERVICE = "b0000000-0000-4000-8000-00000000000b"
+BRIDGE_ID = "001788FFFE123456"
+
+
+class Area:
+    """The paired Entertainment area of the tests, as HueAreaReader reads it."""
+
+    area_id = AREA
+
+    def __init__(self, member=None, error=None):
+        self.result, self.error, self.calls = member, error, []
+
+    def member(self, light):
+        self.calls.append(light)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+class HueEnrollmentTests(unittest.TestCase):
+    def setUp(self):
+        temp = TemporaryDirectory(prefix="tmp_light_enrollment_")
+        self.addCleanup(temp.cleanup)
+        self.path = Path(temp.name) / "lights.json"
+        self.registry = LightRegistry.from_dict(sample())
+        self.registry.save(self.path)
+        self.clock = Clock()
+        self.catalog = DeviceCatalog(clock=self.clock, ttl=20)
+        self.catalog.observe_hue(BRIDGE_ID, [
+            {"id": HUE_LIGHT, "type": "light", "metadata": {"name": "Lightstrip 27"},
+             "owner": {"rid": HUE_SERVICE, "rtype": "device"}}],
+            [{"id": HUE_SERVICE, "product_data": {"model_id": "LCX005"}}])
+        self.new = self.catalog.snapshot()["devices"][0]["id"]
+        self.restarts = []
+
+    def enrollment(self, area):
+        return LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+                               restart=lambda: self.restarts.append(True), area=area)
+
+    def test_a_hue_light_of_the_paired_area_is_enrolled_with_its_channels(self):
+        area = Area({"service": HUE_SERVICE, "segments": 7})
+        self.enrollment(area).enroll(self.new)
+        self.assertEqual(area.calls, [HUE_LIGHT])
+        self.assertEqual(self.restarts, [True])
+        stored = LightRegistry.load(self.path)
+        light = stored.to_dict()["lights"][-1]
+        self.assertEqual((light["id"], light["provider"], light["hue"]["model"]),
+                         (self.new, "hue", "LCX005"))
+        self.assertEqual(stored.native_profile().channels[self.new], tuple(range(12, 19)))
+
+    def test_hue_refusals_leave_the_registry_unchanged(self):
+        before = self.path.read_bytes()
+        for area, reason in ((None, "not_in_area"), (Area(None), "not_in_area"),
+                             (Area(error=OSError()), "unavailable"),
+                             (Area(error=ValueError()), "unavailable"),
+                             (Area({"service": HUE_SERVICE, "segments": 9}), "area_full")):
+            with self.subTest(reason=reason), self.assertRaises(adapter.LightRefused) as refused:
+                self.enrollment(area).enroll(self.new)
+            self.assertEqual(refused.exception.reason, reason)
+        self.clock.now += 30  # the light went offline
+        area = Area({"service": HUE_SERVICE, "segments": 1})
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(area).enroll(self.new)
+        self.assertEqual((refused.exception.reason, area.calls), ("unavailable", []))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.restarts, [])
+
+    def test_an_enrolled_hue_light_is_removed_and_keeps_its_identity(self):
+        lights = self.enrollment(Area({"service": HUE_SERVICE, "segments": 2}))
+        lights.enroll(self.new)
+        lights = LightEnrollment(self.path, LightRegistry.load(self.path), self.catalog,
+                                 busy=lambda: False, restart=lambda: self.restarts.append(True))
+        lights.remove(self.new)
+        data = LightRegistry.load(self.path).to_dict()
+        self.assertEqual([item["id"] for item in data["lights"]],
+                         [item["id"] for item in sample()["lights"]])
+        self.assertEqual(data["retired"], [{"id": self.new,
+                                            "virtual": {"id_v1": "7", "seed": self.new}}])
 
 
 class AdapterRouteTests(unittest.TestCase):

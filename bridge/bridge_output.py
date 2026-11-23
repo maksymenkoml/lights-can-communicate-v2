@@ -144,7 +144,7 @@ class PlayGuard:
 class BridgeOutput:
     def __init__(
         self, url, token, sender=None, clock=time.time, include_strip=False, include_hue_play=False,
-        govee_slots=None,
+        govee_slots=None, hue_slots=None,
     ):
         self.url, self.token, self.clock = url.rstrip("/"), token, clock
         self.sender = sender or self.post
@@ -163,6 +163,8 @@ class BridgeOutput:
             self.slots["3"] = "hue-monitor"
         if include_hue_play:
             self.slots.update({"4": "play-left", "5": "play-center", "6": "play-right"})
+        # Virtual slot -> native Hue light id of the Hue lights enrolled later.
+        self.slots.update(hue_slots or {})
         self.hue_roles = set(self.slots.values()) - govee_lights
 
     def submit(self, light_id, state, transitiontime):

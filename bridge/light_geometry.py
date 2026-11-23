@@ -20,6 +20,9 @@ _ROLE_GEOMETRY = {
     "play-center": POINT,
     "play-right": POINT,
 }
+# A native light with several channels and no known geometry spreads them evenly
+# along its orientation around its position, this far apart.
+CHANNEL_SPACING_CM = 10
 # The nine anchors of the monitor strip along the screen edge, as fractions of the
 # screen from its center: up the left side, across the top, down the right side.
 SCREEN_ANCHORS = (
@@ -46,8 +49,12 @@ def segment_spans(row):
             for index in range(zones)]
 
 
-def zone_points(row, screen):
-    """Return one (x, height) point per zone, bottom to top or along the screen edge."""
+def zone_points(row, screen, zones=1):
+    """Return one (x, height) point per zone, bottom to top or along the screen edge.
+
+    A point light with ``zones`` channels (a native Hue gradient light) spreads them
+    left to right or bottom to top along its orientation, centered on its position.
+    """
     kind = geometry_for(row)["kind"]
     if kind == "segmented-floor":
         x = row["positionCm"]["x"]
@@ -58,4 +65,8 @@ def zone_points(row, screen):
         width, height = screen_size({"screen": screen})
         return [(center["x"] + u * width, center["height"] + v * height)
                 for u, v in SCREEN_ANCHORS]
-    return [(row["positionCm"]["x"], row["positionCm"]["height"])]
+    x, height = row["positionCm"]["x"], row["positionCm"]["height"]
+    offsets = [(index - (zones - 1) / 2) * CHANNEL_SPACING_CM for index in range(zones)]
+    if row.get("orientation") == "vertical":
+        return [(x, height + offset) for offset in offsets]
+    return [(x + offset, height) for offset in offsets]
