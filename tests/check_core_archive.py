@@ -42,6 +42,8 @@ CONTRACTS = [
     "test_sync_zone",
     "test_light_geometry",
     "test_govee_models",
+    "test_govee_light_set",
+    "test_power_light_set",
     "test_projection_golden",
     "test_floor_zone_contract",
     "test_lamp_controls",
@@ -74,6 +76,7 @@ RUNTIME = [
     "govee_models",
     "native_location_cache",
     "identify",
+    "legacy_wire",
     "sync_off",
 ]
 

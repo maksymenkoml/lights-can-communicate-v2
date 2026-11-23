@@ -12,19 +12,19 @@ from test_two_configurations import row, v5  # noqa: E402
 
 LEFT = "AA:AA:AA:AA:AA:AA:AA:AA"
 RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
-CALIBRATED = {"side": "left", "device": LEFT}
-PLAIN = {"side": "right", "device": RIGHT}
+CALIBRATED = {"light": "govee-left", "device": LEFT}
+PLAIN = {"light": "govee-right", "device": RIGHT}
 # The owner's 2026-11-19 match of the left lamp to the right one: weaker red and
 # blue (gains about 0.9, 1, 0.9) and a brighter low-level curve (exponent 0.482).
 LEFT_MATCH = {"warmth": 0, "tint": -33, "lowLight": 74}
 
 
 class FakeStore:
-    def __init__(self, **sides):
-        self.sides = sides
+    def __init__(self, **lights):
+        self.lights = lights
 
-    def calibration(self, side):
-        return dict(self.sides.get(side, {"warmth": 0, "tint": 0, "lowLight": 0}))
+    def calibration(self, light):
+        return dict(self.lights.get(light, {"warmth": 0, "tint": 0, "lowLight": 0}))
 
 
 def ptreal_colors(data):
@@ -35,10 +35,11 @@ def ptreal_colors(data):
 class GoveeCalibrationTests(unittest.TestCase):
     def setUp(self):
         self.sent = []
-        self.store = FakeStore(left=LEFT_MATCH)
+        self.store = FakeStore(**{"govee-left": LEFT_MATCH})
         self.calibration = GoveeCalibration([CALIBRATED, PLAIN], self.store)
         self.send = self.calibration.wrap(
-            lambda device, command, data: self.sent.append((device["side"], command, data)) or True)
+            lambda device, command, data: self.sent.append(
+                (device["light"], command, data)) or True)
 
     def test_measured_matches_are_reproduced(self):
         self.send(CALIBRATED, "brightness", {"value": 35})
@@ -124,13 +125,13 @@ class GoveeCalibrationTests(unittest.TestCase):
         self.assertLess(pinker[1], pinker[0])
 
     def test_a_session_override_wins_until_it_ends_and_the_layout_is_read_live(self):
-        self.calibration.override("right", {"warmth": 83})
+        self.calibration.override("govee-right", {"warmth": 83})
         self.send(PLAIN, "razer", razer_data([[255, 235, 207]]))
         self.assertEqual(razer_colors(self.sent[-1][2]), [[255, 200, 104]])
-        self.calibration.override("right", None)
+        self.calibration.override("govee-right", None)
         self.send(PLAIN, "razer", razer_data([[255, 235, 207]]))
         self.assertEqual(razer_colors(self.sent[-1][2]), [[255, 235, 207]])
-        self.store.sides["right"] = {"warmth": 83, "tint": 0, "lowLight": 0}
+        self.store.lights["govee-right"] = {"warmth": 83, "tint": 0, "lowLight": 0}
         self.send(PLAIN, "razer", razer_data([[255, 235, 207]]))
         self.assertEqual(razer_colors(self.sent[-1][2]), [[255, 200, 104]])
 
@@ -168,12 +169,15 @@ class LayoutCalibrationTests(unittest.TestCase):
     def test_the_store_reads_a_side_calibration(self):
         with TemporaryDirectory(prefix="tmp_calibration_") as folder:
             store = LayoutStore(Path(folder) / "desk-layout.json")
-            self.assertEqual(store.calibration("left"), {"warmth": 0, "tint": 0, "lowLight": 0})
+            self.assertEqual(store.calibration("govee-left"),
+                             {"warmth": 0, "tint": 0, "lowLight": 0})
             data = v5(version=6)
             row(data, "govee-left")["calibration"] = {"warmth": 83, "tint": -33, "lowLight": 73}
             store.save(data)
-            self.assertEqual(store.calibration("left"), {"warmth": 83, "tint": -33, "lowLight": 73})
-            self.assertEqual(store.calibration("right"), {"warmth": 0, "tint": 0, "lowLight": 0})
+            self.assertEqual(store.calibration("govee-left"),
+                             {"warmth": 83, "tint": -33, "lowLight": 73})
+            self.assertEqual(store.calibration("govee-right"),
+                             {"warmth": 0, "tint": 0, "lowLight": 0})
 
 
 if __name__ == "__main__":

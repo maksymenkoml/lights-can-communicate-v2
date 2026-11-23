@@ -82,8 +82,8 @@ class GoveeTransportTests(unittest.TestCase):
             context.start()
             self.addCleanup(context.stop)
         self.targets = [
-            {"device": LEFT, "side": "left", "ip": "192.168.10.50"},
-            {"device": RIGHT, "side": "right", "ip": "192.168.10.51"},
+            {"device": LEFT, "light": "govee-left", "ip": "192.168.10.50"},
+            {"device": RIGHT, "light": "govee-right", "ip": "192.168.10.51"},
         ]
         self.updates = []
         self.transport = GoveeTransport(
@@ -138,12 +138,12 @@ class GoveeTransportTests(unittest.TestCase):
             native.update(on=data["value"] == 1, sample=time.monotonic())
 
         owner = PowerOwner(self.targets)
-        owner.attach_power(lan.send_power_to_target, observe=lambda: {"left": dict(native)},
+        owner.attach_power(lan.send_power_to_target, observe=lambda: {"govee-left": dict(native)},
                            sleep=lambda seconds: None)
-        owner.sync_hold("left", send=False)
+        owner.sync_hold("govee-left", send=False)
         lan.IDENTIFIED_GOVEE[LEFT] = ("192.168.10.50", time.monotonic())
         with patch.object(lan, "govee_send", send):
-            self.assertEqual(owner.sync_release("left"), "restored")
+            self.assertEqual(owner.sync_release("govee-left"), "restored")
         self.assertTrue(native["on"])
 
     def test_a_lost_identity_withdraws_the_power_route(self):
@@ -172,9 +172,9 @@ class GoveeTransportTests(unittest.TestCase):
         self.transport.publisher = controller.update_statuses
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10)
         self.message("devStatus", {"onOff": 1}, "192.168.10.50", 10.01)
-        first = controller.power_observations()["left"]
+        first = controller.power_observations()["govee-left"]
         self.message("scan", {"device": LEFT}, "192.168.10.50", 10.17)
-        second = controller.power_observations()["left"]
+        second = controller.power_observations()["govee-left"]
         self.assertEqual(first, {"on": True, "sample": 10.01})
         self.assertEqual(second, first)
 
@@ -314,7 +314,7 @@ class GoveeTransportTests(unittest.TestCase):
                 if tick == 0:
                     controller.submit(
                         {
-                            "side": "left",
+                            "light": "govee-left",
                             "session": "offline",
                             "sequence": 1,
                             "issued_at": 1000,

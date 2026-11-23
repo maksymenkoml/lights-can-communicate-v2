@@ -5,7 +5,7 @@ import time
 
 from entertainment_stream import GOVEE_CHANNELS, VideoLease
 from stream_diagnostics import StreamDiagnostics
-from sync_projection import project_govee_frame, project_native_frame
+from sync_projection import project_light_frame, project_native_frame
 
 
 def govee_stream_state(rgb, stops=None):
@@ -128,10 +128,10 @@ class VideoOutput:
                     with self.lock:
                         self.relay.stop()
                     self.cleanup_pending = False
-            for side in self.controller.by_side:
+            for light in self.controller.by_light:
                 if (self.current_profile is not None
-                        and side not in self.current_profile["enabled_roles"]):
-                    self.controller.clear_side(side)
+                        and light not in self.current_profile["lights"]):
+                    self.controller.clear_light(light)
             if self.cleanup_pending and not self.ready:
                 self.release()
             if latest is None:
@@ -206,27 +206,33 @@ class VideoOutput:
             native_frame = (project_native_frame(frame, self.current_profile)
                             if self.current_profile is not None else frame)
             self.relay.send(native_frame)
-            for side, channels in GOVEE_CHANNELS.items():
+            for light in self.controller.by_light:
                 if self.current_profile is not None:
-                    if side not in self.current_profile["enabled_roles"]:
+                    if light not in self.current_profile["lights"]:
                         continue
-                    stops = project_govee_frame(frame, side, self.current_profile)
-                    if self.controller.by_side[side].get("segment_count", 0) == 7:
+                    stops = project_light_frame(frame, light, self.current_profile)
+                    samples = self.current_profile["lights"][light]["samples"]
+                    if (self.controller.by_light[light].get("segment_count", 0) == 7
+                            and len(stops) == 7):
                         state = govee_stream_state(stops[3], stops)
                     else:
-                        visible = [color for color, sample in zip(
-                            stops, self.current_profile["govee"][side]["samples"])
-                            if sample is not None]
+                        # A basic light shows the projected color of its placement center.
+                        visible = [color for color, sample in zip(stops, samples)
+                                   if sample is not None]
                         representative = visible[len(visible) // 2] if visible else (0, 0, 0)
                         state = govee_stream_state(representative)
                 else:
+                    channels = GOVEE_CHANNELS.get(light)
+                    if channels is None:
+                        # Without a Sync profile only the migrated lamps have capture channels.
+                        continue
                     state = govee_stream_state(
                         frame[channels[0]],
                         [frame[channel] for channel in channels] if len(channels) > 1 else None,
                     )
                 self.controller.submit(
                     {
-                        "side": side,
+                        "light": light,
                         "session": session,
                         "sequence": sequence,
                         "issued_at": self.controller.wall_clock(),

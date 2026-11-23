@@ -283,7 +283,7 @@ class StudioTests(unittest.TestCase):
                           "session": "private-session"},
                 "targets": [
                     {
-                        "side": "left",
+                        "light": "govee-left",
                         "status_age": .1,
                         "native": {
                             "identity_verified": True,
@@ -292,7 +292,7 @@ class StudioTests(unittest.TestCase):
                             "secret": "secret-token",
                         },
                     },
-                    {"side": "third", "native": {"onOff": 1}},
+                    {"light": "third", "native": {"onOff": 1}},
                 ],
                 "hue_play": {
                     "hue_center": {

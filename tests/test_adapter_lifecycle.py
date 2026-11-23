@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
 import nas_profile  # noqa: E402
 from entertainment_stream import VideoLease  # noqa: E402
-from registry_files import write_registry  # noqa: E402
+from registry_files import legacy_targets, write_registry  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 
 from lights_can_communicate_v2_core import cli  # noqa: E402
@@ -27,7 +27,7 @@ class RegistryCheckTests(unittest.TestCase):
             root = Path(directory).resolve()
             state = root / "state"
             state.mkdir()
-            (root / "targets.json").write_text(json.dumps({"targets": targets()}))
+            (root / "targets.json").write_text(json.dumps({"targets": legacy_targets(targets())}))
             for name, content in (("token", "a" * 48), ("owner", "b" * 64)):
                 (state / name).write_text(content)
                 (state / name).chmod(0o600)

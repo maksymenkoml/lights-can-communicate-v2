@@ -85,11 +85,11 @@ class LayoutTests(unittest.TestCase):
             self.assertEqual(store.names(), {})
             store.save(named(**{"govee-left": "Desk left", "hue-monitor": "Monitor bar",
                                 "play-right": "Right Play"}))
-            self.assertEqual(store.names(), {"left": "Desk left", "strip": "Monitor bar",
+            self.assertEqual(store.names(), {"govee-left": "Desk left", "strip": "Monitor bar",
                                              "hue_right": "Right Play"})
             self.assertNotEqual(store.revision(), LayoutStore.digest(validate_layout(layout())))
             store.save(named(**{"govee-left": "Floor lamp"}))
-            self.assertEqual(store.names(), {"left": "Floor lamp"})
+            self.assertEqual(store.names(), {"govee-left": "Floor lamp"})
 
     def test_names_of_unbound_rows_keep_their_rules(self):
         data = layout()
@@ -312,7 +312,7 @@ class LayoutTests(unittest.TestCase):
             reader = LayoutStore(path)
             self.assertIsNone(reader.snapshot())
             writer.save(layout())
-            self.assertEqual(reader.scale("left", 1), 0.65)
+            self.assertEqual(reader.scale("govee-left", 1), 0.65)
             self.assertEqual(reader.scale("hue_center", 1), 0.5)
             previous = reader.snapshot()
             path.write_text("{broken")

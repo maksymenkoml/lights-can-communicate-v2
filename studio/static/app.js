@@ -25,8 +25,8 @@ const SAVE_DELAY_MS=300,RETRY_MS=3000,DISCOVERY_POLL_MS=3000;
 const LIVE_POLL_MS=50,LIVE_DEADLINE_MS=1000,LIVE_FRESH_MS=1500;
 const STEP=5,MAX_ROWS=12,DESK_CENTER=100,FLOOR_ANCHOR=60;
 const MONITOR='hue-monitor';
-// Adapter roles of the six enrolled lamps (desk_layout.ROLES).
-const ROLES={'govee-left':'left','govee-right':'right','hue-monitor':'strip','play-left':'hue_left','play-center':'hue_center','play-right':'hue_right'};
+// Adapter keys of the six enrolled lamps: the Govee light id or the Hue role name.
+const ROLES={'govee-left':'govee-left','govee-right':'govee-right','hue-monitor':'strip','play-left':'hue_left','play-center':'hue_center','play-right':'hue_right'};
 // Seed coordinates: x is cm from the desk centre; h is the bottom of a floor
 // lamp and the centre of other lamps. Layout x has the desk centre at 100 cm and a
 // floor lamp's height is its bottom + 60 cm (desk_layout.minimum_anchor_height).

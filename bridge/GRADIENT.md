@@ -134,9 +134,9 @@ Do not describe the startup behavior as a proven Signe-specific defect or fix.
 
 ## Isolated probe
 
-Stop the host adapter before running `segment_probe.py --targets PATH --side
-left|right`. The probe refuses an active adapter, verifies the selected ID and
-H6076 model, requires the lamp to already be on, and restores its previous
+Stop the host adapter before running `segment_probe.py --registry PATH --light
+LIGHT_ID` (for example `govee-left`). The probe refuses an active adapter, verifies the
+selected ID and a segmented model (see `govee_models.py`), requires the lamp to already be on, and restores its previous
 whole-lamp color in `finally` if fresh-on verification still permits it.
 `--hold` keeps the pattern until interruption (maximum ten minutes),
 `--reverse` reverses zone order and `--batch-only` sends one datagram.

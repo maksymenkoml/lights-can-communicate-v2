@@ -20,14 +20,14 @@ RIGHT = "BB:BB:BB:BB:BB:BB:BB:BB"
 
 def targets():
     return [
-        {"side": "left", "device": LEFT, "ip": "192.168.10.50", "brightness_scale": 0.65},
-        {"side": "right", "device": RIGHT, "ip": "192.168.10.51", "brightness_scale": 0.65},
+        {"light": "govee-left", "device": LEFT, "ip": "192.168.10.50", "brightness_scale": 0.65},
+        {"light": "govee-right", "device": RIGHT, "ip": "192.168.10.51", "brightness_scale": 0.65},
     ]
 
 
 def command(sequence=1, xy=(0.7, 0.299), **values):
     return {
-        "side": "left",
+        "light": "govee-left",
         "session": "probe-session",
         "sequence": sequence,
         "issued_at": 1000.0,
@@ -76,7 +76,7 @@ class LiveAdapterTests(unittest.TestCase):
             for role in PLAY_IDS:
                 request = urllib.request.Request(
                     url + "/command",
-                    data=json.dumps(command(side=role)).encode(),
+                    data=json.dumps(command(light=role)).encode(),
                     headers={"X-Adapter-Token": "test"},
                     method="POST",
                 )
@@ -85,7 +85,7 @@ class LiveAdapterTests(unittest.TestCase):
                 self.assertIsNotNone(proxies[role].desired)
             request = urllib.request.Request(
                 url + "/command",
-                data=json.dumps(command(side="other_hue")).encode(),
+                data=json.dumps(command(light="other_hue")).encode(),
                 headers={"X-Adapter-Token": "test"},
                 method="POST",
             )
@@ -374,7 +374,7 @@ class LiveAdapterTests(unittest.TestCase):
         controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
         controller.render()
         self.assertEqual([name for _, name, _ in self.sent][:2], ["razer", "ptReal"])
-        self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+        self.assertEqual(controller.snapshot()["dreamview_lights"], [])
 
     def test_dreamview_is_switched_on_only_when_the_lamp_may_have_left_it(self):
         from govee_segments import razer_colors
@@ -503,7 +503,7 @@ class LiveAdapterTests(unittest.TestCase):
 
         selected = targets()
         selected[0].update(segment_count=7)
-        calibration = GoveeCalibration(selected, FakeStore(left=LEFT_MATCH))
+        calibration = GoveeCalibration(selected, FakeStore(**{"govee-left": LEFT_MATCH}))
         controller = adapter.GoveeController(
             selected, sender=calibration.wrap(self.send), clock=lambda: self.now,
             wall_clock=lambda: 1000)
@@ -571,7 +571,7 @@ class LiveAdapterTests(unittest.TestCase):
         results = []
 
         def send(device, name, data):
-            self.sent.append((device["side"], name, data))
+            self.sent.append((device["light"], name, data))
             return results.pop(0) if results else True
 
         controller = adapter.GoveeController(
@@ -591,7 +591,7 @@ class LiveAdapterTests(unittest.TestCase):
                                   state={**state, "segments": [[0, 0, 90]]}))
         controller.render()
         self.assertIn([[0, 0, 90]] * 7, [razer_colors(data) for side, name, data in self.sent
-                                         if side == "left" and name == "razer"])
+                                         if side == "govee-left" and name == "razer"])
         # Leaving DreamView fails: no scene color is sent or recorded as sent.
         self.sent.clear()
         self.now = 1.5
@@ -600,17 +600,17 @@ class LiveAdapterTests(unittest.TestCase):
         controller.submit(command(sequence=3, transitiontime=0, state=state))
         results.append(False)
         controller.render()
-        self.assertEqual([name for side, name, _ in self.sent if side == "left"], ["razer"])
-        self.assertNotIn("left", controller.last_sent)
-        self.assertEqual(controller.snapshot()["dreamview_sides"], ["left"])
+        self.assertEqual([name for side, name, _ in self.sent if side == "govee-left"], ["razer"])
+        self.assertNotIn("govee-left", controller.last_sent)
+        self.assertEqual(controller.snapshot()["dreamview_lights"], ["govee-left"])
         # The next render leaves DreamView and then sends the pending scene.
         self.sent.clear()
         self.now = 1.6
         controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
         controller.render()
-        self.assertEqual([name for side, name, _ in self.sent if side == "left"][:2],
+        self.assertEqual([name for side, name, _ in self.sent if side == "govee-left"][:2],
                          ["razer", "ptReal"])
-        self.assertEqual(controller.snapshot()["dreamview_sides"], [])
+        self.assertEqual(controller.snapshot()["dreamview_lights"], [])
 
     def test_dreamview_frames_continue_through_a_short_status_miss(self):
         from govee_segments import razer_colors
@@ -642,13 +642,13 @@ class LiveAdapterTests(unittest.TestCase):
                    "lan_diagnostic": {"reason": "native_status_missing"}}
         self.assertEqual(tick(0.5, missing, 90, bri=128), [("razer", [[90, 0, 0]] * 7)])
         self.assertEqual(tick(1.4, missing, 60, bri=128), [("razer", [[60, 0, 0]] * 7)])
-        self.assertEqual(controller.skipped_state["left"], 0)
+        self.assertEqual(controller.skipped_state["govee-left"], 0)
         # The status returns: the held brightness change goes out.
         self.assertIn("brightness", [name for name, _ in tick(1.5, {"onOff": 1}, 50, bri=128)])
         # A miss longer than the hold stops output.
         tick(2.0, missing, 40)
         self.assertEqual(tick(3.01, missing, 30), [])
-        self.assertGreater(controller.skipped_state["left"], 0)
+        self.assertGreater(controller.skipped_state["govee-left"], 0)
         # A verified Off stops frames at once.
         tick(3.5, {"onOff": 1}, 20)
         self.assertEqual(tick(3.7, {"onOff": 0, "identity_verified": True}, 10), [])
@@ -664,7 +664,7 @@ class LiveAdapterTests(unittest.TestCase):
     def test_snapshot_keeps_the_last_verified_reading_through_a_status_miss(self):
         def row():
             return next(item for item in self.controller.snapshot()["targets"]
-                        if item["side"] == "left")
+                        if item["light"] == "govee-left")
 
         self.now = 0.1
         self.assertEqual(row()["verified_native"]["onOff"], 1)
@@ -705,16 +705,16 @@ class LiveAdapterTests(unittest.TestCase):
     def test_command_duration_drives_a_smooth_transition(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
         self.now = 1.0
-        target = self.controller.target("left")
+        target = self.controller.target("govee-left")
         self.assertEqual(target["rgb"], (128, 0, 128))
         self.now = 2.0
-        self.assertEqual(self.controller.target("left")["rgb"], (0, 0, 255))
+        self.assertEqual(self.controller.target("govee-left")["rgb"], (0, 0, 255))
 
     def test_new_command_starts_at_current_transition_value(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
         self.now = 1.0
         self.controller.submit(command(sequence=2, xy=(0.17, 0.7)))
-        self.assertEqual(self.controller.target("left")["rgb"], (128, 0, 128))
+        self.assertEqual(self.controller.target("govee-left")["rgb"], (128, 0, 128))
 
     def test_native_off_or_expired_status_blocks_every_command(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
@@ -749,7 +749,7 @@ class LiveAdapterTests(unittest.TestCase):
         self.controller.submit(command(transitiontime=0))
         self.controller.sender = lambda *args: (_ for _ in ()).throw(OSError("temporary UDP error"))
         self.controller.render()
-        self.assertGreater(self.controller.rejected_sends["left"], 0)
+        self.assertGreater(self.controller.rejected_sends["govee-left"], 0)
         self.controller.sender = self.send
         self.controller.render()
         self.assertTrue(self.sent)
@@ -816,7 +816,7 @@ class LiveAdapterTests(unittest.TestCase):
 
     def test_unknown_side_and_stale_or_replayed_commands_are_rejected(self):
         with self.assertRaises(ValueError):
-            self.controller.submit(command(side="third"))
+            self.controller.submit(command(light="third"))
         with self.assertRaises(ValueError):
             self.controller.submit(command(issued_at=990.0))
         self.assertTrue(self.controller.submit(command()))
@@ -833,7 +833,7 @@ class LiveAdapterTests(unittest.TestCase):
         self.now = 1.0
         self.controller.submit(command(sequence=2, transitiontime=0))
         self.now = 100
-        self.assertEqual(self.controller.target("left")["rgb"], (255, 0, 0))
+        self.assertEqual(self.controller.target("govee-left")["rgb"], (255, 0, 0))
 
     def test_static_target_is_reapplied_after_native_off_on(self):
         self.controller.submit(command(transitiontime=0))
@@ -854,15 +854,21 @@ class LiveAdapterTests(unittest.TestCase):
             )
         )
 
-    def test_invalid_inputs_and_extra_targets_fail_closed(self):
+    def test_invalid_inputs_and_duplicate_targets_fail_closed(self):
         for value in (float("nan"), -1, 2000):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.controller.submit(command(transitiontime=value))
-        with self.assertRaises(ValueError):
-            adapter.GoveeController(
-                targets()
-                + [{"side": "third", "device": "CC:CC:CC:CC:CC:CC:CC:CC", "ip": "192.168.10.99"}]
-            )
+        third = {"light": "device-" + "c" * 32, "device": "CC:CC:CC:CC:CC:CC:CC:CC",
+                 "ip": "192.168.10.99"}
+        # Any number of distinct lights is accepted ...
+        self.assertEqual(set(adapter.GoveeController(targets() + [third]).by_light),
+                         {"govee-left", "govee-right", third["light"]})
+        # ... but a repeated light id, a repeated device and a missing id are not.
+        for bad in ([third, {**third, "device": "DD:DD:DD:DD:DD:DD:DD:DD"}],
+                    [third, {**third, "light": "device-" + "d" * 32}],
+                    [{key: value for key, value in third.items() if key != "light"}]):
+            with self.subTest(bad=len(bad)), self.assertRaises(ValueError):
+                adapter.GoveeController(targets() + bad)
 
 
 if __name__ == "__main__":

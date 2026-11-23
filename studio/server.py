@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
+from desk_layout import GOVEE_ROWS, HUE_ROLES, LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
@@ -141,14 +141,16 @@ def project_status(data, source_active=None):
         preview = {}
     preview_lamps = preview.get("lamps") if isinstance(preview.get("lamps"), dict) else {}
     lamps = {}
+    tiers = {}
     rows = data.get("targets") if isinstance(data.get("targets"), list) else []
     for target in rows[:128]:
-        if not isinstance(target, dict) or target.get("side") not in ("left", "right"):
+        if not isinstance(target, dict) or target.get("light") not in ("govee-left", "govee-right"):
             continue
         native = target.get("native") if isinstance(target.get("native"), dict) else {}
         online = native.get("identity_verified") is True and _fresh(target.get("status_age"), 0.75)
         power = native.get("onOff")
-        lamps["govee-" + target["side"]] = {
+        tiers[target["light"]] = target.get("tier")
+        lamps[target["light"]] = {
             "online": online,
             "on": bool(power) if online and type(power) is int and power in (0, 1) else None,
             "brightness": native.get("brightness")
@@ -238,17 +240,23 @@ def project_status(data, source_active=None):
             and identifier in names.values()
         ):
             colors = []
-        count = 9 if identifier == "hue-monitor" else 7 if identifier.startswith("govee-") else 1
+        # A segmented Govee lamp shows seven zones; a basic-tier lamp is one color.
+        count = (9 if identifier == "hue-monitor"
+                 else 1 if tiers.get(identifier) == "basic"
+                 else 7 if identifier.startswith("govee-") else 1)
         lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
                     included=identifier in included)
     # Verified cause only; the existing state label keeps its meaning.
     health = derive_sync_health(data)
+    # Light Studio shows its six lamps; the adapter may drive other Govee lights.
+    known = {"govee-left", "govee-right", *names}
+    blockers = [item for item in health["blockers"] if item.get("role") in known]
     return {
         "version": 1,
         "connected": True,
         "mode": mode,
         "sync": {"state": sync_state, "reason": health["reason"],
-                 "blockers": health["blockers"]},
+                 "blockers": blockers},
         "lamps": lamps,
     }
 
@@ -568,7 +576,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                     raise ValueError("Expected a lamp")
             except (ValueError, TypeError):
                 return self.respond(400, {"error": "invalid identify request"})
-            role = ROLES.get(data["lamp"])
+            # The adapter takes a Govee light id or the role of a Hue lamp.
+            role = HUE_ROLES.get(data["lamp"], data["lamp"] if data["lamp"] in GOVEE_ROWS else None)
             if role is None:
                 # Only the six role lamps can blink; discovered lamps come later.
                 return self.respond(404, {"error": "unknown lamp"})

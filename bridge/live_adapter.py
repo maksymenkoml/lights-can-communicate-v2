@@ -1,4 +1,4 @@
-"""Host-side live adapter: authenticated Hue transition targets -> two pinned Govee."""
+"""Host-side live adapter: authenticated Hue transition targets -> pinned Govee lights."""
 
 import argparse
 import colorsys
@@ -21,6 +21,7 @@ from calibration_session import CalibrationRefused, CalibrationSession  # noqa: 
 from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE  # noqa: E402
 from govee_calibration import GoveeCalibration  # noqa: E402
+from govee_models import capabilities  # noqa: E402
 from govee_segments import interpolate, razer_data, razer_mode, segment_data  # noqa: E402
 from govee_transport import GoveeTransport  # noqa: E402
 from homekit_power import (  # noqa: E402
@@ -32,6 +33,13 @@ from homekit_power import (  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
+from legacy_wire import (  # noqa: E402
+    homekit_intent,
+    homekit_state,
+    owner_envelope,
+    owner_exchange,
+    owner_observed,
+)
 from power_owner import PowerOwner  # noqa: E402
 from power_requests import PowerRequests, PowerRequestUnavailable, validate_capability  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
@@ -44,6 +52,7 @@ import lights_can_communicate_v2 as lan  # noqa: E402
 from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
 from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # noqa: E402
 from lights_can_communicate_v2_core.light_registry import (  # noqa: E402
+    LEGACY_SIDES,
     LightRegistry,
     RegistryError,
 )
@@ -168,16 +177,10 @@ def native_target(status, fallback):
     return result
 
 
-# DreamView frames per second while Sync streams. With a new color in every
-# frame both selected H6076 answered most status polls up to 30 frames/s; at 35
-# the left one lost a quarter of them (bridge/evidence/dreamview-status-gaps.json).
+# Defaults for a light without a capability-table entry (an explicit seven-segment
+# profile): DreamView frames per second while Sync streams, and the DreamView timing.
+# The tested values per model are in govee_models.MODELS and take precedence.
 STREAM_FRAMES_PER_SECOND = 30
-# The lamp leaves DreamView after about a minute without frames. Switching the
-# mode on while it is already on blanks the lamp for a moment, which shows as a
-# blink, so the mode is sent only when the lamp may have left it: at every
-# stream start, after a frame gap close to that timeout, after a verified Off
-# and after a status loss long enough for a power cycle. Short status misses
-# keep it.
 RAZER_IDLE_SECONDS = 45
 RAZER_LOST_SECONDS = 5
 
@@ -203,50 +206,54 @@ class GoveeController:
         self.observer_epoch = secrets.token_hex(8)
         self.power_revisions = {}
         self.targets = copy.deepcopy(targets)
-        if len(self.targets) != 2 or {item.get("side") for item in self.targets} != {
-            "left",
-            "right",
-        }:
-            raise ValueError("The adapter requires exactly the selected left and right targets")
-        self.by_side = {item["side"]: item for item in self.targets}
+        if any(type(item.get("light")) is not str for item in self.targets):
+            raise ValueError("Every Govee target needs its light id")
+        self.by_light = {item["light"]: item for item in self.targets}
+        if len(self.by_light) != len(self.targets):
+            raise ValueError("Govee light ids must be distinct")
+        # Per-light model capabilities: DreamView timing and the default stream rate.
+        self.caps = {item["light"]: capabilities(item.get("sku") or item.get("model"),
+                                                 item.get("tier"))
+                     for item in self.targets}
         self.packet_rates = {
-            item["side"]: number(item["max_commands_per_second"], 1, 100)
+            item["light"]: number(item["max_commands_per_second"], 1, 100)
             if "max_commands_per_second" in item
             else None
             for item in self.targets
         }
         self.gradient_packet_rates = {
-            item["side"]: number(item["max_gradient_packets_per_second"], 1, 100)
+            item["light"]: number(item["max_gradient_packets_per_second"], 1, 100)
             if "max_gradient_packets_per_second" in item
             else None
             for item in self.targets
         }
         self.stream_rates = {
-            item["side"]: number(item["max_stream_frames_per_second"], 1, 60)
+            item["light"]: number(item["max_stream_frames_per_second"], 1, 60)
             if "max_stream_frames_per_second" in item
-            else STREAM_FRAMES_PER_SECOND
+            else self.caps[item["light"]].get("stream_frames_per_second",
+                                              STREAM_FRAMES_PER_SECOND)
             for item in self.targets
         }
         # Sync video streams zoned output through DreamView instead of ptReal.
         self.streaming = False
-        # Side -> time DreamView was last switched on; kept until it is switched off.
+        # Light -> time DreamView was last switched on; kept until it is switched off.
         self.razer = {}
-        # Side -> time of the last mode or frame the lamp accepted in DreamView;
+        # Light -> time of the last mode or frame the lamp accepted in DreamView;
         # dropped when the lamp may have left the mode on its own.
         self.razer_frame = {}
-        # Side -> time its status first went missing or off, while it still is.
+        # Light -> time its status first went missing or off, while it still is.
         self.status_lost = {}
         # Device key -> (last identity-verified status, time). Kept through a
         # missed reply so status readers can tell a short miss from a loss;
         # output still requires a fresh verified status.
         self.verified = {}
-        # Side -> (brightness, time) last sent while streaming. Video output
+        # Light -> (brightness, time) last sent while streaming. Video output
         # re-sends every frame (last_sent is cleared each tick), but an unchanged
         # brightness must not take a frame slot.
         self.stream_brightness = {}
         self.next_send = {}
         self.ids = {lan.device_key(item) for item in self.targets}
-        if len(self.ids) != 2:
+        if len(self.ids) != len(self.targets):
             raise ValueError("Pinned IDs must be distinct")
         self.sender, self.clock, self.wall_clock = sender, clock, wall_clock
         self.lock = threading.RLock()
@@ -259,9 +266,15 @@ class GoveeController:
         )
         self.commands_sent = 0
         self.pause_gate = None
-        self.skipped_state = {side: 0 for side in self.by_side}
-        self.rejected_sends = {side: 0 for side in self.by_side}
-        self.color_samples = {side: deque(maxlen=500) for side in self.by_side}
+        self.skipped_state = {light: 0 for light in self.by_light}
+        self.rejected_sends = {light: 0 for light in self.by_light}
+        self.color_samples = {light: deque(maxlen=500) for light in self.by_light}
+
+    def razer_idle_seconds(self, light):
+        return self.caps[light].get("razer_idle_seconds", RAZER_IDLE_SECONDS)
+
+    def razer_lost_seconds(self, light):
+        return self.caps[light].get("razer_lost_seconds", RAZER_LOST_SECONDS)
 
     def set_streaming(self, active):
         """Use DreamView for zoned video output; scene output switches it off first."""
@@ -278,11 +291,11 @@ class GoveeController:
                     # stream start switches it on again.
                     self.razer_frame.clear()
 
-    def stream_held(self, side, now):
+    def stream_held(self, light, now):
         """True while a streaming lamp's last verified On is recent enough for frames."""
-        if not self.streaming or side not in self.razer:
+        if not self.streaming or light not in self.razer:
             return False
-        native, seen = self.verified.get(lan.device_key(self.by_side[side]), (None, None))
+        native, seen = self.verified.get(lan.device_key(self.by_light[light]), (None, None))
         return (native is not None and native.get("onOff") == 1
                 and 0 <= now - seen <= lan.STREAM_HOLD_SECONDS)
 
@@ -303,7 +316,7 @@ class GoveeController:
         with self.lock:
             now = self.clock()
             result = {}
-            for side, device in self.by_side.items():
+            for light, device in self.by_light.items():
                 native, seen = self.statuses.get(lan.device_key(device), (None, 0))
                 sample = native.get("native_sample") if isinstance(native, dict) else None
                 valid = (isinstance(native, dict) and native.get("identity_verified") is True
@@ -312,35 +325,35 @@ class GoveeController:
                          and 0 <= now - seen <= 0.75
                          and type(sample) in (int, float) and math.isfinite(sample)
                          and 0 <= now - sample <= 0.75)
-                result[side] = {"on": bool(native["onOff"]) if valid else None,
+                result[light] = {"on": bool(native["onOff"]) if valid else None,
                                 "sample": sample if valid else None}
             return result
 
-    def included(self, side):
+    def included(self, light):
         name = "present" if self.configuration == "scene" else "enabled"
         member = getattr(self.layout_store, name, None)
-        return member(side) if member is not None else True
+        return member(light) if member is not None else True
 
-    def brightness_scale_for(self, side, base):
-        """Return this configuration's brightness correction for a side."""
+    def brightness_scale_for(self, light, base):
+        """Return this configuration's brightness correction for a light."""
         name = "scene_scale" if self.configuration == "scene" else "scale"
-        return getattr(self.layout_store, name, self.layout_store.scale)(side, base)
+        return getattr(self.layout_store, name, self.layout_store.scale)(light, base)
 
-    def scene_gains(self, side):
+    def scene_gains(self, light):
         """Return seven bottom-to-top scene fade gains, or None when nothing is faded."""
         loader = getattr(self.layout_store, "scene_fade", None)
         if self.configuration != "scene" or loader is None:
             return None
         fade = loader()
-        gains = fade.get(side) if fade else None
+        gains = fade.get(light) if fade else None
         return gains if gains is not None and min(gains) < 1 else None
 
-    def fade_target(self, side, target):
+    def fade_target(self, light, target):
         """Attenuate a scene target by the scene fade without mutating the job."""
-        gains = self.scene_gains(side)
+        gains = self.scene_gains(light)
         if gains is None:
             return target
-        if "segments" in target or self.by_side[side].get("segment_count", 0) == 7:
+        if "segments" in target or self.by_light[light].get("segment_count", 0) == 7:
             segments = target.get("segments") or [as_rgb(target)] * 7
             target = {key: value for key, value in target.items()
                       if key not in ("rgb", "kelvin")}
@@ -354,40 +367,40 @@ class GoveeController:
             target["brightness"] = max(1, min(100, round(target["brightness"] * mean)))
         return target
 
-    def clear_side(self, side):
+    def clear_light(self, light):
         """Forget output work while retaining the accepted source ordering fence."""
         with self.lock:
             for values in (self.jobs, self.last_sent, self.last_refresh, self.next_send):
-                values.pop(side, None)
+                values.pop(light, None)
 
-    def target(self, side):
+    def target(self, light):
         with self.lock:
-            if not self.included(side):
-                self.clear_side(side)
+            if not self.included(light):
+                self.clear_light(light)
                 return None
-            job = self.jobs.get(side)
+            job = self.jobs.get(light)
             if job is None:
                 return None
             fraction = (self.clock() - job["start"]) / job["duration"] if job["duration"] else 1
             return blend(job["from"], job["to"], fraction)
 
-    def effective_target(self, side):
-        target = self.target(side)
+    def effective_target(self, light):
+        target = self.target(light)
         if target is not None and self.layout_store is not None:
-            base = lan.parse_brightness_scale(self.by_side[side].get("brightness_scale", 1))
-            scale = self.brightness_scale_for(side, base)
+            base = lan.parse_brightness_scale(self.by_light[light].get("brightness_scale", 1))
+            scale = self.brightness_scale_for(light, base)
             brightness = (
                 target["brightness"] * scale / base
                 if base
-                else self.jobs[side].get("source_bri", 254) / 254 * 100 * scale
+                else self.jobs[light].get("source_bri", 254) / 254 * 100 * scale
             )
             target["brightness"] = max(1, min(100, round(brightness)))
-            target = self.fade_target(side, target)
+            target = self.fade_target(light, target)
         return target
 
     def submit(self, payload):
         if not isinstance(payload, dict) or set(payload) != {
-            "side",
+            "light",
             "state",
             "transitiontime",
             "session",
@@ -395,9 +408,9 @@ class GoveeController:
             "issued_at",
         }:
             raise ValueError("Invalid command shape")
-        side = payload["side"]
-        if side not in self.by_side:
-            raise ValueError("Unknown side")
+        light = payload["light"]
+        if light not in self.by_light:
+            raise ValueError("Unknown light")
         session = payload["session"]
         sequence = payload["sequence"]
         if not isinstance(session, str) or not 1 <= len(session) <= 80:
@@ -406,35 +419,35 @@ class GoveeController:
             raise ValueError("Invalid command sequence")
         issued = number(payload["issued_at"], self.wall_clock() - 5, self.wall_clock() + 5)
         duration = number(payload["transitiontime"], 0, 1200) / 10
-        device = self.by_side[side]
+        device = self.by_light[light]
         desired = normalize_state(
             payload["state"], device.get("brightness_scale", 1), device.get("segment_count", 0)
         )
         with self.lock:
-            previous = self.accepted.get(side)
+            previous = self.accepted.get(light)
             if previous and (
                 (session == previous[0] and sequence <= previous[1])
                 or (session != previous[0] and issued <= previous[2])
             ):
                 return False
-            self.accepted[side] = (session, sequence, issued)
-            if not desired["on"] or not self.included(side):
-                self.clear_side(side)
+            self.accepted[light] = (session, sequence, issued)
+            if not desired["on"] or not self.included(light):
+                self.clear_light(light)
                 return True
-            initial = self.target(side)
+            initial = self.target(light)
             if initial is None:
                 status = self.statuses.get(lan.device_key(device), (None, 0))[0]
                 initial = native_target(status, desired)
                 if self.layout_store is not None and status and "brightness" in status:
                     base = lan.parse_brightness_scale(device.get("brightness_scale", 1))
-                    scale = self.brightness_scale_for(side, base)
-                    gains = self.scene_gains(side)
-                    if gains is not None and self.by_side[side].get("segment_count", 0) != 7:
+                    scale = self.brightness_scale_for(light, base)
+                    gains = self.scene_gains(light)
+                    if gains is not None and self.by_light[light].get("segment_count", 0) != 7:
                         # The native brightness already carries the mean fade gain.
                         scale *= sum(gains) / len(gains)
                     if base and scale:
                         initial["brightness"] *= base / scale
-            self.jobs[side] = {
+            self.jobs[light] = {
                 "from": initial,
                 "to": desired,
                 "start": self.clock(),
@@ -445,49 +458,49 @@ class GoveeController:
 
     def render(self):
         with self.lock:
-            for side in self.by_side:
-                if not self.included(side):
-                    self.clear_side(side)
+            for light in self.by_light:
+                if not self.included(light):
+                    self.clear_light(light)
             if self.pause_gate is not None and not self.pause_gate():
                 self.last_sent.clear()
                 return
             now = self.clock()
-            for side, device in self.by_side.items():
-                if not self.included(side):
-                    self.clear_side(side)
+            for light, device in self.by_light.items():
+                if not self.included(light):
+                    self.clear_light(light)
                     continue
                 if self.power_owner is not None:
-                    revision = self.power_owner.revision(side)
-                    if self.power_revisions.get(side) != revision:
-                        self.last_sent.pop(side, None)
-                        self.stream_brightness.pop(side, None)
-                        self.power_revisions[side] = revision
-                    if not self.power_owner.allowed(side):
-                        self.last_sent.pop(side, None)
-                        if side in self.jobs:
-                            self.skipped_state[side] += 1
+                    revision = self.power_owner.revision(light)
+                    if self.power_revisions.get(light) != revision:
+                        self.last_sent.pop(light, None)
+                        self.stream_brightness.pop(light, None)
+                        self.power_revisions[light] = revision
+                    if not self.power_owner.allowed(light):
+                        self.last_sent.pop(light, None)
+                        if light in self.jobs:
+                            self.skipped_state[light] += 1
                         continue
                 status, seen = self.statuses.get(lan.device_key(device), (None, float("-inf")))
                 held = False
                 if not status or status.get("onOff") != 1 or not 0 <= now - seen <= 0.75:
-                    lost = self.status_lost.setdefault(side, now)
+                    lost = self.status_lost.setdefault(light, now)
                     verified_off = (
                         status is not None and 0 <= now - seen <= 0.75
                         and status.get("onOff") == 0
                         and status.get("identity_verified", True) is not False
                     )
-                    if verified_off or now - lost >= RAZER_LOST_SECONDS:
+                    if verified_off or now - lost >= self.razer_lost_seconds(light):
                         # An Off or a power cycle ends DreamView on the lamp.
-                        self.razer_frame.pop(side, None)
-                    held = not verified_off and self.stream_held(side, now)
+                        self.razer_frame.pop(light, None)
+                    held = not verified_off and self.stream_held(light, now)
                     if not held:
-                        self.last_sent.pop(side, None)
-                        if side in self.jobs:
-                            self.skipped_state[side] += 1
+                        self.last_sent.pop(light, None)
+                        if light in self.jobs:
+                            self.skipped_state[light] += 1
                         continue
                 else:
-                    self.status_lost.pop(side, None)
-                if not self.streaming and side in self.razer:
+                    self.status_lost.pop(light, None)
+                if not self.streaming and light in self.razer:
                     # The lamp ignores other color commands while DreamView is on,
                     # so leave it even when no scene target is waiting yet.
                     try:
@@ -496,20 +509,20 @@ class GoveeController:
                         left = False
                     if not left:
                         # Keep the scene target pending until the lamp leaves DreamView.
-                        self.rejected_sends[side] += 1
+                        self.rejected_sends[light] += 1
                         continue
-                    self.razer.pop(side)
-                    self.razer_frame.pop(side, None)
-                target = self.effective_target(side)
+                    self.razer.pop(light)
+                    self.razer_frame.pop(light, None)
+                target = self.effective_target(light)
                 if target is None:
                     continue
-                old = self.last_sent.get(side, {})
-                refresh = now - self.last_refresh.get(side, float("-inf")) >= 30
+                old = self.last_sent.get(light, {})
+                refresh = now - self.last_refresh.get(light, float("-inf")) >= 30
                 updates = []
                 stream = self.streaming and "segments" in target
                 if held and not stream:
-                    self.last_sent.pop(side, None)
-                    self.skipped_state[side] += 1
+                    self.last_sent.pop(light, None)
+                    self.skipped_state[light] += 1
                     continue
                 if stream:
                     commands = [
@@ -525,7 +538,7 @@ class GoveeController:
                     commands = lan.govee_commands(target)
                 for name, data in commands:
                     if name == "brightness" and stream:
-                        sent = self.stream_brightness.get(side)
+                        sent = self.stream_brightness.get(light)
                         # Another writer, such as the scene output at a Sync start,
                         # can leave the lamp at its own brightness; the fresh status
                         # shows it, so the stream brightness is sent again.
@@ -545,8 +558,8 @@ class GoveeController:
                     if changed or refresh:
                         updates.append((name, data))
                 mode = None
-                if stream and (side not in self.razer or side not in self.razer_frame
-                               or now - self.razer_frame[side] >= RAZER_IDLE_SECONDS):
+                if stream and (light not in self.razer or light not in self.razer_frame
+                               or now - self.razer_frame[light] >= self.razer_idle_seconds(light)):
                     mode = razer_mode(True)
                 if mode is not None:
                     # The lamp stays dark after the mode switch until a frame arrives,
@@ -555,10 +568,10 @@ class GoveeController:
                     updates = [("razer", mode), frame] + [
                         update for update in updates if update[0] != "razer"]
                 if stream:
-                    rate = self.stream_rates[side]
+                    rate = self.stream_rates[light]
                 else:
-                    rate = self.packet_rates[side]
-                    gradient_rate = self.gradient_packet_rates[side]
+                    rate = self.packet_rates[light]
+                    gradient_rate = self.gradient_packet_rates[light]
                     if "segments" in target and gradient_rate is not None:
                         rate = min(rate, gradient_rate) if rate is not None else gradient_rate
                 if held:
@@ -575,7 +588,7 @@ class GoveeController:
                 if (
                     updates
                     and rate is not None
-                    and now + 1e-9 < self.next_send.get(side, float("-inf"))
+                    and now + 1e-9 < self.next_send.get(light, float("-inf"))
                 ):
                     continue
                 complete = True
@@ -586,16 +599,16 @@ class GoveeController:
                         success = False
                     complete = success and complete
                     if success and data is mode:
-                        self.razer[side] = now
+                        self.razer[light] = now
                     if success and stream and name == "razer":
-                        self.razer_frame[side] = now
+                        self.razer_frame[light] = now
                     if success and stream and name == "brightness":
-                        self.stream_brightness[side] = (data["value"], now)
+                        self.stream_brightness[light] = (data["value"], now)
                     self.commands_sent += int(success)
                     if not success:
-                        self.rejected_sends[side] += 1
+                        self.rejected_sends[light] += 1
                     elif name == "colorwc":
-                        self.color_samples[side].append(
+                        self.color_samples[light].append(
                             {
                                 "time": now,
                                 "color": data["color"],
@@ -604,39 +617,41 @@ class GoveeController:
                         )
                 if updates and rate is not None:
                     interval = len(updates) / rate
-                    previous = self.next_send.get(side)
+                    previous = self.next_send.get(light)
                     if stream and previous is not None and 0 <= now - previous < interval:
                         # Keep the frame cadence: a render tick that came a little
                         # late must not stretch every later slot.
-                        self.next_send[side] = previous + interval
+                        self.next_send[light] = previous + interval
                     else:
-                        self.next_send[side] = now + interval
+                        self.next_send[light] = now + interval
                 if complete:
-                    self.last_sent[side] = target
+                    self.last_sent[light] = target
                     if refresh:
-                        self.last_refresh[side] = now
+                        self.last_refresh[light] = now
 
     def snapshot(self):
         with self.lock:
             return {
-                "active_sides": sorted(self.jobs),
+                "active_lights": sorted(self.jobs),
                 "streaming": self.streaming,
-                "dreamview_sides": sorted(self.razer),
+                "dreamview_lights": sorted(self.razer),
                 "commands_sent": self.commands_sent,
                 "skipped_state": dict(self.skipped_state),
                 "rejected_sends": dict(self.rejected_sends),
                 "color_samples": {
-                    side: list(samples) for side, samples in self.color_samples.items()
+                    light: list(samples) for light, samples in self.color_samples.items()
                 },
                 "targets": [
                     {
-                        "side": item["side"],
+                        "light": item["light"],
+                        "tier": self.caps[item["light"]]["tier"],
                         "device": lan.device_key(item),
                         "brightness_scale": item.get("brightness_scale", 1),
                         "segment_count": item.get("segment_count", 0),
-                        "max_commands_per_second": self.packet_rates[item["side"]],
-                        "max_gradient_packets_per_second": self.gradient_packet_rates[item["side"]],
-                        "target": self.effective_target(item["side"]),
+                        "max_commands_per_second": self.packet_rates[item["light"]],
+                        "max_gradient_packets_per_second":
+                            self.gradient_packet_rates[item["light"]],
+                        "target": self.effective_target(item["light"]),
                         "native": self.statuses.get(lan.device_key(item), (None, 0))[0],
                         "status_age": (
                             self.clock() - self.statuses[lan.device_key(item)][1]
@@ -654,6 +669,30 @@ class GoveeController:
                     for item in self.targets
                 ],
             }
+
+
+def prepare_targets(targets, composition_profile):
+    """Give every target the segment profile of its model tier, in place.
+
+    A segmented model gets its segment count when a Sync profile exists (or the
+    gradient mode is on). A light forced to the basic tier never has segments. Any
+    other model is basic unless its stored target declares ``segment_count`` itself;
+    nothing is enabled for it automatically.
+    """
+    for device in targets:
+        caps = capabilities(device.get("sku") or device.get("model"), device.get("tier"))
+        segments = caps["segments"]
+        auto_segments = composition_profile is not None and segments > 0
+        if device.get("tier") == "basic":
+            device["segment_count"] = 0
+        elif segments and device.get("segment_count", 0) != segments and (
+                GRADIENT_MODE or auto_segments):
+            device["segment_count"] = segments
+            if auto_segments:
+                device.setdefault("max_gradient_packets_per_second",
+                                  caps["max_gradient_packets_per_second"])
+        else:
+            device.setdefault("segment_count", 0)
 
 
 def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_output=None,
@@ -713,7 +752,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             if self.path == "/homekit":
                 if homekit is None:
                     return self.respond(404, {"error": "not found"})
-                return self.respond(200, homekit.state())
+                return self.respond(200, homekit_state(homekit.state()))
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
             if self.path not in ("/status", "/diagnostics"):
@@ -724,6 +763,7 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
             if profile is not None:
                 result["composition"] = {
                     "enabled_roles": profile["enabled_roles"], "signature": profile["signature"],
+                    "lights": sorted(profile["lights"]),
                 }
             if hue_proxy is not None:
                 result["hue_strip"] = hue_proxy.snapshot()
@@ -783,8 +823,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     self.signed_nonce = self.headers["X-LCC-Nonce"]
                 payload = json.loads(raw)
                 if self.path == "/power-owner":
-                    if not isinstance(payload, dict):
-                        raise ValueError("Invalid power owner envelope")
+                    # The overlay still names the lamps by side; translate at this boundary.
+                    payload = owner_envelope(payload)
                     capability = validate_capability(payload.get("power_requests"),
                                                      payload.get("states"))
                     envelope = {key: value for key, value in payload.items()
@@ -794,13 +834,13 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     return self.respond(200, {"accepted": accepted,
                                               "power_request_version": 1,
                                               "observer_epoch": controller.observer_epoch,
-                                              "observed": observed,
-                                              **broker.exchange(envelope, capability,
-                                                                observed, accepted)})
+                                              "observed": owner_observed(observed),
+                                              **owner_exchange(broker.exchange(
+                                                  envelope, capability, observed, accepted))})
                 elif self.path == "/homekit":
-                    confirmed = homekit.set(payload)
+                    confirmed = homekit.set(homekit_intent(payload))
                     return self.respond(200 if confirmed else 503,
-                                        {"accepted": confirmed, **homekit.state()})
+                                        {"accepted": confirmed, **homekit_state(homekit.state())})
                 elif self.path == "/power-request":
                     if broker is None:
                         return self.respond(503, {"accepted": False})
@@ -852,8 +892,8 @@ def handler_for(controller, token, hue_proxy=None, hue_play_proxies=None, video_
                     # reuse its connection. Other routes retain legacy closure.
                     self.stream_keep_alive = (
                         self.headers.get("Connection", "").lower() == "keep-alive")
-                elif isinstance(payload, dict) and payload.get("side") in hue_proxies:
-                    accepted = hue_proxies[payload["side"]].submit(payload)
+                elif isinstance(payload, dict) and payload.get("light") in hue_proxies:
+                    accepted = hue_proxies[payload["light"]].submit(payload)
                 else:
                     accepted = controller.submit(payload)
                 self.respond(200, {"accepted": accepted})
@@ -895,15 +935,7 @@ def main(argv=None, service_info=None):
     config = {"targets": registry.govee_targets()}
     layout_store = LayoutStore(state_dir / "desk-layout.json")
     composition_profile = layout_store.sync_profile()
-    for device in config["targets"]:
-        known_h6076 = device.get("sku") == "H6076" or device.get("model") == "H6076"
-        auto_segments = composition_profile is not None and known_h6076
-        if device.get("segment_count", 0) != 7 and (GRADIENT_MODE or auto_segments):
-            device["segment_count"] = 7
-            if auto_segments:
-                device.setdefault("max_gradient_packets_per_second", 2)
-        else:
-            device.setdefault("segment_count", 0)
+    prepare_targets(config["targets"], composition_profile)
     if not args.token_file.exists():
         descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:
@@ -928,8 +960,8 @@ def main(argv=None, service_info=None):
             power_owner = homekit = HomeKitPower(
                 config["targets"], state_dir / "homekit-power.json", power_sender,
                 observe=lambda: controller.power_observations(),
-                idle=lambda side: idle["check"](side), names=layout_store.names,
-                release=lambda side: idle["release"](side))
+                idle=lambda light: idle["check"](light), names=layout_store.names,
+                release=lambda light: idle["release"](light))
             power_requests = HomeKitRequests(homekit)
         else:
             power_owner = PowerOwner(config["targets"])
@@ -1001,13 +1033,13 @@ def main(argv=None, service_info=None):
         state_dir / SYNC_OFF_FILE, govee=power_owner, native=hue_proxies,
         observe=controller.power_observations)
     if homekit is not None:
-        idle["check"] = lambda side: (
-            (video is None or not video.active()) and side not in controller.jobs)
+        idle["check"] = lambda light: (
+            (video is None or not video.active()) and light not in controller.jobs)
 
-        def release_scene(side):
+        def release_scene(light):
             # Sync output owns the lamp until it ends; only a Hue scene yields.
             if video is None or not video.active():
-                controller.clear_side(side)
+                controller.clear_light(light)
 
         idle["release"] = release_scene
     controller.pause_gate = lambda: (
@@ -1024,8 +1056,8 @@ def main(argv=None, service_info=None):
         except RegistryError:
             raise OSError("Light registry could not be written") from None
 
-    legacy_roles = {("govee", lan.device_key(device)): "govee-" + device["side"]
-                    for device in controller.targets}
+    legacy_roles = {("govee", lan.device_key(device)): device["light"]
+                    for device in controller.targets if device["light"] in LEGACY_SIDES}
     hue_layout_roles = {"strip": "hue-monitor", "hue_left": "play-left",
                         "hue_center": "play-center", "hue_right": "play-right"}
     for role, proxy in hue_proxies.items():
@@ -1099,7 +1131,7 @@ def main(argv=None, service_info=None):
         )
         http_thread.start()
         print(
-            f"Live adapter on port {args.port}; two pinned Govee; "
+            f"Live adapter on port {args.port}; {len(controller.targets)} pinned Govee; "
             + ("HomeKit power authority." if homekit is not None else "no power commands."),
             flush=True,
         )

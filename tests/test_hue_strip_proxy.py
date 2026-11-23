@@ -33,7 +33,7 @@ def state():
 
 def command(sequence=1, **values):
     return {
-        "side": "strip",
+        "light": "strip",
         "state": state(),
         "transitiontime": 47,
         "session": "scene-session",
@@ -85,13 +85,13 @@ class HueStripTests(unittest.TestCase):
             "xy": [0.2, 0.3],
             "_changed": ["on", "bri", "xy"],
         }
-        proxy.submit(command(side="hue_center", state=value))
+        proxy.submit(command(light="hue_center", state=value))
         self.assertTrue(proxy.process_once())
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 50)
         self.assertEqual(client.writes[-1]["color"]["xy"], {"x": 0.2, "y": 0.3})
         self.assertEqual(client.writes[-1]["dynamics"]["duration"], 4700)
         value.update({"bri": 127, "_changed": ["bri"]})
-        proxy.submit(command(sequence=2, side="hue_center", state=value))
+        proxy.submit(command(sequence=2, light="hue_center", state=value))
         self.assertTrue(proxy.process_once())
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 25)
         self.assertNotIn("color", client.writes[-1])
@@ -173,11 +173,11 @@ class HueStripTests(unittest.TestCase):
             "xy": [0.2, 0.3],
             "_changed": ["on", "bri", "xy"],
         }
-        proxy.submit(command(side="hue_left", state=value))
+        proxy.submit(command(light="hue_left", state=value))
         self.assertTrue(proxy.process_once())
         self.assertNotIn("on", client.writes[-1])
         with self.assertRaises(ValueError):
-            proxy.submit(command(sequence=2, side="hue_right", state=value))
+            proxy.submit(command(sequence=2, light="hue_right", state=value))
 
     def setUp(self):
         self.client = FakeHue()
@@ -244,7 +244,7 @@ class HueStripTests(unittest.TestCase):
         self.assertEqual(len(self.client.writes), 1)
         self.assertNotIn("on", self.client.writes[0])
         with self.assertRaises(ValueError):
-            self.proxy.submit(command(sequence=2, side="third"))
+            self.proxy.submit(command(sequence=2, light="third"))
 
     def test_wrong_native_resource_fails_closed(self):
         self.client.native["id"] = "another-light"

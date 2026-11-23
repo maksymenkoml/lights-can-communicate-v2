@@ -276,8 +276,8 @@ class HueStripProxy:
         if (
             not isinstance(payload, dict)
             or set(payload)
-            != {"side", "state", "transitiontime", "session", "sequence", "issued_at"}
-            or payload["side"] != self.role
+            != {"light", "state", "transitiontime", "session", "sequence", "issued_at"}
+            or payload["light"] != self.role
         ):
             raise ValueError("Invalid strip command")
         session = payload["session"]

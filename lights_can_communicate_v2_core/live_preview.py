@@ -166,8 +166,9 @@ class OutputPreviewStore:
         return send
 
     def _record_govee(self, device, command, data, source):
-        side = device.get("side")
-        if side not in ("left", "right") or not isinstance(data, dict):
+        light = device.get("light")
+        # Light Studio previews the six layout rows; other lights follow with its lamp list.
+        if light not in ("govee-left", "govee-right") or not isinstance(data, dict):
             return
         colors = brightness = None
         if command == "brightness":
@@ -192,7 +193,7 @@ class OutputPreviewStore:
                 return
         else:
             return
-        self._update("govee-" + side, source, colors, brightness)
+        self._update(light, source, colors, brightness)
 
     def record_hue(self, role, body):
         if role not in HUE_ROLES or not isinstance(body, dict):
@@ -300,15 +301,15 @@ def build_preview(adapter_status, output_snapshot):
     targets = status.get("targets")
     targets = targets if isinstance(targets, list) else []
     govee = {
-        item["side"]: item
+        item["light"]: item
         for item in targets
-        if isinstance(item, dict) and item.get("side") in ("left", "right")
+        if isinstance(item, dict) and item.get("light") in ("govee-left", "govee-right")
     }
     lamps = {}
     for lamp in LAMP_IDS:
         brightness = None
         if lamp.startswith("govee-"):
-            native = _govee_reading(govee.get(lamp.removeprefix("govee-"), {}))
+            native = _govee_reading(govee.get(lamp, {}))
             fresh = native is not None
             on = bool(native["onOff"]) if fresh else None
             brightness = native.get("brightness") if fresh else None

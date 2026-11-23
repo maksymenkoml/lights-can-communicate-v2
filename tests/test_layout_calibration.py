@@ -13,7 +13,7 @@ from test_native_profile import PLAY_IDS  # noqa: E402
 
 class Scales:
     def __init__(self):
-        self.values = {"left": 0.65, "right": 0.65, "hue_center": 0.5}
+        self.values = {"govee-left": 0.65, "govee-right": 0.65, "hue_center": 0.5}
 
     def scale(self, role, fallback):
         return self.values.get(role, fallback)
@@ -22,7 +22,7 @@ class Scales:
 class CalibrationTests(unittest.TestCase):
     def test_first_transition_does_not_scale_physical_native_brightness_twice(self):
         scales = Scales()
-        scales.values["left"] = 0.4
+        scales.values["govee-left"] = 0.4
         now = [0]
         controller = GoveeController(
             targets(),
@@ -35,9 +35,9 @@ class CalibrationTests(unittest.TestCase):
             {LEFT: ({"onOff": 1, "brightness": 40, "color": {"r": 255, "g": 0, "b": 0}}, 0)}
         )
         controller.submit(command(transitiontime=20))
-        self.assertEqual(controller.effective_target("left")["brightness"], 40)
+        self.assertEqual(controller.effective_target("govee-left")["brightness"], 40)
         now[0] = 2
-        self.assertEqual(controller.effective_target("left")["brightness"], 40)
+        self.assertEqual(controller.effective_target("govee-left")["brightness"], 40)
 
     def test_govee_scale_changes_without_new_color_and_off_stays_blocked(self):
         scales = Scales()
@@ -55,12 +55,12 @@ class CalibrationTests(unittest.TestCase):
         controller.submit(command(transitiontime=0))
         controller.render()
         sent.clear()
-        scales.values["left"] = 0.4
+        scales.values["govee-left"] = 0.4
         controller.render()
         self.assertEqual(sent, [("brightness", {"value": 40})])
         sent.clear()
         controller.update_statuses({LEFT: ({"onOff": 0}, 0)})
-        scales.values["left"] = 0.8
+        scales.values["govee-left"] = 0.8
         controller.render()
         self.assertEqual(sent, [])
 
@@ -72,7 +72,7 @@ class CalibrationTests(unittest.TestCase):
         proxy = HueStripProxy(
             client, role="hue_center", clock=lambda: 0, wall_clock=lambda: 1000, layout_store=scales
         )
-        proxy.submit(command(side="hue_center", transitiontime=0))
+        proxy.submit(command(light="hue_center", transitiontime=0))
         proxy.process_once()
         self.assertEqual(client.writes[-1]["dimming"]["brightness"], 50)
         scales.values["hue_center"] = 0.25

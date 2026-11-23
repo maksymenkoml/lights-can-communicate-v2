@@ -77,7 +77,7 @@ class SessionFixture(unittest.TestCase):
         self.calibration = GoveeCalibration(targets(), self.store)
 
         def transport(device, command, data):
-            self.sent.append((device["side"], command, data))
+            self.sent.append((device["light"], command, data))
             return True
 
         self.controller = GoveeController(targets(), sender=transport, clock=lambda: self.now,
@@ -102,13 +102,13 @@ class SessionFixture(unittest.TestCase):
 class CalibrationSessionTests(SessionFixture):
     def test_the_lamp_and_the_reference_show_the_test_white_and_the_rest_is_dark(self):
         self.assertEqual(self.session.update(dict(REQUEST)), {"active": True})
-        left = self.govee("left")
+        left = self.govee("govee-left")
         self.assertEqual(left[0][0], "razer", "DreamView is left first")
         # The candidate calibration applies to the calibrated lamp, unsaved.
         self.assertEqual(left[1], ("colorwc", {"color": {"r": 255, "g": 222, "b": 104},
                                                "colorTemInKelvin": 0}))
         self.assertEqual(left[2], ("brightness", {"value": 100}))
-        right = self.govee("right")
+        right = self.govee("govee-right")
         self.assertEqual(right[1][1]["color"], {"r": 0, "g": 0, "b": 0})
         self.assertEqual(right[2], ("brightness", {"value": 1}))
         self.assertEqual(self.proxies["hue_left"].client.writes[-1]["dimming"], {"brightness": 100})
@@ -116,19 +116,19 @@ class CalibrationSessionTests(SessionFixture):
         for role in ("strip", "hue_center", "hue_right"):
             self.assertEqual(self.proxies[role].client.writes,
                              [{"dimming": {"brightness": DARK_HUE_DIMMING}}])
-        self.assertEqual(self.store.calibration("left")["warmth"], 0, "nothing is saved")
+        self.assertEqual(self.store.calibration("govee-left")["warmth"], 0, "nothing is saved")
 
     def test_scene_writes_are_held_and_resent_after_the_session(self):
         self.session.update(dict(REQUEST))
-        device = self.controller.by_side["left"]
+        device = self.controller.by_light["govee-left"]
         self.assertFalse(self.fenced(device, "brightness", {"value": 40}))
         gate = self.session.hold_native(lambda: True)
         self.assertFalse(gate())
-        self.controller.last_sent["left"] = {"on": True}
+        self.controller.last_sent["govee-left"] = {"on": True}
         self.assertTrue(self.session.end("saved"))
         self.assertTrue(gate())
         self.assertTrue(self.fenced(device, "brightness", {"value": 40}))
-        self.assertNotIn("left", self.controller.last_sent)
+        self.assertNotIn("govee-left", self.controller.last_sent)
         self.assertTrue(all(proxy.restored == 1 for proxy in self.proxies.values()))
         self.assertEqual(self.session.snapshot()["last_end"], "saved")
 
@@ -138,7 +138,7 @@ class CalibrationSessionTests(SessionFixture):
         self.session.update(dict(REQUEST))
         self.assertEqual(len(self.sent), count)
         self.session.update({**REQUEST, "level": "dim"})
-        self.assertEqual(self.govee("left")[-1], ("brightness", {"value": 33}))
+        self.assertEqual(self.govee("govee-left")[-1], ("brightness", {"value": 33}))
         self.assertEqual(self.proxies["hue_left"].client.writes[-1]["dimming"], {"brightness": 10})
 
     def test_the_session_ends_without_renewal_when_sync_starts_or_a_lamp_turns_off(self):
@@ -187,12 +187,12 @@ class CalibrationSessionTests(SessionFixture):
     def test_each_lamp_shows_its_correction_for_the_edited_configuration(self):
         self.controller.layout_store = FakeCorrections(scene={"hue_right": 0.7})
         self.session.update(dict(RIGHT_REQUEST))
-        self.assertEqual(self.govee("right")[-1], ("brightness", {"value": 40}),
+        self.assertEqual(self.govee("govee-right")[-1], ("brightness", {"value": 40}),
                          "the candidate correction, unsaved")
         self.assertEqual(self.proxies["hue_right"].client.writes[-1]["dimming"],
                          {"brightness": 70}, "the reference's saved correction")
         self.session.update({**RIGHT_REQUEST, "correction": 0})
-        self.assertEqual(self.govee("right")[-1], ("brightness", {"value": 1}),
+        self.assertEqual(self.govee("govee-right")[-1], ("brightness", {"value": 1}),
                          "a lit lamp never looks off")
         self.controller.layout_store = FakeCorrections(scene={"hue_right": 0})
         self.session.update({**RIGHT_REQUEST, "level": "dim"})
@@ -200,14 +200,14 @@ class CalibrationSessionTests(SessionFixture):
                          {"brightness": 0.5})
 
     def test_a_hue_lamp_is_calibrated_against_a_govee_reference(self):
-        self.controller.layout_store = FakeCorrections(sync={"left": 0.35})
+        self.controller.layout_store = FakeCorrections(sync={"govee-left": 0.35})
         self.assertEqual(self.session.update(dict(HUE_REQUEST)), {"active": True})
         write = self.proxies["hue_center"].client.writes[-1]
         self.assertIn("xy", write["color"])
         self.assertEqual(write["dimming"], {"brightness": 60})
-        left = self.govee("left")
+        left = self.govee("govee-left")
         self.assertNotEqual(left[-2][1]["color"], {"r": 0, "g": 0, "b": 0})
-        self.assertEqual(self.govee("right")[-1], ("brightness", {"value": 1}))
+        self.assertEqual(self.govee("govee-right")[-1], ("brightness", {"value": 1}))
         for role in ("strip", "hue_left", "hue_right"):
             self.assertEqual(self.proxies[role].client.writes,
                              [{"dimming": {"brightness": DARK_HUE_DIMMING}}])
@@ -229,7 +229,7 @@ class CalibrationSessionTests(SessionFixture):
         self.proxies["strip"].on = False
         self.lamps_on(right=0)
         self.session.update(dict(REQUEST))
-        self.assertEqual(self.govee("right"), [])
+        self.assertEqual(self.govee("govee-right"), [])
         self.assertEqual(self.proxies["strip"].client.writes, [])
 
 

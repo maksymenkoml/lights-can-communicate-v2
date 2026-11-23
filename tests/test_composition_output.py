@@ -32,7 +32,7 @@ def envelope(*args, **kwargs):
 
 class Layout:
     def __init__(self):
-        self.roles = {'left', 'right', *NATIVE}
+        self.roles = {"govee-left", "govee-right", *NATIVE}
         self.geometry = 0
         self.reads = 0
 
@@ -49,12 +49,15 @@ class Layout:
 
     def sync_profile(self):
         self.reads += 1
+        # The profile keeps its side-keyed public roles next to the per-light entries.
+        govee = [light for light in ("govee-left", "govee-right") if light in self.roles]
+        samples = [None, None, (0, 1), (0, 1), (0, 1), (1, 1), (1, 1)]
         return {'signature': str(self.geometry) + str(sorted(self.roles)),
-                'basis': 'screen-perimeter-v1', 'enabled_roles': sorted(self.roles),
+                'basis': 'screen-perimeter-v1',
+                'enabled_roles': sorted(role.removeprefix("govee-") for role in self.roles),
                 'native_roles': [role for role in NATIVE if role in self.roles],
                 'plays': {role: (0, 1) for role in NATIVE if role != 'strip'},
-                'govee': {side: {'samples': [None, None, (0, 1), (0, 1), (0, 1),
-                                            (1, 1), (1, 1)]} for side in ('left', 'right')}}
+                'lights': {light: {'samples': samples, 'gains': [1] * 7} for light in govee}}
 
 
 class CompositionOutputTests(unittest.TestCase):
@@ -67,7 +70,7 @@ class CompositionOutputTests(unittest.TestCase):
             device['segment_count'] = 7
         self.controller = GoveeController(
             devices, sender=lambda device, name, data: self.sent.append(
-                (device['side'], name, copy.deepcopy(data))) or True,
+                (device["light"], name, copy.deepcopy(data))) or True,
             clock=lambda: self.now, wall_clock=lambda: 1000, layout_store=self.layout)
         self.controller.update_statuses({key: ({'onOff': 1, 'brightness': 65}, self.now)
                                          for key in (LEFT, RIGHT)})
@@ -93,15 +96,15 @@ class CompositionOutputTests(unittest.TestCase):
         self.controller.submit(command())
         self.controller.render()
         self.assertTrue(self.sent)
-        self.layout.roles.remove('left')
+        self.layout.roles.remove("govee-left")
         self.sent.clear()
         self.controller.render()
         self.assertEqual(self.sent, [])
-        self.assertNotIn('left', self.controller.jobs)
-        self.assertNotIn('left', self.controller.last_sent)
+        self.assertNotIn("govee-left", self.controller.jobs)
+        self.assertNotIn("govee-left", self.controller.last_sent)
         self.assertTrue(self.controller.submit(command(sequence=2)))
-        self.assertNotIn('left', self.controller.jobs)
-        self.layout.roles.add('left')
+        self.assertNotIn("govee-left", self.controller.jobs)
+        self.layout.roles.add("govee-left")
         self.controller.render()
         self.assertEqual(self.sent, [])
         self.assertFalse(self.controller.submit(command(sequence=1)))
@@ -113,7 +116,7 @@ class CompositionOutputTests(unittest.TestCase):
         client = FakeHue()
         proxy = HueStripProxy(client, layout_store=self.layout, wall_clock=lambda: 1000)
         self.layout.roles.remove('strip')
-        proxy.submit(command(side='strip'))
+        proxy.submit(command(light='strip'))
         client.read = lambda: (_ for _ in ()).throw(AssertionError('Excluded native read'))
         self.assertFalse(proxy.process_once())
         self.assertTrue(proxy.restore)
@@ -130,7 +133,7 @@ class CompositionOutputTests(unittest.TestCase):
         self.assertEqual(self.layout.reads, 1)
         native = self.relay.frames[-1]
         self.assertEqual(native[11], (65535, 0, 0))
-        target = self.controller.target('left')
+        target = self.controller.target("govee-left")
         self.assertEqual(target['brightness'], 65)
         self.assertEqual(target['segments'][:2], [(0, 0, 0)] * 2)
         self.assertEqual(target['segments'][2], (255, 0, 0))
@@ -161,15 +164,15 @@ class CompositionOutputTests(unittest.TestCase):
         self.assertEqual(self.relay.started, 2)
         self.assertFalse(any(p.value.get('restore_requested') for p in self.proxies))
         self.assertTrue(self.output.active())
-        self.layout.roles.remove('left')
+        self.layout.roles.remove("govee-left")
         self.lease.submit(envelope(sequence=4))
         self.output.process_once()
-        self.assertNotIn('left', self.controller.jobs)
-        self.layout.roles.add('left')
+        self.assertNotIn("govee-left", self.controller.jobs)
+        self.layout.roles.add("govee-left")
         black = [[i, 0, 0, 0] for i in range(14)]
         self.lease.submit(envelope(sequence=5, colors=black))
         self.output.process_once()
-        self.assertEqual(self.controller.target('left')['segments'], [(0, 0, 0)] * 7)
+        self.assertEqual(self.controller.target("govee-left")['segments'], [(0, 0, 0)] * 7)
 
     def test_only_native_membership_change_clears_off_session_block(self):
         self.lease.submit(envelope())
@@ -192,7 +195,7 @@ class CompositionOutputTests(unittest.TestCase):
         colors = [[i, 65535 if i == 4 else 0, 0, 65535 if i == 8 else 0] for i in range(14)]
         self.lease.submit(envelope(colors=colors))
         self.assertTrue(self.output.process_once())
-        target = self.controller.target('left')
+        target = self.controller.target("govee-left")
         self.assertNotIn('segments', target)
         self.assertEqual(target['rgb'], (255, 0, 0))
         self.assertEqual(target['brightness'], 65)

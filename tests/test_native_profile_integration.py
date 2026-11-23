@@ -29,7 +29,7 @@ import hue_entertainment_relay as relay_module  # noqa: E402
 import live_adapter as adapter  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
-from registry_files import write_registry  # noqa: E402
+from registry_files import legacy_targets, write_registry  # noqa: E402
 from test_hue_entertainment_relay import FakeConnection  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 from test_native_profile import (  # noqa: E402
@@ -270,7 +270,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         self.config_path = self.root / "service.json"
         self.profile_path = self.root / "native.json"
         self.profile_path.write_text(json.dumps(profile_data()))
-        (self.root / "targets.json").write_text(json.dumps({"targets": targets()}))
+        (self.root / "targets.json").write_text(json.dumps({"targets": legacy_targets(targets())}))
         (self.root / "hue.json").write_text(json.dumps(hue_config()))
         (self.root / "stream.json").write_text(json.dumps(stream_config()))
         for name, token in (("token", "a" * 48), ("power-token", "b" * 64)):

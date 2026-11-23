@@ -35,6 +35,7 @@ RUNTIME_MODULES = (
     "light_geometry",
     "native_location_cache",
     "identify",
+    "legacy_wire",
     "sync_off",
 )
 CORE_MODULES = (
