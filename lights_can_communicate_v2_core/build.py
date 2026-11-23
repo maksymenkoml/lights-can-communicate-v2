@@ -13,6 +13,7 @@ RUNTIME_MODULES = (
     "desk_layout",
     "entertainment_stream",
     "govee_segments",
+    "govee_models",
     "govee_calibration",
     "calibration_session",
     "sync_box",

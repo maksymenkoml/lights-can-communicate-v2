@@ -6,15 +6,10 @@ a vertical span per zone, because its visibility is averaged over the segment.
 """
 
 from desk_layout import screen_size
+from govee_models import MODELS
 
-# Tested values per Govee model. H6076 is the seven-segment floor lamp: its anchor is
-# 60 cm above the base, and the segments span 128 cm starting 6 cm above the base.
-GEOMETRIES = {
-    "H6076": {
-        "kind": "segmented-floor", "zones": 7, "anchor_offset_cm": 60,
-        "first_cm": 6, "span_cm": 128,
-    },
-}
+# Tested values per Govee model come from the capability table (govee_models).
+GEOMETRIES = {model: entry["geometry"] for model, entry in MODELS.items()}
 SCREEN = {"kind": "screen"}
 POINT = {"kind": "point"}
 _ROLE_GEOMETRY = {

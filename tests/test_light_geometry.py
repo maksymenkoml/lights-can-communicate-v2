@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import ROLES  # noqa: E402
+from govee_models import MODELS  # noqa: E402
 from light_geometry import GEOMETRIES, geometry_for, segment_spans, zone_points  # noqa: E402
 
 SCREEN = {"positionCm": {"x": 100, "height": 110}, "inches": math.hypot(80, 45) / 2.54}
@@ -22,6 +23,9 @@ class LightGeometryTests(unittest.TestCase):
             "kind": "segmented-floor", "zones": 7, "anchor_offset_cm": 60,
             "first_cm": 6, "span_cm": 128,
         })
+
+    def test_geometries_come_from_the_capability_table(self):
+        self.assertEqual(GEOMETRIES, {model: entry["geometry"] for model, entry in MODELS.items()})
 
     def test_every_role_row_has_a_geometry(self):
         for identifier in ROLES:

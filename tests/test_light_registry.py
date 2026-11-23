@@ -29,17 +29,25 @@ RIGHT_SERVICE = "b8888888-8888-4888-8888-888888888888"
 STRIP_SERVICE = "c9999999-9999-4999-8999-999999999999"
 
 GOVEE_TARGETS = [
-    {"side": "left", "device": "AA:BB:CC:DD:EE:01", "ip": "192.168.10.50",
+    {"light": "govee-left", "device": "AA:BB:CC:DD:EE:01", "ip": "192.168.10.50",
      "brightness_scale": 0.65, "sku": "H6076", "max_gradient_packets_per_second": 2},
-    {"side": "right", "device": "AA:BB:CC:DD:EE:02", "ip": "192.168.10.51",
+    {"light": "govee-right", "device": "AA:BB:CC:DD:EE:02", "ip": "192.168.10.51",
      "brightness_scale": 0.65, "model": "H6076", "segment_count": 7},
+]
+
+
+# The legacy live targets file keys each lamp by side; only the migration reads it.
+LEGACY_TARGETS = [
+    {**{key: value for key, value in target.items() if key != "light"},
+     "side": LEGACY_SIDES[target["light"]]}
+    for target in GOVEE_TARGETS
 ]
 
 
 def govee_light(light_id, target, id_v1, seed):
     return {"id": light_id, "provider": "govee",
             "virtual": {"id_v1": id_v1, "seed": seed},
-            "govee": {key: value for key, value in target.items() if key != "side"}}
+            "govee": {key: value for key, value in target.items() if key not in ("side", "light")}}
 
 
 def hue_light(light_id, light, channels, id_v1, seed):
@@ -91,7 +99,7 @@ class RegistryModelTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             registry._json = "{}"
 
-    def test_govee_targets_add_side(self):
+    def test_govee_targets_carry_the_light_id(self):
         registry = LightRegistry.from_dict(sample())
         targets = registry.govee_targets()
         self.assertEqual(targets, GOVEE_TARGETS)
@@ -111,7 +119,9 @@ class RegistryModelTests(unittest.TestCase):
         self.assertEqual(updated.native_profile().to_dict(), registry.native_profile().to_dict())
         self.assertEqual(registry.govee_targets(), GOVEE_TARGETS)
         for bad in (None, [], targets[:1], [targets[0], targets[0]],
-                    [targets[0], {**targets[1], "side": "middle"}],
+                    [targets[0], {**targets[1], "light": "govee-middle"}],
+                    [targets[0], {**targets[1], "light": "govee-left"}],
+                    [targets[0], {**targets[1], "light": 7}],
                     [targets[0], {**targets[1], "ip": ""}]):
             with self.subTest(bad=repr(bad)[:20]), self.assertRaises(RegistryError):
                 registry.with_govee_targets(bad)
@@ -142,6 +152,54 @@ class RegistryModelTests(unittest.TestCase):
         self.assertIsNone(registry.native_profile())
         self.assertEqual(registry.ids, ("govee-left", "govee-right"))
 
+    def test_any_number_of_govee_lights(self):
+        first, second = "device-" + "a" * 32, "device-" + "0123456789abcdef" * 2
+        for count in (1, 3):
+            data = sample(hue=False)
+            data["lights"] = data["lights"][:count]
+            if count == 3:
+                data["lights"].append({
+                    "id": first, "provider": "govee",
+                    "virtual": {"id_v1": "7", "seed": "Device1"},
+                    "govee": {"device": "AA:BB:CC:DD:EE:03", "ip": "192.168.10.52",
+                              "model": "H6008"}})
+            with self.subTest(count=count):
+                registry = LightRegistry.from_dict(data)
+                self.assertEqual([item["light"] for item in registry.govee_targets()],
+                                 [item["id"] for item in data["lights"]])
+        data = sample(hue=False)
+        data["lights"] = [{
+            "id": light_id, "provider": "govee",
+            "virtual": {"id_v1": str(index + 1), "seed": "Device" + str(index)},
+            "govee": {"device": "AA:BB:CC:DD:EE:0" + str(index), "ip": "192.168.10.5" + str(index)}}
+            for index, light_id in enumerate((first, second))]
+        self.assertEqual(LightRegistry.from_dict(data).ids, (first, second))
+
+    def test_hue_only_registry_is_valid(self):
+        data = sample()
+        data["lights"] = data["lights"][2:]
+        self.assertEqual(LightRegistry.from_dict(data).govee_targets(), [])
+
+    def test_basic_tier_override_round_trips(self):
+        data = sample(hue=False)
+        data["lights"][0]["govee"]["tier"] = "basic"
+        registry = LightRegistry.from_dict(data)
+        self.assertEqual(registry.govee_targets()[0]["tier"], "basic")
+        self.assertEqual(registry.to_dict(), data)
+
+    def test_with_govee_targets_keeps_a_new_device_light(self):
+        data = sample(hue=False)
+        data["lights"].append({
+            "id": "device-" + "a" * 32, "provider": "govee",
+            "virtual": {"id_v1": "7", "seed": "Device1"},
+            "govee": {"device": "AA:BB:CC:DD:EE:03", "ip": "192.168.10.52"}})
+        registry = LightRegistry.from_dict(data)
+        targets = registry.govee_targets()
+        targets[2]["ip"] = "192.168.10.60"
+        self.assertEqual(registry.with_govee_targets(targets).govee_targets(), targets)
+        with self.assertRaises(RegistryError):
+            registry.with_govee_targets(targets[:2])
+
     def test_rejects(self):
         def mutate(change):
             data = sample()
@@ -167,7 +225,13 @@ class RegistryModelTests(unittest.TestCase):
             "unknown govee id": lambda d: d["lights"][0].__setitem__("id", "govee-middle"),
             "govee side key": lambda d: d["lights"][0]["govee"].__setitem__("side", "left"),
             "govee without ip": lambda d: d["lights"][0]["govee"].pop("ip"),
-            "single govee light": lambda d: d["lights"].pop(1),
+            "empty registry": lambda d: d.clear() or d.update(version=1, lights=[]),
+            "device id with 31 hex digits": lambda d: d["lights"][0].__setitem__(
+                "id", "device-" + "a" * 31),
+            "device id with upper-case hex": lambda d: d["lights"][0].__setitem__(
+                "id", "device-" + "A" * 32),
+            "unknown tier": lambda d: d["lights"][0]["govee"].__setitem__("tier", "segmented"),
+            "non-text tier": lambda d: d["lights"][0]["govee"].__setitem__("tier", 1),
             "channel clash": lambda d: d["lights"][3]["hue"]["channels"][0].__setitem__(
                 "channel_id", 0),
             "non-object": lambda d: d.clear() or d.update(lights="SECRET"),
@@ -248,7 +312,7 @@ class MigrationTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.targets = self.root / "targets.json"
         self.profile = self.root / "native.json"
-        self.targets.write_text(json.dumps({"targets": GOVEE_TARGETS}))
+        self.targets.write_text(json.dumps({"targets": LEGACY_TARGETS}))
         self.profile.write_text(json.dumps(example_profile()))
 
     def test_migrate_example_round_trips_behavior(self):
@@ -266,7 +330,7 @@ class MigrationTests(unittest.TestCase):
             "play-center": ("5", "HuePlayCenter"), "play-right": ("6", "HuePlayRight")})
 
     def test_migrate_keeps_source_order(self):
-        self.targets.write_text(json.dumps({"targets": GOVEE_TARGETS[::-1]}))
+        self.targets.write_text(json.dumps({"targets": LEGACY_TARGETS[::-1]}))
         self.assertEqual(migrate(self.targets, None).govee_targets(), GOVEE_TARGETS[::-1])
 
     def test_migrate_does_not_change_old_files(self):
@@ -289,10 +353,10 @@ class MigrationTests(unittest.TestCase):
 
     def test_migrate_rejects_unknown_side(self):
         for targets in (
-            [{**GOVEE_TARGETS[0], "side": "middle"}, GOVEE_TARGETS[1]],
-            [GOVEE_TARGETS[0], GOVEE_TARGETS[0]],
-            [GOVEE_TARGETS[0]],
-            [GOVEE_TARGETS[0], "SECRET"],
+            [{**LEGACY_TARGETS[0], "side": "middle"}, LEGACY_TARGETS[1]],
+            [LEGACY_TARGETS[0], LEGACY_TARGETS[0]],
+            [LEGACY_TARGETS[0]],
+            [LEGACY_TARGETS[0], "SECRET"],
         ):
             with self.subTest(targets=len(targets)):
                 self.targets.write_text(json.dumps({"targets": targets}))
