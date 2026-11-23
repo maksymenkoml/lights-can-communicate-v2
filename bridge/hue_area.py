@@ -7,14 +7,17 @@ there, and adds a light to the area or takes it out. The area is changed only
 while nothing streams to it.
 """
 
+import hashlib
 import http.client
 import json
 import math
+import os
+import secrets
 import ssl
+import tempfile
 import time
-import urllib.error
-import urllib.request
 import uuid
+from pathlib import Path
 
 import lights_can_communicate_v2 as lan
 
@@ -41,9 +44,33 @@ def _free_position(area):
         sum((point[axis] - other[axis]) ** 2 for axis in "xyz") for other in taken)))
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+class CertificateChanged(OSError):
+    """The bridge presented another certificate than the pinned one."""
+
+
+def _check_pin(path, fingerprint):
+    """Trust the bridge certificate seen first and refuse any other one later.
+
+    The bridge certificate is not checked against a public CA, so this client pins
+    it, like the Sync Box client: the first area request records its SHA-256 and
+    every later request compares before it sends the application key. After a
+    genuine bridge replacement, delete the pin file to trust the new certificate.
+    """
+    path = Path(path)
+    try:
+        pinned = path.read_text().strip()
+    except FileNotFoundError:
+        pinned = None
+    if pinned is not None:
+        if not secrets.compare_digest(pinned, fingerprint):
+            raise CertificateChanged("Unexpected Hue bridge certificate")
+        return
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, prefix=".hue-pin-", suffix=".tmp",
+                                     delete=False) as stream:
+        stream.write(fingerprint + "\n")
+    os.chmod(stream.name, 0o600)
+    os.replace(stream.name, path)
 
 
 def _uuid(value):
@@ -68,7 +95,7 @@ class AreaShared(Exception):
 class HueArea:
     """No constructor IO; errors never include credentials or addresses."""
 
-    def __init__(self, config, area_id, requester=None, timeout=1.5):
+    def __init__(self, config, area_id, requester=None, timeout=1.5, pin_file=None):
         key = config.get("hue_key") if isinstance(config, dict) else None
         if not isinstance(key, str) or not 1 <= len(key) <= 256:
             raise ValueError("Invalid paired Hue configuration")
@@ -77,45 +104,49 @@ class HueArea:
         self.area_id = _uuid(area_id)
         if self.area_id is None:
             raise ValueError("Invalid paired Entertainment area")
+        if requester is None and pin_file is None:
+            raise ValueError("A pinned Hue bridge certificate file is required")
+        self._pin_file = pin_file
         self._requester = requester or self._request
 
     def _request(self, path, method="GET", body=None):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context),
-            _NoRedirect(),
-        )
-        headers = {"hue-application-key": self._key, "Accept": "application/json"}
-        data = None
-        if body is not None:
-            data = json.dumps(body, separators=(",", ":")).encode()
-            headers["Content-Type"] = "application/json"
-        request = urllib.request.Request(
-            "https://" + self._bridge + path, data=data, method=method, headers=headers,
-        )
+        context.verify_mode = ssl.CERT_NONE  # Trust comes from the pin (see _check_pin).
+        connection = http.client.HTTPSConnection(self._bridge, 443, timeout=self._timeout,
+                                                 context=context)
         deadline = time.monotonic() + self._timeout
         try:
-            response = opener.open(request, timeout=self._timeout)
-        except urllib.error.HTTPError as error:
-            error.close()
-            raise OSError("Hue area request failed") from None
-        try:
-            with response:
-                raw = bytearray()
-                while len(raw) <= _MAX_BYTES:
-                    if time.monotonic() >= deadline:
-                        raise OSError("Hue area response timed out")
-                    chunk = response.read1(min(65536, _MAX_BYTES + 1 - len(raw)))
-                    if not chunk:
-                        break
-                    raw.extend(chunk)
-                if len(raw) > _MAX_BYTES:
-                    raise ValueError("Hue area response too large")
+            connection.connect()
+            certificate = connection.sock.getpeercert(binary_form=True)
+            if not certificate:
+                raise OSError("No Hue bridge certificate")
+            # The application key is sent only after the certificate matched.
+            _check_pin(self._pin_file, hashlib.sha256(certificate).hexdigest())
+            headers = {"hue-application-key": self._key, "Accept": "application/json"}
+            data = None
+            if body is not None:
+                data = json.dumps(body, separators=(",", ":")).encode()
+                headers["Content-Type"] = "application/json"
+            connection.request(method, path, body=data, headers=headers)
+            response = connection.getresponse()
+            if response.status != 200:
+                raise OSError("Hue area request failed")
+            raw = bytearray()
+            while len(raw) <= _MAX_BYTES:
+                if time.monotonic() >= deadline:
+                    raise OSError("Hue area response timed out")
+                chunk = response.read1(min(65536, _MAX_BYTES + 1 - len(raw)))
+                if not chunk:
+                    break
+                raw.extend(chunk)
+            if len(raw) > _MAX_BYTES:
+                raise ValueError("Hue area response too large")
             return json.loads(raw)
         except (http.client.HTTPException, RecursionError, UnicodeDecodeError):
             raise ValueError("Invalid Hue area response") from None
+        finally:
+            connection.close()
 
     def _data(self, path, method="GET", body=None):
         response = self._requester(path, method, body)

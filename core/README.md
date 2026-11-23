@@ -255,7 +255,14 @@ Hue light moves the channels of the later ones down. A removal takes the light
 out of the area before the registry changes and puts it back when the registry
 cannot be saved; an enrollment that is refused after the area changed takes the
 light out again, and a failed or uncertain area write restores the earlier
-locations. Enrollments and removals run one at a time. The relay refuses an area with
+locations. Enrollments and removals run one at a time.
+
+The area client authenticates the bridge before it sends the application key.
+The bridge certificate is not checked against a public CA, so the first area
+request pins its SHA-256 in `state/hue-bridge-certificate.sha256`, and every
+later request refuses another certificate (`unavailable`). After a genuine
+bridge replacement, delete that file to trust the new certificate. The native
+relay and light proxies do not use this pin yet. The relay refuses an area with
 a member that is not enrolled, so do not add lights to this area in the Hue app.
 
 A change is refused with 409 and a reason while Sync output is active

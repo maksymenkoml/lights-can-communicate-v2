@@ -1087,7 +1087,8 @@ def main(argv=None, service_info=None):
     # A new Hue light is enrolled into the paired Entertainment area (#60 chooses it later).
     # Without usable paired credentials a Hue enrollment is refused as unavailable.
     try:
-        area = (HueArea(hue_config, native_profile.area_id)
+        area = (HueArea(hue_config, native_profile.area_id,
+                        pin_file=state_dir / "hue-bridge-certificate.sha256")
                 if hue_config is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None

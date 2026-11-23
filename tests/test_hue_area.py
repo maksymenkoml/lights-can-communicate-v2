@@ -1,12 +1,19 @@
 """A light's membership in the paired native Entertainment area (#7 stage 5b)."""
 
 import copy
+import hashlib
+import io
+import json
+import stat
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from hue_area import AreaBusy, AreaShared, HueArea  # noqa: E402
+import hue_area  # noqa: E402
+from hue_area import AreaBusy, AreaShared, CertificateChanged, HueArea  # noqa: E402
 
 AREA = "e5555555-5555-4555-8555-555555555555"
 LIGHT = "a0000000-0000-4000-8000-00000000000a"
@@ -221,6 +228,67 @@ class HueAreaChangeTests(unittest.TestCase):
             HueArea(CONFIG, AREA, requester=Rejecting()).join(LIGHT)
         with self.assertRaises(ValueError):
             HueArea(CONFIG, AREA, requester=Bridge()).join("not-a-uuid")
+
+
+class FakeConnection:
+    """An HTTPS connection to a bridge that presents ``certificate``."""
+
+    certificate = b"bridge certificate"
+    instances = []
+
+    def __init__(self, host, port, timeout, context):
+        self.host, self.requests, self.closed = host, [], False
+        FakeConnection.instances.append(self)
+
+    def connect(self):
+        self.sock = mock.Mock(getpeercert=lambda binary_form: self.certificate)
+
+    def request(self, method, path, body=None, headers=None):
+        self.requests.append((method, path, headers))
+
+    def getresponse(self):
+        answer = io.BytesIO(json.dumps({"errors": [], "data": []}).encode())
+        return mock.Mock(status=200, read1=answer.read1)
+
+    def close(self):
+        self.closed = True
+
+
+class PinnedTransportTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="tmp_hue_pin_")
+        self.addCleanup(temp.cleanup)
+        self.pin = Path(temp.name) / "state" / "hue-bridge-certificate.sha256"
+        FakeConnection.instances = []
+        FakeConnection.certificate = b"bridge certificate"
+        patcher = mock.patch.object(hue_area.http.client, "HTTPSConnection", FakeConnection)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.hue = HueArea(CONFIG, AREA, pin_file=self.pin)
+
+    def test_the_first_certificate_is_pinned_and_later_ones_must_match(self):
+        self.hue._request("/clip/v2/resource/entertainment")
+        self.assertEqual(self.pin.read_text().strip(),
+                         hashlib.sha256(b"bridge certificate").hexdigest())
+        self.assertEqual(stat.S_IMODE(self.pin.stat().st_mode), 0o600)
+        self.hue._request("/clip/v2/resource/entertainment")
+        sent = FakeConnection.instances[-1].requests
+        self.assertEqual(sent[0][2]["hue-application-key"], CONFIG["hue_key"])
+        self.assertTrue(all(connection.closed for connection in FakeConnection.instances))
+
+    def test_another_certificate_never_receives_the_application_key(self):
+        self.hue._request("/clip/v2/resource/entertainment")
+        FakeConnection.certificate = b"impostor certificate"
+        with self.assertRaises(CertificateChanged):
+            self.hue._request("/clip/v2/resource/entertainment")
+        self.assertEqual(FakeConnection.instances[-1].requests, [])
+        self.assertTrue(FakeConnection.instances[-1].closed)
+        # A refused certificate is an unavailable bridge for enrollment.
+        self.assertIsInstance(CertificateChanged(), OSError)
+
+    def test_the_transport_requires_a_pin_file(self):
+        with self.assertRaises(ValueError):
+            HueArea(CONFIG, AREA)
 
 
 if __name__ == "__main__":
