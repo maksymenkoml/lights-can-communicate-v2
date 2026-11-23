@@ -3,9 +3,11 @@
 Status: design approved for planning. Stage 1, stage 2 (screen object and
 generic projection), stage 3a (Govee lights by registry id, model tiers) and
 stage 3b (`/homekit` API 2 and plugin 0.2.0 by Govee device ID; only the
-obsolete `/power-owner` keeps side names) and stage 3c (enrollment and removal
-of discovered Govee lights through Light Studio and the adapter) implemented. Implementation follows
-in stages; each stage is a separate PR with live NAS verification.
+obsolete `/power-owner` keeps side names), stage 3c (enrollment and removal
+of discovered Govee lights through Light Studio and the adapter) and stage 4
+(virtual lights per registry entry; the sampler rule for new installations
+moved to #59) implemented. Implementation follows in stages; each stage is a
+separate PR with live NAS verification.
 
 ## Intent
 
@@ -151,7 +153,9 @@ A new installation still needs a sampler area. The sampler's lights must be
 virtual lights that exist in the Hue app. Proposed rule: when the area is first
 created, it uses the enrolled lights (at most ten) as members and distributes
 the perimeter capture positions over their channels. This rule needs a live
-check with the Sync Box before it is final (stage 4). Removing a light that is a
+check with the Sync Box before it is final. Only a new installation creates the
+area, so the rule and its check belong to the first-run setup (#59); stage 4
+creates the virtual lights and keeps an existing area unchanged. Removing a light that is a
 sampler member removes its physical output but keeps its virtual light in the
 area until the owner rebuilds the area (a later setup-flow action, #59).
 

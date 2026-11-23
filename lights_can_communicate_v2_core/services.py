@@ -35,6 +35,7 @@ GATEWAY_MODULES = (
     "sync_zone",
     "light_geometry",
     "govee_models",
+    "virtual_lights",
 )
 _HEALTH = ("import urllib.request;"
            "urllib.request.urlopen('http://127.0.0.1/api/config', timeout=3)")
@@ -73,6 +74,8 @@ def _gateway_service(config, release):
     volumes = [f"{config.state_dir}:/opt/hue-emulator/config"]
     volumes += [f"{release / 'gateway' / (name + '.py')}:/probe/{name}.py:ro"
                 for name in GATEWAY_MODULES]
+    # The gateway reads the light registry with the core's own validation.
+    volumes.append(f"{release / ARCHIVE}:/probe/{ARCHIVE}:ro")
     return {
         "image": gateway.image,
         "container_name": gateway.container_name,

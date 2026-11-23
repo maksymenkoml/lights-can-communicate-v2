@@ -239,11 +239,29 @@ A change is refused with 409 and a reason while Sync output is active
 (`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled
 (`not_enrolled`), when discovery does not offer it now (`unavailable`), and after a
 change until the restart (`restarting`). A changed registry is saved atomically,
-then the adapter stops and Docker restarts it with the new light set; until stage
-4 of the light-set design an enrolled light works in Sync, power and HomeKit but
-not in Hue app scenes. Place the light in the Light Studio layout to give it a
+then the adapter stops and Docker restarts it with the new light set. The
+gateway also restarts when the set of virtual lights changes (see "Virtual
+lights"). Place the light in the Light Studio layout to give it a
 Sync zone, and add `{"deviceId": ..., "name": ...}` to the Homebridge plugin's
 `lamps` for a HomeKit accessory.
+
+### Virtual lights
+
+The gateway reads the registry at start (the release mounts the core archive
+read-only next to its modules; without a registry it keeps the two migrated
+lamps) and creates one virtual Hue light for each enrolled Govee light. The
+migrated lamps keep slots 1 and 2 and their UUIDs. A light enrolled later gets
+the virtual slot from its registry entry and a UUID seeded from its registry ID
+(`uuid5(URL, "smart-lighting-probe/<seed>")`). A segmented light is a gradient
+light in the gradient mode; any other light is a color bulb (`LCT015`). New
+lights join the room, so Hue app scenes, group power and the Hue app reach
+them, but not the Entertainment area: the Sync Box pairing and the sampler stay
+as they are, and Sync drives the new light by projection. Scene output, power
+requests and feedback, scene Play replay and owner names use the registry slot
+map instead of fixed slots. A removed light keeps its virtual light, unreachable
+and not driven, so a rejoin gets the same light and its scenes. The gateway
+checks the registry every two seconds and restarts (Docker starts it again)
+when the virtual lights change; an address update does not restart it.
 
 ### Govee lights and model tiers
 

@@ -12,6 +12,7 @@ class HuePowerUnavailable(RuntimeError):
 
 
 class HuePowerRequests:
+    # The Govee light behind each virtual slot; the bridge passes the registry map.
     SLOTS = {"1": "govee-left", "2": "govee-right"}
     # Pinned native Hue lights; their power belongs to the genuine Hue bridge.
     # The bridge passes the same slot map it uses for color, so every native
@@ -19,9 +20,11 @@ class HuePowerRequests:
     NATIVE_SLOTS = {"3": "strip", "4": "hue_left", "5": "hue_center", "6": "hue_right"}
 
     def __init__(self, url, token, lights, groups, feedback, sender=None, enabled=lambda: True,
-                 native_sender=None, native_slots=None):
+                 native_sender=None, native_slots=None, slots=None):
         if native_slots is not None:
             self.NATIVE_SLOTS = dict(native_slots)
+        if slots is not None:
+            self.SLOTS = dict(slots)
         self.url, self.token = url.rstrip("/"), token
         self.lights, self.groups, self.feedback = lights, groups, feedback
         self.sender, self.enabled = sender or self.send, enabled

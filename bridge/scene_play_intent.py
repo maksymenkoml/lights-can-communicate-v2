@@ -8,8 +8,9 @@ import threading
 import uuid
 from pathlib import Path
 
-MAX_STATE_BYTES = 4096
-VIRTUAL_SLOTS = frozenset(str(slot) for slot in range(1, 7))
+# One entry per virtual light: the six migrated ones and the enrolled lights.
+MAX_LIGHTS = 128
+MAX_STATE_BYTES = 16384
 MANUAL_FIELDS = frozenset({"on", "bri", "xy", "ct", "hue", "sat", "gradient",
                            "bri_inc", "ct_inc", "hue_inc", "sat_inc", "effect"})
 COLOR_MODELS = frozenset({"LCT001", "LCT015", "LST002", "LCX002", "915005987201",
@@ -77,7 +78,8 @@ def _number(value, lower, upper):
 class ScenePlayIntent:
     def __init__(self, path, selected_slots, guard, lights, scenes):
         self.path = Path(path)
-        self.slots = frozenset(selected_slots) & VIRTUAL_SLOTS
+        self.slots = frozenset(slot for slot in selected_slots
+                               if isinstance(slot, str) and slot.isdigit())
         self.guard, self.lights, self.scenes = guard, lights, scenes
         self.intents, self.last_error = {}, None
         self.persisted_count, self.replayed_count, self.skipped_count = 0, 0, 0
@@ -93,7 +95,8 @@ class ScenePlayIntent:
             data = json.loads(raw)
             if (not isinstance(data, dict) or set(data) != {"version", "lights"}
                     or type(data["version"]) is not int or data["version"] != 1
-                    or not isinstance(data["lights"], dict) or len(data["lights"]) > 6):
+                    or not isinstance(data["lights"], dict)
+                    or len(data["lights"]) > MAX_LIGHTS):
                 raise ValueError("Invalid Play intent")
             self.intents = {slot: scene for slot, scene in data["lights"].items()
                             if slot in self.slots and _scene_id(scene)}

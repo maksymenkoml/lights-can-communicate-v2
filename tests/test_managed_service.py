@@ -186,6 +186,9 @@ class ManagedServiceTests(unittest.TestCase):
         text = (ROOT / "bridge/compose.yaml").read_text()
         mounted = re.findall(r"\./(\w+)\.py:/probe/\1\.py:ro", text)
         self.assertEqual(sorted(mounted), sorted(services.GATEWAY_MODULES))
+        # The gateway reads the light registry with the core package.
+        self.assertIn("../lights_can_communicate_v2_core:/probe/lights_can_communicate_v2_core:ro",
+                      text)
 
     # Supervisors ----------------------------------------------------------
 
@@ -204,8 +207,10 @@ class ManagedServiceTests(unittest.TestCase):
         self.assertEqual(gateway["image"], GATEWAY_IMAGE)
         self.assertEqual(gateway["container_name"], "lights-can-communicate-v2-gateway")
         self.assertEqual(gateway["volumes"][0], f"{self.state.resolve()}:/opt/hue-emulator/config")
-        self.assertEqual(len(gateway["volumes"]), 1 + len(services.GATEWAY_MODULES))
-        for volume in gateway["volumes"][1:]:
+        self.assertEqual(len(gateway["volumes"]), 2 + len(services.GATEWAY_MODULES))
+        self.assertEqual(gateway["volumes"][-1],
+                         f"{release / services.ARCHIVE}:/probe/{services.ARCHIVE}:ro")
+        for volume in gateway["volumes"][1:-1]:
             self.assertTrue(volume.startswith(str(release / "gateway") + "/"))
             self.assertTrue(volume.endswith(":ro"))
         self.assertEqual(gateway["environment"]["IP"], "192.168.99.10")
