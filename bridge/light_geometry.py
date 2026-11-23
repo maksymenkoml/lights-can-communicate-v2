@@ -1,0 +1,66 @@
+"""Zone geometry of one layout row on the front wall.
+
+A light's zones are the places where Sync samples the screen perimeter for it. Each
+zone is a point (x, height) in layout centimeters; a segmented floor lamp also has
+a vertical span per zone, because its visibility is averaged over the segment.
+"""
+
+from desk_layout import screen_size
+
+# Tested values per Govee model. H6076 is the seven-segment floor lamp: its anchor is
+# 60 cm above the base, and the segments span 128 cm starting 6 cm above the base.
+GEOMETRIES = {
+    "H6076": {
+        "kind": "segmented-floor", "zones": 7, "anchor_offset_cm": 60,
+        "first_cm": 6, "span_cm": 128,
+    },
+}
+SCREEN = {"kind": "screen"}
+POINT = {"kind": "point"}
+_ROLE_GEOMETRY = {
+    "govee-left": GEOMETRIES["H6076"],
+    "govee-right": GEOMETRIES["H6076"],
+    "hue-monitor": SCREEN,
+    "play-left": POINT,
+    "play-center": POINT,
+    "play-right": POINT,
+}
+# The nine anchors of the monitor strip along the screen edge, as fractions of the
+# screen from its center: up the left side, across the top, down the right side.
+SCREEN_ANCHORS = (
+    (-.5, -.5), (-.5, 0), (-.5, .5), (-.25, .5), (0, .5), (.25, .5), (.5, .5), (.5, 0), (.5, -.5),
+)
+
+
+def geometry_for(row):
+    """Return the geometry entry of a layout row: its role, else its model, else a point."""
+    identifier = row["id"]
+    if identifier in _ROLE_GEOMETRY:
+        return _ROLE_GEOMETRY[identifier]
+    return GEOMETRIES.get(row.get("model"), POINT)
+
+
+def segment_spans(row):
+    """Return the (low, high) height of each segment, bottom to top; empty if unsegmented."""
+    geometry = geometry_for(row)
+    if geometry["kind"] != "segmented-floor":
+        return []
+    base = row["positionCm"]["height"] - geometry["anchor_offset_cm"]
+    zones, first, span = geometry["zones"], geometry["first_cm"], geometry["span_cm"]
+    return [(base + first + index * span / zones, base + first + (index + 1) * span / zones)
+            for index in range(zones)]
+
+
+def zone_points(row, screen):
+    """Return one (x, height) point per zone, bottom to top or along the screen edge."""
+    kind = geometry_for(row)["kind"]
+    if kind == "segmented-floor":
+        x = row["positionCm"]["x"]
+        return [(x, (low + high) / 2) for low, high in segment_spans(row)]
+    if kind == "screen":
+        # The screen object is authoritative for the screen's position and size.
+        center = screen["positionCm"]
+        width, height = screen_size({"screen": screen})
+        return [(center["x"] + u * width, center["height"] + v * height)
+                for u, v in SCREEN_ANCHORS]
+    return [(row["positionCm"]["x"], row["positionCm"]["height"])]

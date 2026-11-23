@@ -138,7 +138,7 @@ class GoveeCalibrationTests(unittest.TestCase):
 class LayoutCalibrationTests(unittest.TestCase):
     def test_version_five_loads_as_six_without_calibration(self):
         result = validate_layout(v5())
-        self.assertEqual(result["version"], 6)
+        self.assertEqual(result["version"], 7)
         self.assertTrue(all("calibration" not in item for item in result["devices"]))
 
     def test_govee_rows_store_their_calibration_and_zero_is_not_stored(self):

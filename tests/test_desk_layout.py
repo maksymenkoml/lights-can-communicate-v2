@@ -6,7 +6,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from desk_layout import LayoutStore, layout_event, positions, validate_layout  # noqa: E402
+from desk_layout import (  # noqa: E402
+    LayoutStore,
+    layout_event,
+    positions,
+    screen_size,
+    validate_layout,
+)
 
 
 def layout():
@@ -57,7 +63,7 @@ class LayoutTests(unittest.TestCase):
         self.assertNotIn("name", rows["hue-monitor"])
         result = validate_layout(named(**{"hue-monitor": None}))
         self.assertTrue(all("name" not in row for row in result["devices"]))
-        self.assertEqual(result["version"], 6)
+        self.assertEqual(result["version"], 7)
 
     def test_role_names_are_bounded_printable_text(self):
         for role, name in (("govee-left", ""), ("govee-left", "   "), ("govee-left", "x" * 36),
@@ -118,6 +124,96 @@ class LayoutTests(unittest.TestCase):
                 AssertionError("second independent read")
             )
             self.assertEqual(store.response(), expected)
+
+    def test_v6_migrates_screen_from_monitor_row(self):
+        data = layout()
+        data["version"] = 6
+        data["monitorInches"] = 43
+        data["devices"][2]["positionCm"] = {"x": 60, "height": 130}
+        result = validate_layout(data)
+        self.assertEqual(result["screen"], {"positionCm": {"x": 60, "height": 130}, "inches": 43})
+        self.assertNotIn("monitorInches", result)
+        monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+        self.assertEqual(monitor["positionCm"], {"x": 60, "height": 130})
+
+    def test_v6_screen_keeps_the_height_raised_by_the_minimum(self):
+        data = layout()
+        data["version"] = 6
+        data["monitorInches"] = 55
+        data["devices"][2]["positionCm"]["height"] = 20
+        result = validate_layout(data)
+        self.assertEqual(result["screen"]["positionCm"], {"x": 100, "height": 40})
+        monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+        self.assertEqual(monitor["positionCm"]["height"], 40)
+
+    def test_v7_requires_screen_and_rejects_monitor_inches(self):
+        data = validate_layout(layout())
+        broken = copy.deepcopy(data)
+        del broken["screen"]
+        with self.assertRaises(ValueError):
+            validate_layout(broken)
+        broken = copy.deepcopy(data)
+        broken["monitorInches"] = 32
+        with self.assertRaises(ValueError):
+            validate_layout(broken)
+        legacy = layout()
+        legacy["screen"] = copy.deepcopy(data["screen"])
+        with self.assertRaises(ValueError):
+            validate_layout(legacy)
+
+    def test_screen_fields_are_validated(self):
+        for mutate in [
+            lambda s: s.update(extra=1),
+            lambda s: s.pop("inches"),
+            lambda s: s.pop("positionCm"),
+            lambda s: s.update(inches=18),
+            lambda s: s.update(inches=56),
+            lambda s: s.update(inches=True),
+            lambda s: s.update(inches=float("nan")),
+            lambda s: s["positionCm"].update(x=102),
+            lambda s: s["positionCm"].update(height=301),
+            lambda s: s["positionCm"].update(x=-205),
+            lambda s: s["positionCm"].pop("height"),
+            lambda s: s.update(positionCm=[100, 110]),
+        ]:
+            data = validate_layout(layout())
+            mutate(data["screen"])
+            with self.assertRaises(ValueError, msg=repr(data["screen"])):
+                validate_layout(data)
+
+    def test_monitor_row_follows_screen(self):
+        data = validate_layout(layout())
+        data["screen"]["positionCm"] = {"x": 60, "height": 135}
+        result = validate_layout(data)
+        monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+        self.assertEqual(monitor["positionCm"], {"x": 60, "height": 135})
+        self.assertEqual(result["screen"]["positionCm"], {"x": 60, "height": 135})
+        # A low screen is raised, and the row follows the raised height.
+        data["screen"]["inches"] = 55
+        data["screen"]["positionCm"]["height"] = 20
+        result = validate_layout(data)
+        monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+        self.assertEqual(result["screen"]["positionCm"]["height"], 40)
+        self.assertEqual(monitor["positionCm"], result["screen"]["positionCm"])
+        # The screen positions the other lights, not the row.
+        moved = validate_layout(data)
+        moved["devices"][2]["positionCm"] = {"x": 0, "height": 100}
+        self.assertEqual(validate_layout(moved), result)
+
+    def test_v7_round_trip(self):
+        data = validate_layout(layout())
+        self.assertEqual(validate_layout(copy.deepcopy(data)), data)
+        with TemporaryDirectory(prefix="tmp_desk_layout_v7_") as folder:
+            path = Path(folder) / "layout.json"
+            store = LayoutStore(path)
+            store.save(data)
+            self.assertEqual(json.loads(path.read_text()), data)
+            self.assertEqual(store.snapshot(), data)
+
+    def test_screen_size_follows_the_sixteen_by_nine_diagonal(self):
+        width, height = screen_size({"screen": {"inches": 32}})
+        self.assertAlmostEqual(width * width + height * height, (32 * 2.54) ** 2)
+        self.assertEqual(height, width * 9 / 16)
 
     def test_monitor_strip_and_signe_anchors_keep_channel_identity(self):
         points = positions(validate_layout(layout()))
@@ -193,8 +289,8 @@ class LayoutTests(unittest.TestCase):
             data = layout()
             data["version"] = version
             with self.subTest(version=version):
-                self.assertEqual(validate_layout(data)["version"], 6)
-        for version in (2, 7, "4", 4.0, True, None):
+                self.assertEqual(validate_layout(data)["version"], 7)
+        for version in (2, 8, "4", 4.0, True, None):
             data = layout()
             data["version"] = version
             with self.subTest(version=version), self.assertRaises(ValueError):
@@ -205,9 +301,9 @@ class LayoutTests(unittest.TestCase):
             path = Path(folder) / "layout.json"
             path.write_text(json.dumps(layout()))
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 6)
+            self.assertEqual(store.snapshot()["version"], 7)
             store.save(store.snapshot())
-            self.assertEqual(json.loads(path.read_text())["version"], 6)
+            self.assertEqual(json.loads(path.read_text())["version"], 7)
 
     def test_atomic_persistence_and_invalid_file_keep_last_good_configuration(self):
         with TemporaryDirectory(prefix="tmp_desk_layout_") as folder:

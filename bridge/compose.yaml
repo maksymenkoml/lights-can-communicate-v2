@@ -40,6 +40,7 @@ services:
       - ./hue_names.py:/probe/hue_names.py:ro
       - ./sync_projection.py:/probe/sync_projection.py:ro
       - ./sync_zone.py:/probe/sync_zone.py:ro
+      - ./light_geometry.py:/probe/light_geometry.py:ro
     networks:
       - probe
 networks:

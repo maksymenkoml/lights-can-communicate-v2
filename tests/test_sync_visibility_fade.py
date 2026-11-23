@@ -9,9 +9,8 @@ from sync_projection import (  # noqa: E402
     _segment_visibility,
     project_govee_frame,
     project_native_frame,
-    sync_profile,
 )
-from test_sync_projection import frame, layout  # noqa: E402
+from test_sync_projection import frame, layout, sync_profile  # noqa: E402
 
 
 class SyncVisibilityFadeTests(unittest.TestCase):

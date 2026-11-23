@@ -13,7 +13,8 @@ from sync_zone import default_zone, validate_zone, vertical_bounds, zone_points 
 def layout():
     return {
         "desk": {"width": 160, "height": 85},
-        "monitorInches": math.hypot(80, 45) / 2.54,
+        "screen": {"positionCm": {"x": 100, "height": 110},
+                   "inches": math.hypot(80, 45) / 2.54},
         "devices": [
             {"id": key, "positionCm": {"x": x, "height": height}}
             for key, x, height in (
@@ -62,6 +63,7 @@ class SyncZoneTests(unittest.TestCase):
         data = layout()
         data["devices"][2].update(enabled=False)
         data["devices"][2]["positionCm"]["x"] = 251
+        data["screen"]["positionCm"]["x"] = 251
         self.assertEqual(default_zone(data)[1]["x"], 315)
 
     def test_missing_or_null_zone_selects_fresh_automatic_points(self):

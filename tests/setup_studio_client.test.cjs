@@ -154,8 +154,11 @@ function saved(){return {version:3,gridStepCm:5,room:'Office',desk:{width:160,he
  ['play-left',70,40,100],['play-center',100,40,50],['play-right',130,40,100]
 ].map(([id,x,height,scale])=>({id,scale,positionCm:{x,height},orientation:'horizontal'}))};}
 function canonical(layout){
- // What the page sends: version 6 with both configurations' zones and fade switches.
- const result=structuredClone(layout);result.version=6;
+ // What the page sends: version 7 with the screen object and both configurations' zones and fade switches.
+ const result=structuredClone(layout);result.version=7;
+ // Older files carry the screen as monitorInches and the monitor row.
+ result.screen??={positionCm:structuredClone(result.devices.find(row=>row.id==='hue-monitor').positionCm),inches:result.monitorInches};
+ delete result.monitorInches;
  result.syncZone??=null;result.sceneZone??=null;result.syncFalloff??=true;result.sceneFalloff??=false;
  for(const row of result.devices){if(row.enabled!==false)delete row.enabled;if(row.syncRole!=='own')delete row.syncRole;row.orientation??='horizontal';row.sceneScale??=row.scale;}
  return result;
@@ -249,13 +252,15 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
-test('edits autosave once after 300 ms with If-Match and version 6, undo saves too',async()=>{
+test('edits autosave once after 300 ms with If-Match and version 7, undo saves too',async()=>{
  const app=await harness();
  app.lamp('play-left').focus();await app.press(app.lamp('play-left'),'ArrowRight');
  assert.equal(app.$('#draft-status').dataset.state,'pending');
  await app.advance(299);assert.equal(app.posts.length,0);
  await app.advance(1);assert.equal(app.posts.length,1);
- assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,6);
+ assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,7);
+ assert.equal(app.posts[0].body.monitorInches,undefined);
+ assert.deepEqual(app.posts[0].body.screen,{positionCm:{x:100,height:110},inches:32});
  assert.deepEqual(app.posts[0].body.devices[3].positionCm,{x:75,height:40});
  assert.equal(app.$('#draft-status').dataset.state,'saved');
  // Rapid edits coalesce into one request.
@@ -867,6 +872,39 @@ test('a stale save merges the second configuration field by field',async()=>{
  assert.equal(merged.devices[0].sceneScale,30);assert.equal(merged.devices[1].scale,10);
 });
 
+test('fromLayout reads version 6 and version 7 screens and pack writes the screen from the monitor lamp',async()=>{
+ const app=await harness();
+ const old=saved();old.version=6;old.monitorInches=43;
+ const fromOld=json(app,'fromLayout('+JSON.stringify(old)+').environment.inches');
+ assert.equal(fromOld,43);
+ const current=canonical(old);current.screen.inches=40;
+ assert.equal(json(app,'fromLayout('+JSON.stringify(current)+').environment.inches'),40);
+ assert.equal(json(app,'fromLayout('+JSON.stringify(current)+').lamps.find(l=>l.id==="hue-monitor").x'),0);
+ // The monitor lamp's position is the screen position.
+ app.run('lamps.find(l=>l.id==="hue-monitor").x=-20;lamps.find(l=>l.id==="hue-monitor").h=125');
+ const packed=json(app,'pack()');
+ assert.deepEqual(packed.screen.positionCm,{x:80,height:125});
+ assert.deepEqual(packed.devices.find(r=>r.id==='hue-monitor').positionCm,{x:80,height:125});
+ assert.equal('monitorInches' in packed,false);
+});
+
+test('a stale save merges a remote screen change like one field',async()=>{
+ const app=await harness();
+ const merge=(base,local,remote)=>JSON.parse(app.run('JSON.stringify(mergeLayouts('+JSON.stringify(base)+','+JSON.stringify(local)+','+JSON.stringify(remote)+'))'));
+ const base=canonical(saved()),local=json(app,'pack()'),remote=canonical(saved());
+ remote.screen.inches=40;
+ assert.equal(merge(base,local,remote).screen.inches,40,'a remote size change survives an untouched local screen');
+ local.screen.inches=34;
+ assert.equal(merge(base,local,remote).screen.inches,34,'a local size change wins');
+ const untouched=json(app,'pack()'),moved=canonical(saved());
+ moved.screen.positionCm={x:60,height:120};
+ assert.deepEqual(merge(base,untouched,moved).screen.positionCm,{x:60,height:120});
+ // A baseline saved before version 7 carries monitorInches: it does not count as a local change.
+ const old=saved();old.version=6;
+ assert.equal(merge(old,json(app,'pack()'),remote).screen.inches,40);
+ assert.equal('monitorInches' in merge(old,json(app,'pack()'),remote),false);
+});
+
 test('an unlit lens or zone shows black under the light',async()=>{
  const app=await harness({live:liveOk({sync:{state:'off'},lamps:{'play-left':lit([[255,0,0]],{source:'scene-output',on:false})}})});
  const node=app.lamp('play-left'),off=node.querySelector('.lens-off');
@@ -884,7 +922,7 @@ test('the desk, monitor and zone are edited in place and saved in layout units',
  const body=app.posts.at(-1).body;
  assert.deepEqual(body.desk,{width:160,height:90});assert.deepEqual(body.devices[2].positionCm,{x:100,height:115},'the monitor rides on the tabletop');
  app.run('select("monitor")');app.run('changeField("inches",34)');await app.advance(300);
- assert.equal(app.posts.at(-1).body.monitorInches,34);
+ assert.equal(app.posts.at(-1).body.screen.inches,34);assert.equal(app.posts.at(-1).body.monitorInches,undefined);
  await app.click(app.$('#sync-tool'));app.run('select("zone")');
  const before=app.run('JSON.stringify(zonePoints())');
  app.run('drag={handle:"zp-3",before:snapshot(),moved:false};dragHandle("zp-3",{x:500+90*3.3,y:740-70*3.3});');

@@ -31,6 +31,7 @@ RUNTIME_MODULES = (
     "sync_health",
     "sync_projection",
     "sync_zone",
+    "light_geometry",
     "native_location_cache",
     "identify",
     "sync_off",

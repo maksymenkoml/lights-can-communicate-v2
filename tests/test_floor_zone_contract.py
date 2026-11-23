@@ -5,8 +5,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
+import sync_projection  # noqa: E402
 from desk_layout import validate_layout  # noqa: E402
-from sync_projection import project_native_frame, sync_profile  # noqa: E402
+from sync_projection import project_native_frame  # noqa: E402
 from test_desk_layout import layout  # noqa: E402
 from test_sync_projection import frame  # noqa: E402
 
@@ -48,14 +49,14 @@ class FloorZoneContractTests(unittest.TestCase):
     def test_custom_zone_masks_strip_from_raw_palette_and_follows_table_height(self):
         data = layout()
         data['syncZone'] = custom_zone()
-        profile = sync_profile(validate_layout(data))
+        profile = sync_projection.sync_profile(validate_layout(data))
         raw = frame()
         original = copy.deepcopy(raw)
         result = project_native_frame(raw,profile)
         self.assertTrue(any(result[key] != raw[key] for key in range(2,11)))
         self.assertEqual(raw,original)
         data['desk']['height'] += 10
-        shifted = sync_profile(validate_layout(data))
+        shifted = sync_projection.sync_profile(validate_layout(data))
         self.assertNotEqual(shifted['strip_gains'],profile['strip_gains'])
 
 
