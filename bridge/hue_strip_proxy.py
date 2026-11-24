@@ -399,6 +399,13 @@ class HueStripProxy:
                             self.wall_clock(),
                         )
                 if self.desired is None or (self.applied == self.generation and not self.restore):
+                    # Nothing to write: the preview shows what the light has now, even a
+                    # scene that did not come through this proxy.
+                    if self.preview is not None:
+                        try:
+                            self.preview.record_hue_read_back(self.light, native)
+                        except Exception:
+                            pass  # Passive telemetry cannot change the output path.
                     with self.state_lock:
                         self.healthy = True
                     return False
