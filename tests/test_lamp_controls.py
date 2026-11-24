@@ -657,6 +657,18 @@ class IdentifyTests(IdentifyFixture):
         self.assertEqual(refused.exception.reason, "sync active")
         self.assertTrue(self.identify("govee-right"))
 
+    def test_a_hue_light_for_scenes_only_blinks_through_its_bridge_during_sync(self):
+        self.sync_video()
+        # The area holds play-left only; hue-monitor is outside it, for scenes only (#78).
+        self.identify.video.all_native = lambda: frozenset({"play-left"})
+        calls = []
+        self.identify._native = lambda role: calls.append(role) or True
+        self.assertTrue(self.identify("hue-monitor"))
+        self.assertEqual(calls, ["hue-monitor"])
+        with self.assertRaises(IdentifyRefused) as refused:
+            self.identify("play-left")
+        self.assertEqual(refused.exception.reason, "sync active")
+
     def test_a_syncing_govee_blinks_with_dreamview_frames(self):
         sync = self.sync_video()
         sync.last_sent["govee-left"] = {"segments": [[9, 9, 9]] * 7}
