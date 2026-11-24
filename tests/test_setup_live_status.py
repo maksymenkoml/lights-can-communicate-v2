@@ -101,8 +101,8 @@ class SetupLiveStatusTests(unittest.TestCase):
              "migrated": True},
         ]
         result = studio.project_status(data, source_active=False)
-        self.assertEqual(list(result["lamps"])[:6], ["govee-left", "govee-right", "hue-monitor",
-                                                     "play-left", "play-center", "play-right"])
+        # Exactly the listed registry lights are shown, in registry order: no fixed six.
+        self.assertEqual(list(result["lamps"]), [govee, hue, "govee-left"])
         self.assertEqual(result["lamps"][govee]["brightness"], 40)
         self.assertEqual(len(result["lamps"][hue]["colors"]), 7)
         self.assertEqual([row["id"] for row in result["lights"]], [govee, hue, "govee-left"])
@@ -112,6 +112,15 @@ class SetupLiveStatusTests(unittest.TestCase):
         result = studio.project_status(data, source_active=False)
         self.assertEqual((result["lamps"][govee]["included"], result["lamps"][hue]["included"]),
                          (True, False))
+
+    def test_an_empty_registry_shows_no_lamps_and_an_older_adapter_shows_the_six(self):
+        data = status()
+        data["lights"] = []
+        self.assertEqual(studio.project_status(data, source_active=False)["lamps"], {})
+        del data["lights"]
+        self.assertEqual(list(studio.project_status(data, source_active=False)["lamps"]),
+                         ["govee-left", "govee-right", "hue-monitor", "play-left",
+                          "play-center", "play-right"])
 
     def test_monitor_stop_colors_are_resampled_to_all_nine_visual_zones(self):
         data = status()

@@ -153,7 +153,8 @@ def light_entry(row, validated_layout):
 def _light_entries(validated_layout, projector=None, **options):
     devices = _devices(validated_layout)
     projector = projector or _Projector(validated_layout, **options)
-    return {key: projector.light(devices[key]) for key in _ROLES}
+    # A migrated light without a layout row has no entry.
+    return {key: projector.light(devices[key]) for key in _ROLES if key in devices}
 
 
 def sync_profile(validated_layout, native=None):
@@ -168,7 +169,7 @@ def sync_profile(validated_layout, native=None):
     projector = _Projector(validated_layout)
     entries = _light_entries(validated_layout, projector)
     # Removed rows and rows with their own light or off during Sync are outside it.
-    members = [key for key in _ROLES if composed(devices[key])]
+    members = [key for key in _ROLES if key in devices and composed(devices[key])]
     enabled = [_ROLES[key] for key in members]
     # Every composed light gets an entry; layout-only drawings never produce output.
     lights = {row["id"]: entries[row["id"]] if row["id"] in entries
@@ -181,13 +182,16 @@ def sync_profile(validated_layout, native=None):
         "native_roles": [role for role in enabled if role not in ("left", "right")]
         + [light for light in lights if light in native],
         "lights": lights,
-        # The legacy keys below are derived from the per-light entries for every role row.
+        # The legacy keys below are derived from the per-light entries of the role rows
+        # that the layout holds.
         "govee": {},
         "plays": {},
         "play_gains": {},
         "zone": zone_points(validated_layout),
     }
     for key, side in (("govee-left", "left"), ("govee-right", "right")):
+        if key not in entries:
+            continue
         entry = entries[key]
         profile["govee"][side] = {
             "samples": entry["samples"],
@@ -196,10 +200,11 @@ def sync_profile(validated_layout, native=None):
             "fade_cm": entry["fade_cm"],
         }
     for key, role in _ROLES.items():
-        if role in _PLAY_CHANNELS:
+        if role in _PLAY_CHANNELS and key in entries:
             profile["plays"][role] = entries[key]["samples"][0]
             profile["play_gains"][role] = entries[key]["gains"][0]
-    profile["strip_gains"] = entries["hue-monitor"]["gains"]
+    if "hue-monitor" in entries:
+        profile["strip_gains"] = entries["hue-monitor"]["gains"]
     encoded = json.dumps(profile, sort_keys=True, separators=(",", ":"), allow_nan=False)
     profile["signature"] = hashlib.sha256(encoded.encode()).hexdigest()
     return profile
@@ -216,12 +221,13 @@ def scene_fade(validated_layout):
     """
     entries = _light_entries(validated_layout, zone_key="sceneZone", fade_key="sceneFalloff",
                              fade_default=False)
-    result = {"govee-left": entries["govee-left"]["gains"],
-              "govee-right": entries["govee-right"]["gains"]}
-    strip = entries["hue-monitor"]["gains"]
-    result["hue-monitor"] = sum(strip) / len(strip)
+    result = {key: entries[key]["gains"] for key in ("govee-left", "govee-right")
+              if key in entries}
+    if "hue-monitor" in entries:
+        strip = entries["hue-monitor"]["gains"]
+        result["hue-monitor"] = sum(strip) / len(strip)
     for key, role in _ROLES.items():
-        if role in _PLAY_CHANNELS:
+        if role in _PLAY_CHANNELS and key in entries:
             result[role] = entries[key]["gains"][0]
     return result
 

@@ -54,6 +54,12 @@ Layout version 5 stores centimetres. World x has the desk centre at 100 cm. A
 floor lamp's `height` is its bottom + 60 cm; other lamps and the monitor strip
 store their centre. `scale` is the brightness correction (0-100) and
 `syncZone` the optional custom falloff zone (missing or null is Auto).
+Every row is optional: a room holds any set of up to twelve lamps, or none. The
+six migrated lamps are drawn from a fixed table (they store no shape or model),
+and one without a row appears in Found under its registry id, ready to place. The
+screen position is its own object; the monitor strip row follows it, and without
+that row the monitor alone moves the screen. A layout before version 7 needs its
+monitor row, which carried the screen. A new room starts empty.
 `enabled: false` removes one of the six role lamps from the layout and from
 Sync; removing a found or drawn lamp deletes its row. The optional
 `syncRole: "own"` keeps a lamp in the room but outside the Sync composition, so

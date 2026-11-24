@@ -251,7 +251,10 @@ def project_status(data, source_active=None):
         sync_state, mode = "off", "scene"
     else:
         sync_state = mode = "unknown"
-    known = [*ROLES, *sorted((set(lamps) | set(registry)) - set(ROLES))][:MAX_LAMPS]
+    # The adapter lists the registry lights: exactly those are shown, in registry
+    # order. An older adapter without the list shows the six migrated lamps first.
+    known = (list(registry) if isinstance(data.get("lights"), list)
+             else [*ROLES, *sorted(set(lamps) - set(ROLES))])[:MAX_LAMPS]
     for identifier in known:
         lamp = lamps.setdefault(identifier, {"online": False, "on": None, "brightness": None})
         row = preview_lamps.get(identifier)
