@@ -960,7 +960,8 @@ async function changeLink(l,kind){
  linking.set(l.id,{kind,since:performance.now()});paintLink();
  let status=0,body={};
  try{const r=await fetch(kind==='connect'?'/api/lights/enroll':'/api/lights/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:l.id})});status=r.status;body=await r.json().catch(()=>({}))}catch{}
- if(status===200&&body.accepted===true){tell((kind==='connect'?'Connecting ':'Disconnecting ')+l.name);return}
+ // The deadline holds even when /api/live stops answering.
+ if(status===200&&body.accepted===true){tell((kind==='connect'?'Connecting ':'Disconnecting ')+l.name);setTimeout(settleLinks,LINK_TIMEOUT_MS+50);return}
  linking.delete(l.id);paintLink();
  tell(status===409?LIGHT_REFUSED[body.reason]||'The lamp cannot be '+(kind==='connect'?'connected':'disconnected')+' now':verb+' failed: the adapter is not responding');
 }

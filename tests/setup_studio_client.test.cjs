@@ -1303,3 +1303,13 @@ test('a connect the core never confirms gives up and says so',async()=>{
  assert.equal(app.run('linking.size'),0);
  assert.match(app.$('#toast').textContent,/Connecting Third <lamp> did not finish/);
 });
+
+test('the connect deadline holds while live status is unavailable',async()=>{
+ let fail=false;
+ const app=await harness({live:()=>fail?new Error('offline'):liveOk({lights:[]}),lights:()=>({status:200,body:{accepted:true,restarting:true}})});
+ await placeFound(app);
+ await app.click(app.$('#object-menu [data-menu="connect-now"]'));
+ fail=true;await app.advance(95000);
+ assert.equal(app.run('linking.size'),0);
+ assert.match(app.$('#toast').textContent,/Connecting Third <lamp> did not finish/);
+});
