@@ -123,12 +123,18 @@ class RoomsTests(unittest.TestCase):
         self.assertEqual(rooms.scene_scale("play-right", 1), 0.3)
         self.assertEqual(rooms.names()["play-right"], "Bed")
         self.assertFalse(rooms.enabled("play-right"))
+        self.assertNotIn("play-right", rooms.sync_profile()["enabled_roles"])
+        self.assertNotIn("play-right", rooms.sync_profile()["lights"])
 
     def test_a_room_cannot_save_a_row_of_a_light_of_another_room(self):
         rooms = self.two_rooms()
         with self.assertRaises(ValueError):
             rooms.save(FIRST_ROOM, current("Office"))
         rooms.save(FIRST_ROOM, current("Office", rows=["govee-left"]))
+        # A light that the index does not list is in the first room.
+        with self.assertRaises(ValueError):
+            rooms.save(SECOND, current("Bedroom", rows=["play-right", "govee-left"]))
+        rooms.save(SECOND, current("Bedroom", rows=["play-right"]))
 
     def test_a_corrupt_index_keeps_the_last_good_one_and_never_starts_with_sync(self):
         rooms = self.two_rooms()

@@ -17,7 +17,6 @@ import copy
 import json
 import os
 import re
-import secrets
 import tempfile
 import threading
 from pathlib import Path
@@ -37,10 +36,6 @@ SINGLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync":
 UNREADABLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": None}
 ROOM_ID = re.compile(r"room-[0-9a-f]{8}")
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}")
-
-
-def room_id():
-    return "room-" + secrets.token_hex(4)
 
 
 def _light(value):
@@ -94,6 +89,7 @@ class Rooms:
         self.signature = None
         self.data = None
         self.stores = {}
+        self.fade_cache = {}
 
     # -- index ----------------------------------------------------------------
     def index(self):
@@ -164,7 +160,8 @@ class Rooms:
                 raise ValueError("Unknown room")
             # A light's row belongs to the light's room only.
             rows = value.get("devices") if isinstance(value, dict) else None
-            if any(isinstance(row, dict) and index["lights"].get(row.get("id"), room) != room
+            if any(isinstance(row, dict) and _light(row.get("id"))
+                   and self.room_of(row["id"], index) != room
                    for row in (rows if isinstance(rows, list) else ())):
                 raise ValueError("A light's row belongs to its own room")
             if self.materialized():
@@ -183,6 +180,15 @@ class Rooms:
             self._index()
 
     # -- LayoutStore questions across rooms -----------------------------------
+    def _own_layout(self, room, index):
+        """``room``'s layout without the rows of lights that belong to another room."""
+        store = self.store(room)
+        data = store.snapshot() if store is not None else None
+        if data is not None:
+            data["devices"] = [row for row in data["devices"] if not _light(row["id"])
+                               or self.room_of(row["id"], index) == room]
+        return data
+
     def _room_store(self, light):
         return self.store(self.room_of(light))
 
@@ -236,23 +242,32 @@ class Rooms:
 
     def scene_fade(self):
         """Every room's scene fade gains for its own lights, or None without any layout."""
-        result, found = {}, False
-        index = self._index()
-        for room in index["rooms"]:
-            store = self.store(room)
-            fade = store.scene_fade() if store is not None else None
-            if fade is None:
-                continue
-            found = True
-            result.update({light: gains for light, gains in fade.items()
-                           if self.room_of(light, index) == room})
-        return result if found else None
+        from sync_projection import scene_fade
+
+        with self.lock:
+            index = self._index()
+            result, found = {}, False
+            for room in index["rooms"]:
+                data = self._own_layout(room, index)
+                if data is None:
+                    continue
+                found = True
+                key = (self.signature, json.dumps(data, sort_keys=True))
+                cached = self.fade_cache.get(room)
+                if cached is None or cached[0] != key:
+                    cached = self.fade_cache[room] = (key, scene_fade(data))
+                result.update(copy.deepcopy(cached[1]))
+            return result if found else None
 
     def sync_profile(self):
-        """The Sync profile of the Sync room; None without a Sync room or its layout."""
-        sync = self.sync_room()
-        store = self.store(sync) if sync is not None else None
-        return store.sync_profile() if store is not None else None
+        """The Sync profile of the Sync room's own lights; None without a Sync room
+        or its layout."""
+        from sync_projection import sync_profile
+
+        index = self._index()
+        sync = index["sync"]
+        data = self._own_layout(sync, index) if sync is not None else None
+        return sync_profile(data, self.native, self.migrated) if data is not None else None
 
     def layout_for(self, light):
         """The layout of the light's room, or None when it has none."""
