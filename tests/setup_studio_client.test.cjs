@@ -586,8 +586,10 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  const writes=app.stage.writes,node=app.lamp('play-left');
  assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0000');
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'1');
- const floorStops=[...app.lamp('govee-left').querySelectorAll('stop')].map(s=>s.getAttribute('stop-color'));
+ const floorStops=[...app.lamp('govee-left').querySelectorAll('[id="lens-govee-left"] stop')].map(s=>s.getAttribute('stop-color'));
  assert.equal(floorStops[0],'#ffffff');assert.equal(floorStops.at(-1),'#0000ff','zones run bottom to top');
+ const washStops=[...app.lamp('govee-left').querySelectorAll('[id="wash-govee-left"] stop')].map(s=>s.getAttribute('stop-color'));
+ assert.deepEqual(washStops,['#0000ff','#0000ff','#0000ff','#00ff00','#00ff00','#00ff00','#ffffff'],'the wall next to each zone takes its colour, foot first');
  for(const id of ['play-center','play-right','govee-right'])assert.equal(app.lamp(id).querySelector('[data-sync-power]').getAttribute('opacity'),'0',id);
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'0','the live picture carries no demo label');
  answer=liveOk({lamps:{'play-left':lit([[0,128,0]])}});
@@ -1682,4 +1684,14 @@ test('a Play lamp lights the wall around it, below the desktop as well as above'
   assert.equal(+w.getAttribute('cy'),0,'centred on the lamp');
   assert.ok(+w.getAttribute('ry')>0,'reaching below it as far as above it');
  }
+});
+
+test('a segmented floor lamp lights the wall in its zone colours along its whole length',async()=>{
+ const app=await harness();
+ const washes=[...app.stage.querySelectorAll('[data-wash-for="govee-left"] .render-wash')];
+ assert.ok(washes.length>0);
+ for(const w of washes)assert.match(w.getAttribute('style')||'',/fill:url\(#wash-govee-left\)/,'not one averaged colour');
+ const column=washes.find(w=>w.tagName.toLowerCase()==='rect');
+ assert.ok(column,'an even column, not a shape that narrows to the foot');
+ assert.equal(+column.getAttribute('width'),200);
 });
