@@ -337,6 +337,18 @@ class HueEnrollmentTests(unittest.TestCase):
                          list(range(11)))
         self.assertEqual(self.restarts, [True, True, True])
 
+    def test_without_hue_lights_there_is_nothing_to_follow(self):
+        registry = LightRegistry.from_dict(sample(hue=False))
+        lights = LightEnrollment(self.path, registry, self.catalog, busy=lambda: False,
+                                 restart=lambda: self.restarts.append(True), area=None,
+                                 rooms=Rooms(other={"govee-left"}))
+        self.assertEqual(lights.follow_rooms(), {})
+        with self.assertRaises(adapter.LightRefused) as refused:
+            LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+                            restart=lambda: None, area=None, rooms=Rooms()).follow_rooms()
+        self.assertEqual(refused.exception.reason, "unavailable")
+        self.assertEqual(self.restarts, [])
+
     def test_a_refused_follow_undoes_the_area_and_keeps_the_registry(self):
         rooms = Rooms(other={"play-left", "play-right"})
         area = Area()
