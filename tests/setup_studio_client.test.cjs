@@ -1563,6 +1563,10 @@ test('rooms are added, renamed and deleted on the cards; a refusal is said on it
  await app.advance(100);
  await app.click(app.$('#room-switch'));await app.advance(0);
  await app.click(app.$('#room-cards').querySelector('[data-room-add]'));
+ await app.press(app.$('#room-cards').querySelector('[data-room-new]'),'Escape');
+ assert.equal(app.$('#room-cards').hidden,false,'Esc in a name field only leaves the field');
+ assert.equal(app.$('#room-cards').querySelector('[data-room-new]'),null);
+ await app.click(app.$('#room-cards').querySelector('[data-room-add]'));
  const input=app.$('#room-cards').querySelector('[data-room-new]');input.value='Hall';await app.press(input,'Enter');await app.advance(0);
  assert.deepEqual(app.requests.roomPosts.at(-1),{url:'/api/rooms/create',body:{name:'Hall'}});
  assert.equal(app.$('#room-name').textContent,'Hall','a new room opens');assert.equal(app.storage.get('light-studio-room-v1'),NEW);

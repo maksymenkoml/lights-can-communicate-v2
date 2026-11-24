@@ -336,7 +336,6 @@ const chipIcons={
  blink:'<path d="M2 0A2 2 0 1 1 -2 0A2 2 0 1 1 2 0M0 -5.6V-4M0 4V5.6M-5.6 0H-4M4 0H5.6M-4 -4l1.1 1.1M2.9 2.9 4 4M4 -4 2.9 -2.9M-2.9 2.9-4 4"/>',
  reset:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
  remove:'<path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/>',
- move:'<path d="M1 -4.6H4.6V-1M4.6 -4.6-0.6 0.6M-1 -3.4H-4.6V4.6H3.4V1"/>',
  room:'<path d="M-4.8 -0.4 0 -4.6 4.8 -0.4M-3.5 -1.5V4.6H3.5V-1.5"/>'
 };
 function iconSvg(id){return '<svg viewBox="-7 -7 14 14" aria-hidden="true">'+chipIcons[id]+'</svg>'}
@@ -910,7 +909,7 @@ function cardMenu(l){
   +(syncHere()?'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>':'')
   +'<div class="card-list"><button class="card-row" data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'<span>Blink</span></button>'
   +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button>'
-  +(movable(l)?'<button class="card-row" data-menu="move">'+iconSvg('move')+'<span>Move to room</span>'+iconSvg('next')+'</button>':'')+'</div>'
+  +(movable(l)?'<button class="card-row" data-menu="move">'+iconSvg('room')+'<span>Move to room</span>'+iconSvg('next')+'</button>':'')+'</div>'
   +'<div class="card-list card-end"><button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button></div>';
 }
 // The card sits beside the selected object, never over it, and does not follow the chip width.
@@ -2048,7 +2047,8 @@ $('#room-cards').addEventListener('dragover',e=>{const c=e.target.closest?.('[da
 $('#room-cards').addEventListener('drop',e=>{const c=e.target.closest?.('[data-room-card]');if(!c||!roomDragged)return;e.preventDefault();const from=roomDragged;roomDragged=null;reorderRooms(from,c.dataset.roomCard)});
 $('#room-cards').addEventListener('dragend',()=>{roomDragged=null;$('#room-cards').querySelectorAll('.drop,.dragging').forEach(n=>n.classList.remove('drop','dragging'))});
 document.addEventListener('pointerdown',e=>{if(roomsOpen&&!e.target.closest('#room-cards,#room-switch'))closeRooms()},true);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&roomsOpen){e.preventDefault();e.stopImmediatePropagation();closeRooms()}},true);
+// Inside the cards Esc first leaves a name field; the cards' own handler decides.
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&roomsOpen&&!e.target.closest?.('#room-cards')){e.preventDefault();e.stopImmediatePropagation();closeRooms()}},true);
 
 // A connected or found lamp moves to another room with its corrections; layout-only
 // drawings stay in their room.
