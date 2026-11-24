@@ -213,9 +213,12 @@ class LightEnrollment:
         with self.changes:
             with self.lock:
                 self._check_state()
-                if self.area is None:
-                    raise LightRefused("unavailable")
                 registry = self.registry
+                if self.area is None:
+                    # Without a Hue light there is nothing to move.
+                    if registry.hue_lights() is None:
+                        return {}
+                    raise LightRefused("unavailable")
             hue = [(item["id"], item["hue"]) for item in registry.to_dict()["lights"]
                    if item["provider"] == "hue"]
             changes, left, joined = {}, None, []

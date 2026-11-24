@@ -74,8 +74,32 @@ Sync Box, so behavior is unchanged. The first write from Light Studio creates
 `rooms.json` and the room file and removes `desk-layout.json`. An unreadable
 index keeps the last good one; without one no light takes part in Sync. The
 state schema `rooms` is 1, so a rollback restores the state snapshot taken
-before the upgrade. Until room management arrives in Light Studio, it edits the
-first room.
+before the upgrade.
+
+Light Studio manages the rooms through its API (the room switcher in the page
+comes later; until then the page edits the first room):
+
+- `GET /api/rooms` lists the rooms in order with their names, the Sync Box's room
+  (`sync`) and the room of every connected light.
+- `GET` and `POST /api/layout?room=<id>` read and write a room's layout (the first
+  room without `room`); a write still needs `If-Match`.
+- `POST /api/rooms/create {"name"}` adds a room at the end with the default desk
+  and screen; `rename {"room", "name"}` renames it (names have 1-40 characters);
+  `order {"rooms"}` sets the order.
+- `POST /api/rooms/delete {"room"}` deletes a room without connected lights and
+  without the Sync Box; its layout goes with it. The last room stays.
+- `POST /api/rooms/move {"light", "room"}` puts a light in another room; its row
+  moves with its corrections. `POST /api/rooms/sync-box {"room"}` registers the
+  Sync Box in a room (`null`: in no room). Both let the adapter move the Hue lights
+  into or out of the area (`/lights/rooms`); a refusal undoes the change.
+- `POST /api/lights/enroll {"id", "room"}` connects a light in that room.
+
+Creating, deleting and moving rooms, lights and the Sync Box restart the virtual
+bridge or change the area, so they are refused with `sync_active` while Sync
+output owns the lights. Renaming and reordering are allowed then. Other
+refusals: `invalid_name`, `room_limit` (ten rooms), `unknown_room`,
+`unknown_light`, `last_room`, `has_sync_box`, `has_lights` and `layout_full`
+(twelve rows).
 
 The core's Entertainment area holds only Hue lights of the Sync Box's room. A
 Hue light of another room is connected for scenes only: it is in no area, has no
