@@ -20,6 +20,7 @@ RUNTIME_MODULES = (
     "sync_guard",
     "hue_area",
     "hue_bridge_pairing",
+    "hue_link",
     "hue_entertainment_relay",
     "hue_strip_proxy",
     "govee_transport",

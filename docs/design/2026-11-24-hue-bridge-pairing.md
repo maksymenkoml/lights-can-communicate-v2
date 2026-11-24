@@ -71,3 +71,17 @@ Each stage is a separate PR, verified live on the NAS before it is offered.
   unavailable.
 - The area stays when its last Hue light leaves, so a later light joins it
   again. Choosing the area per room follows with the rooms work (#78).
+
+## Stage 3 decisions
+
+- One verified connection (`HueBridgeLink`) serves every client that sends the
+  key: area, light proxies, relay area requests and discovery. It verifies the
+  Signify root CA and the pinned bridge ID before any key leaves the core.
+- A changed address is followed by the pinned ID through mDNS from the adapter's
+  LAN address, at most every 30 seconds, and kept in memory only. Configuration
+  files are not rewritten; after a restart the configured address is tried
+  first.
+- The DTLS stream needs no certificate check: the client key authenticates both
+  ends. It uses the link's current address.
+- The legacy prototype CLI (`lights_can_communicate_v2.py` commands) is not part
+  of the managed runtime and keeps its own client.

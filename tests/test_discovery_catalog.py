@@ -6,7 +6,6 @@ import json
 import threading
 import tracemalloc
 import unittest
-import urllib.error
 from unittest.mock import patch
 
 try:
@@ -516,93 +515,78 @@ class ReaderTests(unittest.TestCase):
             with self.subTest(config=config), self.assertRaises(ValueError):
                 HueDiscoveryReader(config, self.catalog)
 
-    def test_real_transport_uses_bounded_local_gets_and_disables_proxies_and_redirects(self):
+    def connection(self, answer, status=200):
+        """A verified bridge connection: ``answer(path)`` gives the body bytes."""
+        sent = []
+
+        class Connection:
+            closed = False
+
+            def request(self, method, path, body=None, headers=None):
+                sent.append((method, path, body, headers))
+
+            def getresponse(self):
+                raw = answer(sent[-1][1])
+                return type("Response", (), {
+                    "status": status, "read1": lambda _self, count: raw.read(count)})()
+
+            def close(self):
+                Connection.closed = True
+
+        return Connection, sent
+
+    def test_real_transport_uses_bounded_gets_over_the_verified_connection(self):
         responses = self.responses
-        calls, handlers = [], []
+        Connection, sent = self.connection(
+            lambda path: io.BytesIO(json.dumps(responses[path]).encode()))
+        timeouts = []
 
-        class Response:
-            def __init__(self, data):
-                self.raw = json.dumps(data).encode()
+        def connect(timeout):
+            timeouts.append(timeout)
+            return Connection()
 
-            def __enter__(self):
-                return self
+        reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
+                                    self.catalog, connect=connect)
+        self.assertTrue(reader.poll_once())
+        self.assertEqual([call[1] for call in sent],
+                         ["/clip/v2/resource/" + name for name in ("bridge", "device", "light")])
+        for method, _, body, headers in sent:
+            self.assertEqual((method, body), ("GET", None))
+            self.assertEqual(headers["hue-application-key"], "paired-secret")
+        self.assertEqual(timeouts, [1.5] * 3)
+        self.assertTrue(Connection.closed)
 
-            def __exit__(self, *args):
-                return False
-
-            def read1(self, count):
-                chunk, self.raw = self.raw[:count], self.raw[count:]
-                return chunk
-
-        class Opener:
-            def open(self, request, timeout):
-                calls.append((request, timeout))
-                return Response(responses[request.selector])
-
-        def opener(*items):
-            handlers.extend(items)
-            return Opener()
-
-        with patch("urllib.request.build_opener", side_effect=opener):
-            reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
-                                        self.catalog)
-            self.assertTrue(reader.poll_once())
-        self.assertEqual(len(calls), 3)
-        for request, timeout in calls:
-            self.assertEqual(request.get_method(), "GET")
-            self.assertIsNone(request.data)
-            self.assertTrue(request.full_url.startswith("https://192.168.1.2/clip/v2/resource/"))
-            self.assertEqual(request.get_header("Hue-application-key"), "paired-secret")
-            self.assertEqual(timeout, 1.5)
-        self.assertEqual(handlers[0].proxies, {})
-        redirect = handlers[2]
-        self.assertIsNone(redirect.redirect_request(calls[0][0], None, 302, "", {},
-                                                   "https://8.8.8.8/"))
-
-    def test_real_transport_bounds_response_size_and_slow_reads(self):
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                return False
-
-            def read1(self, count):
-                return b" " * count
-
-        class Opener:
-            def open(self, request, timeout):
-                return Response()
-
-        with patch("urllib.request.build_opener", return_value=Opener()):
-            reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
-                                        self.catalog)
-            self.assertFalse(reader.poll_once())
-            with patch("lights_can_communicate_v2_core.hue_discovery.time.monotonic",
-                       side_effect=[0, 0, 2]):
-                self.assertFalse(reader.poll_once())
+    def test_without_a_verified_connection_the_key_is_never_sent(self):
+        reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
+                                    self.catalog)
+        self.assertFalse(reader.poll_once())
         self.assertEqual(self.catalog.snapshot()["providers"]["hue"], "unavailable")
 
-    def test_http_error_closes_response_body_and_keeps_public_failure_safe(self):
-        self.catalog.observe_hue(BRIDGE, *hue())
-        body = io.BytesIO(b"paired-secret")
-        error = urllib.error.HTTPError("https://192.168.1.2/clip/v2/resource/bridge", 403,
-                                       "paired-secret", {}, body)
+    def test_real_transport_bounds_response_size_and_slow_reads(self):
+        class Endless:
+            def read(self, count):
+                return b" " * count
 
-        class Opener:
-            def open(self, request, timeout):
-                raise error
-
-        with patch("urllib.request.build_opener", return_value=Opener()):
-            reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
-                                        self.catalog)
+        Connection, _ = self.connection(lambda path: Endless())
+        reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
+                                    self.catalog, connect=lambda timeout: Connection())
+        self.assertFalse(reader.poll_once())
+        with patch("lights_can_communicate_v2_core.hue_discovery.time.monotonic",
+                   side_effect=[0, 0, 2]):
             self.assertFalse(reader.poll_once())
-        self.assertTrue(body.closed)
+        self.assertEqual(self.catalog.snapshot()["providers"]["hue"], "unavailable")
+
+    def test_http_error_closes_the_connection_and_keeps_public_failure_safe(self):
+        self.catalog.observe_hue(BRIDGE, *hue())
+        Connection, _ = self.connection(lambda path: io.BytesIO(b"paired-secret"), status=403)
+        reader = HueDiscoveryReader({"bridge": "192.168.1.2", "hue_key": "paired-secret"},
+                                    self.catalog, connect=lambda timeout: Connection())
+        self.assertFalse(reader.poll_once())
+        self.assertTrue(Connection.closed)
         snapshot = self.catalog.snapshot()
         self.assertEqual(snapshot["providers"]["hue"], "unavailable")
         self.assertFalse(snapshot["devices"][0]["online"])
         self.assertNotIn("paired-secret", json.dumps(snapshot))
-
 
 if __name__ == "__main__":
     unittest.main()
