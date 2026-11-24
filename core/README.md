@@ -90,8 +90,10 @@ comes later; until then the page edits the first room):
   without the Sync Box; its layout goes with it. The last room stays.
 - `POST /api/rooms/move {"light", "room"}` puts a light in another room; its row
   moves with its corrections. `POST /api/rooms/sync-box {"room"}` registers the
-  Sync Box in a room (`null`: in no room). Both let the adapter move the Hue lights
-  into or out of the area (`/lights/rooms`); a refusal undoes the change.
+  Sync Box in a room (`null`: in no room). A move of a Hue light or of the Sync Box
+  lets the adapter move the Hue lights into or out of the area (`/lights/rooms`,
+  which restarts the adapter when the area changes); a refusal undoes the change.
+  A Govee light has no area, so its move does not wait for the adapter.
 - `POST /api/lights/enroll {"id", "room"}` connects a light in that room.
 
 Creating, deleting and moving rooms, lights and the Sync Box restart the virtual

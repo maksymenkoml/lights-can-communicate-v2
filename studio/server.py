@@ -404,12 +404,14 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         that does not exist."""
         return rooms.store(room if room is not None else rooms.index()["rooms"][0])
 
-    def registry_lights():
-        """The ids of the connected lights (the light registry)."""
+    def registry_lights(provider=None):
+        """The ids of the connected lights (the light registry), of ``provider`` only
+        when it is given."""
         try:
             data = json.loads((state_dir / "lights.json").read_text())
             return [item["id"] for item in data.get("lights", ())
-                    if isinstance(item, dict) and _light_id(item.get("id"))]
+                    if isinstance(item, dict) and _light_id(item.get("id"))
+                    and provider in (None, item.get("provider"))]
         except (OSError, ValueError, AttributeError, TypeError, KeyError):
             return []
 
@@ -639,8 +641,11 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                     rooms.place_sync_box(data["room"])
             except RoomRefused as refused:
                 return 409, {"accepted": False, "reason": refused.reason}
-            # The Hue lights follow their rooms into or out of the area.
-            refusal = follow_rooms() if action in ("move", "sync-box") else None
+            # The Hue lights follow their rooms into or out of the area; a Govee light
+            # has no area, so its move needs no adapter (which may be restarting).
+            follow = action == "sync-box" or (
+                action == "move" and data["light"] in registry_lights("hue"))
+            refusal = follow_rooms() if follow else None
             if refusal is not None:
                 rooms.restore(before)
                 return refusal

@@ -112,6 +112,11 @@ class StudioRoomTests(unittest.TestCase):
         status_, body = self.request("/api/rooms/move", {"light": "play-left", "room": room})
         self.assertEqual((status_, body["lights"]["play-left"]), (200, room))
         self.assertEqual(self.calls, [("/lights/rooms", {})])
+        # A Govee light has no area: its move does not wait for the adapter.
+        self.answers["/lights/rooms"] = (503, {})
+        self.assertEqual(self.request("/api/rooms/move", {"light": "govee-right",
+                                                          "room": room})[0], 200)
+        self.assertEqual(len(self.calls), 1)
         self.answers["/lights/rooms"] = (409, {"accepted": False, "reason": "sync_active"})
         self.assertEqual(self.request("/api/rooms/move", {"light": "play-right", "room": room}),
                          (409, {"accepted": False, "reason": "sync_active"}))
