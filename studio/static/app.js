@@ -1478,7 +1478,7 @@ async function flushLayout(){
 async function connectLayout(retried=false){
  const generation=roomGeneration;
  try{
-  if(!await refreshRooms())throw new Error('offline');
+  if(!await refreshRooms(false))throw new Error('offline');
   if(generation!==roomGeneration)return;
   const first=roomsInfo.rooms[0].id;
   if(!currentRoom&&draftKey(first)===KEY){currentRoom=first;applyRoomChrome()}
@@ -1895,21 +1895,25 @@ const roomSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" st
 function layoutUrl(){return '/api/layout'+(currentRoom?'?room='+encodeURIComponent(currentRoom):'')}
 const roomName=id=>roomsInfo?.rooms.find(r=>r.id===id)?.name||'Room';
 // A light's room: its recorded room, otherwise the first room (as the core decides).
-function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.lights?.[id]||roomsInfo?.rooms[0]?.id}
+function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.rooms[0]?.id}
 // A light that another room holds: its row is there, or the core put it there.
 function elsewhere(id){
  if(!roomsInfo)return false;const placed=roomsInfo.placed?.[id],assigned=roomsInfo.assigned?.[id];
  return !!(placed&&placed!==currentRoom||assigned&&assigned!==currentRoom);
 }
-// Sync settings belong to the Sync Box's room; with no box registered no room hides them.
-function syncHere(){return !roomsInfo||!roomsInfo.sync||roomsInfo.sync===currentRoom}
+// Sync settings belong to the Sync Box's room; until the rooms are known the page shows them.
+function syncHere(){return !roomsInfo||roomsInfo.sync===currentRoom}
 function validRooms(b){return !!b&&Array.isArray(b.rooms)&&b.rooms.length>0&&b.rooms.every(r=>r&&ROOM_ID.test(r.id)&&typeof r.name==='string')}
-async function refreshRooms(){
+function takeRooms(b){roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,assigned:b.assigned||{},placed:b.placed||{}}}
+// connectLayout handles a missing room itself; any other refresh leaves a room deleted
+// elsewhere for the first room (its unsent draft stays under the deleted room's key).
+async function refreshRooms(follow=true){
  try{
   const r=await fetch('/api/rooms',{cache:'no-store'});if(!r.ok)return false;
   const b=await r.json();if(!validRooms(b))return false;
-  roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,lights:b.lights||{},assigned:b.assigned||{},placed:b.placed||{}};
+  takeRooms(b);
   if(!currentRoom||roomsInfo.rooms.some(r=>r.id===currentRoom))applyRoomChrome();
+  else if(follow){closeRooms();closePanel();closeObjectMenu();enterRoom(roomsInfo.rooms[0].id);tell('That room was deleted');connectLayout()}
   return true;
  }catch{return false}
 }
@@ -1941,7 +1945,7 @@ async function switchRoom(id){
 async function roomChange(action,body,where=null){
  let status=0,answer={};
  try{const r=await fetch('/api/rooms/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});status=r.status;answer=await r.json().catch(()=>({}))}catch{}
- if(status===200&&validRooms(answer)){roomsInfo={rooms:answer.rooms,sync:answer.sync??null,lights:answer.lights||{},assigned:answer.assigned||{},placed:answer.placed||{}};applyRoomChrome();return true}
+ if(status===200&&validRooms(answer)){takeRooms(answer);applyRoomChrome();return true}
  const text=status===409||status===503?ROOM_REFUSED[answer.reason]||'Not changed now':status===400?ROOM_REFUSED.invalid_name:'Light Studio server is unavailable';
  if(roomsOpen){roomNote={room:where,text};paintRooms()}else tell(text);
  return false;
@@ -1973,7 +1977,8 @@ async function reorderRooms(from,to){
 async function openRooms(){
  closePanel();closeObjectMenu();cancelPlacement();
  roomsOpen=true;roomNote=null;roomEditing=null;roomAdding=false;roomConfirm=null;paintRooms();
- await refreshRooms();if(!roomsOpen)return;
+ const known=await refreshRooms();if(!roomsOpen)return;
+ if(!known||!roomsInfo){roomNote={room:'all',text:'Light Studio server is unavailable'};paintRooms();return}
  await Promise.all(roomsInfo.rooms.filter(r=>r.id!==currentRoom).map(async r=>{
   try{const a=await fetch('/api/layout?room='+encodeURIComponent(r.id),{cache:'no-store'});if(a.ok)roomLayouts[r.id]=(await a.json()).layout}catch{}
  }));
@@ -2002,7 +2007,7 @@ function roomCount(id){
 }
 function roomNoteHtml(where){return roomNote&&roomNote.room===where?'<p class="rc-note" role="alert">'+esc(roomNote.text)+'</p>':''}
 function roomCard(r){
- const here=r.id===currentRoom,box=roomsInfo.sync===r.id;
+ const here=r.id===currentRoom,box=roomsInfo?.sync===r.id;
  if(roomConfirm===r.id)return '<div class="rc-card confirm"><div class="rc-confirm"><span>Delete '+esc(r.name)+'?</span><button data-room-cancel>Cancel</button><button class="danger" data-room-delete-ok="'+r.id+'">Delete</button></div>'+roomNoteHtml(r.id)+'</div>';
  const name=roomEditing===r.id?'<input class="rc-input" data-room-name="'+r.id+'" maxlength="40" value="'+esc(r.name)+'" aria-label="Room name">':'<span class="rc-name">'+esc(r.name)+'</span>';
  return '<div class="rc-card'+(here?' current':'')+'" draggable="'+(roomEditing?'false':'true')+'" data-room-card="'+r.id+'">'
@@ -2017,7 +2022,7 @@ function paintRooms(){
  const list=roomsInfo?roomsInfo.rooms:[{id:currentRoom||FIRST_ROOM,name:room}];
  const add=roomAdding?'<div class="rc-card rc-add editing"><input class="rc-input" data-room-new maxlength="40" placeholder="Room name" aria-label="New room name"><button class="lp-connect" data-room-create>Add</button>'+roomNoteHtml('new')+'</div>'
   :list.length<10?'<button class="rc-card rc-add" data-room-add>'+roomSvg('plus')+'<span>Add room</span></button>':'';
- node.innerHTML='<div class="rc-grid">'+list.map(roomCard).join('')+add+'</div>'+(list.length>1?'<p class="rc-hint">Drag a card to change the order</p>':'');
+ node.innerHTML='<div class="rc-grid">'+list.map(roomCard).join('')+(roomsInfo?add:'')+'</div>'+roomNoteHtml('all')+(roomsInfo&&list.length>1?'<p class="rc-hint">Drag a card to change the order</p>':'');
  node.hidden=false;
  const a=$('#app').getBoundingClientRect(),r=$('#room-switch').getBoundingClientRect();
  node.style.left=Math.max(12,r.left-a.left)+'px';node.style.top=(r.bottom-a.top+8)+'px';
@@ -2082,7 +2087,7 @@ async function moveLamp(l,target){
   const text=ROOM_REFUSED[answer.reason]||'Light Studio server is unavailable';
   if(note){note.textContent=text;note.hidden=false;const menu=$('#object-menu'),page=note.closest('.card-page');if(page)menu.style.height=page.offsetHeight+'px';placeOpenMenu()}else tell(text);return;
  }
- roomsInfo={rooms:answer.rooms,sync:answer.sync??null,lights:answer.lights||{},assigned:answer.assigned||{},placed:answer.placed||{}};
+ takeRooms(answer);
  moveOpen=false;closeObjectMenu();selected=null;past=[];future=[];
  lamps=lamps.filter(x=>x.id!==l.id);lastPersisted=JSON.stringify(pack());render();
  tell(l.name+' moved to '+roomName(target));

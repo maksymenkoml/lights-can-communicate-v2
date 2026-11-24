@@ -170,7 +170,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({rooms=null,roomPost=null,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
+async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -197,7 +197,7 @@ async function harness({rooms=null,roomPost=null,layout=saved(),revision='r1',st
    if(url.startsWith('/api/hue-bridge')){const body=options.body?JSON.parse(options.body):null;requests.hue.push({url,body,at:now});if(!hueBridge)return response(404,{});const result=await hueBridge(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
    if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
-   if(url==='/api/rooms'){requests.rooms.push(now);return response(200,roomsAnswer())}
+   if(url==='/api/rooms'){requests.rooms.push(now);if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
    if(url.startsWith('/api/rooms/')){const body=JSON.parse(options.body);requests.roomPosts.push({url,body});const result=roomPost?await roomPost(url.slice(11),body,server):null;return result?response(result.status,result.body):response(200,roomsAnswer())}
    const [route,query]=url.split('?');assert.equal(route,'/api/layout');
    const asked=query?decodeURIComponent(query.replace(/^room=/,'')):FIRST;
@@ -1583,4 +1583,27 @@ test('rooms are added, renamed and deleted on the cards; a refusal is said on it
  const name=app.$('#room-cards').querySelector('[data-room-name="'+OFFICE+'"]');name.value='Studio';await app.press(name,'Enter');await app.advance(0);
  assert.deepEqual(app.requests.roomPosts.at(-1),{url:'/api/rooms/rename',body:{room:OFFICE,name:'Studio'}});
  assert.equal(app.$('#room-name').textContent,'Studio','the open room reads its new name');
+});
+
+test('a room deleted elsewhere falls back to the first room when the rooms are read again',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ assert.equal(app.$('#room-name').textContent,'Bedroom');
+ app.server.index.rooms=app.server.index.rooms.filter(r=>r.id!==BEDROOM);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ assert.equal(app.$('#room-name').textContent,'Office');assert.match(app.$('#toast').textContent,/That room was deleted/);
+ assert.equal(app.$('#lamp-panel').hidden,true);
+});
+
+test('the room cards say so when the rooms cannot be read',async()=>{
+ const app=await harness({rooms:twoRooms(),roomsDown:()=>true});await app.advance(100);
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ const cards=app.$('#room-cards');assert.equal(cards.hidden,false);
+ assert.match(cards.textContent,/Light Studio server is unavailable/);
+ assert.equal(cards.querySelector('[data-room-add]'),null,'nothing to add to without the rooms');
+});
+
+test('without a registered Sync Box no room shows the Sync settings',async()=>{
+ const app=await harness({rooms:twoRooms({sync:null}),storage:new Map([['light-studio-view-v1','sync']])});await app.advance(100);
+ assert.ok(app.$('#app').classList.contains('no-sync'));assert.equal(app.run('mode'),'placement');
+ assert.equal(app.$('#room-box').hidden,true);
 });
