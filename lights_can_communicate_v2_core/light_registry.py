@@ -498,10 +498,6 @@ class LightRegistry:
         return {item["id"]: item["hue"]["outside"] for item in self.to_dict()["lights"]
                 if item["provider"] == "hue" and "outside" in item["hue"]}
 
-    def area_id(self):
-        """The paired Entertainment area, or None before the first one."""
-        return self.to_dict().get("hue", {}).get("area_id")
-
     def save(self, path):
         """Replace the registry atomically with owner-only permissions."""
         path = Path(path)

@@ -533,7 +533,7 @@ class EnrollmentTests(unittest.TestCase):
         for light in ("hue-monitor", "play-center", "play-right", NEW):
             empty = empty.with_outside(light, "room")
         self.assertIsNone(empty.native_profile())
-        self.assertEqual(empty.area_id(), AREA)
+        self.assertEqual(empty.to_dict()["hue"]["area_id"], AREA)
         self.assertEqual(empty.with_area_member(NEW, AREA, NEW_SERVICE, 2)
                          .native_profile().channels, {NEW: (0, 1)})
 

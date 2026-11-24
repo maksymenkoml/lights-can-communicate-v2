@@ -117,6 +117,10 @@ class LightEnrollment:
         self._check(light_id)
         if light_id in self.registry.ids:
             raise LightRefused("enrolled")
+        # Without usable paired credentials there is no area client. A light for
+        # scenes only needs them as well: the adapter drives it with the paired key
+        # and refuses to start with a Hue light but no Hue configuration. A paired
+        # bridge without an area still has a client (its area id is None).
         if self.area is None:
             raise LightRefused("unavailable")
         hue = self.catalog.hue_enrollment(light_id)
