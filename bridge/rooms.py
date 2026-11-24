@@ -343,8 +343,13 @@ class Rooms:
                 (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
         self.write_index(state["index"])
         for room, data in state["layouts"].items():
+            path = self.state_dir / LAYOUTS_DIR / (room + ".json")
             if data is not None:
                 self._layout_store(room).save(data)
+            else:
+                # A room without a layout before the change has none again.
+                path.unlink(missing_ok=True)
+                self.stores.pop(path, None)
 
     def _restore_single(self, state):
         """Back to the single layout of a state captured before the rooms existed: the

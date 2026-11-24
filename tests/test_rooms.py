@@ -250,6 +250,18 @@ class RoomManagementTests(unittest.TestCase):
         self.assertEqual(self.rooms.store(room).snapshot()["devices"], [])
         self.assertFalse((self.state / "rooms" / (extra + ".json")).exists())
 
+    def test_restore_removes_a_layout_that_the_change_created(self):
+        room = self.rooms.create("Bedroom")
+        (self.state / "rooms" / (room + ".json")).unlink()
+        state = self.rooms.state()
+        self.assertIsNone(state["layouts"][room])
+        self.rooms.move("govee-right", room)
+        self.assertTrue((self.state / "rooms" / (room + ".json")).exists())
+        self.rooms.restore(state)
+        self.assertFalse((self.state / "rooms" / (room + ".json")).exists())
+        self.assertIsNone(self.rooms.store(room).snapshot())
+        self.assertEqual(self.rooms.room_of("govee-right"), FIRST_ROOM)
+
     def test_restore_returns_to_the_single_layout(self):
         before = (self.state / "desk-layout.json").read_text()
         state = self.rooms.state()
