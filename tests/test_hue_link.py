@@ -108,6 +108,13 @@ class HueBridgeLinkTests(unittest.TestCase):
         with self.assertRaises(OSError):
             unsearched.connect()
 
+    def test_a_string_pin_path_still_follows_the_bridge(self):
+        self.pin.write_text(PINNED + "\n")
+        network = Network({"192.168.10.44": PINNED})
+        link = HueBridgeLink("192.168.10.21", str(self.pin), find=lambda: ["192.168.10.44"],
+                             clock=self.clock, connector=network)
+        self.assertEqual(link.connect().address, "192.168.10.44")
+
     def test_candidates_outside_the_local_network_are_skipped(self):
         network = Network({"8.8.8.8": PINNED})
         link = self.link(network, found=["8.8.8.8", "not an address"])

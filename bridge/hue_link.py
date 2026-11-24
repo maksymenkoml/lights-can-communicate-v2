@@ -100,7 +100,7 @@ class HueBridgeLink:
     def __init__(self, address, pin_file=None, find=None, clock=time.monotonic,
                  relocate_interval=RELOCATE_INTERVAL, connector=None):
         self.address = lan.local_ip(address)
-        self.pin_file = pin_file
+        self.pin_file = Path(pin_file) if pin_file is not None else None
         self.find = find
         self.clock = clock
         self.relocate_interval = relocate_interval
@@ -145,7 +145,7 @@ class HueBridgeLink:
         address = self.address
         try:
             return self._verified(address, timeout)
-        except (OSError, ssl.SSLError, http.client.HTTPException) as error:
+        except (OSError, http.client.HTTPException) as error:
             moved = self.relocate(address, timeout)
             if moved is None:
                 if isinstance(error, OSError):
@@ -179,7 +179,7 @@ class HueBridgeLink:
                     continue
                 try:
                     connection, identity = self.connector(candidate, timeout)
-                except (OSError, ssl.SSLError, http.client.HTTPException, ValueError):
+                except (OSError, http.client.HTTPException, ValueError):
                     continue
                 connection.close()
                 if identity == pinned:
