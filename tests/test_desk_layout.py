@@ -287,13 +287,30 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_layout(data)
 
+    def test_any_set_of_rows_is_valid_without_the_six_migrated_lamps(self):
+        data = layout()
+        data["version"] = 7
+        del data["monitorInches"]
+        data["screen"] = {"positionCm": {"x": 100, "height": 110}, "inches": 32}
+        for keep in ([], ["play-left"], ["govee-right", "hue-monitor"]):
+            with self.subTest(keep=keep):
+                value = copy.deepcopy(data)
+                value["devices"] = [row for row in value["devices"] if row["id"] in keep]
+                result = validate_layout(value)
+                self.assertEqual([row["id"] for row in result["devices"]], keep)
+                self.assertEqual(result["screen"]["positionCm"], {"x": 100, "height": 110})
+        # Before version seven the monitor row carries the screen, so it stays required.
+        old = layout()
+        old["devices"] = [row for row in old["devices"] if row["id"] != "hue-monitor"]
+        with self.assertRaises(ValueError):
+            validate_layout(old)
+
     def test_rejects_duplicates_nonfinite_values_and_control_fields(self):
         for mutate in [
             lambda d: d["devices"].append(copy.deepcopy(d["devices"][0])),
             lambda d: d["devices"][0].update(ip="192.168.10.123"),
             lambda d: d["devices"][0].update(scale=True),
             lambda d: d["devices"][0]["positionCm"].update(height=float("nan")),
-            lambda d: d["devices"].pop(),
         ]:
             data = layout()
             mutate(data)

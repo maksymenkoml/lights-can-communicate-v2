@@ -155,6 +155,8 @@ class PreviewTests(unittest.TestCase):
         for quiet in (quiet_govee, quiet_hue):
             self.assertEqual((lamps[quiet]["online"], lamps[quiet]["colors"]), (None, []))
         self.assertNotIn("device-bad", lamps)
+        # The listed registry is the whole set: an empty one previews no lamps.
+        self.assertEqual(build_preview({**status, "lights": []}, {})["lamps"], {})
         # Unknown ids never become lamps.
         status["hue"]["device-short"] = status["hue"][hue]
         self.assertNotIn("device-short", build_preview(status, {})["lamps"])

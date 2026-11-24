@@ -1313,3 +1313,51 @@ test('the connect deadline holds while live status is unavailable',async()=>{
  assert.equal(app.run('linking.size'),0);
  assert.match(app.$('#toast').textContent,/Connecting Third <lamp> did not finish/);
 });
+
+// -------------------------------------------------------- any set of lamps --
+function screenLayout(keep){
+ const layout=canonical(saved());
+ layout.devices=layout.devices.filter(row=>keep.includes(row.id));
+ return layout;
+}
+test('a room without some of the six lamps loads as saved and writes no lamp back',async()=>{
+ const app=await harness({layout:screenLayout(['govee-right','play-left','play-center','play-right'])});
+ await app.advance(1000);
+ assert.deepEqual(json(app,'lamps.map(l=>l.id)'),['govee-right','play-left','play-center','play-right']);
+ assert.equal(app.lamp('govee-left'),null);assert.equal(app.lamp('hue-monitor'),null);
+ app.run('setLamp(lamps.find(l=>l.id==="play-left"),l=>{l.scale=70})');await app.advance(300);
+ const body=app.posts.at(-1).body;
+ assert.deepEqual(body.devices.map(r=>r.id),['govee-right','play-left','play-center','play-right']);
+ assert.deepEqual(body.screen.positionCm,{x:100,height:110},'the screen keeps its place without the strip row');
+});
+
+test('an empty room has no lamps and the monitor alone moves the screen',async()=>{
+ const app=await harness({layout:screenLayout([])});
+ await app.advance(1000);
+ assert.equal(app.run('lamps.length'),0);
+ assert.equal(app.$('#count').textContent,'0');
+ app.run('strip().x=20;persistIfChanged()');await app.advance(300);
+ assert.deepEqual(app.posts.at(-1).body.screen.positionCm,{x:120,height:110});
+ assert.deepEqual(app.posts.at(-1).body.devices,[]);
+});
+
+test('a migrated lamp without a row is found under its registry id and placed without a prompt',async()=>{
+ const found=discovered({id:'device-'+'b'.repeat(32),name:'H6076 1A2B',layout_id:'govee-left',selectable:false});
+ const app=await harness({layout:screenLayout(['govee-right']),discovery:{connected:true,devices:[found],providers:{govee:'ready',hue:'ready'}}});
+ await app.click(app.$('#list-toggle'));
+ const place=app.$('#lamp-panel').querySelector('[data-place="govee-left"]');
+ assert.ok(place,'Found offers Govee Left');
+ await app.click(place);
+ app.dispatch(app.stage,'pointerdown',{clientX:500-80*3.3,clientY:600});await app.settle();await app.advance(40);
+ assert.equal(app.$('#object-menu').hidden,true,'a connected lamp gets no prompt');
+ await app.advance(300);
+ const row=app.posts.at(-1).body.devices.find(r=>r.id==='govee-left');
+ assert.ok(row,'saved under its registry id');
+ assert.equal(row.shape,undefined,'a migrated row stores no drawing metadata');
+});
+
+test('a layout without a screen and without the monitor row is not loaded',async()=>{
+ const broken=saved();broken.devices=broken.devices.filter(r=>r.id!=='hue-monitor');
+ const app=await harness();
+ assert.equal(app.run('fromLayout('+JSON.stringify(broken)+')'),null);
+});

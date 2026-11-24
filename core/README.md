@@ -182,9 +182,9 @@ himself, so API and automated DOM checks were used without opening his tab.
 `0.1.0.dev3` adds a passive shared recorder to the existing successful output
 operations and appends bounded `preview` data to authenticated `/status`. It
 records emitted Govee zones, accepted Hue scene PUTs and calibrated native RGB16
-frames. It covers every enrolled light by registry id: the six
-migrated lamps first, then the lights enrolled later; with a Sync profile a later
-light is included while its layout row is composed. `/status` also lists the
+frames. It covers exactly the registry lights that `/status` lists, in registry
+order (an older adapter without the list shows the six migrated lamps first); with
+a Sync profile a later light is included while its layout row is composed. `/status` also lists the
 enrolled lights for Light Studio in `lights` (id, provider, model, zone count and
 whether it is migrated), without device identities or addresses. These are command colors, not optical measurements or segment readback.
 Scene/video transitions share the recorder; failed sends do not advance the
@@ -710,9 +710,10 @@ and the visibility gains for each light through that one geometry. The profile k
 where a zone is hidden), `gains` and `fade_cm`; `project_light_frame` turns a frame
 into the attenuated colors of its zones. The earlier keys (`govee`, `plays`,
 `play_gains`, `strip_gains`, `enabled_roles`, `native_roles`) are derived from the
-same entries, for every role row, so the outputs of the six current lights are
-byte-identical. `scene_fade` uses the same geometry. The six role rows stay
-mandatory until Light Studio can enroll and remove lights.
+same entries, for every role row the layout holds, so the outputs of the six
+current lights are byte-identical. `scene_fade` uses the same geometry. Every row
+is optional: a migrated light without a row has no entry in either, and an empty
+layout gives an empty composition.
 
 ## Lamp controls
 

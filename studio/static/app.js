@@ -28,10 +28,12 @@ const MONITOR='hue-monitor';
 // Adapter keys of the six enrolled lamps: the Govee light id or the Hue role name.
 // The six role lamps; the adapter names each by its registry light id.
 const ROLES={'govee-left':'govee-left','govee-right':'govee-right','hue-monitor':'hue-monitor','play-left':'play-left','play-center':'play-center','play-right':'play-right'};
-// Seed coordinates: x is cm from the desk centre; h is the bottom of a floor
-// lamp and the centre of other lamps. Layout x has the desk centre at 100 cm and a
-// floor lamp's height is its bottom + 60 cm (desk_layout.minimum_anchor_height).
-const SEED=[
+// How the six migrated lamps are drawn: their rows store no shape, name or model.
+// None of them is required; a room can hold any set of lamps, or none. x is cm from
+// the desk centre; h is the bottom of a floor lamp and the centre of other lamps.
+// Layout x has the desk centre at 100 cm and a floor lamp's height is its bottom +
+// 60 cm (desk_layout.minimum_anchor_height).
+const MIGRATED=[
  {id:'govee-left',name:'Govee Left',model:'H6076',shape:'floor',zones:7,x:-80,h:0,scale:65},
  {id:'govee-right',name:'Govee Right',model:'H6076',shape:'floor',zones:7,x:80,h:0,scale:65},
  {id:'hue-monitor',name:'Monitor Strip',model:'Hue LCX006',shape:'strip',zones:9,x:0,h:110,scale:100},
@@ -54,11 +56,11 @@ const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
 const SYNC_ROLES=['sync','own','off'];
-function seedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
+function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
 function defaults(){
- const environment={width:160,height:85,inches:32,zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
- const lamps=SEED.map(seedLamp);lamps.forEach(l=>clampFixture(l,environment));
- return {room:'Office',environment,lamps};
+ // A new room is empty: lamps are placed from the Found list.
+ const environment={width:160,height:85,inches:32,screen:{x:0,h:110},zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
+ return {room:'Office',environment,lamps:[]};
 }
 function monitorWidthCm(inches){return inches*2.54*16/Math.hypot(16,9)}
 function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.id===MONITOR)return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
@@ -78,7 +80,10 @@ function fromLayout(data){
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
- if(SEED.some(s=>!rows.has(s.id)))return null;
+ // The screen position: its own object from version 7, before that the monitor row's.
+ const screenAt=data.screen?.positionCm??rows.get(MONITOR)?.positionCm;
+ if(!screenAt||typeof screenAt!=='object')return null;
+ environment.screen={x:finite(screenAt.x,-400,600,DESK_CENTER)-DESK_CENTER,h:finite(screenAt.height,-400,600,110)};
  const place=(lamp,row)=>{
   lamp.x=finite(row.positionCm.x,-400,600,DESK_CENTER)-DESK_CENTER;
   const height=finite(row.positionCm.height,-400,600,0);
@@ -91,11 +96,12 @@ function fromLayout(data){
   lamp.vertical=row.orientation==='vertical';lamp.enabled=row.enabled!==false;lamp.syncRole=SYNC_ROLES.includes(row.syncRole)&&(row.syncRole!=='off'||isRole(row.id))?row.syncRole:'sync';
   clampFixture(lamp,environment);return lamp;
  };
- const lamps=SEED.map(s=>place(seedLamp(s),rows.get(s.id)));
+ const lamps=[];
  for(const row of data.devices){
   if(lamps.length>=MAX_ROWS)break;
-  const real=realDevice(row?.id),virtual=virtualDevice(row?.id);
-  if(!real&&!virtual||!rows.has(row.id)||lamps.some(l=>l.id===row.id))continue;
+  const real=realDevice(row?.id),virtual=virtualDevice(row?.id),migrated=MIGRATED.find(s=>s.id===row?.id);
+  if(!real&&!virtual&&!migrated||!rows.has(row.id)||lamps.some(l=>l.id===row.id))continue;
+  if(migrated){lamps.push(place(migratedLamp(migrated),row));continue}
   const shape=SHAPES.includes(row.shape)?row.shape:'bar';
   const zones=real&&Number.isInteger(row.zones)?clamp(row.zones,1,32):shape==='floor'?7:shape==='strip'?9:1;
   lamps.push(place({id:row.id,name:String(row.name??'New lamp').slice(0,real?80:35),model:real?String(row.model||'').slice(0,64):'Layout only',shape,form:formOf(row.id,shape),zones,unbound:true,scale:80},row));
@@ -105,7 +111,8 @@ function fromLayout(data){
 function pack(m={room,environment,lamps}){
  const env=m.environment;
  const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
- const monitor=m.lamps.find(l=>l.id===MONITOR);
+ // The monitor strip row, when there is one, carries the screen position.
+ const monitor=m.lamps.find(l=>l.id===MONITOR)||env.screen;
  return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
@@ -116,7 +123,8 @@ function pack(m={room,environment,lamps}){
 let room,environment,lamps;
 ({room,environment,lamps}=fromLayout(readJson(KEY))||defaults());
 let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],future=[],drag=null,toastTimer;
-const strip=()=>lamps.find(l=>l.id===MONITOR)||{x:0,h:110};
+// The monitor: the strip lamp when the room has one, otherwise the screen alone.
+const strip=()=>lamps.find(l=>l.id===MONITOR)||environment.screen;
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
 const syncRole=l=>SYNC_ROLES.includes(l.syncRole)?l.syncRole:'sync';
 function movableFixture(){return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false)}
@@ -1152,8 +1160,11 @@ $('#stage').addEventListener('dblclick',e=>{
 let panelKind=null,confirmRemove=null,pendingDevice=null;
 let discovery=null,discoveryTimer=null,discoverySession=0,discoveryLoading=null;
 function catalogRows(){return discovery&&discovery.connected===true&&Array.isArray(discovery.devices)?discovery.devices.filter(d=>d&&realDevice(d.id)):[]}
-// Discovered lamps that are not in the layout; role lamps return through their removed row.
-function catalogEntries(){return catalogRows().filter(d=>!d.layout_id&&!lamps.some(l=>l.id===d.id))}
+// Discovered lamps that are not in the layout. A migrated lamp is found under its
+// registry id (layout_id) and placed with that id; a removed row returns through Found too.
+function catalogEntries(){
+ return catalogRows().map(d=>{const m=MIGRATED.find(s=>s.id===d.layout_id);return m?{...d,id:m.id,shape:m.shape,zones:m.zones,selectable:true}:d})
+  .filter(d=>(!d.layout_id||MIGRATED.some(s=>s.id===d.id))&&!lamps.some(l=>l.id===d.id))}
 function catalogReason(d){
  if(d.ambiguous!==false)return 'Ambiguous';
  if(d.supported!==true||!SHAPES.includes(d.shape)||!Number.isInteger(d.zones))return 'Unsupported';
@@ -1276,9 +1287,14 @@ function paintPlacementGhost(position){
 function placeDevice(entry,position){
  if(lamps.length>=MAX_ROWS||lamps.some(l=>l.id===entry.id))return;
  remember();
- const l={id:entry.id,name:entry.name,model:entry.model,shape:entry.shape,form:entry.form,zones:entry.zones,x:position.x,h:position.h,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:'sync',unbound:true};
+ const m=MIGRATED.find(s=>s.id===entry.id);
+ // The monitor strip wraps the screen, so it takes the screen's place.
+ const l=m?{...migratedLamp(m),...(m.id===MONITOR?{x:environment.screen.x,h:environment.screen.h}:{x:position.x,h:position.h})}
+  :{id:entry.id,name:entry.name,model:entry.model,shape:entry.shape,form:entry.form,zones:entry.zones,x:position.x,h:position.h,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:'sync',unbound:!enrolled.has(entry.id)};
  clampFixture(l);lamps.push(l);selected=l.id;
  cancelPlacement();render();
+ // A lamp the core already drives needs no prompt.
+ if(!l.unbound){tell('Added to layout');return}
  // The prompt opens beside the new lamp; Not now leaves it in the layout, not connected.
  connectPrompt=l.id;requestAnimationFrame(()=>{const chip=$('#stage').querySelector('[data-chip-action="more"]');if(chip&&selected===l.id&&!menuOpen)openObjectMenu(chip);else connectPrompt=null});
 }

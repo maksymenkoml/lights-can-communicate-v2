@@ -313,6 +313,28 @@ class SyncProjectionTests(unittest.TestCase):
         self.assertEqual(project_govee_frame(raw, "left", profile), [(0, 0, 0)] * 7)
         self.assertNotEqual(project_govee_frame(raw, "right", profile), [(0, 0, 0)] * 7)
 
+    def test_missing_migrated_rows_leave_the_profile_and_scene_fade_without_them(self):
+        data = current(layout())
+        data["devices"] = [row for row in data["devices"]
+                           if row["id"] in ("govee-right", "play-center")]
+        profile = sync_projection.sync_profile(data)
+        self.assertEqual(profile["enabled_roles"], ["right", "play-center"])
+        self.assertEqual(profile["native_roles"], ["play-center"])
+        self.assertEqual(sorted(profile["lights"]), ["govee-right", "play-center"])
+        self.assertEqual((list(profile["govee"]), list(profile["plays"])),
+                         (["right"], ["play-center"]))
+        self.assertNotIn("strip_gains", profile)
+        raw = frame()
+        native = project_native_frame(raw, profile)
+        self.assertEqual(native[2], raw[2], "no strip row leaves its channels untouched")
+        self.assertEqual(sorted(sync_projection.scene_fade(data)),
+                         ["govee-right", "play-center"])
+        # An empty layout has no lights at all.
+        data["devices"] = []
+        empty = sync_projection.sync_profile(data)
+        self.assertEqual((empty["enabled_roles"], empty["lights"]), ([], {}))
+        self.assertEqual(sync_projection.scene_fade(data), {})
+
     def test_signature_ignores_metadata_scale_orientation_and_row_order(self):
         data = layout()
         before = sync_profile(data)

@@ -155,8 +155,9 @@ def validate_layout(value):
     if not isinstance(room, str) or not 1 <= len(room) <= 40:
         raise ValueError("Invalid room name")
     devices = value.get("devices")
-    if not isinstance(devices, list) or not 6 <= len(devices) <= 12:
-        raise ValueError("Expected the six selected lamps and optional unbound drawings")
+    # Any set of lamps: the six migrated rows are optional like every other row.
+    if not isinstance(devices, list) or len(devices) > 12:
+        raise ValueError("Expected at most twelve layout rows")
     result = {
         "version": LAYOUT_VERSION,
         "gridStepCm": 5,
@@ -246,8 +247,9 @@ def validate_layout(value):
             else:
                 screen["positionCm"] = copy.deepcopy(device["positionCm"])
         result["devices"].append(device)
-    if not set(ROLES) <= seen:
-        raise ValueError("The selected six device roles must remain present")
+    if "positionCm" not in screen:
+        # Before version seven the monitor row carried the screen position.
+        raise ValueError("An older layout needs its monitor row")
     result["screen"] = {"positionCm": screen["positionCm"], "inches": screen["inches"]}
     if value.get('syncZone') is not None:
         from sync_zone import validate_zone

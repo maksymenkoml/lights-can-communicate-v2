@@ -266,14 +266,17 @@ def build_preview(adapter_status, output_snapshot):
     hue = status.get("hue")
     hue = ({lamp: value for lamp, value in hue.items()
             if isinstance(lamp, str) and LIGHT_ID.match(lamp)} if isinstance(hue, dict) else {})
-    for lamp in HUE_LAMPS:
-        hue.setdefault(lamp, None)
-    # Registry lights the adapter lists; one without a reading has an unknown state.
-    registry = status.get("lights")
+    # The adapter lists the registry lights; then exactly those are previewed, in
+    # registry order, and one without a reading has an unknown state. Without the
+    # list (an older adapter) the six migrated lamps come first.
+    listed = status.get("lights")
     registry = {item["id"]: item.get("provider") for item in
-                (registry if isinstance(registry, list) else [])
+                (listed if isinstance(listed, list) else [])
                 if isinstance(item, dict) and isinstance(item.get("id"), str)
                 and LIGHT_ID.match(item["id"])}
+    if not isinstance(listed, list):
+        for lamp in HUE_LAMPS:
+            hue.setdefault(lamp, None)
     for lamp, provider in registry.items():
         if provider == "hue":
             hue.setdefault(lamp, None)
@@ -285,10 +288,8 @@ def build_preview(adapter_status, output_snapshot):
         if isinstance(item, dict) and isinstance(item.get("light"), str)
         and LIGHT_ID.match(item["light"]) and item["light"] not in hue
     }
-    # The six migrated lamps first, then every other enrolled light: listed in the
-    # registry or reported with a reading.
-    lamp_ids = list(LAMP_IDS) + sorted((set(govee) | set(hue) | set(registry))
-                                       - set(LAMP_IDS))
+    lamp_ids = (list(registry) if isinstance(listed, list)
+                else list(LAMP_IDS) + sorted((set(govee) | set(hue)) - set(LAMP_IDS)))
     lamp_ids = lamp_ids[:MAX_LAMPS]
     composition = status.get('composition')
     included = set(lamp_ids)
