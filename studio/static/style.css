@@ -290,6 +290,13 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .card .card-confirm button{height:28px;padding:0 10px;border-radius:var(--r-ctl,5px);border:1px solid var(--line);background:var(--surface);font-size:12px;color:var(--text)}
 .card .card-confirm button.danger{border-color:var(--bad);background:var(--bad);color:#fff}
 .lp-empty{padding:10px;font-size:12px;color:var(--muted)}
+.lp-hue-address{display:flex;gap:6px;padding:4px 10px 8px}
+.lp-hue-address input{flex:1;min-width:0;height:30px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-ctl,5px);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px}
+.lp-hue-address input:focus{outline:none;border-color:var(--accent)}
+.lp-hue-address .lp-connect,.lp-hue-address .lp-confirm-btn{height:30px}
+.lp-hue-error{padding:0 10px 8px}
+.lp-row.hue-pairing{grid-template-columns:44px 1fr auto}
+.lp-row.hue-pairing .box-ring svg{position:absolute;inset:0;width:44px;height:44px;transform:rotate(-90deg)}
 .lp-flash{animation:lp-flash 1.2s ease}
 @keyframes lp-flash{0%,40%{background:var(--soft)}}
 #stage .lamp.list-hover .outline{opacity:1!important;stroke:var(--accent)}

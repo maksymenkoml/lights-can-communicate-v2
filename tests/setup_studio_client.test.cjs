@@ -170,12 +170,12 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hidden=false,reducedMotion=false}={}){
+async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
  const server={layout:layout&&canonical(layout),revision};
- const posts=[],requests={layout:0,discovery:[],live:[],box:[]};
+ const posts=[],requests={layout:0,discovery:[],live:[],box:[],hue:[]};
  const context={structuredClone,AbortController,console,
   setTimeout:clock.setTimeout,clearTimeout:clock.clearTimeout,
   requestAnimationFrame:fn=>clock.setTimeout(()=>fn(now),16),
@@ -190,6 +190,7 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),live=live
    if(url==='/api/discovery'){requests.discovery.push(now);const value=typeof discovery==='function'?discovery(requests.discovery.length):discovery;if(value instanceof Error)throw value;return response(200,value)}
    if(url.startsWith('/api/calibration')){assert.ok(calibrate,'unexpected calibration');const result=await calibrate(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url.startsWith('/api/sync-box')){const body=options.body?JSON.parse(options.body):null;requests.box.push({url,body,at:now});const result=await syncBox(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
+   if(url.startsWith('/api/hue-bridge')){const body=options.body?JSON.parse(options.body):null;requests.hue.push({url,body,at:now});if(!hueBridge)return response(404,{});const result=await hueBridge(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
    if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    assert.equal(url,'/api/layout');
@@ -322,6 +323,62 @@ test('discovery is polled every 3 s only while the Lamps panel is open',async()=
  assert.equal(panel.hidden,true);
  await app.advance(10000);assert.equal(app.requests.discovery.length,2);
  await app.advance(1000);assert.equal(app.posts.length,0);
+});
+
+test('the Lamps panel pairs the Hue bridge after its button is pressed, without keys in the page',async()=>{
+ let state={state:'none'},polls=0;
+ const app=await harness({hueBridge:(url,body)=>{
+  if(url==='/api/hue-bridge/find')return {bridges:[{ip:'192.168.10.5',name:'Hue <Bridge>'}]};
+  if(url==='/api/hue-bridge/pair'){assert.deepEqual(body,{ip:'192.168.10.5'});state={state:'pairing',name:'Hue <Bridge>',ip:'192.168.10.5',left:30};return state}
+  if(url==='/api/hue-bridge'&&state.state==='pairing'&&++polls===2)state={state:'paired',name:'Hue <Bridge>',ip:'192.168.10.5',result:'paired'};
+  return state}});
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/Hue bridgeNot connected/);
+ await app.click(panel.querySelector('[data-hue="find"]'));
+ assert.match(panel.textContent,/Found on this network:/);
+ await app.click(panel.querySelector('[data-hue-ip="192.168.10.5"]'));
+ assert.match(panel.textContent,/Press the button on the bridge/);assert.match(panel.textContent,/Hue <Bridge> · 192\.168\.10\.5/);
+ const looked=app.requests.discovery.length;
+ await app.advance(1000);await app.advance(1000);
+ assert.match(panel.textContent,/Hue bridgeConnectedHue <Bridge>192\.168\.10\.5Change/);
+ // The core restarts with the new bridge: discovery looks for its lamps again.
+ assert.ok(app.requests.discovery.length>looked);
+ // A paired bridge can be paired again, for another bridge or a new address.
+ await app.click(panel.querySelector('[data-hue="find"]'));
+ assert.match(panel.textContent,/Found on this network:/);
+ await app.click(panel.querySelector('[data-hue="close"]'));
+ assert.match(panel.textContent,/Hue <Bridge>192\.168\.10\.5Change/);
+});
+
+test('a Hue bridge from the service configuration shows as connected without Connect',async()=>{
+ const app=await harness({hueBridge:()=>({state:'configured'})});
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/Hue bridgeConnectedHue bridgeSet in the service configurationConnected/);
+ assert.ok(!panel.querySelector('[data-hue]'));
+});
+
+test('a Hue bridge address is typed when none is found, and errors stay readable',async()=>{
+ const app=await harness({hueBridge:(url,body)=>{
+  if(url==='/api/hue-bridge/find')return {bridges:[]};
+  if(url==='/api/hue-bridge/pair')return body.ip==='192.168.10.9'?{status:409,body:{reason:'other_bridge'}}:{status:503,body:{}};
+  return {state:'none',...(url==='/api/hue-bridge'?{}:{})}}});
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ await app.click(panel.querySelector('[data-hue="find"]'));
+ assert.match(panel.textContent,/None found\. Enter its IP address:/);
+ const input=panel.querySelector('[data-hue-input]');
+ input.value='192.168.10.7';app.dispatch(input,'input');
+ await app.press(input,'Enter');
+ assert.match(panel.textContent,/No Hue bridge answers at this address\./);
+ const again=panel.querySelector('[data-hue-input]');
+ again.value='192.168.10.9';app.dispatch(again,'input');
+ await app.click(panel.querySelector('[data-hue="address"]'));
+ assert.match(panel.textContent,/Another Hue bridge has connected lamps\. Remove them first\./);
+ assert.deepEqual(app.requests.hue.filter(r=>r.url==='/api/hue-bridge/pair').map(r=>r.body.ip),['192.168.10.7','192.168.10.9']);
+ await app.click(panel.querySelector('[data-hue="close"]'));
+ assert.ok(panel.querySelector('[data-hue="find"]'));
 });
 
 test('Found shows unavailable lamps with their reason and hides placed ones',async()=>{

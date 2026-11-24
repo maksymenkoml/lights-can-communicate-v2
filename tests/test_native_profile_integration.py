@@ -401,14 +401,14 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
                 cli.prepare(config, write_registry=True)
         self.assertFalse((config.state_dir / REGISTRY_FILE).exists())
 
-    def test_hue_config_without_hue_lights_fails(self):
+    def test_hue_config_without_hue_lights_is_a_paired_bridge_without_output(self):
+        # A paired bridge with no Hue light: prepare passes, the registry is unchanged.
         config = self.config()
         config.state_dir.mkdir()
         write_registry(config.state_dir, targets())
         before = (config.state_dir / REGISTRY_FILE).read_bytes()
-        with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
-            with self.assertRaises(ConfigError):
-                cli.prepare(config, write_registry=True)
+        _, registry = cli.prepare(config, write_registry=True)
+        self.assertIsNone(registry.native_profile())
         self.assertEqual((config.state_dir / REGISTRY_FILE).read_bytes(), before)
 
     def test_registry_with_hue_lights_requires_a_hue_configuration(self):

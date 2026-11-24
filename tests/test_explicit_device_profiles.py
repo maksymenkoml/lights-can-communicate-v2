@@ -1,10 +1,8 @@
 """Missing native selection must fail before any physical or local side effect."""
 
-import io
 import json
 import sys
 import unittest
-from contextlib import redirect_stderr
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -41,17 +39,29 @@ class ExplicitSelectionTests(unittest.TestCase):
             with self.subTest(factory=factory), self.assertRaises(ValueError):
                 factory()
 
-    def test_source_launcher_rejects_hue_without_profile_before_reading_token(self):
+    def test_a_hue_configuration_without_hue_lights_authorizes_no_hue_output(self):
+        # The legacy light hint names a light, but only the registry authorizes one.
         with TemporaryDirectory(prefix="tmp_explicit_selection_") as folder:
             root = Path(folder)
             write_registry(root, targets())
+            (root / "hue.json").write_text(json.dumps(
+                {**hue_config(), "light": "98250ec6-d7fd-4b47-ace6-ff449ea3066f"}))
+
+            class BeforeServer(Exception):
+                pass
+
             arguments = ["--registry", str(root / "lights.json"),
-                         "--token-file", str(root / "missing-token"),
-                         "--hue-config", str(root / "missing-hue.json")]
-            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+                         "--token-file", str(root / "token"),
+                         "--state-dir", str(root / "state"),
+                         "--hue-config", str(root / "hue.json")]
+            refuse = AssertionError("No Hue output without a Hue light")
+            with patch.object(adapter, "PinnedHueClient", side_effect=refuse), \
+                    patch.object(adapter, "HueStripProxy", side_effect=refuse), \
+                    patch.object(adapter, "HueEntertainmentRelay", side_effect=refuse), \
+                    patch.object(adapter.threading.Thread, "start"), \
+                    patch.object(adapter, "ThreadingHTTPServer", side_effect=BeforeServer), \
+                    self.assertRaises(BeforeServer):
                 adapter.main(arguments)
-            self.assertEqual(caught.exception.code, 2)
-            self.assertEqual([item.name for item in root.iterdir()], ["lights.json"])
 
     def test_service_config_without_profile_loads_and_prepare_rejects_it(self):
         with TemporaryDirectory(prefix="tmp_explicit_selection_") as folder:
@@ -70,12 +80,14 @@ class ExplicitSelectionTests(unittest.TestCase):
                     cli.prepare(config, write_registry=True)
             self.assertFalse(config.state_dir.exists())
 
-    def test_prepare_rejects_programmatic_config_before_credentials_or_runtime(self):
+    def test_prepare_accepts_a_hue_configuration_without_hue_lights(self):
         fixture = integration.ProfileConfigurationIntegrationTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         config = replace(fixture.config(), native_profile_file=None)
-        with patch.object(cli, "_credential", side_effect=AssertionError("Too late")):
-            with self.assertRaises(ConfigError):
-                cli.prepare(config, write_registry=True)
+        refuse = AssertionError("No Hue output without a Hue light")
+        with patch("live_adapter.HueStripProxy", side_effect=refuse), \
+                patch("live_adapter.HueEntertainmentRelay", side_effect=refuse):
+            _, registry = cli.prepare(config, write_registry=False)
+        self.assertIsNone(registry.native_profile())
         self.assertFalse(config.state_dir.exists())

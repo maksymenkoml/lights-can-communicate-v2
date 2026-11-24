@@ -31,6 +31,13 @@ from homekit_power import (  # noqa: E402
     response_signature,
 )
 from hue_area import HueArea  # noqa: E402
+from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
+from sync_box import discover as discover_sync_boxes  # noqa: E402
+
+# Light Studio runs on the core network only, where LAN multicast does not reach;
+# the adapter is on the LAN and answers its mDNS searches.
+LAN_SEARCHES = {"/lan/hue-bridges": discover_hue_bridges,
+                "/lan/sync-boxes": discover_sync_boxes}
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
@@ -49,6 +56,7 @@ from sync_off import SyncOffSession  # noqa: E402
 from video_output import NoNativeRelay, VideoOutput  # noqa: E402
 
 import lights_can_communicate_v2 as lan  # noqa: E402
+from lights_can_communicate_v2_core.config import PAIRED_HUE_FILE  # noqa: E402
 from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
 from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # noqa: E402
 from lights_can_communicate_v2_core.light_registry import (  # noqa: E402
@@ -723,7 +731,7 @@ def registry_lights(registry, controller):
 def handler_for(controller, token, hue_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
                 power_requests=None, homekit=None, identify=None, sync_off=None,
-                calibration=None, lights=None):
+                calibration=None, lights=None, lan_address=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -779,6 +787,12 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                 return self.respond(200, homekit.wire_state())
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
+            if self.path in LAN_SEARCHES:
+                try:
+                    addresses = LAN_SEARCHES[self.path](interface=lan_address)
+                except OSError:
+                    addresses = []
+                return self.respond(200, {"addresses": addresses})
             if self.path not in ("/status", "/diagnostics"):
                 return self.respond(404, {"error": "not found"})
             result = controller.snapshot()
@@ -949,6 +963,29 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
     return Handler
 
 
+def _file_signature(path):
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return status.st_mtime_ns, status.st_size, status.st_ino
+
+
+def watch_paired_bridge(path, stop, busy, interval=2.0):
+    """Restart the adapter when Light Studio pairs a Hue bridge (``hue-bridge.json``).
+
+    The service then starts from the new bridge. A change waits while Sync output
+    owns the lamps; Docker restarts the finished container.
+    """
+    seen = _file_signature(path)
+    while not stop.wait(interval):
+        current = _file_signature(path)
+        if current != seen and not busy():
+            print("Paired Hue bridge changed; restarting the adapter.", flush=True)
+            stop.set()
+            return
+
+
 def main(argv=None, service_info=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registry", type=Path, required=True)
@@ -958,6 +995,8 @@ def main(argv=None, service_info=None):
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
+    parser.add_argument("--lan-address", type=lan.local_ip,
+                        help="this adapter's LAN address, for mDNS searches")
     parser.add_argument("--hue-stream-config", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
     parser.add_argument("--power-authority", choices=("owner", "homekit"), default="owner",
@@ -974,11 +1013,9 @@ def main(argv=None, service_info=None):
     native_profile = registry.native_profile()
     if native_profile and not args.hue_config:
         parser.error("A native Hue profile in the light registry requires --hue-config")
-    # A paired Hue area may have no Hue light now: the owner removed them all and
-    # can enroll one again; until then Sync drives the Govee lights only.
+    # A paired bridge may have no Hue light and no area yet (a new pairing), or no
+    # Hue light any more; until one is enrolled, Sync drives the Govee lights only.
     paired_area = registry.to_dict().get("hue", {}).get("area_id")
-    if args.hue_config and not native_profile and paired_area is None:
-        parser.error("--hue-config requires a paired Hue area in the light registry")
     config = {"targets": registry.govee_targets()}
     layout_store = LayoutStore(
         state_dir / "desk-layout.json",
@@ -1131,7 +1168,7 @@ def main(argv=None, service_info=None):
     try:
         area = (HueArea(hue_config, paired_area,
                         pin_file=state_dir / "hue-bridge-id")
-                if hue_config is not None else None)
+                if hue_config is not None and paired_area is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None
     enrollment = LightEnrollment(
@@ -1157,6 +1194,7 @@ def main(argv=None, service_info=None):
             sync_off=sync_off,
             calibration=calibration_session,
             lights=enrollment,
+            lan_address=args.lan_address,
         ),
     )
     video_thread = http_thread = None
@@ -1186,6 +1224,13 @@ def main(argv=None, service_info=None):
             video_thread.start()
         threading.Thread(target=sync_off.run, args=(stop,), daemon=True,
                          name="adapter-sync-off").start()
+        paired_file = state_dir / PAIRED_HUE_FILE
+        if args.hue_config is None or args.hue_config.resolve() == paired_file.resolve():
+            threading.Thread(
+                target=watch_paired_bridge, daemon=True, name="adapter-paired-bridge",
+                args=(paired_file, stop,
+                      (lambda: video.owns_lights()) if video is not None else (lambda: False)),
+            ).start()
         threading.Thread(target=calibration_session.run, args=(stop,), daemon=True,
                          name="adapter-calibration").start()
         transport = GoveeTransport(

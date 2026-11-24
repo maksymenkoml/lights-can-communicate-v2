@@ -1224,17 +1224,82 @@ function foundRows(){
  }
  return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':'<button class="lp-add" data-place="'+e.id+'" aria-label="Place '+esc(e.name)+'" data-tooltip="Place in the room">'+plusIcon+'</button>')+'</div>'}).join('');
 }
+// The physical Hue bridge: Light Studio pairs it after its link button is pressed.
+// The keys stay in the core's private state; the page only sees name and address.
+let hueBridge={state:'unknown'},hueFlow=false,hueFound=null,hueAddress='',hueError='',hueTimer=null,hueBusy=false;
+const HUE_PAIR_S=30;
+const hueGlyph='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="3.5" width="13" height="13" rx="3.5"/><circle cx="10" cy="10" r="2.6"/></svg>';
+const HUE_RESULTS={timeout:'The button was not pressed in time.',failed:'The bridge did not accept the connection.'};
+async function hueCall(path,body){
+ try{const r=await fetch(path,body===undefined?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json().catch(()=>({}))}}
+ catch{return {status:0,body:{}}}
+}
+async function refreshHueBridge(){
+ const r=await hueCall('/api/hue-bridge');
+ const before=hueBridge.state;
+ if(r.status===200&&typeof r.body.state==='string')hueBridge=r.body;
+ // A new pairing restarts the core with the bridge: look for its lamps again.
+ if(before==='pairing'&&hueBridge.state==='paired'){hueFlow=false;startDiscovery()}
+ if(hueBridge.state!=='pairing'&&hueBridge.result&&HUE_RESULTS[hueBridge.result])hueError=HUE_RESULTS[hueBridge.result];
+ clearTimeout(hueTimer);hueTimer=hueBridge.state==='pairing'&&panelKind==='list'?setTimeout(()=>refreshHueBridge().then(paintPanel),1000):null;
+}
+async function findHueBridges(){
+ hueFlow=true;hueFound=null;hueError='';paintPanel();
+ const r=await hueCall('/api/hue-bridge/find',{});
+ hueFound=r.status===200&&Array.isArray(r.body.bridges)?r.body.bridges:[];paintPanel();
+ if(!hueFound.length)$('#lamp-panel [data-hue-input]')?.focus();
+}
+async function pairHueBridge(ip){
+ if(hueBusy)return;hueBusy=true;hueError='';
+ const r=await hueCall('/api/hue-bridge/pair',{ip});hueBusy=false;
+ if(r.status===200){hueBridge=r.body;hueFlow=false;await refreshHueBridge()}
+ else hueError=r.status===400?'Enter an address on this network.':r.status===409?'Another Hue bridge has connected lamps. Remove them first.':'No Hue bridge answers at this address.';
+ paintPanel();
+}
+function hueRows(){
+ const b=hueBridge;if(b.state==='unknown')return '';
+ if(b.state==='configured')return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Set in the service configuration</span></span><span class="lp-status">Connected</span></div>';
+ const error=hueError?'<p class="box-error lp-hue-error" role="alert">'+esc(hueError)+'</p>':'';
+ if(b.state==='pairing'){
+  const left=Math.max(0,Math.min(HUE_PAIR_S,b.left|0)),share=left/HUE_PAIR_S;
+  return '<div class="lp-row hue-pairing"><div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div><span><span class="lp-name">Press the button on the bridge</span><span class="lp-sub">'+esc(b.name)+' · '+esc(b.ip)+'</span></span><button class="lp-confirm-btn" data-hue="cancel">Cancel</button></div>';
+ }
+ // Another bridge, or the same one at a new address, is paired through the same steps;
+ // the core refuses another bridge while its Hue lamps are connected.
+ if(b.state==='paired'&&!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span><button class="lp-connect" data-hue="find" data-tooltip="Pair a bridge again">Change</button></div>'+error;
+ if(!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Connect it to add Hue lamps</span></span><button class="lp-connect" data-hue="find">Connect</button></div>'+error;
+ const rows=(hueFound||[]).map(f=>'<button class="lp-row found" data-hue-ip="'+esc(f.ip)+'"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(f.name)+'</span><span class="lp-sub">'+esc(f.ip)+'</span></span><span class="lp-status">Pair</span></button>').join('');
+ const hint=hueFound===null?'Looking on this network…':hueFound.length?'Found on this network:':'None found. Enter its IP address:';
+ return '<div class="lp-empty">'+hint+'</div>'+rows
+  +'<div class="lp-hue-address"><input data-hue-input type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(hueFound?.length?'Or an IP address':'IP address')+'" aria-label="Hue bridge IP address" value="'+esc(hueAddress)+'"><button class="lp-connect" data-hue="address">Pair</button><button class="lp-confirm-btn" data-hue="close">Cancel</button></div>'+error;
+}
+function hueSection(){
+ if(hueBridge.state==='unknown')return '';
+ return '<div class="lp-section"><span>Hue bridge</span><span>'+(['paired','configured'].includes(hueBridge.state)?'Connected':hueBridge.state==='pairing'?'Pairing':'Not connected')+'</span></div>'+hueRows();
+}
+function hueClick(e){
+ const ip=e.target.closest('[data-hue-ip]');if(ip){e.stopPropagation();pairHueBridge(ip.dataset.hueIp);return true}
+ const b=e.target.closest('[data-hue]');if(!b)return false;e.stopPropagation();
+ const action=b.dataset.hue;
+ if(action==='find')findHueBridges();
+ else if(action==='address')pairHueBridge(hueAddress.trim());
+ else if(action==='close'){hueFlow=false;hueError='';paintPanel()}
+ else if(action==='cancel')hueCall('/api/hue-bridge/cancel',{}).then(r=>{if(r.status===200)hueBridge=r.body;hueError='';paintPanel()});
+ return true;
+}
 function foundCount(){return catalogEntries().filter(e=>!catalogReason(e)).length+removedLamps().length}
-const PANEL_FOCUS=['data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
+const PANEL_FOCUS=['data-hue-input','data-hue','data-hue-ip','data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
 function paintPanel(){
  const p=$('#lamp-panel');if(!p||p.hidden)return;const top=p.scrollTop;
  const active=p.contains(document.activeElement)?document.activeElement:null;
  const focusAttr=active&&PANEL_FOCUS.find(a=>active.hasAttribute(a)),focusValue=focusAttr&&active.getAttribute(focusAttr);
  p.innerHTML='<div class="lp-head"><h2>Lamps</h2><button data-close aria-label="Close" data-tooltip="Close · Esc">'+closeIcon+'</button></div>'
   +'<div class="lp-section"><span>In the room</span><span>'+activeLamps().length+'</span></div>'+roomRows()
-  +'<div class="lp-section" id="lp-found"><span>Found</span><span>'+foundCount()+' available</span></div>'+foundRows();
+  +'<div class="lp-section" id="lp-found"><span>Found</span><span>'+foundCount()+' available</span></div>'+foundRows()
+  +hueSection();
  p.scrollTop=top;
- if(focusAttr)p.querySelector('['+focusAttr+(focusValue?'="'+focusValue+'"':'')+']')?.focus({preventScroll:true});
+ const caret=active?.selectionStart;
+ if(focusAttr){const next=p.querySelector('['+focusAttr+(focusValue?'="'+focusValue+'"':'')+']');next?.focus({preventScroll:true});if(next&&Number.isInteger(caret))next.setSelectionRange(caret,caret)}
 }
 function placePanel(){
  const p=$('#lamp-panel'),a=$('#app').getBoundingClientRect(),r=$('#list-toggle').getBoundingClientRect();
@@ -1261,8 +1326,8 @@ function openAdd(){
 function removeLampById(id){const l=lamps.find(l=>l.id===id);if(!l)return;remember();if(isRole(id))l.enabled=false;else lamps=lamps.filter(x=>x.id!==id);if(selected===id)selected=null;render();tell(l.name+' removed · ⌘Z to restore')}
 function restoreLamp(id){const l=lamps.find(l=>l.id===id&&l.enabled===false);if(!l)return;remember();l.enabled=true;clampFixture(l);selected=l.id;render();tell(l.name+' is back in the layout')}
 function askRemove(id){if(!lamps.some(l=>l.id===id&&l.enabled!==false))return;if(panelKind!=='list')openPanel('list');confirmRemove=id;paintPanel();const p=$('#lamp-panel');p.querySelector('.lp-row.confirm')?.scrollIntoView({block:'nearest'});p.querySelector('[data-remove-cancel]')?.focus()}
-function startDiscovery(){discoverySession++;clearTimeout(discoveryTimer);refreshDiscovery(discoverySession)}
-function stopDiscovery(){discoverySession++;clearTimeout(discoveryTimer);discoveryTimer=null}
+function startDiscovery(){discoverySession++;clearTimeout(discoveryTimer);refreshDiscovery(discoverySession);refreshHueBridge().then(paintPanel)}
+function stopDiscovery(){discoverySession++;clearTimeout(discoveryTimer);discoveryTimer=null;clearTimeout(hueTimer);hueTimer=null}
 async function refreshDiscovery(session){
  if(panelKind!=='list'||session!==discoverySession||discoveryLoading===session)return;
  discoveryLoading=session;
@@ -1598,6 +1663,7 @@ $('#object-menu').addEventListener('click',e=>{const b=e.target.closest('[data-m
 const panel=$('#lamp-panel');
 panel.addEventListener('click',e=>{
  if(e.target.closest('[data-close]')){e.stopPropagation();closePanel();return}
+ if(hueClick(e))return;
  const rm=e.target.closest('[data-remove]');if(rm){e.stopPropagation();confirmRemove=rm.dataset.remove;paintPanel();panel.querySelector('[data-remove-cancel]')?.focus();return}
  if(e.target.closest('[data-remove-cancel]')){e.stopPropagation();const id=confirmRemove;confirmRemove=null;paintPanel();panel.querySelector('[data-list-lamp="'+id+'"]')?.focus();return}
  const ok=e.target.closest('[data-remove-ok]');if(ok){e.stopPropagation();confirmRemove=null;removeLampById(ok.dataset.removeOk);return}
@@ -1606,6 +1672,8 @@ panel.addEventListener('click',e=>{
  const link=e.target.closest('[data-connect]');if(link){e.stopPropagation();const l=lamps.find(l=>l.id===link.dataset.connect);if(l)changeLink(l,'connect');return}
  const row=e.target.closest('[data-list-lamp]');if(row){e.stopPropagation();select(row.dataset.listLamp);paintPanel()}
 });
+panel.addEventListener('input',e=>{if(e.target.matches('[data-hue-input]')){hueAddress=e.target.value;if(hueError){hueError='';e.target.closest('.lp-hue-address')?.nextElementSibling?.remove()}}});
+panel.addEventListener('keydown',e=>{if(e.target.matches('[data-hue-input]')&&e.key==='Enter'){e.preventDefault();e.stopPropagation();pairHueBridge(hueAddress.trim())}},true);
 panel.addEventListener('mouseover',e=>{const row=e.target.closest('[data-list-lamp]');markLamp(row?.dataset.listLamp)});
 panel.addEventListener('mouseleave',()=>markLamp(null));
 panel.addEventListener('keydown',e=>{const row=e.target.closest('[data-list-lamp]');if(row&&e.target===row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();select(row.dataset.listLamp);paintPanel()}if(row&&e.target===row&&['Delete','Backspace'].includes(e.key)){e.preventDefault();e.stopPropagation();askRemove(row.dataset.listLamp)}});

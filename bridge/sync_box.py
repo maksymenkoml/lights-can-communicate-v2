@@ -153,13 +153,21 @@ def mdns_answers_service(packet, service=SERVICE):
     return False
 
 
-def discover(timeout=1.5):
-    """Addresses of the Sync Boxes that answer an mDNS query on this network."""
+def mdns_search(service, timeout=1.5, interface=None):
+    """Addresses that answer an mDNS query for `service`.
+
+    `interface` is the local IPv4 address to send from. A container on several
+    networks needs it: its default route may lead to a network without the
+    devices, and multicast follows the default route.
+    """
     found = []
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-        sock.bind(("", 0))
-        sock.sendto(mdns_query(), MDNS_GROUP)
+        if interface is not None:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
+                            socket.inet_aton(interface))
+        sock.bind((interface or "", 0))
+        sock.sendto(mdns_query(service), MDNS_GROUP)
         end = time.monotonic() + timeout
         while (left := end - time.monotonic()) > 0:
             sock.settimeout(left)
@@ -167,9 +175,14 @@ def discover(timeout=1.5):
                 packet, (ip, _) = sock.recvfrom(9000)
             except (socket.timeout, OSError):
                 break
-            if ip not in found and mdns_answers_service(packet):
+            if ip not in found and mdns_answers_service(packet, service):
                 found.append(ip)
     return found
+
+
+def discover(timeout=1.5, interface=None):
+    """Addresses of the Sync Boxes that answer an mDNS query on this network."""
+    return mdns_search(SERVICE, timeout, interface)
 
 
 class SyncBox:

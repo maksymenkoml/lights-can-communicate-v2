@@ -398,7 +398,10 @@ topology. Credentials stay in their existing separate files.
 An explicit profile controls each client/proxy/relay instance; it overrides old
 credential light/area hints. The runtime contains no physical identity defaults.
 Resource membership, channel order/index and resource types must match live metadata before stream
-start. Configuration without a required profile now fails before initialization.
+start. A registry with Hue lights and no Hue configuration fails before
+initialization. A Hue configuration with no Hue light in the registry is a paired
+bridge without Hue output: the adapter starts, discovery reads the bridge's
+lights, and Sync drives the Govee lights only.
 The adapter creates one proxy per native light and addresses every native light
 by its registry light ID: `/command` (`light`), `/native-power`, `/identify`,
 calibration, Sync Off and `/status` (`"hue": {<light ID>: snapshot}`). The
@@ -413,6 +416,29 @@ parity. Live scene, PS5 Sync and Stop-to-scene checks passed on dev4; all six ro
 calibration, HomeKit identities, pairing and geometry were retained. The NAS was
 not changed. The previous archive/configuration remain available for rollback.
 See `evidence/native-hue-profile.json` for tests, live frame samples and limits.
+
+### Pairing the Hue bridge from Light Studio
+
+The Lamps panel has a Hue bridge section. Connect looks for bridges on the LAN
+(mDNS `_hue._tcp`) or takes a typed private IPv4 address, and Light Studio then
+asks the owner to press the bridge's link button within 30 seconds. Every
+request verifies the bridge certificate against the Signify root CA, and the
+bridge must name the same bridge ID in its answer as in its certificate.
+
+Pairing writes `hue-bridge.json` (mode 0600) in the state directory: the
+address, the bridge ID, its name, the application key, the streaming client key
+and the application ID. It also writes the `hue-bridge-id` pin. No Light Studio
+answer contains a key or the application ID. A bridge with another ID than the
+pinned one is refused while the light registry holds a Hue light.
+
+The service uses `hue-bridge.json` for scenes and the Sync stream only when its
+configuration names neither `hue_config_file` nor `hue_stream_config_file`;
+explicit files always win. With explicit files, the section shows the bridge as
+set in the service configuration and offers no pairing; Light Studio does not
+read those files. The adapter restarts when the file changes (not
+while Sync output owns the lamps), so it starts with the new bridge. Hue lights
+of a newly paired bridge are connected after the core owns an Entertainment
+area (issue #60, stage 2).
 
 ### Native Hue power from the Hue app
 

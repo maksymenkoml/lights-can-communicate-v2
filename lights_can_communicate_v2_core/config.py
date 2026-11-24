@@ -9,6 +9,9 @@ from urllib.parse import urlsplit
 
 from .light_registry import REGISTRY_FILE
 
+# The Hue bridge that Light Studio paired (bridge/hue_bridge_pairing.py).
+PAIRED_HUE_FILE = "hue-bridge.json"
+
 MAX_BYTES = 65536
 GATEWAY_IMAGE = (
     "diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba"
@@ -282,6 +285,8 @@ class ServiceConfig:
             result.append("--hue-play")
         if self.hue_stream_config_file:
             result.extend(["--hue-stream-config", str(self.hue_stream_config_file)])
+        # The adapter is on the LAN and the core network; LAN searches send from here.
+        result.extend(["--lan-address", self.container.adapter_ip])
         result.extend(["--power-authority", self.power_authority])
         return result
 
@@ -341,12 +346,20 @@ def load_config(path):
         raise ConfigError("Hue Play requires a Hue configuration")
     if resolved["hue_stream_config_file"] and not options.get("hue_play", False):
         raise ConfigError("Native video requires Hue Play")
+    hue_play = options.get("hue_play", False)
+    # Without Hue files of its own, the service uses the bridge that Light Studio
+    # paired, for scenes and for the Sync stream. Explicit files always win.
+    paired = state_dir / PAIRED_HUE_FILE
+    if (resolved["hue_config_file"] is None and resolved["hue_stream_config_file"] is None
+            and paired.is_file()):
+        resolved["hue_config_file"] = resolved["hue_stream_config_file"] = paired
+        hue_play = True
     return ServiceConfig(
         state_dir=state_dir,
         bind=bind,
         port=port,
         gradient=options.get("gradient", False),
-        hue_play=options.get("hue_play", False),
+        hue_play=hue_play,
         power_authority=options.get("power_authority", "owner"),
         setup=setup,
         gateway=gateway,
