@@ -347,12 +347,18 @@ function lampFrame(l){
  if(l.form==='strip'){const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;return {x,y,left:x-w-24,right:x+w+24,top:y-h-24,bottom:y+h+6,ref:y}}
  return l.vertical?{x,y,left:x-23,right:x+23,top:y-55,bottom:y+55,ref:y}:{x,y,left:x-55,right:x+55,top:y-23,bottom:y+23,ref:y};
 }
+// Labels in the scene (chips, dimension tags, the placement label) keep the UI's type size:
+// the scene scales with the window, so each label is drawn at one screen pixel per unit
+// around its anchor. labelUnit is the scene units per screen pixel at the last render.
+let labelUnit=1;
+function stageUnit(){const m=$('#stage').getScreenCTM?.(),a=m&&m.a;return a>0?1/a:1}
+function atScreenSize(x,y,inner){return '<g transform="translate('+x+' '+y+') scale('+(+labelUnit.toFixed(4))+') translate('+(-x)+' '+(-y)+')">'+inner+'</g>'}
 // Every object chip has one shape. A lamp chip is one button (name, status, chevron) that
 // opens the lamp card; other actions (rotate, fade) sit after a divider.
 function chipSvg(centerX,bottom,title,status,actions){
  const more=actions.some(a=>a.id==='more'),rest=actions.filter(a=>a.id!=='more'),bw=24;
- const main=title.length*6.6+(more?14:18)+(status?status.length*5.9+8:0)+(more?20:0),w=main+(rest.length?7+rest.length*bw:0),x=centerX-w/2;
- let out='<g class="obj-chip" transform="translate('+x+' '+(bottom-24)+')"><rect width="'+w+'" height="24" rx="5"/>';
+ const main=title.length*6.9+(more?14:18)+(status?status.length*6.2+8:0)+(more?20:0),w=main+(rest.length?7+rest.length*bw:0);
+ let out='<g class="obj-chip" transform="translate('+centerX+' '+bottom+') scale('+(+labelUnit.toFixed(4))+') translate('+(-w/2)+' -24)"><rect width="'+w+'" height="24" rx="5"/>';
  if(more)out+='<g class="chip-main'+(menuOpen?' open':'')+'" data-chip-action="more" role="button" aria-label="Lamp settings" aria-expanded="'+menuOpen+'"><rect class="chip-hit" x="1" y="1" width="'+(main-2)+'" height="22" rx="4"/>';
  out+='<text x="10" y="15.8">'+esc(title)+(status?'<tspan class="chip-status" dx="7">'+esc(status)+'</tspan>':'')+'</text>';
  if(more)out+='<g class="chev" transform="translate('+(main-13)+' 12)"><path d="M-3.2 -1.4 0 1.6 3.2 -1.4"/></g></g>';
@@ -362,8 +368,8 @@ function chipSvg(centerX,bottom,title,status,actions){
 }
 function editAttrs(edit,value){return edit?' data-edit="'+edit+'" data-value="'+value+'" data-tooltip="Type an exact value"':''}
 function tagSvg(x,y,text,edit,value,anchor='middle'){
- const w=text.length*6+8,x0=anchor==='end'?x-w:anchor==='start'?x:x-w/2;
- return '<g class="tag'+(edit?' editable':'')+'"'+editAttrs(edit,value)+'><rect class="tag-hit" x="'+(x0-3)+'" y="'+(y-10)+'" width="'+(w+6)+'" height="20" rx="6"/><text class="tag-text" x="'+(anchor==='end'?x-4:anchor==='start'?x+4:x)+'" y="'+(y+3.5)+'" text-anchor="'+anchor+'">'+esc(text)+'</text></g>';
+ const w=text.length*6.3+8,x0=anchor==='end'?x-w:anchor==='start'?x:x-w/2;
+ return atScreenSize(x,y,'<g class="tag'+(edit?' editable':'')+'"'+editAttrs(edit,value)+'><rect class="tag-hit" x="'+(x0-3)+'" y="'+(y-10)+'" width="'+(w+6)+'" height="20" rx="6"/><text class="tag-text" x="'+(anchor==='end'?x-4:anchor==='start'?x+4:x)+'" y="'+(y+4)+'" text-anchor="'+anchor+'">'+esc(text)+'</text></g>');
 }
 function vDim(x,y1,y2){return Math.abs(y2-y1)<2?'':'<path class="dim" d="M'+(x-4)+' '+y1+'h8M'+(x-4)+' '+y2+'h8M'+x+' '+y1+'V'+y2+'"/>'}
 function hDim(x1,x2,y){return Math.abs(x2-x1)<2?'':'<path class="dim" d="M'+x1+' '+(y-4)+'v8M'+x2+' '+(y-4)+'v8M'+x1+' '+y+'H'+x2+'"/>'}
@@ -613,12 +619,13 @@ function applyFocus(){
  requestAnimationFrame(()=>{nodes.forEach(n=>n.style.transition='');requestAnimationFrame(()=>changed.forEach(([n,want])=>n.style.opacity=want))});
 }
 function renderBaseScene(){
+ updateStageViewport();labelUnit=stageUnit();
  const g=sceneGeometry(),{cx}=g;
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" x="-200%" y="-100%" width="500%" height="300%"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
  out+=syncVisibilitySvg();
  out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
- $('#stage').innerHTML=out;applyFocus();updateStageViewport();
+ $('#stage').innerHTML=out;applyFocus();
 }
 const RAY_MS=280;
 let rayBorn=new Map(),rayGhosts=[];
@@ -1189,7 +1196,9 @@ window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cal){e.preventDefault
 window.addEventListener('pagehide',()=>{if(cal?.mode==='test')calPost('/api/calibration/end',{})});
 // A resized scene moves the object; the card follows it.
 window.addEventListener('resize',placeOpenMenu);
-if(typeof ResizeObserver==='function')new ResizeObserver(placeOpenMenu).observe($('#stage'));
+// A new window size changes the scene scale: labels are drawn again at their type size.
+function rescaleLabels(){if(!drag&&Math.abs(stageUnit()/labelUnit-1)>.01)renderScene()}
+if(typeof ResizeObserver==='function')new ResizeObserver(()=>{rescaleLabels();placeOpenMenu()}).observe($('#stage'));
 // A double click on a lamp opens its card.
 $('#stage').addEventListener('dblclick',e=>{
  const node=e.target.closest('[data-lamp]');if(!node||cal||menuOpen)return;
@@ -1387,7 +1396,7 @@ function paintPlacementGhost(position){
  if(!ghost){ghost=document.createElementNS('http://www.w3.org/2000/svg','g');ghost.id='placement-ghost';ghost.classList.add('placement-ghost');ghost.setAttribute('aria-hidden','true');ghost.style.pointerEvents='none';$('#stage').append(ghost)}
  const lamp={id:'pending-placement',name:pendingDevice.name,model:pendingDevice.model,shape:pendingDevice.shape,form:pendingDevice.form,zones:pendingDevice.zones,x:position.x,h:position.h,scale:80,unbound:true,vertical:false};
  const f=lampFrame(lamp),off=position.x===0?'0 cm':(position.x>0?'+':'−')+Math.abs(position.x)+' cm';
- ghost.innerHTML=lampSvg(lamp)+'<text class="ghost-label" x="'+f.x+'" y="'+(f.top-10)+'">'+esc(pendingDevice.name)+'<tspan class="sub"> · '+off+'</tspan></text>';
+ ghost.innerHTML=lampSvg(lamp)+atScreenSize(f.x,f.top-10,'<text class="ghost-label" x="'+f.x+'" y="'+(f.top-10)+'">'+esc(pendingDevice.name)+'<tspan class="sub"> · '+off+'</tspan></text>');
 }
 function placeDevice(entry,position){
  if(lamps.length>=MAX_ROWS||lamps.some(l=>l.id===entry.id))return;

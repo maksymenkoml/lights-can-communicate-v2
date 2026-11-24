@@ -1661,3 +1661,14 @@ test('every text button, icon button, confirmation and field comes from the shar
  for(const old of ['lp-confirm-btn','lp-connect','card-confirm','rc-confirm','rc-input','box-retry','card-reset','box-error'])
   assert.equal(css.includes(old)||code.includes(old),false,old+' is replaced by the shared controls');
 });
+
+test('the page uses three type sizes and scene labels keep them at any window size',async()=>{
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ assert.match(css,/--fs-title:15px;--fs-ui:13px;--fs-small:12px/);
+ const raw=[...css.matchAll(/([^{}]+)\{[^{}]*font-size:(\d[\d.]*px)/g)].map(m=>m[1].trim()+' '+m[2]);
+ // Only the "!" glyphs of the draft status and the health badge keep a size of their own.
+ assert.deepEqual(raw.map(r=>r.split(' ').pop()).sort(),['10px','11px'],'font sizes outside the scale: '+raw.join(', '));
+ const app=await harness();
+ assert.match(app.run("labelUnit=.5,chipSvg(100,200,'Govee Left','',[])"),/translate\(100 200\) scale\(0\.5\)/,'a chip is drawn at screen size around its anchor');
+ assert.match(app.run("labelUnit=.5,tagSvg(40,60,'80 cm')"),/^<g transform="translate\(40 60\) scale\(0\.5\) translate\(-40 -60\)">/,'so is a dimension tag');
+});
