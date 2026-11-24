@@ -873,6 +873,23 @@ function setMode(m){
  animation.onfinish=()=>{if(modeFade===fade)modeFade=null;layer.remove()};
 }
 
+// ------------------------------------------------------ shared controls --
+// Every text button, icon button, confirmation and text field is built here and styled
+// once ("Shared controls" in style.css), so the same control looks the same everywhere.
+// Attribute values are escaped; labels and icons are HTML.
+function attrs(a){return Object.entries(a).filter(([,v])=>v!==false&&v!=null).map(([k,v])=>' '+k+(v===true?'':'="'+esc(String(v))+'"')).join('')}
+// kind: '' (secondary), 'primary', 'danger' or 'quiet', plus 'sm' in rows and confirmations
+// and 'square' for an icon-only button.
+function btn(label,a={},kind=''){return '<button type="button" class="btn'+(kind?' '+kind:'')+'"'+attrs(a)+'>'+label+'</button>'}
+function iconBtn(icon,label,a={},kind=''){return '<button type="button" class="icon-btn'+(kind?' '+kind:'')+'" aria-label="'+esc(label)+'"'+attrs(a)+'>'+icon+'</button>'}
+// A destructive step asks once, in place: the question, then Cancel and the red action.
+function confirmHtml({text,sub='',cancel,ok,okLabel,cls='',a={},label='Confirm'}){
+ return '<div class="confirm'+(cls?' '+cls:'')+'" role="group" aria-label="'+esc(label)+'"'+attrs(a)+'><span class="confirm-text"><b>'+text+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</span>'
+  +btn('Cancel',cancel,'sm')+btn(okLabel,ok,'sm danger')+'</div>';
+}
+function field(a,size=''){return '<input type="text" class="field'+(size?' '+size:'')+'"'+attrs(a)+'>'}
+function ipField(a){return field({inputmode:'decimal',maxlength:15,autocomplete:'off',spellcheck:'false',...a})}
+
 // ---------------------------------------------------------- lamp card --
 function zonesText(n){return n+' '+(n===1?'zone':'zones')}
 function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
@@ -891,7 +908,7 @@ function seg(prefix,options,value,disabled){return '<div class="seg" role="group
 function calSummary(l){return corr(l)+'%'+(goveeLight(l.id)&&calibrated(l.calibration)?' · color':'')}
 function connectPromptHtml(l){
  return '<div class="card-head"><div class="card-prompt">Connect '+esc(l.name)+'?</div><div class="card-sub">Scenes and Sync will drive it</div></div>'
-  +'<div class="card-foot"><span class="card-gap"></span><button data-menu="connect-later">Not now</button><button class="primary" data-menu="connect-now">Connect</button></div>';
+  +'<div class="card-foot"><span class="card-gap"></span>'+btn('Not now',{'data-menu':'connect-later'})+btn('Connect',{'data-menu':'connect-now'},'primary')+'</div>';
 }
 function connectedField(l){
  if(!linkable(l.id))return '';
@@ -1007,8 +1024,8 @@ function setLamp(l,change,message){remember();change(l);render();if(message)tell
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
- if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
- if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
+ if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove '+esc(l.name)+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
+ if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
  if(id==='connect-now'){connectPrompt=null;refreshCard();changeLink(l,'connect');return true}
  if(id==='connect-later'){connectPrompt=null;closeObjectMenu();return true}
@@ -1017,7 +1034,7 @@ function menuAction(id){
   if(l.unbound){changeLink(l,'connect');return true}
   const f=menu.querySelector('[data-connected-field]');
   // A migrated lamp's HomeKit accessory and Hue app light stay, without a response.
-  if(f)f.outerHTML='<div class="card-confirm" data-connected-field><span>Disconnect '+esc(l.name)+'?'+(realDevice(l.id)?'':'<small>HomeKit will show it as not responding</small>')+'</span><button data-menu="disconnect-cancel">Cancel</button><button class="danger" data-menu="disconnect-ok">Disconnect</button></div>';
+  if(f)f.outerHTML=confirmHtml({text:'Disconnect '+esc(l.name)+'?',sub:realDevice(l.id)?'':'HomeKit will show it as not responding',cancel:{'data-menu':'disconnect-cancel'},ok:{'data-menu':'disconnect-ok'},okLabel:'Disconnect',a:{'data-connected-field':true}});
   menu.querySelector('[data-menu="disconnect-cancel"]')?.focus();return true;
  }
  if(id==='disconnect-cancel'){const f=menu.querySelector('[data-connected-field]');if(f)f.outerHTML=connectedField(l);return true}
@@ -1119,15 +1136,15 @@ function calSlider(key,label,min,max,value,text,sub,ends){
 }
 const calText=(k,v)=>k==='correction'?v+'%':k==='lowLight'?String(v):(v>0?'+':v<0?'−':'')+Math.abs(v);
 function calPageHtml(l){
- const c=cal;let html='<div class="card-back"><button data-menu="cal-back" aria-label="Back">'+iconSvg('back')+'</button><div><b>Calibrate</b><div class="card-sub">'+esc(l.name)+'</div></div></div>';
+ const c=cal;let html='<div class="card-back">'+iconBtn(iconSvg('back'),'Back',{'data-menu':'cal-back'})+'<div><b>Calibrate</b><div class="card-sub">'+esc(l.name)+'</div></div></div>';
  if(c.mode==='test'){
   const refs=calReferences(l.id).map(r=>'<option value="'+r.id+'"'+(r.id===c.reference?' selected':'')+(liveLampOff(r.id)?' disabled':'')+'>'+esc(r.name)+(liveLampOff(r.id)?' (off)':'')+'</option>').join('');
   html+='<label class="card-field"><span>Compare with</span><span class="card-select"><select class="cal-ref" aria-label="Compare with">'+refs+'</select>'+iconSvg('down')+'</span></label>'
    +'<div class="card-field"><span>Test light</span>'+seg('cal-level-',[['bright','Bright'],['dim','Dim']],c.level)+'</div>';
  }
  html+='<div class="card-sliders">'+calSlider('correction','Brightness',0,100,c.correction,calText('correction',c.correction),c.view==='sync'?'with Sync':'without Sync');
- if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="card-note">Turn Sync off to calibrate color</p>':'';
- return html+'</div><div class="card-foot"><button class="card-reset" data-menu="cal-reset"'+(calChanged(c)?'':' disabled')+'>'+iconSvg('reset')+'Reset</button><span class="card-gap"></span><button data-menu="cal-cancel">Cancel</button><button class="primary" data-menu="cal-save">Save</button></div>';
+ if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="note card-note">Turn Sync off to calibrate color</p>':'';
+ return html+'</div><div class="card-foot">'+btn(iconSvg('reset')+'Reset',{'data-menu':'cal-reset',disabled:!calChanged(c)},'quiet')+'<span class="card-gap"></span>'+btn('Cancel',{'data-menu':'cal-cancel'})+btn('Save',{'data-menu':'cal-save'},'primary')+'</div>';
 }
 function setSliderView(input,k,v){
  const [lo,hi]=k==='correction'?[0,100]:CALIBRATION[k];
@@ -1214,7 +1231,7 @@ function paintSwatches(){
 }
 function lampRowStatus(l){
  const link=linkState(l);if(link)return '<span class="lp-status">'+(link==='connect'?'Connecting…':'Disconnecting…')+'</span>';
- if(l.unbound)return linkable(l.id)?'<button class="lp-connect" data-connect="'+l.id+'">Connect</button>':'<span class="lp-status">Not connected</span>';
+ if(l.unbound)return linkable(l.id)?btn('Connect',{'data-connect':l.id},'sm'):'<span class="lp-status">Not connected</span>';
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
  if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
@@ -1223,21 +1240,21 @@ function lampRowStatus(l){
 }
 function roomRows(){
  return activeLamps().map(l=>confirmRemove===l.id
-  ?'<div class="lp-row lamp-row confirm" role="group" aria-label="Confirm removal"><span><span class="lp-name">Remove '+esc(l.name)+'?</span><span class="lp-sub">⌘Z brings it back</span></span><button class="lp-confirm-btn" data-remove-cancel>Cancel</button><button class="lp-confirm-btn danger" data-remove-ok="'+l.id+'">Remove</button></div>'
-  :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+'<button class="lp-remove" data-remove="'+l.id+'" aria-label="Remove '+esc(l.name)+'" data-tooltip="Remove from layout">'+trashIcon+'</button></div>').join('')
+  ?confirmHtml({text:'Remove '+esc(l.name)+'?',sub:'⌘Z brings it back',cancel:{'data-remove-cancel':true},ok:{'data-remove-ok':l.id},okLabel:'Remove',cls:'lp-row lamp-row',label:'Confirm removal'})
+  :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+iconBtn(trashIcon,'Remove '+l.name,{'data-remove':l.id,'data-tooltip':'Remove from layout'},'danger lp-remove')+'</div>').join('')
   +'<div class="lp-divider"></div>'
   +'<button class="lp-row'+(selected==='desk'?' active':'')+'" data-list-lamp="desk"><span class="lp-glyph">'+glyph.desk+'</span><span><span class="lp-name">Desk</span><span class="lp-sub">'+environment.width+' × '+environment.height+' cm</span></span></button>'
   +'<button class="lp-row'+(selected==='monitor'?' active':'')+'" data-list-lamp="monitor"><span class="lp-glyph">'+glyph.monitor+'</span><span><span class="lp-name">Monitor</span><span class="lp-sub">'+environment.inches+'″</span></span></button>';
 }
 function foundRows(){
- const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span><button class="lp-add" data-restore="'+l.id+'" aria-label="Return '+esc(l.name)+'" data-tooltip="Return to its place">'+plusIcon+'</button></div>').join('');
+ const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+btn(plusIcon,{'data-restore':l.id,'aria-label':'Return '+l.name,'data-tooltip':'Return to its place'},'sm square')+'</div>').join('');
  const items=catalogEntries();
  if(!items.length&&!back){
   if(!discovery)return '<div class="lp-empty">Searching for lamps…</div>';
   if(discovery.connected!==true)return '<div class="lp-empty">Lamp search is unavailable</div>';
   return '<div class="lp-empty">Every found lamp is in the room</div>';
  }
- return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':'<button class="lp-add" data-place="'+e.id+'" aria-label="Place '+esc(e.name)+'" data-tooltip="Place in the room">'+plusIcon+'</button>')+'</div>'}).join('');
+ return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
 }
 // The physical Hue bridge: Light Studio pairs it after its link button is pressed.
 // The keys stay in the core's private state; the page only sees name and address.
@@ -1274,19 +1291,19 @@ async function pairHueBridge(ip){
 function hueRows(){
  const b=hueBridge;if(b.state==='unknown')return '';
  if(b.state==='configured')return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Set in the service configuration</span></span><span class="lp-status">Connected</span></div>';
- const error=hueError?'<p class="box-error lp-hue-error" role="alert">'+esc(hueError)+'</p>':'';
+ const error=hueError?'<p class="note bad lp-hue-error" role="alert">'+boxSvg('alert')+'<span>'+esc(hueError)+'</span></p>':'';
  if(b.state==='pairing'){
   const left=Math.max(0,Math.min(HUE_PAIR_S,b.left|0)),share=left/HUE_PAIR_S;
-  return '<div class="lp-row hue-pairing"><div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div><span><span class="lp-name">Press the button on the bridge</span><span class="lp-sub">'+esc(b.name)+' · '+esc(b.ip)+'</span></span><button class="lp-confirm-btn" data-hue="cancel">Cancel</button></div>';
+  return '<div class="lp-row hue-pairing"><div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div><span><span class="lp-name">Press the button on the bridge</span><span class="lp-sub">'+esc(b.name)+' · '+esc(b.ip)+'</span></span>'+btn('Cancel',{'data-hue':'cancel'},'sm')+'</div>';
  }
  // Another bridge, or the same one at a new address, is paired through the same steps;
  // the core refuses another bridge while its Hue lamps are connected.
- if(b.state==='paired'&&!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span><button class="lp-connect" data-hue="find" data-tooltip="Pair a bridge again">Change</button></div>'+error;
- if(!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Connect it to add Hue lamps</span></span><button class="lp-connect" data-hue="find">Connect</button></div>'+error;
+ if(b.state==='paired'&&!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span>'+btn('Change',{'data-hue':'find','data-tooltip':'Pair a bridge again'},'sm')+'</div>'+error;
+ if(!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Connect it to add Hue lamps</span></span>'+btn('Connect',{'data-hue':'find'},'sm')+'</div>'+error;
  const rows=(hueFound||[]).map(f=>'<button class="lp-row found" data-hue-ip="'+esc(f.ip)+'"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(f.name)+'</span><span class="lp-sub">'+esc(f.ip)+'</span></span><span class="lp-status">Pair</span></button>').join('');
  const hint=hueFound===null?'Looking on this network…':hueFound.length?'Found on this network:':'None found. Enter its IP address:';
  return '<div class="lp-empty">'+hint+'</div>'+rows
-  +'<div class="lp-hue-address"><input data-hue-input type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(hueFound?.length?'Or an IP address':'IP address')+'" aria-label="Hue bridge IP address" value="'+esc(hueAddress)+'"><button class="lp-connect" data-hue="address">Pair</button><button class="lp-confirm-btn" data-hue="close">Cancel</button></div>'+error;
+  +'<div class="lp-hue-address">'+ipField({'data-hue-input':true,placeholder:hueFound?.length?'Or an IP address':'IP address','aria-label':'Hue bridge IP address',value:hueAddress})+btn('Pair',{'data-hue':'address'},'primary')+btn('Cancel',{'data-hue':'close'})+'</div>'+error;
 }
 function hueSection(){
  if(hueBridge.state==='unknown')return '';
@@ -1308,7 +1325,7 @@ function paintPanel(){
  const p=$('#lamp-panel');if(!p||p.hidden)return;const top=p.scrollTop;
  const active=p.contains(document.activeElement)?document.activeElement:null;
  const focusAttr=active&&PANEL_FOCUS.find(a=>active.hasAttribute(a)),focusValue=focusAttr&&active.getAttribute(focusAttr);
- p.innerHTML='<div class="lp-head"><h2>Lamps</h2><button data-close aria-label="Close" data-tooltip="Close · Esc">'+closeIcon+'</button></div>'
+ p.innerHTML='<div class="lp-head"><h2>Lamps</h2>'+iconBtn(closeIcon,'Close',{'data-close':true,'data-tooltip':'Close · Esc'})+'</div>'
   +'<div class="lp-section"><span>In the room</span><span>'+activeLamps().length+'</span></div>'+roomRows()
   +'<div class="lp-section" id="lp-found"><span>Found</span><span>'+foundCount()+' available</span></div>'+foundRows()
   +hueSection();
@@ -1811,24 +1828,24 @@ function boxCardHtml(){
  if(boxCard==='info'){
   return '<div class="box-info">'+boxSvg('box')+'<div><b>'+esc(box.name||'Sync Box')+'</b><span>'+esc(box.ip||'')+'</span></div></div>'
    +'<div class="card-list card-end">'+(boxForget
-    ?'<div class="card-confirm"><span>Forget this Sync Box?</span><button data-box="forget-cancel">Cancel</button><button class="danger" data-box="forget-yes">Forget</button></div>'
+    ?confirmHtml({text:'Forget this Sync Box?',cancel:{'data-box':'forget-cancel'},ok:{'data-box':'forget-yes'},okLabel:'Forget'})
     :'<button class="card-row danger" data-box="forget">'+iconSvg('remove')+'<span>Forget Sync Box</span></button>')+'</div>';
  }
- const error=boxError?'<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+esc(boxError)+'</span></p>':'';
+ const error=boxError?'<p class="note bad" role="alert">'+boxSvg('alert')+'<span>'+esc(boxError)+'</span></p>':'';
  let first,second;
  if(boxPairing()){
   first=boxStep(1,'done','Choose your Sync Box','<span>'+esc(box.name+' · '+box.ip)+'</span>');
   second=box.state==='connecting'
    ?boxStep(2,'active','Hold the button on the box','<div class="box-hold">'+boxRing(box.remaining??BOX_PAIR_S)+'<span>Press and hold it for about 3 seconds, until its light blinks green.</span></div>')
-   :boxStep(2,'active','Hold the button on the box','<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+(box.state==='failed'?'Light Studio could not save the connection.':'The button was not held in time.')+'</span></p><button class="box-retry" data-box="retry">Try again</button>');
+   :boxStep(2,'active','Hold the button on the box','<p class="note bad" role="alert">'+boxSvg('alert')+'<span>'+(box.state==='failed'?'Light Studio could not save the connection.':'The button was not held in time.')+'</span></p>'+btn('Try again',{'data-box':'retry'}));
  }else{
   const rows=(boxFound||[]).map(b=>'<button class="card-row" data-box-ip="'+esc(b.ip)+'">'+boxSvg('box')+'<span>'+esc(b.name)+'</span><em>'+esc(b.ip)+'</em>'+iconSvg('next')+'</button>').join('');
   const hint=boxFound===null?'Looking on this network…':boxFound.length?'Found on this network:':'None found. Enter its IP address:';
   first=boxStep(1,'active','Choose your Sync Box','<span>'+hint+'</span>'+(rows?'<div class="card-list">'+rows+'</div>':'')
-   +'<div class="box-address"><input id="box-ip" type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(boxFound?.length?'Or an IP address':'IP address')+'" aria-label="Sync Box IP address" value="'+esc(boxAddress)+'"><button data-box="address">Connect</button></div>'+error);
+   +'<div class="box-address">'+ipField({id:'box-ip',placeholder:boxFound?.length?'Or an IP address':'IP address','aria-label':'Sync Box IP address',value:boxAddress})+btn('Connect',{'data-box':'address'},'primary')+'</div>'+error);
   second=boxStep(2,'todo','Hold the button on the box');
  }
- return '<ol class="box-steps">'+first+second+'</ol><div class="card-foot"><span class="card-gap"></span><button data-box="close">Cancel</button></div>';
+ return '<ol class="box-steps">'+first+second+'</ol><div class="card-foot"><span class="card-gap"></span>'+btn('Cancel',{'data-box':'close'})+'</div>';
 }
 function paintBoxCard(){
  const card=$('#box-card');if(!card)return;
@@ -1883,7 +1900,7 @@ function boxClick(e){
  else if(id==='forget-yes'){closeBoxCard(false);boxPost('forget').then(r=>{applyBox(r.body);if(r.status===200)boxSay('Sync Box forgotten','ok')})}
 }
 $('#sync-box').addEventListener('click',boxClick);
-$('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .box-error')?.remove()}}});
+$('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .note.bad')?.remove()}}});
 $('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
 // The connect card stays open while the owner pairs the box; Cancel or Esc closes it.
 document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box'))closeBoxCard()},true);
@@ -2013,22 +2030,22 @@ function roomCount(id){
  const n=layout?(layout.devices||[]).filter(d=>d.enabled!==false).length:null;
  return n===null?'':n?n+(n===1?' lamp':' lamps'):'No lamps';
 }
-function roomNoteHtml(where){return roomNote&&roomNote.room===where?'<p class="rc-note" role="alert">'+esc(roomNote.text)+'</p>':''}
+function roomNoteHtml(where){return roomNote&&roomNote.room===where?'<p class="note bad rc-note" role="alert">'+esc(roomNote.text)+'</p>':''}
 function roomCard(r){
  const here=r.id===currentRoom,box=roomsInfo?.sync===r.id;
- if(roomConfirm===r.id)return '<div class="rc-card confirm"><div class="rc-confirm"><span>Delete '+esc(r.name)+'?</span><button data-room-cancel>Cancel</button><button class="danger" data-room-delete-ok="'+r.id+'">Delete</button></div>'+roomNoteHtml(r.id)+'</div>';
- const name=roomEditing===r.id?'<input class="rc-input" data-room-name="'+r.id+'" maxlength="40" value="'+esc(r.name)+'" aria-label="Room name">':'<span class="rc-name">'+esc(r.name)+'</span>';
+ if(roomConfirm===r.id)return '<div class="rc-card confirm">'+confirmHtml({text:'Delete '+esc(r.name)+'?',cancel:{'data-room-cancel':true},ok:{'data-room-delete-ok':r.id},okLabel:'Delete',cls:'stacked'})+roomNoteHtml(r.id)+'</div>';
+ const name=roomEditing===r.id?field({'data-room-name':r.id,maxlength:40,value:r.name,'aria-label':'Room name'},'sm'):'<span class="rc-name">'+esc(r.name)+'</span>';
  return '<div class="rc-card'+(here?' current':'')+'" draggable="'+(roomEditing?'false':'true')+'" data-room-card="'+r.id+'">'
   +'<button class="rc-pick" data-room-go="'+r.id+'" aria-label="'+esc(r.name)+(here?' (this room)':'')+'"'+(here?' aria-current="true"':'')+'>'+roomThumb(here?pack():roomLayouts[r.id])+'</button>'
   +'<div class="rc-foot">'+(box?'<span class="rc-box" data-tooltip="Sync Box">'+boxIcon+'</span>':'')+'<div class="rc-text">'+name+'<span class="rc-sub">'+roomCount(r.id)+'</span></div></div>'
-  +'<span class="rc-acts"><button data-room-rename="'+r.id+'" aria-label="Rename '+esc(r.name)+'" data-tooltip="Rename">'+roomSvg('pen')+'</button><button data-room-delete="'+r.id+'" aria-label="Delete '+esc(r.name)+'" data-tooltip="Delete">'+roomSvg('trash')+'</button></span>'
+  +'<span class="rc-acts">'+iconBtn(roomSvg('pen'),'Rename '+r.name,{'data-room-rename':r.id,'data-tooltip':'Rename'})+iconBtn(roomSvg('trash'),'Delete '+r.name,{'data-room-delete':r.id,'data-tooltip':'Delete'},'danger')+'</span>'
   +roomNoteHtml(r.id)+'</div>';
 }
 function paintRooms(){
  const node=$('#room-cards');if(!roomsOpen){node.hidden=true;return}
  $('#room-switch').setAttribute('aria-expanded','true');
  const list=roomsInfo?roomsInfo.rooms:[{id:currentRoom||FIRST_ROOM,name:room}];
- const add=roomAdding?'<div class="rc-card rc-add editing"><input class="rc-input" data-room-new maxlength="40" placeholder="Room name" aria-label="New room name"><button class="lp-connect" data-room-create>Add</button>'+roomNoteHtml('new')+'</div>'
+ const add=roomAdding?'<div class="rc-card rc-add editing">'+field({'data-room-new':true,maxlength:40,placeholder:'Room name','aria-label':'New room name'},'sm')+btn('Add',{'data-room-create':true},'sm primary')+roomNoteHtml('new')+'</div>'
   :list.length<10?'<button class="rc-card rc-add" data-room-add>'+roomSvg('plus')+'<span>Add room</span></button>':'';
  node.innerHTML='<div class="rc-grid">'+list.map(roomCard).join('')+(roomsInfo?add:'')+'</div>'+roomNoteHtml('all')+(roomsInfo&&list.length>1?'<p class="rc-hint">Drag a card to change the order</p>':'');
  node.hidden=false;
@@ -2068,8 +2085,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&roomsOpen&&!e.targe
 function movable(l){return !!roomsInfo&&roomsInfo.rooms.length>1&&linkable(l.id)&&l.enabled!==false}
 function movePageHtml(l){
  const rows=roomsInfo.rooms.filter(r=>r.id!==currentRoom).map(r=>'<button class="card-row" data-menu="move-to-'+r.id+'">'+iconSvg('room')+'<span>'+esc(r.name)+'</span>'+(roomsInfo.sync===r.id?'<em>Sync Box</em>':'')+'</button>').join('');
- return '<div class="card-back"><button data-menu="move-back" aria-label="Back">'+iconSvg('back')+'</button><div><b>Move to room</b><div class="card-sub">'+esc(l.name)+'</div></div></div>'
-  +'<div class="card-list">'+rows+'</div><p class="card-refusal" data-move-note role="alert" hidden></p>';
+ return '<div class="card-back">'+iconBtn(iconSvg('back'),'Back',{'data-menu':'move-back'})+'<div><b>Move to room</b><div class="card-sub">'+esc(l.name)+'</div></div></div>'
+  +'<div class="card-list">'+rows+'</div><p class="note bad card-refusal" data-move-note role="alert" hidden></p>';
 }
 function openMovePage(l){
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');if(!pages||!movable(l))return;

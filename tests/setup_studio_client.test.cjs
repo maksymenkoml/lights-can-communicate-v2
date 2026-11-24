@@ -493,7 +493,7 @@ test('the lamp card removes with a confirmation and sets Own light during Sync',
  await app.click(app.$('#object-menu').querySelector('[data-menu="role-sync"]'));await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices[5].syncRole,undefined);
  await app.click(app.$('#object-menu').querySelector('[data-menu="remove"]'));
- assert.match(app.$('#object-menu').querySelector('.card-confirm').textContent,/Remove Hue Play Right\?/);
+ assert.match(app.$('#object-menu').querySelector('.confirm').textContent,/Remove Hue Play Right\?/);
  await app.click(app.$('#object-menu').querySelector('[data-menu="remove-ok"]'));await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices[5].enabled,false);
 });
@@ -1174,11 +1174,11 @@ test('an address can be typed, and a wrong one is explained at its step',async()
  assert.match(card.textContent,/None found\. Enter its IP address/);
  const input=card.querySelector('#box-ip');input.value='8.8.8.8';app.dispatch(input,'input');
  await app.press(input,'Enter');
- assert.match(card.querySelector('.box-error').textContent,/Enter an address on this network/);
+ assert.match(card.querySelector('.note.bad').textContent,/Enter an address on this network/);
  assert.equal(app.$('#toast').textContent,'');
  const again=card.querySelector('#box-ip');assert.equal(again.value,'8.8.8.8','the typed address stays');
  again.value=' 192.168.10.101 ';app.dispatch(again,'input');
- assert.equal(card.querySelector('.box-error'),null,'typing clears the error');
+ assert.equal(card.querySelector('.note.bad'),null,'typing clears the error');
  await app.click(card.querySelector('[data-box="address"]'));
  assert.deepEqual(app.requests.box.at(-1).body,{ip:'192.168.10.101'});
  assert.match(card.textContent,/Hold the button/);
@@ -1339,9 +1339,9 @@ test('Connected off asks inline, then removes the lamp from the core',async()=>{
  const menu=app.$('#object-menu');
  assert.equal(menu.querySelector('[data-menu="connected"]').getAttribute('aria-checked'),'true');
  await app.click(menu.querySelector('[data-menu="connected"]'));
- assert.match(menu.querySelector('.card-confirm').textContent,/Disconnect Third <lamp>\?/);
+ assert.match(menu.querySelector('.confirm').textContent,/Disconnect Third <lamp>\?/);
  await app.click(menu.querySelector('[data-menu="disconnect-cancel"]'));
- assert.equal(calls.length,0);assert.equal(menu.querySelector('.card-confirm'),null);
+ assert.equal(calls.length,0);assert.equal(menu.querySelector('.confirm'),null);
  await app.click(menu.querySelector('[data-menu="connected"]'));
  await app.click(menu.querySelector('[data-menu="disconnect-ok"]'));
  assert.deepEqual(calls,[['/api/lights/remove',{id}]]);
@@ -1450,7 +1450,7 @@ test('a migrated lamp disconnects with a HomeKit note and reconnects through its
  await app.click(app.stage.querySelector('[data-chip-action="more"]'));await app.advance(40);
  const menu=app.$('#object-menu');
  await app.click(menu.querySelector('[data-menu="connected"]'));
- assert.match(menu.querySelector('.card-confirm').textContent,/Disconnect Hue Play Center\?HomeKit will show it as not responding/);
+ assert.match(menu.querySelector('.confirm').textContent,/Disconnect Hue Play Center\?HomeKit will show it as not responding/);
  await app.click(menu.querySelector('[data-menu="disconnect-ok"]'));
  assert.deepEqual(calls,[['/api/lights/remove',{id:'play-center'}]]);
  lights=lights.filter(r=>r.id!=='play-center');await app.advance(1500);
@@ -1648,4 +1648,16 @@ test('a click outside the Sync Box connect card keeps it open; Cancel closes it'
  assert.ok(!app.requests.box.some(r=>r.url==='/api/sync-box/cancel'));
  await app.click(app.$('#box-card [data-box="close"]'));
  assert.equal(app.$('#box-card').hidden,true);
+});
+
+test('every text button, icon button, confirmation and field comes from the shared controls',()=>{
+ // Rows, segments, switches and cards are their own components; any other button goes
+ // through btn() or iconBtn(), so a new Cancel cannot get a style of its own again.
+ const own=new Set(['btn','icon-btn','card-row','lp-row','card-switch','box-action','rc-pick','rc-card']);
+ const raw=[...code.matchAll(/<button[^>]*/g)].map(m=>m[0]).filter(b=>!/data-menu="'\+prefix/.test(b)&&!b.startsWith("<button ','"));
+ for(const b of raw)assert.ok(own.has((/class="([a-z-]+)/.exec(b)||[])[1]),'a button outside the shared controls: '+b.slice(0,80));
+ assert.deepEqual([...code.matchAll(/<input(?![^>]*type="range")[^>]*/g)].map(m=>m[0]).filter(i=>!/class="field/.test(i)&&!/class="card-name"/.test(i)&&!/class="dim-input"/.test(i)),[],'text fields use field()');
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ for(const old of ['lp-confirm-btn','lp-connect','card-confirm','rc-confirm','rc-input','box-retry','card-reset','box-error'])
+  assert.equal(css.includes(old)||code.includes(old),false,old+' is replaced by the shared controls');
 });
