@@ -49,6 +49,7 @@ from sync_off import SyncOffSession  # noqa: E402
 from video_output import NoNativeRelay, VideoOutput  # noqa: E402
 
 import lights_can_communicate_v2 as lan  # noqa: E402
+from lights_can_communicate_v2_core.config import PAIRED_HUE_FILE  # noqa: E402
 from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
 from lights_can_communicate_v2_core.hue_discovery import HueDiscoveryReader  # noqa: E402
 from lights_can_communicate_v2_core.light_registry import (  # noqa: E402
@@ -949,6 +950,29 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
     return Handler
 
 
+def _file_signature(path):
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return status.st_mtime_ns, status.st_size, status.st_ino
+
+
+def watch_paired_bridge(path, stop, busy, interval=2.0):
+    """Restart the adapter when Light Studio pairs a Hue bridge (``hue-bridge.json``).
+
+    The service then starts from the new bridge. A change waits while Sync output
+    owns the lamps; Docker restarts the finished container.
+    """
+    seen = _file_signature(path)
+    while not stop.wait(interval):
+        current = _file_signature(path)
+        if current != seen and not busy():
+            print("Paired Hue bridge changed; restarting the adapter.", flush=True)
+            stop.set()
+            return
+
+
 def main(argv=None, service_info=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registry", type=Path, required=True)
@@ -974,11 +998,9 @@ def main(argv=None, service_info=None):
     native_profile = registry.native_profile()
     if native_profile and not args.hue_config:
         parser.error("A native Hue profile in the light registry requires --hue-config")
-    # A paired Hue area may have no Hue light now: the owner removed them all and
-    # can enroll one again; until then Sync drives the Govee lights only.
+    # A paired bridge may have no Hue light and no area yet (a new pairing), or no
+    # Hue light any more; until one is enrolled, Sync drives the Govee lights only.
     paired_area = registry.to_dict().get("hue", {}).get("area_id")
-    if args.hue_config and not native_profile and paired_area is None:
-        parser.error("--hue-config requires a paired Hue area in the light registry")
     config = {"targets": registry.govee_targets()}
     layout_store = LayoutStore(
         state_dir / "desk-layout.json",
@@ -1131,7 +1153,7 @@ def main(argv=None, service_info=None):
     try:
         area = (HueArea(hue_config, paired_area,
                         pin_file=state_dir / "hue-bridge-id")
-                if hue_config is not None else None)
+                if hue_config is not None and paired_area is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None
     enrollment = LightEnrollment(
@@ -1186,6 +1208,13 @@ def main(argv=None, service_info=None):
             video_thread.start()
         threading.Thread(target=sync_off.run, args=(stop,), daemon=True,
                          name="adapter-sync-off").start()
+        paired_file = state_dir / PAIRED_HUE_FILE
+        if args.hue_config is None or args.hue_config.resolve() == paired_file.resolve():
+            threading.Thread(
+                target=watch_paired_bridge, daemon=True, name="adapter-paired-bridge",
+                args=(paired_file, stop,
+                      (lambda: video.owns_lights()) if video is not None else (lambda: False)),
+            ).start()
         threading.Thread(target=calibration_session.run, args=(stop,), daemon=True,
                          name="adapter-calibration").start()
         transport = GoveeTransport(

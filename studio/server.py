@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
+from hue_bridge_pairing import BridgeError, HueBridgePairing, OtherBridge  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
@@ -40,6 +41,8 @@ CALIBRATION_REASONS = ("sync active", "lamp off", "reference off", "busy", "writ
                        "paused")
 CALIBRATION_ROUTES = {"/api/calibration": "/calibration",
                       "/api/calibration/end": "/calibration/end"}
+HUE_BRIDGE_ROUTES = ("/api/hue-bridge/find", "/api/hue-bridge/pair",
+                     "/api/hue-bridge/cancel")
 SYNC_BOX_ROUTES = ("/api/sync-box/find", "/api/sync-box/pair", "/api/sync-box/cancel",
                    "/api/sync-box/sync", "/api/sync-box/forget")
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
@@ -370,10 +373,26 @@ def _post_local_json(url, body, timeout, headers):
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
-                sync_box=None, hosts=(), lights_post=None):
+                sync_box=None, hosts=(), lights_post=None, hue_bridge=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
     # The Sync Box token lives with the other private state, never in the layout.
     box = sync_box or SyncBox(store.path.parent / "sync-box.json")
+
+    def has_hue_lights():
+        """True when the light registry holds a Hue light (of the pinned bridge)."""
+        try:
+            data = json.loads((store.path.parent / "lights.json").read_text())
+            return any(isinstance(item, dict) and item.get("provider") == "hue"
+                       for item in data.get("lights", ()))
+        except (OSError, ValueError, AttributeError, TypeError):
+            # An unreadable registry cannot prove that no Hue light depends on the pin.
+            return True
+
+    # The paired bridge keys live with the other private state; the adapter restarts
+    # when the file changes and then uses this bridge.
+    bridge = hue_bridge or HueBridgePairing(store.path.parent / "hue-bridge.json",
+                                            store.path.parent / "hue-bridge-id",
+                                            has_hue_lights=has_hue_lights)
 
     def default_source_fetch():
         data = _read_local_json(bridge_url + "/probe/status", 0.25)
@@ -581,12 +600,14 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.respond(200, live())
             if path == "/api/sync-box":
                 return self.respond(200, box_status())
+            if path == "/api/hue-bridge":
+                return self.respond(200, bridge.status())
             self.respond(404, {"error": "not found"})
 
         def do_POST(self):
             path = urlsplit(self.path).path
             if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES,
-                            *SYNC_BOX_ROUTES, *LIGHT_ROUTES):
+                            *SYNC_BOX_ROUTES, *HUE_BRIDGE_ROUTES, *LIGHT_ROUTES):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
@@ -598,6 +619,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 return self.calibrate(CALIBRATION_ROUTES[path])
             if path in SYNC_BOX_ROUTES:
                 return self.sync_box(path.rsplit("/", 1)[1])
+            if path in HUE_BRIDGE_ROUTES:
+                return self.hue_bridge(path.rsplit("/", 1)[1])
             if path in LIGHT_ROUTES:
                 return self.lights(LIGHT_ROUTES[path])
             try:
@@ -705,6 +728,31 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             except OSError:
                 return self.respond(503, {"error": "Sync Box unavailable"})
 
+        def hue_bridge(self, action):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 256:
+                    return self.respond(413, {"error": "Hue bridge payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if not isinstance(data, dict):
+                    raise ValueError("Expected an object")
+                if action == "pair":
+                    if set(data) != {"ip"}:
+                        raise ValueError("Expected an address")
+                    return self.respond(200, bridge.pair(data["ip"]))
+                if data:
+                    raise ValueError("Expected an empty object")
+                return self.respond(200, {"find": bridge.find, "cancel": bridge.cancel}[action]())
+            except OtherBridge:
+                return self.respond(409, {"error": "another Hue bridge has connected lights",
+                                          "reason": "other_bridge"})
+            except BridgeError:
+                return self.respond(503, {"error": "Hue bridge not found"})
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid Hue bridge request"})
+            except OSError:
+                return self.respond(503, {"error": "Hue bridge unavailable"})
+
         def local_request(self):
             port = self.server.server_port
             # Loopback plus the LAN names the owner listed; any other Host
@@ -719,6 +767,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             )
 
     Handler.guard = guard
+    Handler.has_hue_lights = staticmethod(has_hue_lights)
     return Handler
 
 

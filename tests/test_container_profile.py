@@ -238,6 +238,27 @@ class ContainerProfileTests(unittest.TestCase):
         self.assertIsNone(config.targets_file)
         self.assertEqual(config.registry_file, self.state / "lights.json")
 
+    def test_a_paired_bridge_is_used_only_without_explicit_hue_files(self):
+        config = load_config(self.config_path)
+        self.assertIsNone(config.hue_config_file)
+        self.assertNotIn("--hue-config", config.arguments())
+        paired = self.state / "hue-bridge.json"
+        paired.write_text("{}")
+        config = load_config(self.config_path)
+        self.assertEqual((config.hue_config_file, config.hue_stream_config_file),
+                         (paired, paired))
+        self.assertTrue(config.hue_play)
+        arguments = config.arguments()
+        self.assertEqual(arguments[arguments.index("--hue-config") + 1], str(paired))
+        self.assertEqual(arguments[arguments.index("--hue-stream-config") + 1], str(paired))
+        self.assertIn("--hue-play", arguments)
+        # Explicit files always win over the paired bridge.
+        self.value["adapter"].update(hue_config_file="../state/hue.json", hue_play=True)
+        self.save()
+        config = load_config(self.config_path)
+        self.assertEqual(config.hue_config_file, self.state / "hue.json")
+        self.assertIsNone(config.hue_stream_config_file)
+
     # Owner hold ------------------------------------------------------------
 
     def test_hold_waits_in_the_profile_instead_of_exiting(self):

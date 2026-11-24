@@ -172,35 +172,35 @@ class CoreDistributionTests(unittest.TestCase):
                     with self.subTest(module=name):
                         self.assertIsNone(re.search(uuid, bundle.read(name)))
 
-    def test_archive_rejects_missing_native_profile_without_network_or_state_changes(self):
-        (self.folder / "hue.json").write_text(json.dumps({
-            "bridge": "192.168.99.2", "hue_key": "c" * 64,
-            "light": "98250ec6-d7fd-4b47-ace6-ff449ea3066f",
-        }))
-        self.value["adapter"]["hue_config_file"] = "hue.json"
-        self.save()
-        before = {p: p.read_bytes() for p in self.folder.rglob("*") if p.is_file()}
+    def test_archive_checks_a_paired_bridge_without_hue_lights_without_network(self):
+        # A paired bridge without any Hue light is valid (Govee lights only for now),
+        # and the check still validates its credential.
         code = """
 import socket,ssl,sys
 sys.path.insert(0, sys.argv[1])
 def forbidden(*args, **kwargs):
-    raise AssertionError("Missing profile attempted network setup")
+    raise AssertionError("Check attempted network setup")
 socket.socket = forbidden
 from lights_can_communicate_v2_core.cli import main
 raise SystemExit(main(sys.argv[2:]))
 """
-        for mode in ([], ["--check"]):
-            with self.subTest(mode=mode):
+        self.value["adapter"]["hue_config_file"] = "hue.json"
+        self.save()
+        for key, code_expected in (("c" * 64, 0), ("bad key", 2)):
+            (self.folder / "hue.json").write_text(json.dumps({
+                "bridge": "192.168.99.2", "hue_key": key}))
+            before = {p: p.read_bytes() for p in self.folder.rglob("*") if p.is_file()}
+            with self.subTest(key=key[:3]):
                 result = subprocess.run(
                     [sys.executable, "-I", "-B", "-c", code, str(self.artifact),
-                     "--config", str(self.config), *mode],
+                     "--config", str(self.config), "--check"],
                     cwd=self.cwd, text=True, capture_output=True, timeout=10,
                 )
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn("profile", result.stderr.lower())
+                self.assertEqual(result.returncode, code_expected, result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
-        self.assertEqual(before, {p: p.read_bytes()
-                                  for p in self.folder.rglob("*") if p.is_file()})
+                self.assertNotIn(key, result.stdout + result.stderr)
+            self.assertEqual(before, {p: p.read_bytes()
+                                      for p in self.folder.rglob("*") if p.is_file()})
 
     def test_check_is_read_only_and_never_initializes_network(self):
         before = {p: p.read_bytes() for p in self.folder.rglob("*") if p.is_file()}

@@ -58,8 +58,6 @@ def prepare(config, *, write_registry):
         raise ConfigError(str(error)) from None
     except NativeProfileError:
         raise ConfigError("Invalid native Hue profile") from None
-    if config.hue_config_file and profile is None:
-        raise ConfigError("Hue output requires a native Hue profile in the light registry")
     if profile is not None and not config.hue_config_file:
         raise ConfigError("A native Hue profile in the light registry requires a Hue configuration")
     os.environ["PROBE_GOVEE_GRADIENT"] = "true" if config.gradient else "false"
@@ -88,7 +86,8 @@ def prepare(config, *, write_registry):
             hue = read_json(config.hue_config_file, "Hue configuration")
             if not _hue_identity(hue.get("hue_key")):
                 raise ConfigError("Invalid Hue credential")
-            for light, resource in profile.light_ids.items():
+            # A paired bridge may have no Hue light yet, or none any more.
+            for light, resource in (profile.light_ids if profile else {}).items():
                 live_adapter.HueStripProxy(
                     live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
                     light, profile=profile,
@@ -101,7 +100,8 @@ def prepare(config, *, write_registry):
                 raise ConfigError("Invalid native stream credential or identity")
             if stream.get("bridge") != hue.get("bridge"):
                 raise ConfigError("Scene and stream Hue bridges must match")
-            live_adapter.HueEntertainmentRelay(stream, profile=profile)
+            if profile is not None:
+                live_adapter.HueEntertainmentRelay(stream, profile=profile)
             # Match the relay's binary selection without creating a DTLS client.
             binary = shutil.which("openssl")
             if not binary:
