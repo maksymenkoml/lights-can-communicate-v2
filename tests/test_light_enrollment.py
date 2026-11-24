@@ -370,6 +370,32 @@ class AdapterRouteTests(unittest.TestCase):
         self.assertEqual(self.call("/lights/enroll", {"id": "device-" + "c" * 32})[0], 404)
 
 
+class RegistryLightsTests(unittest.TestCase):
+    def test_every_enrolled_light_is_listed_with_its_zone_count(self):
+        govee, hue = "device-" + "c" * 32, "device-" + "e" * 32
+        registry = LightRegistry.from_dict(sample()).with_govee_light(
+            govee, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52", "H6008").with_hue_light(
+            hue, AREA, HUE_LIGHT, HUE_SERVICE, 7, "LCX005")
+
+        class Controller:
+            by_light = {"govee-left": {"segment_count": 7}, "govee-right": {"segment_count": 0},
+                        govee: {"segment_count": 0}}
+
+        lights = {item["id"]: item for item in adapter.registry_lights(registry, Controller())}
+        self.assertEqual(list(lights)[:6], [item["id"] for item in sample()["lights"]])
+        self.assertEqual(lights["govee-left"]["zones"], 7)
+        self.assertEqual(lights["govee-right"]["zones"], 1)
+        self.assertEqual(lights["hue-monitor"]["zones"], 9)
+        self.assertEqual(lights[govee], {"id": govee, "provider": "govee", "model": "H6008",
+                                         "zones": 1, "migrated": False})
+        self.assertEqual(lights[hue], {"id": hue, "provider": "hue", "model": "LCX005",
+                                       "zones": 7, "migrated": False})
+        self.assertTrue(lights["play-left"]["migrated"])
+        # No device identity or address reaches the list.
+        self.assertNotIn("CC:CC", json.dumps(list(lights.values())))
+        self.assertNotIn("192.168", json.dumps(list(lights.values())))
+
+
 class StudioRouteTests(unittest.TestCase):
     def setUp(self):
         temp = TemporaryDirectory(prefix="tmp_studio_lights_")

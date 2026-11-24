@@ -43,6 +43,11 @@ const SHAPES=['floor','strip','bar'];
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
 const virtualDevice=id=>/^virtual-[a-z0-9]{1,32}$/.test(id||'');
 const isRole=id=>Object.hasOwn(ROLES,id);
+// Lights enrolled in the core, from /api/live: the six migrated lamps always are; a
+// device row is connected while the adapter lists it.
+let enrolled=new Map();
+const connected=l=>isRole(l.id)||enrolled.has(l.id);
+const goveeLight=id=>/^govee-/.test(id)||enrolled.get(id)?.provider==='govee';
 // Hue lights take names of up to 32 characters; Govee and layout-only names up to 35.
 const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
@@ -104,7 +109,7 @@ function pack(m={room,environment,lamps}){
  return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
-   ...(l.enabled===false?{enabled:false}:{}),...(/^govee-/.test(l.id)&&calibrated(l.calibration)?{calibration:{...l.calibration}}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
+   ...(l.enabled===false?{enabled:false}:{}),...((/^govee-/.test(l.id)||realDevice(l.id))&&calibrated(l.calibration)?{calibration:{...l.calibration}}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
 
@@ -135,7 +140,7 @@ function rgbHex(rgb){return '#'+rgb.map(v=>Math.round(clamp(v,0,255)).toString(1
 function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
 // What the lamp emits now, as the adapter reports it.
 function emittedColors(l){
- if(l.unbound||l.enabled===false||!isRole(l.id)||!liveFresh()||lampBlocker(l))return null;
+ if(l.unbound||l.enabled===false||!connected(l)||!liveFresh()||lampBlocker(l))return null;
  const row=liveSnapshot.lamps&&typeof liveSnapshot.lamps==='object'?liveSnapshot.lamps[l.id]:null;
  if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
  // The view without Sync shows the lamps' own light; a lamp that runs Sync shows the demo scene.
@@ -166,14 +171,13 @@ function liveState(){
  if(liveSnapshot.connected!==true&&state!=='paused')return 'unknown';
  return ['active','waiting','foreign','off','paused'].includes(state)?state:'unknown';
 }
-const LAMP_ROLE=ROLES;
 const BLOCKER_TEXT={owner_off:'off in HomeKit',color_fenced:'color still locked',native_off:'off',native_stale:'not responding',native_foreign:'another app in control'};
 const BLOCKER_HINT={owner_off:'HomeKit requests Off, so Sync keeps it off',color_fenced:'The lamp is turning on; color is allowed once power is confirmed',native_off:'The lamp reports that it is off',native_stale:'No recent response from the lamp',native_foreign:'Another app, such as Hue Sync, is streaming to Hue'};
 const blockerText=b=>BLOCKER_TEXT[b.code]||'not ready';
 const blockerHint=b=>BLOCKER_HINT[b.code]||'The adapter reports a problem with this lamp';
 const capital=t=>t[0].toUpperCase()+t.slice(1);
 function lampBlocker(l){
- const role=LAMP_ROLE[l.id];
+ const role=connected(l)?l.id:null;
  if(!role||l.unbound||!liveFresh())return null;
  const list=liveSnapshot.sync&&Array.isArray(liveSnapshot.sync.blockers)?liveSnapshot.sync.blockers:[];
  return list.find(b=>b&&typeof b==='object'&&b.role===role&&typeof b.code==='string')||null;
@@ -492,7 +496,7 @@ const scenePreview=()=>mode!=='sync'&&liveState()==='active'&&activeLamps().some
 // A warm white, each lamp at its correction without Sync: what the demo scene shows.
 const SCENE_DEMO=[255,214,170];
 function sceneDemoColors(l){
- if(!isRole(l.id)||l.unbound||l.enabled===false)return null;
+ if(!connected(l)||l.unbound||l.enabled===false)return null;
  const k=corr(l,'scene')/100;if(!(k>0))return null;
  return Array.from({length:l.zones},()=>SCENE_DEMO.map(v=>Math.round(v*k)));
 }
@@ -515,7 +519,7 @@ const demoColor=(u,v)=>rgbHex(hueRgb(demoHue(u,v)));
 // What Sync would send each zone from the demo picture: its colour where the zone samples,
 // dimmed by the zone's falloff gain and the lamp's correction.
 function demoColors(l){
- if(!isRole(l.id))return null;
+ if(!connected(l)||l.unbound)return null;
  const rows=syncProjection(l);if(!rows.length)return null;
  const rgb=hex=>[1,3,5].map(k=>parseInt(hex.slice(k,k+2),16)),k=l.scale/100;
  const colors=rows.map(row=>row.point&&row.gain>0?rgb(demoColor(row.point[0],row.point[1])).map(v=>Math.round(v*row.gain*k)):[0,0,0]);
@@ -883,7 +887,8 @@ function selectionRect(){
 // takes the other side when it does not fit there. While calibrating it leaves the side
 // where the reference lamp is.
 function placeMenu(menu,anchorRect){
- const a=$('#app').getBoundingClientRect(),base=selectionRect(),pad=12,gap=12,w=menu.offsetWidth,h=menu.offsetHeight;
+ // A card whose height animates to a new page is placed by its target height.
+ const a=$('#app').getBoundingClientRect(),base=selectionRect(),pad=12,gap=12,w=menu.offsetWidth,h=parseFloat(menu.style.height)||menu.offsetHeight;
  menu.style.top=Math.max(pad,Math.min(a.height-h-pad,anchorRect.bottom-a.top+8))+'px';
  const sel=base?{left:Math.min(base.left,anchorRect.left),right:Math.max(base.right,anchorRect.right)}:null;
  if(!sel){menu.style.left=Math.max(pad,Math.min(a.width-w-pad,anchorRect.left+anchorRect.width/2-a.left-w/2))+'px';return}
@@ -957,15 +962,15 @@ const CAL_STOPPED={'sync active':'Calibration stopped: Sync started','lamp off':
 const CAL_SLIDERS=[['warmth','Warmth','Cooler','Warmer'],['tint','Tint','Greener','Pinker'],['lowLight','Low light','Darker','Brighter']];
 let cal=null,calTimer=null,calSending=false,calQueued=false,calLine=Promise.resolve();
 const liveLampOff=id=>liveSnapshot?.lamps?.[id]?.on===false;
-const calReferences=id=>lamps.filter(l=>isRole(l.id)&&l.id!==id&&l.enabled!==false);
-const isGoveeRole=l=>/^govee-/.test(l.id);
+const calReferences=id=>lamps.filter(l=>connected(l)&&!l.unbound&&l.id!==id&&l.enabled!==false);
+const isGoveeRole=l=>goveeLight(l.id);
 function defaultReference(l){
  const on=calReferences(l.id).filter(r=>!liveLampOff(r.id)),plays=on.filter(r=>/^play-/.test(r.id));
  return (plays.length?plays:on).sort((a,b)=>Math.abs(a.x-l.x)-Math.abs(b.x-l.x))[0]?.id||null;
 }
-function calMode(l){return !isRole(l.id)||l.unbound?'plain':liveState()==='active'?'live':'test'}
-const calBody=c=>({lamp:c.lamp,reference:c.reference,level:c.level,view:c.view,correction:c.correction,...(/^govee-/.test(c.lamp)?{calibration:{...c.values}}:{})});
-const colorShown=c=>c.mode==='test'&&/^govee-/.test(c.lamp);
+function calMode(l){return !connected(l)||l.unbound?'plain':liveState()==='active'?'live':'test'}
+const calBody=c=>({lamp:c.lamp,reference:c.reference,level:c.level,view:c.view,correction:c.correction,...(goveeLight(c.lamp)?{calibration:{...c.values}}:{})});
+const colorShown=c=>c.mode==='test'&&goveeLight(c.lamp);
 const calChanged=c=>colorShown(c)&&calibrated(c.values)||c.correction!==100;
 async function calPost(path,body){
  try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:path.endsWith('/end')});return {status:r.status,body:await r.json().catch(()=>({}))}}
@@ -988,7 +993,7 @@ async function openCalibrate(l){
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');if(!pages)return;
  const [main,page]=pages.children;page.innerHTML=calPageHtml(l);
  menu.style.height=main.offsetHeight+'px';
- requestAnimationFrame(()=>{pages.classList.add('at-cal');menu.style.height=page.offsetHeight+'px';page.querySelector('[data-menu="cal-back"]')?.focus?.({preventScroll:true})});
+ requestAnimationFrame(()=>{pages.classList.add('at-cal');menu.style.height=page.offsetHeight+'px';placeOpenMenu();page.querySelector('[data-menu="cal-back"]')?.focus?.({preventScroll:true})});
  render();
 }
 function closeCalibrate(save,message){
@@ -1003,7 +1008,7 @@ function closeCalibrate(save,message){
  }
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');
  if(menuOpen&&pages&&l){
-  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum){if(save&&sum.textContent!==calSummary(l)){sum.classList.remove('flash');void sum.offsetWidth;sum.classList.add('flash')}sum.textContent=calSummary(l)}pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';
+  const [main,page]=pages.children,sum=main.querySelector('[data-menu="calibrate"] em');if(sum){if(save&&sum.textContent!==calSummary(l)){sum.classList.remove('flash');void sum.offsetWidth;sum.classList.add('flash')}sum.textContent=calSummary(l)}pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';placeOpenMenu();
   setTimeout(()=>{if(!cal){page.innerHTML='';menu.style.height=''}},300);
  }
  render();
@@ -1321,6 +1326,17 @@ async function connectLayout(){
 }
 
 // -------------------------------------------------------------- live poll --
+// A device row is connected while the core lists its light; an unreachable core keeps
+// the last known state.
+function applyEnrollment(){
+ const list=liveSnapshot?.connected===true&&Array.isArray(liveSnapshot.lights)?liveSnapshot.lights:null;
+ if(!list)return;
+ const next=new Map(list.filter(r=>r&&typeof r.id==='string'&&['govee','hue'].includes(r.provider)).map(r=>[r.id,r]));
+ let changed=false;
+ for(const l of lamps)if(realDevice(l.id)){const unbound=!next.has(l.id);if(l.unbound!==unbound){l.unbound=unbound;changed=true}}
+ enrolled=next;
+ if(changed&&!drag){render();paintPanel()}
+}
 function expireLive(){liveSnapshot=null;liveAt=-Infinity;paintLive()}
 function watchLive(){
  clearTimeout(liveWatchdog);
@@ -1340,7 +1356,7 @@ async function refreshLive(){
  try{
   const snapshot=await Promise.race([fetch('/api/live',{signal:controller.signal,cache:'no-store'}).then(async response=>{if(!response.ok)throw new Error('live status unavailable');return response.json();}),cancelled]);
   if(generation!==liveGeneration||document.hidden)return;
-  liveSnapshot=snapshot&&typeof snapshot==='object'?snapshot:null;liveAt=performance.now();watchLive();
+  liveSnapshot=snapshot&&typeof snapshot==='object'?snapshot:null;liveAt=performance.now();applyEnrollment();watchLive();
  }catch{if(generation===liveGeneration)expireLive();}
  finally{
   clearTimeout(deadline);

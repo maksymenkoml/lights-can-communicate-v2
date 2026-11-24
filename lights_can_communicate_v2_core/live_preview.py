@@ -3,6 +3,7 @@
 import base64
 import copy
 import math
+import re
 import threading
 import time
 from functools import reduce
@@ -18,6 +19,10 @@ LAMP_IDS = ("govee-left", "govee-right", "hue-monitor", "play-left", "play-cente
             "play-right")
 ROLE_LAMPS = {'left': 'govee-left', 'right': 'govee-right',
               **{lamp: lamp for lamp in HUE_LAMPS}}
+# Registry light ids: the six migrated ids and enrolled devices.
+LIGHT_ID = re.compile(r"(?:govee-left|govee-right|hue-monitor|play-left|play-center|play-right"
+                      r"|device-[0-9a-f]{32})\Z")
+MAX_LAMPS = 32
 SOURCES = ("scene-output", "sync-output")
 GOVEE_FRESH_SECONDS = 0.75
 # A Govee lamp under DreamView misses a few status replies in a row now and
@@ -169,8 +174,8 @@ class OutputPreviewStore:
 
     def _record_govee(self, device, command, data, source):
         light = device.get("light")
-        # Light Studio previews the six layout rows; other lights follow with its lamp list.
-        if light not in ("govee-left", "govee-right") or not isinstance(data, dict):
+        if not isinstance(light, str) or LIGHT_ID.match(light) is None or not isinstance(
+                data, dict):
             return
         colors = brightness = None
         if command == "brightness":
@@ -259,16 +264,45 @@ def build_preview(adapter_status, output_snapshot):
     video = status.get("video")
     video = video if isinstance(video, dict) else {}
     hue = status.get("hue")
-    hue = {lamp: hue.get(lamp) for lamp in HUE_LAMPS} if isinstance(hue, dict) else {
-        lamp: None for lamp in HUE_LAMPS}
+    hue = ({lamp: value for lamp, value in hue.items()
+            if isinstance(lamp, str) and LIGHT_ID.match(lamp)} if isinstance(hue, dict) else {})
+    for lamp in HUE_LAMPS:
+        hue.setdefault(lamp, None)
+    # Registry lights the adapter lists; one without a reading has an unknown state.
+    registry = status.get("lights")
+    registry = {item["id"]: item.get("provider") for item in
+                (registry if isinstance(registry, list) else [])
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+                and LIGHT_ID.match(item["id"])}
+    for lamp, provider in registry.items():
+        if provider == "hue":
+            hue.setdefault(lamp, None)
+    targets = status.get("targets")
+    targets = targets if isinstance(targets, list) else []
+    govee = {
+        item["light"]: item
+        for item in targets
+        if isinstance(item, dict) and isinstance(item.get("light"), str)
+        and LIGHT_ID.match(item["light"]) and item["light"] not in hue
+    }
+    # The six migrated lamps first, then every other enrolled light: listed in the
+    # registry or reported with a reading.
+    lamp_ids = list(LAMP_IDS) + sorted((set(govee) | set(hue) | set(registry))
+                                       - set(LAMP_IDS))
+    lamp_ids = lamp_ids[:MAX_LAMPS]
     composition = status.get('composition')
-    included = set(ROLE_LAMPS.values())
+    included = set(lamp_ids)
     if composition is not None:
         selected = composition.get('enabled_roles') if isinstance(composition, dict) else None
+        composed = composition.get('lights') if isinstance(composition, dict) else None
         included = ({ROLE_LAMPS[role] for role in selected}
                     if isinstance(selected, list) and len(selected) <= 6
                     and all(type(role) is str and role in ROLE_LAMPS for role in selected)
                     else set())
+        # A light enrolled later is in Sync when its layout row is composed.
+        if isinstance(composed, list):
+            included |= {light for light in composed if type(light) is str
+                         and light in lamp_ids and light not in LAMP_IDS}
     cleanup = video.get("cleanup_pending") is True or video.get("cleanupPending") is True
     sync = (
         video.get("active") is True
@@ -293,17 +327,10 @@ def build_preview(adapter_status, output_snapshot):
         if any(video.get(field) is True for field in ("active", "ready", "native_owned"))
         else "scene"
     )
-    targets = status.get("targets")
-    targets = targets if isinstance(targets, list) else []
-    govee = {
-        item["light"]: item
-        for item in targets
-        if isinstance(item, dict) and item.get("light") in ("govee-left", "govee-right")
-    }
     lamps = {}
-    for lamp in LAMP_IDS:
+    for lamp in lamp_ids:
         brightness = None
-        if lamp.startswith("govee-"):
+        if lamp not in hue:
             native = _govee_reading(govee.get(lamp, {}))
             fresh = native is not None
             on = bool(native["onOff"]) if fresh else None

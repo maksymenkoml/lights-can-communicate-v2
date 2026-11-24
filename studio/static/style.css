@@ -332,7 +332,7 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .app.dark-scene #stage .obj-chip .chip-sep{stroke:#2f465c}
 
 /* Lamp card: a list of equal rows; Calibrate slides in as the second page. */
-#object-menu.card,/* Lamp card: a list of equal rows; Calibrate slides in as the second page. */
+#object-menu.card{width:280px;padding:0;overflow:hidden;transition:height .28s ease,left .28s ease}
 #object-menu .card-pages{display:flex;width:200%;align-items:flex-start;transition:transform .28s ease}
 #object-menu .card-pages.at-cal{transform:translateX(-50%)}
 #object-menu .card-page{width:50%;flex:none;min-width:0}

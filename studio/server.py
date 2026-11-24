@@ -43,6 +43,8 @@ CALIBRATION_ROUTES = {"/api/calibration": "/calibration",
 SYNC_BOX_ROUTES = ("/api/sync-box/find", "/api/sync-box/pair", "/api/sync-box/cancel",
                    "/api/sync-box/sync", "/api/sync-box/forget")
 CANONICAL_FIELDS = ("name", "model", "shape", "zones")
+# Enrolled lights shown at once: the registry and layout limits stay below this.
+MAX_LAMPS = 32
 DISCOVERY_FIELDS = (
     "id", "provider", "name", "model", "shape", "zones", "supported", "online",
     "selectable", "ambiguous", "layout_id", "height_cm", "width_cm",
@@ -70,7 +72,7 @@ def public_catalog(data):
             continue
         if row["supported"] and (row["shape"] is None or zones is None):
             continue
-        if row.get("layout_id") is not None and row["layout_id"] not in ROLES:
+        if row.get("layout_id") is not None and not _light_id(row["layout_id"]):
             continue
         if any(row.get(key) is not None and
                (type(row[key]) not in (int, float) or not math.isfinite(row[key])
@@ -127,8 +129,29 @@ def _sample_zones(colors, count):
     return result
 
 
+def _light_id(value):
+    return isinstance(value, str) and (value in ROLES or DEVICE_ID.fullmatch(value) is not None)
+
+
+def _registry_lights(value):
+    """The enrolled lights that the adapter lists, bounded to UI metadata."""
+    result = {}
+    for row in (value if isinstance(value, list) else [])[:MAX_LAMPS]:
+        if (not isinstance(row, dict) or not _light_id(row.get("id"))
+                or row.get("provider") not in ("govee", "hue")
+                or type(row.get("zones")) is not int or not 1 <= row["zones"] <= 32
+                or type(row.get("migrated")) is not bool
+                or not (row.get("model") is None or isinstance(row["model"], str)
+                        and 1 <= len(row["model"]) <= 64)):
+            continue
+        result[row["id"]] = {key: row.get(key)
+                             for key in ("id", "provider", "model", "zones", "migrated")}
+    return result
+
+
 def _unavailable(mode="unknown"):
-    return {"version": 1, "connected": False, "mode": mode, "sync": {"state": mode}, "lamps": {}}
+    return {"version": 1, "connected": False, "mode": mode, "sync": {"state": mode}, "lamps": {},
+            "lights": []}
 
 
 def project_status(data, source_active=None):
@@ -147,8 +170,8 @@ def project_status(data, source_active=None):
     lamps = {}
     tiers = {}
     rows = data.get("targets") if isinstance(data.get("targets"), list) else []
-    for target in rows[:128]:
-        if not isinstance(target, dict) or target.get("light") not in ("govee-left", "govee-right"):
+    for target in rows[:MAX_LAMPS]:
+        if not isinstance(target, dict) or not _light_id(target.get("light")):
             continue
         native = target.get("native") if isinstance(target.get("native"), dict) else {}
         online = native.get("identity_verified") is True and _fresh(target.get("status_age"), 0.75)
@@ -161,19 +184,29 @@ def project_status(data, source_active=None):
             if _number(native.get("brightness"), 0, 100)
             else None,
         }
-    # The migrated native Hue lamps; the adapter reports them by registry light id.
+    selected = data.get("hue") if isinstance(data.get("hue"), dict) else {}
+    # Native Hue lamps by registry light id: the four migrated ones and enrolled ones.
     names = {lamp: lamp for lamp in ("hue-monitor", "play-left", "play-center", "play-right")}
-    role_lamps = {'left':'govee-left', 'right':'govee-right', **names}
+    names.update({lamp: lamp for lamp in list(selected)[:MAX_LAMPS]
+                  if _light_id(lamp) and lamp not in lamps})
+    role_lamps = {'left': 'govee-left', 'right': 'govee-right',
+                  **{lamp: lamp for lamp in ("hue-monitor", "play-left", "play-center",
+                                             "play-right")}}
+    registry = _registry_lights(data.get("lights"))
     composition = data.get('composition')
-    included = set(role_lamps.values())
+    included = set(role_lamps.values()) | set(lamps) | set(names) | set(registry)
     if composition is not None:
         selected_roles = (composition.get('enabled_roles')
                           if isinstance(composition, dict) else None)
+        composed = composition.get('lights') if isinstance(composition, dict) else None
         included = ({role_lamps[role] for role in selected_roles}
                     if isinstance(selected_roles, list) and len(selected_roles) <= 6
                     and all(type(role) is str and role in role_lamps for role in selected_roles)
                     else set())
-    selected = data.get("hue") if isinstance(data.get("hue"), dict) else {}
+        # A light enrolled later is in Sync while its layout row is composed.
+        if isinstance(composed, list):
+            included |= {light for light in composed
+                         if _light_id(light) and light not in ROLES}
     for role, identifier in names.items():
         state = selected.get(role) if isinstance(selected.get(role), dict) else {}
         online = state.get("healthy") is True and _fresh(state.get("native_age"), 2)
@@ -218,7 +251,8 @@ def project_status(data, source_active=None):
         sync_state, mode = "off", "scene"
     else:
         sync_state = mode = "unknown"
-    for identifier in ROLES:
+    known = [*ROLES, *sorted((set(lamps) | set(registry)) - set(ROLES))][:MAX_LAMPS]
+    for identifier in known:
         lamp = lamps.setdefault(identifier, {"online": False, "on": None, "brightness": None})
         row = preview_lamps.get(identifier)
         row = row if isinstance(row, dict) else {}
@@ -239,24 +273,25 @@ def project_status(data, source_active=None):
             and identifier in names.values()
         ):
             colors = []
-        # A segmented Govee lamp shows seven zones; a basic-tier lamp is one color.
+        # A segmented Govee lamp shows seven zones; a basic-tier lamp is one color. A
+        # light enrolled later shows the zone count that the adapter reports for it.
         count = (9 if identifier == "hue-monitor"
                  else 1 if tiers.get(identifier) == "basic"
-                 else 7 if identifier.startswith("govee-") else 1)
+                 else 7 if identifier.startswith("govee-")
+                 else registry.get(identifier, {}).get("zones", 1))
         lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
                     included=identifier in included)
     # Verified cause only; the existing state label keeps its meaning.
     health = derive_sync_health(data)
-    # Light Studio shows its six lamps; the adapter may drive other Govee lights.
-    known = {"govee-left", "govee-right", *names}
-    blockers = [item for item in health["blockers"] if item.get("role") in known]
+    blockers = [item for item in health["blockers"] if item.get("role") in lamps]
     return {
         "version": 1,
         "connected": True,
         "mode": mode,
         "sync": {"state": sync_state, "reason": health["reason"],
                  "blockers": blockers},
-        "lamps": lamps,
+        "lamps": {identifier: lamps[identifier] for identifier in known},
+        "lights": list(registry.values()),
     }
 
 
@@ -601,10 +636,9 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                     raise ValueError("Expected a lamp")
             except (ValueError, TypeError):
                 return self.respond(400, {"error": "invalid identify request"})
-            # The adapter takes the registry light id of a role lamp.
-            role = data["lamp"] if data["lamp"] in ROLES else None
+            # The adapter takes a registry light id and refuses a light it does not drive.
+            role = data["lamp"] if _light_id(data["lamp"]) else None
             if role is None:
-                # Only the six role lamps can blink; discovered lamps come later.
                 return self.respond(404, {"error": "unknown lamp"})
             return self.respond(*identify(role))
 

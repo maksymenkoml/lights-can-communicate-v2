@@ -83,6 +83,36 @@ class SetupLiveStatusTests(unittest.TestCase):
         self.assertNotIn("PRIVATE", json.dumps(result))
         self.assertEqual(len(result["lamps"]), 6)
 
+    def test_lights_enrolled_later_are_projected_with_their_reported_zones(self):
+        govee, hue = "device-" + "c" * 32, "device-" + "e" * 32
+        data = status()
+        data["targets"].append({"light": govee, "device": "PRIVATE_DEVICE", "status_age": 0.1,
+                                "tier": "basic", "native": {"identity_verified": True,
+                                                            "onOff": 1, "brightness": 40}})
+        data["hue"][hue] = dict(data["hue"]["play-left"])
+        data["preview"]["lamps"][hue] = {"online": True, "on": True, "brightness": 100,
+                                         "colors": [[0, 0, 255], [255, 0, 0]],
+                                         "source": "scene-output", "stale": False}
+        data["lights"] = [
+            {"id": govee, "provider": "govee", "model": "H6008", "zones": 1, "migrated": False},
+            {"id": hue, "provider": "hue", "model": "LCX005", "zones": 7, "migrated": False},
+            {"id": "device-bad", "provider": "hue", "zones": 1, "migrated": False},
+            {"id": "govee-left", "provider": "govee", "model": None, "zones": 7,
+             "migrated": True},
+        ]
+        result = studio.project_status(data, source_active=False)
+        self.assertEqual(list(result["lamps"])[:6], ["govee-left", "govee-right", "hue-monitor",
+                                                     "play-left", "play-center", "play-right"])
+        self.assertEqual(result["lamps"][govee]["brightness"], 40)
+        self.assertEqual(len(result["lamps"][hue]["colors"]), 7)
+        self.assertEqual([row["id"] for row in result["lights"]], [govee, hue, "govee-left"])
+        self.assertNotIn("PRIVATE", json.dumps(result))
+        # A later light outside the composed rows is not included in Sync.
+        data["composition"] = {"enabled_roles": ["left"], "lights": ["govee-left", govee]}
+        result = studio.project_status(data, source_active=False)
+        self.assertEqual((result["lamps"][govee]["included"], result["lamps"][hue]["included"]),
+                         (True, False))
+
     def test_monitor_stop_colors_are_resampled_to_all_nine_visual_zones(self):
         data = status()
         data["preview"]["lamps"]["hue-monitor"]["colors"] = [[255, 0, 0], [0, 0, 255]]

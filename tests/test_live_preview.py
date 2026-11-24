@@ -128,6 +128,37 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot(), {})
         self.assertEqual(self.lamp()["colors"], [])
 
+    def test_a_light_enrolled_later_is_previewed_by_its_registry_id(self):
+        enrolled, hue = "device-" + "c" * 32, "device-" + "e" * 32
+        self.send({"light": enrolled, "device": "secret"}, "colorwc",
+                  {"color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0})
+        self.send({"light": enrolled, "device": "secret"}, "brightness", {"value": 50})
+        status = metadata()
+        status["targets"].append({"light": enrolled, "status_age": 0.1, "native": {
+            "identity_verified": True, "onOff": 1, "brightness": 50}})
+        status["hue"][hue] = copy.deepcopy(status["hue"]["play-left"])
+        lamps = build_preview(status, self.store.snapshot())["lamps"]
+        self.assertEqual(list(lamps)[:6], ["govee-left", "govee-right", "hue-monitor",
+                                           "play-left", "play-center", "play-right"])
+        self.assertEqual(lamps[enrolled]["colors"], [[128, 0, 0]])
+        self.assertEqual((lamps[hue]["online"], lamps[hue]["on"]), (True, True))
+        # With a Sync profile, a later light is included only while its row is composed.
+        status["composition"] = {"enabled_roles": ["left"], "lights": ["govee-left", hue]}
+        lamps = build_preview(status, self.store.snapshot())["lamps"]
+        self.assertEqual((lamps[enrolled]["included"], lamps[hue]["included"]), (False, True))
+        self.assertFalse(lamps["govee-right"]["included"])
+        # A registry light without any reading is still previewed, its state unknown.
+        quiet_govee, quiet_hue = "device-" + "d" * 32, "device-" + "f" * 32
+        status["lights"] = [{"id": quiet_govee, "provider": "govee"},
+                            {"id": quiet_hue, "provider": "hue"}, {"id": "device-bad"}]
+        lamps = build_preview(status, self.store.snapshot())["lamps"]
+        for quiet in (quiet_govee, quiet_hue):
+            self.assertEqual((lamps[quiet]["online"], lamps[quiet]["colors"]), (None, []))
+        self.assertNotIn("device-bad", lamps)
+        # Unknown ids never become lamps.
+        status["hue"]["device-short"] = status["hue"][hue]
+        self.assertNotIn("device-short", build_preview(status, {})["lamps"])
+
     def test_hue_dimming_delta_retains_color_and_color_mode_changes_clear_gradient(self):
         self.store.record_hue(
             "hue-monitor",
