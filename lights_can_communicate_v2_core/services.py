@@ -31,6 +31,7 @@ GATEWAY_MODULES = (
     "hue_resource_compat",
     "hue_names",
     "desk_layout",
+    "rooms",
     "sync_projection",
     "sync_zone",
     "light_geometry",

@@ -485,7 +485,7 @@ class StudioRouteTests(unittest.TestCase):
             return self.answer
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler_for(
-            folder / "missing-token", folder / "desk-layout.json", lights_post=post))
+            folder / "missing-token", folder, lights_post=post))
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
         self.base = "http://127.0.0.1:" + str(server.server_port)

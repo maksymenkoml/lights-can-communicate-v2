@@ -254,9 +254,11 @@ class StudioTests(unittest.TestCase):
                     post(bad, **current)
                 self.assertEqual(error.exception.code, 400)
                 error.exception.close()
+                # The first write turns the single layout into the first room.
                 self.assertEqual(
-                    json.loads((Path(folder) / "desk-layout.json").read_text()), result["layout"]
-                )
+                    json.loads((Path(folder) / "rooms/room-00000001.json").read_text()),
+                    result["layout"])
+                self.assertFalse((Path(folder) / "desk-layout.json").exists())
             finally:
                 server.shutdown()
                 server.server_close()

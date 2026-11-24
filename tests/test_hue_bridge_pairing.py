@@ -247,7 +247,7 @@ class StudioHueBridgeRouteTests(unittest.TestCase):
             sleep=self.clock.sleep)
         # The route wires its own registry check; reuse it for this pairing.
         handler = studio.handler_for(self.folder / "missing-token",
-                                     self.folder / "desk-layout.json", hue_bridge=pairing)
+                                     self.folder, hue_bridge=pairing)
         pairing.has_hue_lights = handler.has_hue_lights
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         worker = threading.Thread(target=server.serve_forever)
@@ -309,7 +309,7 @@ class StudioHueBridgeRouteTests(unittest.TestCase):
         studio = studio_module()
         (self.folder / "hue.json").write_text('{"bridge": "192.168.10.5"}')
         handler = studio.handler_for(self.folder / "missing-token",
-                                     self.folder / "desk-layout.json",
+                                     self.folder,
                                      hue_config=self.folder / "hue.json")
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         worker = threading.Thread(target=server.serve_forever)
@@ -331,7 +331,7 @@ class StudioHueBridgeRouteTests(unittest.TestCase):
             return {"addresses": ["192.168.10.21", 7]}
 
         studio._read_local_json = answer
-        handler = studio.handler_for(self.folder / "token", self.folder / "desk-layout.json",
+        handler = studio.handler_for(self.folder / "token", self.folder,
                                      adapter_url="http://adapter:19880")
         self.assertEqual(handler.lan_search("/lan/hue-bridges", lambda: ["local"])(),
                          ["192.168.10.21"])

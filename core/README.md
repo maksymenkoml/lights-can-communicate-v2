@@ -53,7 +53,29 @@ coordinator credential for both selected Govee.
 starting sockets or writing state. Its success does not establish device
 reachability, native power confirmation or an authenticated Homebridge owner
 heartbeat. An active `state_dir/live-output-hold` is reported by check mode and
-blocks actual startup. `desk-layout.json` is read from that same state directory.
+blocks actual startup. The room layouts are read from that same state directory.
+
+## Rooms
+
+Lights are grouped in rooms (#78). `rooms.json` in the state directory lists the
+rooms in order, the room of each connected light and the room of the Sync Box
+(`sync`, or `null`). Each room's layout is `rooms/<room id>.json` in the version
+seven layout shape; its `room` field is the room's name. A connected light that
+the index does not list is in the first room.
+
+A light's corrections, name, calibration and scene fade come from its row in its
+own room. Sync uses the Sync Box's room only: its layout gives the Sync profile,
+and only its lights take part in Sync. Without a Sync room no light takes part.
+A room refuses a row of a light that the index puts in another room.
+
+Before the first layout write there is no index: the single `desk-layout.json`
+is read as the first room (`room-00000001`), which holds every light and the
+Sync Box, so behavior is unchanged. The first write from Light Studio creates
+`rooms.json` and the room file and removes `desk-layout.json`. An unreadable
+index keeps the last good one; without one no light takes part in Sync. The
+state schema `rooms` is 1, so a rollback restores the state snapshot taken
+before the upgrade. Until room management arrives in Light Studio, it edits the
+first room.
 
 ## Managed service release
 

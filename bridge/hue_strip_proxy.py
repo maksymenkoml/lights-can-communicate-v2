@@ -298,7 +298,7 @@ class HueStripProxy:
             body is not None
             and "dimming" not in body
             and self.layout_store is not None
-            and self.layout_store.snapshot() is not None
+            and self.layout_store.layout_for(self.light) is not None
         ):
             body["dimming"] = {
                 "brightness": finite(payload["state"].get("bri", 254), 0, 254) / 254 * 100

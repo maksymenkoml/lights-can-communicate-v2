@@ -247,7 +247,7 @@ class CompositionOutputTests(unittest.TestCase):
                 root = Path(folder)
                 write_registry(root, devices)
                 (root / 'token').write_text('a' * 48)
-                with (patch.object(adapter, 'LayoutStore', return_value=layout),
+                with (patch.object(adapter, 'Rooms', return_value=layout),
                       patch.object(adapter, 'GRADIENT_MODE', False),
                       patch.object(adapter, 'GoveeController', side_effect=capture),
                       patch.object(adapter, 'ThreadingHTTPServer', side_effect=BeforeServer)):

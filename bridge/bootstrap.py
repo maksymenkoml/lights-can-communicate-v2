@@ -23,7 +23,6 @@ from hue_events import install_event_journal, install_event_route  # noqa: E402
 event_journal = install_event_journal()
 
 import configManager  # noqa: E402
-from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import (  # noqa: E402
     CAPTURE_POSITIONS,
     GRADIENT_MODE,
@@ -51,6 +50,7 @@ from HueObjects import (  # noqa: E402
     Scene,
     StreamEvent,
 )
+from rooms import Rooms  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from virtual_lights import default_name, hue_plan, migrated_hue_slots, plan  # noqa: E402
 from virtual_lights import load as load_registry  # noqa: E402
@@ -59,7 +59,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
 state.chmod(0o700)
-layout_store = LayoutStore(state / "desk-layout.json")
+layout_store = Rooms(state)
 
 
 def local_secret(name, size):
