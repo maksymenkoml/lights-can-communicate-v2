@@ -182,7 +182,8 @@ class HueArea:
             if response.status == 404 and method == "GET" and self.area_id is not None \
                     and path == self._path:
                 raise AreaMissing("Hue area not found")
-            if response.status != 200:
+            # A created resource answers 201 (verified on a Hue Bridge on 2026-11-24).
+            if response.status not in (200, 201):
                 raise OSError("Hue area request failed")
             raw = bytearray()
             while len(raw) <= _MAX_BYTES:
@@ -290,14 +291,18 @@ class HueArea:
     def _create(self, light):
         """Create the core's area with ``light`` as its only member."""
         service = self._service(light)
-        created = self._data("/clip/v2/resource/entertainment_configuration", "POST", {
-            "type": "entertainment_configuration",
-            "metadata": {"name": AREA_NAME},
-            "configuration_type": "screen",
-            "locations": {"service_locations": [
-                {"service": {"rid": service, "rtype": "entertainment"},
-                 "positions": [{"x": 0, "y": 0, "z": 0}]}]},
-        })
+        try:
+            created = self._data("/clip/v2/resource/entertainment_configuration", "POST", {
+                "type": "entertainment_configuration",
+                "metadata": {"name": AREA_NAME},
+                "configuration_type": "screen",
+                "locations": {"service_locations": [
+                    {"service": {"rid": service, "rtype": "entertainment"},
+                     "positions": [{"x": 0, "y": 0, "z": 0}]}]},
+            })
+        except (OSError, ValueError):
+            self._remove_uncertain(service)
+            raise
         rid = _uuid(created[0].get("rid")) if len(created) == 1 and isinstance(
             created[0], dict) else None
         if rid is None:
@@ -314,6 +319,23 @@ class HueArea:
             raise
         self._created = rid
         return {"service": service, "segments": segments}, True
+
+    def _remove_uncertain(self, service):
+        """After a creation with an unknown result, delete an area that it may have
+        left: named Light Studio, with this light's service as its only member."""
+        try:
+            areas = self._data("/clip/v2/resource/entertainment_configuration")
+        except (OSError, ValueError):
+            return
+        for area in areas:
+            rows = (area.get("locations") or {}).get("service_locations") \
+                if isinstance(area, dict) else None
+            rid = _uuid(area.get("id")) if isinstance(area, dict) else None
+            if (rid is not None and rid != self.area_id
+                    and (area.get("metadata") or {}).get("name") == AREA_NAME
+                    and isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
+                    and _uuid((rows[0].get("service") or {}).get("rid")) == service):
+                self._delete(rid)
 
     def _delete(self, rid):
         try:

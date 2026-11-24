@@ -235,6 +235,46 @@ class HueAreaCreationTests(unittest.TestCase):
         self.assertEqual(hue.join(LIGHT, replace_missing=True)[1], True)
         self.assertEqual(hue.area_id, NEW_AREA)
 
+    def test_an_uncertain_creation_removes_only_the_area_it_may_have_left(self):
+        base = "/clip/v2/resource/entertainment_configuration"
+        left = {"id": NEW_AREA, "metadata": {"name": AREA_NAME}, "locations": {
+            "service_locations": [{"service": {"rid": SERVICE, "rtype": "entertainment"}}]}}
+        owners = [
+            {"id": AREA, "metadata": {"name": "Mykola Office"}, "locations": {
+                "service_locations": [{"service": {"rid": SERVICE, "rtype": "entertainment"}}]}},
+            {"id": "f2222222-2222-4222-8222-222222222222", "metadata": {"name": AREA_NAME},
+             "locations": {"service_locations": [
+                 {"service": {"rid": OTHER_SERVICE, "rtype": "entertainment"}}]}}]
+        deleted = []
+
+        def bridge(path, method="GET", body=None):
+            if path == "/clip/v2/resource/entertainment":
+                return SERVICES
+            if method == "POST":
+                raise OSError("timed out")
+            if method == "DELETE":
+                deleted.append(path.rsplit("/", 1)[1])
+                return {"errors": [], "data": []}
+            self.assertEqual(path, base)
+            return {"errors": [], "data": [left, *owners]}
+
+        with self.assertRaises(OSError):
+            HueArea(CONFIG, None, requester=bridge).join(LIGHT)
+        self.assertEqual(deleted, [NEW_AREA])
+
+    def test_a_created_area_answers_201(self):
+        class Created(FakeConnection):
+            def getresponse(self):
+                body = {"errors": [], "data": [{"rid": NEW_AREA}]}
+                answer = io.BytesIO(json.dumps(body).encode())
+                return mock.Mock(status=201, read1=answer.read1)
+
+        with tempfile.TemporaryDirectory(prefix="tmp_pin_") as folder:
+            hue = HueArea(CONFIG, None, pin_file=Path(folder) / "hue-bridge-id")
+            with mock.patch.object(hue_area.http.client, "HTTPSConnection", Created):
+                self.assertEqual(hue._data("/clip/v2/resource/entertainment_configuration",
+                                           "POST", {}), [{"rid": NEW_AREA}])
+
     def test_a_missing_area_is_reported_only_for_its_own_path(self):
         class Missing(FakeConnection):
             def getresponse(self):
