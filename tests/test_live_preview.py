@@ -531,7 +531,9 @@ class ProducerTests(unittest.TestCase):
 
         def client(_config, resource_id=None, profile=None, link=None):
             self.assertIsNotNone(link)  # the key goes only over the verified link
-            self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
+            # Every Hue light, the scenes-only ones too (#78).
+            self.assertEqual(profile.light_ids,
+                             NativeHueProfile.from_dict(profile_data()).light_ids)
             result = FakeHue()
             result.profile = profile
             if resource_id is not None:

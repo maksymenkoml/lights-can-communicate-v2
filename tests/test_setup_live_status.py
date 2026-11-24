@@ -112,6 +112,13 @@ class SetupLiveStatusTests(unittest.TestCase):
         result = studio.project_status(data, source_active=False)
         self.assertEqual((result["lamps"][govee]["included"], result["lamps"][hue]["included"]),
                          (True, False))
+        # A Hue light for scenes only says why it is outside the area (#78); an unknown
+        # reason, or one on a Govee light, is dropped.
+        data["lights"][1]["outside"] = "channels_shared"
+        data["lights"][0]["outside"] = "room"
+        data["lights"][3]["outside"] = "anything"
+        rows = studio.project_status(data, source_active=False)["lights"]
+        self.assertEqual([row.get("outside") for row in rows], [None, "channels_shared", None])
 
     def test_an_empty_registry_shows_no_lamps_and_an_older_adapter_shows_the_six(self):
         data = status()

@@ -96,6 +96,11 @@ class Identify:
     def sync_owns(self, role):
         if self.video is None or not self.video.active():
             return False
+        # A Hue light for scenes only is outside the area: Sync never owns it (#78).
+        native = getattr(self.video, "all_native", None)
+        if role not in self.controller.by_light and native is not None \
+                and role not in native():
+            return False
         member = getattr(self.layout_store, "enabled", None)
         return member(role) if member is not None else True
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from .native_profile import MAX_CHANNELS, NativeHueProfile, NativeProfileError
+from .native_profile import MAX_CHANNELS, HueLightSet, NativeHueProfile, NativeProfileError
 
 REGISTRY_FILE = "lights.json"
 LEGACY_SIDES = {"govee-left": "left", "govee-right": "right"}
@@ -33,6 +33,9 @@ _SEED = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _HUE_LIGHTS = ("hue-monitor", "play-left", "play-center", "play-right")
 HUE_ID = re.compile(r"(?:hue-monitor|play-left|play-center|play-right|device-[0-9a-f]{32})\Z")
 MODEL_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
+# Why a Hue light is connected for scenes only, outside the Entertainment area (#78):
+# its room has no Sync Box, the area gives it shared channels, or the area is full.
+OUTSIDE_REASONS = ("room", "channels_shared", "area_full")
 
 
 # Virtual bridge slot and identity seed of each migrated light (see bridge/bootstrap.py).
@@ -102,13 +105,17 @@ def _govee(value):
 
 
 def _hue(value):
-    value = _object(value, ("light", "channels", *(("model",) if type(value) is dict
-                                                     and "model" in value else ())))
+    optional = tuple(key for key in ("model", "outside") if type(value) is dict and key in value)
+    value = _object(value, ("light", "channels", *optional))
     _uuid(value["light"])
     if "model" in value:
         _text(value["model"], MODEL_ID)
     channels = value["channels"]
     if type(channels) is not list:
+        raise _invalid()
+    # A light without channels is outside the area, for scenes only, with a reason.
+    if (not channels) != ("outside" in value) or value.get("outside", "room") \
+            not in OUTSIDE_REASONS:
         raise _invalid()
     for channel in channels:
         channel = _object(channel, ("channel_id", "rid", "index"))
@@ -143,8 +150,11 @@ def _validated(data):
     lights = data.get("lights")
     if type(lights) is not list:
         raise _invalid()
-    has_hue = any(type(item) is dict and item.get("provider") == "hue" for item in lights)
-    if has_hue and "hue" not in data:
+    # Only a light of the area needs the area; a light for scenes only does not.
+    has_area = any(type(item) is dict and item.get("provider") == "hue"
+                   and type(item.get("hue")) is dict and item["hue"].get("channels")
+                   for item in lights)
+    if has_area and "hue" not in data:
         raise _invalid()
     optional = tuple(key for key in ("hue", "retired") if key in data)
     root = _object(data, ("version", "lights", *optional))
@@ -239,12 +249,34 @@ def _append(data, light_id, provider, details):
         data["retired"] = retired
 
 
+def _area_lights(data):
+    """The Hue lights of the Entertainment area: those with channels."""
+    return [item for item in data["lights"]
+            if item["provider"] == "hue" and item["hue"]["channels"]]
+
+
 def _profile(data):
     """Return the native Hue profile of registry data."""
     return NativeHueProfile.from_lights(
         data["hue"]["area_id"],
         [{"id": item["id"], "light": item["hue"]["light"], "channels": item["hue"]["channels"]}
-         for item in data["lights"] if item["provider"] == "hue"])
+         for item in _area_lights(data)])
+
+
+def _renumber(data, removed):
+    """Move the canonical channels of the area's lights down past ``removed`` ids."""
+    for other in _area_lights(data):
+        for channel in other["hue"]["channels"]:
+            channel["channel_id"] -= sum(1 for cid in removed if cid < channel["channel_id"])
+
+
+def _channels(data, service, segments):
+    """New channels after the channels of the area's lights, so theirs stay."""
+    if type(segments) is not int or not 1 <= segments <= MAX_CHANNELS:
+        raise _invalid()
+    first = sum(len(item["hue"]["channels"]) for item in _area_lights(data))
+    return [{"channel_id": first + index, "rid": service, "index": index}
+            for index in range(segments)]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -260,11 +292,14 @@ class LightRegistry:
     def from_dict(cls, data):
         """Validate every field, then retain only an immutable serialized copy."""
         normalized = _validated(data)
-        if any(item["provider"] == "hue" for item in normalized["lights"]):
-            try:
+        try:
+            if _area_lights(normalized):
                 _profile(normalized)
-            except NativeProfileError:
-                raise RegistryError("Light registry Hue resources are invalid.") from None
+            HueLightSet.from_lights({item["id"]: item["hue"]["light"]
+                                     for item in normalized["lights"]
+                                     if item["provider"] == "hue"})
+        except NativeProfileError:
+            raise RegistryError("Light registry Hue resources are invalid.") from None
         if len(_payload(normalized)) > _MAX_REGISTRY_BYTES:
             raise RegistryError("Light registry exceeds the size limit.")
         registry = object.__new__(cls)
@@ -352,25 +387,71 @@ class LightRegistry:
         channels follow the channels of the lights enrolled before it, so the
         migrated channels and their packet bytes stay as they are.
         """
-        if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
+        data = self._new_hue(light_id, light)
+        if _area_lights(data) and data["hue"]["area_id"] != area_id:
+            raise RegistryError("Light is outside the paired Entertainment area.")
+        # The first light of the area sets it: a new one the core created, or the
+        # area that replaces one the bridge no longer has.
+        data["hue"] = {"area_id": area_id}
+        _append(data, light_id, "hue", {"light": light,
+                                        "channels": _channels(data, service, segments),
+                                        "model": model})
+        return LightRegistry.from_dict(data)
+
+    def with_scene_hue_light(self, light_id, light, model, reason):
+        """Return a registry that also drives the discovered Hue light ``light_id``
+        for scenes only, outside the Entertainment area for ``reason`` (#78)."""
+        if reason not in OUTSIDE_REASONS:
             raise _invalid()
-        if type(segments) is not int or not 1 <= segments <= MAX_CHANNELS:
+        data = self._new_hue(light_id, light)
+        _append(data, light_id, "hue", {"light": light, "channels": [], "model": model,
+                                        "outside": reason})
+        return LightRegistry.from_dict(data)
+
+    def _new_hue(self, light_id, light):
+        if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
             raise _invalid()
         data = self.to_dict()
         if light_id in {item["id"] for item in data["lights"]}:
             raise RegistryError("Light is already enrolled.")
-        hue = [item for item in data["lights"] if item["provider"] == "hue"]
-        if any(item["hue"]["light"] == light for item in hue):
+        if any(item["provider"] == "hue" and item["hue"]["light"] == light
+               for item in data["lights"]):
             raise RegistryError("Light is already enrolled.")
-        if hue and data["hue"]["area_id"] != area_id:
+        return data
+
+    def _hue_item(self, data, light_id):
+        item = next((item for item in data["lights"]
+                     if item["id"] == light_id and item["provider"] == "hue"), None)
+        if item is None:
+            raise RegistryError("Light is not enrolled.")
+        return item
+
+    def with_area_member(self, light_id, area_id, service, segments):
+        """Return a registry where the scenes-only Hue light ``light_id`` is a member
+        of the area ``area_id``; its channels follow the area's other channels."""
+        data = self.to_dict()
+        item = self._hue_item(data, light_id)
+        if item["hue"]["channels"]:
+            raise RegistryError("Light is already in the Entertainment area.")
+        if _area_lights(data) and data["hue"]["area_id"] != area_id:
             raise RegistryError("Light is outside the paired Entertainment area.")
-        # The first Hue light sets the area: a new one the core created, or the
-        # area that replaces one the bridge no longer has.
         data["hue"] = {"area_id": area_id}
-        first = sum(len(item["hue"]["channels"]) for item in hue)
-        channels = [{"channel_id": first + index, "rid": service, "index": index}
-                    for index in range(segments)]
-        _append(data, light_id, "hue", {"light": light, "channels": channels, "model": model})
+        item["hue"]["channels"] = _channels(data, service, segments)
+        del item["hue"]["outside"]
+        return LightRegistry.from_dict(data)
+
+    def with_outside(self, light_id, reason):
+        """Return a registry where the Hue light ``light_id`` is for scenes only,
+        outside the area for ``reason``. The canonical channels of the area's other
+        lights move down, so they stay numbered from zero."""
+        if reason not in OUTSIDE_REASONS:
+            raise _invalid()
+        data = self.to_dict()
+        item = self._hue_item(data, light_id)
+        removed = {channel["channel_id"] for channel in item["hue"]["channels"]}
+        item["hue"]["channels"] = []
+        item["hue"]["outside"] = reason
+        _renumber(data, removed)
         return LightRegistry.from_dict(data)
 
     def without_light(self, light_id):
@@ -390,12 +471,7 @@ class LightRegistry:
             raise RegistryError("Light is not enrolled.")
         data["lights"].remove(item)
         if item["provider"] == "hue":
-            removed = {channel["channel_id"] for channel in item["hue"]["channels"]}
-            hue = [other for other in data["lights"] if other["provider"] == "hue"]
-            for other in hue:
-                for channel in other["hue"]["channels"]:
-                    channel["channel_id"] -= sum(1 for cid in removed
-                                                 if cid < channel["channel_id"])
+            _renumber(data, {channel["channel_id"] for channel in item["hue"]["channels"]})
         retired = data.pop("retired", [])
         retired.append({"id": light_id, "virtual": item["virtual"],
                         "identity": _identity_of(item)})
@@ -403,11 +479,24 @@ class LightRegistry:
         return LightRegistry.from_dict(data)
 
     def native_profile(self):
-        """Return the validated native Hue profile, or None without Hue lights."""
+        """Return the validated native Hue profile of the area's lights, or None
+        without a light in the area."""
         data = self.to_dict()
-        if not any(item["provider"] == "hue" for item in data["lights"]):
+        if not _area_lights(data):
             return None
         return _profile(data)
+
+    def hue_lights(self):
+        """Return the set of every Hue light, in the area or for scenes only, or None
+        without a Hue light."""
+        lights = {item["id"]: item["hue"]["light"] for item in self.to_dict()["lights"]
+                  if item["provider"] == "hue"}
+        return HueLightSet.from_lights(lights) if lights else None
+
+    def outside(self):
+        """Return ``{light id: reason}`` of the Hue lights connected for scenes only."""
+        return {item["id"]: item["hue"]["outside"] for item in self.to_dict()["lights"]
+                if item["provider"] == "hue" and "outside" in item["hue"]}
 
     def save(self, path):
         """Replace the registry atomically with owner-only permissions."""

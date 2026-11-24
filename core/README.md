@@ -77,6 +77,17 @@ state schema `rooms` is 1, so a rollback restores the state snapshot taken
 before the upgrade. Until room management arrives in Light Studio, it edits the
 first room.
 
+The core's Entertainment area holds only Hue lights of the Sync Box's room. A
+Hue light of another room is connected for scenes only: it is in no area, has no
+channels, and the adapter drives it through the CLIP API, during Sync as well.
+After a change of the rooms, `POST /lights/rooms` on the adapter (authenticated,
+body `{}`) moves the Hue lights into or out of the area as their rooms and the
+Sync Box's room require, saves the registry and restarts the adapter. It answers
+`{"accepted": true, "restarting": ..., "changes": {light id: null or reason}}`;
+`null` means the light joined the area. It is refused with `sync_active` while
+Sync output is active or the area streams, and an area change that fails is
+undone.
+
 ## Managed service release
 
 A release directory holds everything the services run, without a checkout:
@@ -277,7 +288,9 @@ enrolling it under its discovered id gives it its migrated id, slot and seed
 back, so its HomeKit accessory responds again. The enrollment answer names the
 registry id (`"id"`).
 
-A Hue light is enrolled into the core's native Entertainment area: the area in
+A Hue light of the Sync Box's room is enrolled into the core's native
+Entertainment area (a light of another room is connected for scenes only, see
+"Rooms"): the area in
 the light registry (an existing pairing's area is adopted as the core's), or one
 that the core creates for the first Hue light. The core creates the area named
 "Light Studio" (configuration type `screen`) with that light as its only member;
@@ -294,8 +307,8 @@ not matter, because the Light Studio layout gives the light its Sync zone. The
 bridge places every gradient light on the same fixed template, whatever its
 position and the area type, so a second gradient light shares the first one's
 channels (verified on a Hue Bridge on 2026-11-23). A light whose channels are
-shared cannot be driven on its own: the area is restored and the enrollment is
-refused. The light's entertainment service is the
+shared cannot be driven on its own: the area is restored, and the light is
+connected for scenes only. The light's entertainment service is the
 one whose renderer is the light, and its channels are the area's channels of
 that service. A light that is already a member is kept as it is. The registry
 appends the light's channels after the channels of the lights enrolled before
@@ -328,9 +341,12 @@ not enrolled, so do not add lights to this area in the Hue app.
 A change is refused with 409 and a reason while Sync output is active
 (`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled
 (`not_enrolled`), when discovery does not offer it now or the area cannot be read
-or changed (`unavailable`), when the area would exceed ten lights or twenty
-channels (`area_full`), when the bridge gives the light shared channels
-(`channels_shared`), and after a change until the restart (`restarting`). A
+or changed (`unavailable`), and after a change until the restart (`restarting`).
+A Hue light that the area cannot take is not refused: when the area would exceed
+ten lights or twenty channels, or the bridge gives the light shared channels, it
+is connected for scenes only. The registry keeps such a light with no channels
+and the reason (`"outside"`: `room`, `channels_shared` or `area_full`), and the
+adapter lists the reason with the light. A
 native cleanup that is still pending does not block a change: it can wait on an
 area that only the change repairs, and the area itself is not changed while it
 streams. A changed registry is saved atomically,

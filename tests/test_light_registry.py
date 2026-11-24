@@ -483,6 +483,60 @@ class EnrollmentTests(unittest.TestCase):
                          {"id_v1": "7", "seed": NEW})
         self.assertEqual(rejoined.native_profile().channels[NEW], (15, 16))
 
+    def test_a_hue_light_for_scenes_only_has_no_channels_and_a_reason(self):
+        registry = LightRegistry.from_dict(sample(hue=False)).with_scene_hue_light(
+            NEW, NEW_STRIP, "LCX005", "room")
+        light = registry.to_dict()["lights"][-1]
+        self.assertEqual(light["hue"], {"light": NEW_STRIP, "channels": [], "model": "LCX005",
+                                        "outside": "room"})
+        # It needs no area: no profile, but the core drives it for scenes.
+        self.assertNotIn("hue", registry.to_dict())
+        self.assertIsNone(registry.native_profile())
+        self.assertEqual(registry.hue_lights().light_ids, {NEW: NEW_STRIP})
+        self.assertEqual(registry.outside(), {NEW: "room"})
+        self.assertEqual(LightRegistry.from_dict(registry.to_dict()), registry)
+        with self.assertRaises(RegistryError):
+            registry.with_scene_hue_light(OTHER, NEW_STRIP, "LCX005", "room")
+        with self.assertRaises(RegistryError):
+            LightRegistry.from_dict(sample()).with_scene_hue_light(
+                OTHER, NEW_STRIP, "LCX005", "elsewhere")
+
+    def test_an_outside_reason_goes_only_with_no_channels(self):
+        for change in ({"outside": "room"}, {"channels": [], "outside": "elsewhere"},
+                       {"channels": []}):
+            data = sample()
+            data["lights"][2]["hue"].update(change)
+            with self.subTest(change=change), self.assertRaises(RegistryError):
+                LightRegistry.from_dict(data)
+
+    def test_a_light_moves_into_and_out_of_the_area(self):
+        registry = (LightRegistry.from_dict(sample())
+                    .with_scene_hue_light(NEW, NEW_STRIP, "LCX005", "channels_shared"))
+        joined = registry.with_area_member(NEW, AREA, NEW_SERVICE, 2)
+        self.assertEqual(joined.native_profile().channels[NEW], (12, 13))
+        self.assertEqual(joined.outside(), {})
+        with self.assertRaises(RegistryError):
+            joined.with_area_member(NEW, AREA, NEW_SERVICE, 2)
+        with self.assertRaises(RegistryError):
+            registry.with_area_member(NEW, "f0000000-0000-4000-8000-00000000000f",
+                                      NEW_SERVICE, 2)
+        # A migrated lamp leaves: the channels after its own move down.
+        left = joined.with_outside("play-left", "room")
+        profile = left.native_profile()
+        self.assertNotIn("play-left", profile.ids)
+        self.assertEqual(profile.channels["play-right"], (1,))
+        self.assertEqual(profile.channels[NEW], (11, 12))
+        self.assertEqual(left.outside(), {"play-left": "room"})
+        self.assertEqual(left.hue_lights().light_ids["play-left"], LEFT)
+        # Every light of the area can leave; the area stays for the next one.
+        empty = left
+        for light in ("hue-monitor", "play-center", "play-right", NEW):
+            empty = empty.with_outside(light, "room")
+        self.assertIsNone(empty.native_profile())
+        self.assertEqual(empty.to_dict()["hue"]["area_id"], AREA)
+        self.assertEqual(empty.with_area_member(NEW, AREA, NEW_SERVICE, 2)
+                         .native_profile().channels, {NEW: (0, 1)})
+
     def test_retired_records_are_validated_and_bounded(self):
         data = sample()
         data["retired"] = [{"id": NEW, "virtual": {"id_v1": "1", "seed": "Other"}}]

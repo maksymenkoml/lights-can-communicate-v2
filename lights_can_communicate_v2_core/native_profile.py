@@ -195,3 +195,45 @@ class NativeHueProfile:
                           for index, cid in enumerate(channels)]}
             for light_id, light, service, channels in self._lights
         ]
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class HueLightSet:
+    """Every native Hue light that the core drives through the CLIP API: the lights
+    of the Entertainment area and the lights connected for scenes only (#78)."""
+
+    # (light id, native light UUID), in registry order.
+    _lights: tuple[tuple[str, str], ...]
+
+    def __init__(self):
+        raise NativeProfileError("Create Hue light sets with from_lights.")
+
+    @classmethod
+    def from_lights(cls, lights):
+        """``lights`` maps each registry light id to its native light UUID."""
+        if type(lights) is not dict:
+            raise NativeProfileError("Hue light set is invalid.")
+        entries = []
+        for light_id, light in lights.items():
+            if type(light_id) is not str or not light_id:
+                raise NativeProfileError("Hue light set IDs are invalid.")
+            entries.append((light_id, _uuid(light)))
+        if len({light for _, light in entries}) != len(entries):
+            raise NativeProfileError("Hue light set resources must be distinct.")
+        result = object.__new__(cls)
+        object.__setattr__(result, "_lights", tuple(entries))
+        return result
+
+    @property
+    def ids(self):
+        return tuple(entry[0] for entry in self._lights)
+
+    @property
+    def light_ids(self):
+        """Return ``{light id: native light UUID}``."""
+        return dict(self._lights)
+
+    @property
+    def resource_ids(self):
+        """Return only light resources that a light request may address."""
+        return frozenset(entry[1] for entry in self._lights)

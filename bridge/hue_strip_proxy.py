@@ -11,7 +11,10 @@ from bridge_output import strip_changes
 from entertainment_stream import default_scale
 
 import lights_can_communicate_v2 as lan
-from lights_can_communicate_v2_core.native_profile import NativeHueProfile
+from lights_can_communicate_v2_core.native_profile import HueLightSet, NativeHueProfile
+
+# The area's profile, or every Hue light the core drives (scenes-only ones too, #78).
+_LIGHT_SETS = (NativeHueProfile, HueLightSet)
 
 # Hue bridges accept at most 32 characters in a light's name. The layout limits
 # the Hue lamp names to the same length, so a longer name is refused, not cut.
@@ -92,7 +95,7 @@ STALE_CONNECTION = (
 class PinnedHueClient:
     def __init__(self, config, requester=None, resource_id=None, profile=None,
                  connection_factory=None, link=None):
-        if not isinstance(profile, NativeHueProfile):
+        if not isinstance(profile, _LIGHT_SETS):
             raise ValueError("An explicit native Hue profile is required")
         self.profile = profile
         self.resource_id = resource_id
@@ -225,13 +228,13 @@ class HueStripProxy:
         preview=None, profile=None,
     ):
         client_profile = getattr(client, "profile", None)
-        if any(value is not None and not isinstance(value, NativeHueProfile)
+        if any(value is not None and not isinstance(value, _LIGHT_SETS)
                for value in (profile, client_profile)):
             raise ValueError("Invalid native Hue profile")
         if profile is not None and client_profile is not None and profile != client_profile:
             raise ValueError("Conflicting native Hue profiles")
         self.profile = profile if profile is not None else client_profile
-        if not isinstance(self.profile, NativeHueProfile):
+        if not isinstance(self.profile, _LIGHT_SETS):
             raise ValueError("An explicit native Hue profile is required")
         self.layout_store = layout_store
         self.preview = preview

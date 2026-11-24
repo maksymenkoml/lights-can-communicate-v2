@@ -187,6 +187,19 @@ class Area:
         self.calls.append(("rejoin", before))
 
 
+class Rooms:
+    """The room index of the tests: ``other`` lights are outside the Sync Box's room."""
+
+    def __init__(self, other=(), sync="room-00000001"):
+        self.other, self.sync = set(other), sync
+
+    def sync_room(self):
+        return self.sync
+
+    def room_of(self, light):
+        return "room-0a1b2c3d" if light in self.other else "room-00000001"
+
+
 class HueEnrollmentTests(unittest.TestCase):
     def setUp(self):
         temp = TemporaryDirectory(prefix="tmp_light_enrollment_")
@@ -223,15 +236,8 @@ class HueEnrollmentTests(unittest.TestCase):
         for area, reason, calls in (
                 (None, "unavailable", None),
                 (Area(error=AreaBusy()), "sync_active", [("join", HUE_LIGHT)]),
-                (Area(error=AreaShared()), "channels_shared", [("join", HUE_LIGHT)]),
                 (Area(error=OSError()), "unavailable", [("join", HUE_LIGHT)]),
-                (Area(error=ValueError()), "unavailable", [("join", HUE_LIGHT)]),
-                # Too many channels: the light that joined leaves again.
-                (Area({"service": HUE_SERVICE, "segments": 9}), "area_full",
-                 [("join", HUE_LIGHT), ("abandon", HUE_LIGHT)]),
-                # A light that was already a member stays there.
-                (Area({"service": HUE_SERVICE, "segments": 9}, added=False), "area_full",
-                 [("join", HUE_LIGHT)])):
+                (Area(error=ValueError()), "unavailable", [("join", HUE_LIGHT)])):
             with self.subTest(reason=reason, calls=calls), \
                     self.assertRaises(adapter.LightRefused) as refused:
                 self.enrollment(area).enroll(self.new)
@@ -247,6 +253,114 @@ class HueEnrollmentTests(unittest.TestCase):
             self.enrollment(area).enroll(self.new)
         self.assertEqual((refused.exception.reason, area.calls), ("unavailable", []))
         self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.restarts, [])
+
+    def scene_light(self):
+        light = LightRegistry.load(self.path).to_dict()["lights"][-1]
+        return light["id"], light["hue"]
+
+    def test_a_light_the_area_cannot_take_is_connected_for_scenes_only(self):
+        for area, reason, calls in (
+                (Area(error=AreaShared()), "channels_shared", [("join", HUE_LIGHT)]),
+                # Too many channels: the light that joined leaves again.
+                (Area({"service": HUE_SERVICE, "segments": 9}), "area_full",
+                 [("join", HUE_LIGHT), ("abandon", HUE_LIGHT)]),
+                # A light that was already a member stays there.
+                (Area({"service": HUE_SERVICE, "segments": 9}, added=False), "area_full",
+                 [("join", HUE_LIGHT)])):
+            with self.subTest(reason=reason, calls=calls):
+                self.registry.save(self.path)
+                self.restarts.clear()
+                self.enrollment(area).enroll(self.new)
+                self.assertEqual(area.calls, calls)
+                self.assertEqual(self.scene_light(), (self.new, {
+                    "light": HUE_LIGHT, "channels": [], "model": "LCX005",
+                    "outside": reason}))
+                stored = LightRegistry.load(self.path)
+                self.assertNotIn(self.new, stored.native_profile().ids)
+                self.assertEqual(stored.hue_lights().light_ids[self.new], HUE_LIGHT)
+                self.assertEqual(stored.outside(), {self.new: reason})
+                self.assertEqual(self.restarts, [True])
+
+    def test_a_light_of_a_room_without_the_sync_box_never_joins_the_area(self):
+        area = Area({"service": HUE_SERVICE, "segments": 1})
+        rooms = Rooms(other={self.new})
+        LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+                        restart=lambda: self.restarts.append(True), area=area,
+                        rooms=rooms).enroll(self.new)
+        self.assertEqual(area.calls, [])
+        self.assertEqual(self.scene_light()[1]["outside"], "room")
+        # Without a Sync Box no light joins the area.
+        self.registry.save(self.path)
+        rooms.sync = None
+        rooms.other = set()
+        LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+                        restart=lambda: None, area=area, rooms=rooms).enroll(self.new)
+        self.assertEqual((area.calls, self.scene_light()[1]["outside"]), ([], "room"))
+
+    def test_removing_a_light_for_scenes_only_does_not_touch_the_area(self):
+        area = Area(error=AreaShared())
+        lights = self.enrollment(area)
+        lights.enroll(self.new)
+        lights.pending = False
+        area.error = None
+        area.calls.clear()
+        lights.remove(self.new)
+        self.assertEqual(area.calls, [])
+        self.assertNotIn(self.new, LightRegistry.load(self.path).ids)
+
+    def test_lights_follow_the_room_of_the_sync_box(self):
+        area = Area({"service": HUE_SERVICE, "segments": 7})
+        rooms = Rooms(other={self.new})
+        lights = LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+                                 restart=lambda: self.restarts.append(True), area=area,
+                                 rooms=rooms)
+        lights.enroll(self.new)
+        lights.pending = False
+        self.assertEqual(lights.follow_rooms(), {})
+        # The light's room gets the Sync Box: it joins with channels after the others.
+        rooms.other = set()
+        self.assertEqual(lights.follow_rooms(), {self.new: None})
+        stored = LightRegistry.load(self.path)
+        self.assertEqual(stored.native_profile().channels[self.new], tuple(range(12, 19)))
+        self.assertEqual(stored.outside(), {})
+        lights.pending = False
+        # The Sync Box moves: the light and a migrated lamp leave; channels renumber.
+        rooms.other = {self.new, "play-left"}
+        area.calls.clear()
+        self.assertEqual(lights.follow_rooms(), {self.new: "room", "play-left": "room"})
+        self.assertEqual([call[0] for call in area.calls], ["leave", "leave"])
+        stored = LightRegistry.load(self.path)
+        self.assertEqual(stored.outside(), {self.new: "room", "play-left": "room"})
+        channels = stored.native_profile().channels
+        self.assertEqual(sorted(cid for ids in channels.values() for cid in ids),
+                         list(range(11)))
+        self.assertEqual(self.restarts, [True, True, True])
+
+    def test_a_refused_follow_undoes_the_area_and_keeps_the_registry(self):
+        rooms = Rooms(other={"play-left", "play-right"})
+        area = Area()
+        lights = LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: False,
+                                 restart=lambda: self.restarts.append(True), area=area,
+                                 rooms=rooms)
+        before = self.path.read_bytes()
+
+        def leave(light):
+            area.calls.append(("leave", light))
+            if len(area.calls) == 2:
+                raise AreaBusy()
+            return ["locations before"]
+
+        area.leave = leave
+        with self.assertRaises(adapter.LightRefused) as refused:
+            lights.follow_rooms()
+        self.assertEqual(refused.exception.reason, "sync_active")
+        self.assertEqual(area.calls[-1], ("rejoin", ["locations before"]))
+        self.assertEqual(self.path.read_bytes(), before)
+        with self.assertRaises(adapter.LightRefused) as refused:
+            LightEnrollment(self.path, self.registry, self.catalog, busy=lambda: True,
+                            restart=lambda: None, area=area, rooms=rooms).follow_rooms()
+        self.assertEqual(refused.exception.reason, "sync_active")
         self.assertEqual(self.restarts, [])
 
     def test_a_light_that_goes_offline_while_it_joins_is_refused_and_leaves(self):
@@ -380,7 +494,7 @@ class HueEnrollmentTests(unittest.TestCase):
 
 class AdapterRouteTests(unittest.TestCase):
     def setUp(self):
-        self.calls, self.answer = [], None
+        self.calls, self.answer, self.changes = [], None, {}
 
         class Lights:
             def enroll(inner, light_id):
@@ -392,6 +506,12 @@ class AdapterRouteTests(unittest.TestCase):
                 self.calls.append(("remove", light_id))
                 if self.answer is not None:
                     raise self.answer
+
+            def follow_rooms(inner):
+                self.calls.append(("rooms",))
+                if self.answer is not None:
+                    raise self.answer
+                return self.changes
 
         controller = adapter.GoveeController(targets(), sender=lambda *args: True)
         handler = adapter.handler_for(controller, TOKEN, lights=Lights())
@@ -418,6 +538,21 @@ class AdapterRouteTests(unittest.TestCase):
                          (200, {"accepted": True, "restarting": True}))
         self.assertEqual(self.call("/lights/remove", {"id": light})[0], 200)
         self.assertEqual(self.calls, [("enroll", light), ("remove", light)])
+
+    def test_the_area_follows_the_rooms_on_request(self):
+        self.assertEqual(self.call("/lights/rooms", {}),
+                         (200, {"accepted": True, "restarting": False, "changes": {}}))
+        light = "device-" + "c" * 32
+        self.changes = {light: None, "play-left": "room"}
+        self.assertEqual(self.call("/lights/rooms", {}),
+                         (200, {"accepted": True, "restarting": True,
+                                "changes": {light: None, "play-left": "room"}}))
+        self.answer = adapter.LightRefused("sync_active")
+        self.assertEqual(self.call("/lights/rooms", {}),
+                         (409, {"accepted": False, "reason": "sync_active"}))
+        self.answer = None
+        self.assertEqual(self.call("/lights/rooms", {"x": 1})[0], 400)
+        self.assertEqual(self.calls, [("rooms",)] * 3)
 
     def test_refusals_errors_and_authentication(self):
         light = "device-" + "c" * 32
@@ -465,6 +600,11 @@ class RegistryLightsTests(unittest.TestCase):
         self.assertEqual(lights[hue], {"id": hue, "provider": "hue", "model": "LCX005",
                                        "zones": 7, "migrated": False})
         self.assertTrue(lights["play-left"]["migrated"])
+        # A Hue light for scenes only has one zone and says why it is outside the area.
+        outside = adapter.registry_lights(registry.with_outside(hue, "channels_shared"), None)
+        self.assertEqual(outside[-1], {"id": hue, "provider": "hue", "model": "LCX005",
+                                       "zones": 1, "migrated": False,
+                                       "outside": "channels_shared"})
         # No device identity or address reaches the list.
         self.assertNotIn("CC:CC", json.dumps(list(lights.values())))
         self.assertNotIn("192.168", json.dumps(list(lights.values())))
