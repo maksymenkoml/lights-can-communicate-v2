@@ -268,6 +268,8 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .lp-divider{height:1px;margin:6px 10px;background:var(--line)}
 .lp-row.found .lp-glyph{color:var(--text)}
 .lp-row.found.unavailable{opacity:.5}
+.lp-connect{height:26px;padding:0 10px;border:1px solid var(--accent);border-radius:var(--r-ctl,5px);background:var(--surface);color:var(--accent);font-size:12px;white-space:nowrap}
+.lp-connect:hover{background:var(--soft)}
 .lp-add{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--r-ctl,5px);background:var(--surface);color:var(--text)}
 .lp-add:hover{border-color:var(--accent);background:var(--soft);color:var(--accent)}
 .lp-add svg{width:14px;height:14px}
@@ -341,6 +343,11 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 #object-menu .card-alert{margin:4px 0 8px}
 #object-menu .card-field{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:40px;padding:0 14px;border-top:1px solid var(--line);font-size:13px;white-space:nowrap;color:var(--text)}
 #object-menu .card-field.disabled{opacity:.45}
+#object-menu .card-prompt{font-size:14px;font-weight:600;color:var(--text);overflow-wrap:anywhere}
+#object-menu .card-switch{display:grid;place-items:center;padding:4px;margin-right:-4px;border-radius:var(--r-ctl)}
+#object-menu .card-switch[aria-checked=true] .switch{background:var(--accent)}
+#object-menu .card-switch[aria-checked=true] .switch i{transform:translateX(11px)}
+#object-menu .card-switch:disabled{opacity:.6;cursor:default}
 #object-menu .card-list,#box-card .card-list{display:grid;padding:4px 6px;border-top:1px solid var(--line)}
 #object-menu .card-list.card-end,#box-card .card-list.card-end{padding-bottom:6px}
 #object-menu .card-row,#box-card .card-row{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 8px;border-radius:var(--r-ctl);color:var(--text);font-size:13px;text-align:left}

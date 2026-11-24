@@ -857,7 +857,7 @@ function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
 const reduceMotion=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
 let menuHideTimer=null;
 function closeObjectMenu(){
- if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;
+ if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;connectPrompt=null;
  const menu=$('#object-menu'),c=$('#stage').querySelector('[data-chip-action="more"]');c?.classList.remove('open');c?.setAttribute('aria-expanded','false');
  clearTimeout(menuHideTimer);
  if(reduceMotion()){menu.hidden=true;return}
@@ -866,12 +866,24 @@ function closeObjectMenu(){
  menuHideTimer=setTimeout(()=>{if(!menuOpen){menu.hidden=true;menu.classList.remove('closing')}},140);
 }
 function seg(prefix,options,value,disabled){return '<div class="seg" role="group">'+options.map(([v,t])=>'<button data-menu="'+prefix+v+'" aria-pressed="'+(v===value)+'"'+(disabled?' disabled':'')+'>'+t+'</button>').join('')+'</div>'}
-function calSummary(l){return corr(l)+'%'+(/^govee-/.test(l.id)&&calibrated(l.calibration)?' · color':'')}
+function calSummary(l){return corr(l)+'%'+(goveeLight(l.id)&&calibrated(l.calibration)?' · color':'')}
+function connectPromptHtml(l){
+ return '<div class="card-head"><div class="card-prompt">Connect '+esc(l.name)+'?</div><div class="card-sub">Scenes and Sync will drive it</div></div>'
+  +'<div class="card-foot"><span class="card-gap"></span><button data-menu="connect-later">Not now</button><button class="primary" data-menu="connect-now">Connect</button></div>';
+}
+function connectedField(l){
+ if(!realDevice(l.id))return '';
+ const link=linkState(l),on=link?link==='connect':!l.unbound;
+ const label=link==='connect'?'Connecting…':link==='disconnect'?'Disconnecting…':'Connected';
+ return '<div class="card-field" data-connected-field><span>'+label+'</span><button class="card-switch" role="switch" aria-label="Connected" aria-checked="'+on+'" data-menu="connected"'+(link?' disabled':'')+'><span class="switch"><i></i></span></button></div>';
+}
 function cardMenu(l){
+ if(connectPrompt===l.id)return connectPromptHtml(l);
  const b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
  return '<div class="card-head"><input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
+  +connectedField(l)
   +'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>'
   +'<div class="card-list"><button class="card-row" data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'<span>Blink</span></button>'
   +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button></div>'
@@ -934,6 +946,36 @@ async function blinkLamp(l){
   else tell(response.status===409?BLINK_REFUSED[body.reason]||'The lamp cannot blink now':'Blink failed: the adapter is not responding');
  }catch{tell('Blink failed: the adapter is not responding')}
 }
+// ------------------------------------------------------------ connecting --
+// Connecting enrolls a found lamp in the core; disconnecting removes it. The core
+// restarts with the new light set, so a lamp shows Connecting or Disconnecting
+// until /api/live lists it (or no longer lists it).
+const LINK_TIMEOUT_MS=90000;
+let linking=new Map(),connectPrompt=null;
+const LIGHT_REFUSED={sync_active:'Stop Sync to connect or disconnect a lamp',restarting:'The lamps are restarting; try again in a moment',enrolled:'The lamp is already connected',not_enrolled:'The lamp is already disconnected',unavailable:'The lamp does not respond',area_full:'The Hue entertainment area is full',channels_shared:'Hue gives this lamp the same channels as another lamp'};
+const linkState=l=>linking.get(l.id)?.kind||null;
+async function changeLink(l,kind){
+ if(!realDevice(l.id)||linking.has(l.id))return;
+ const verb=kind==='connect'?'Connect':'Disconnect';
+ linking.set(l.id,{kind,since:performance.now()});paintLink();
+ let status=0,body={};
+ try{const r=await fetch(kind==='connect'?'/api/lights/enroll':'/api/lights/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:l.id})});status=r.status;body=await r.json().catch(()=>({}))}catch{}
+ // The deadline holds even when /api/live stops answering.
+ if(status===200&&body.accepted===true){tell((kind==='connect'?'Connecting ':'Disconnecting ')+l.name);setTimeout(settleLinks,LINK_TIMEOUT_MS+50);return}
+ linking.delete(l.id);paintLink();
+ tell(status===409?LIGHT_REFUSED[body.reason]||'The lamp cannot be '+(kind==='connect'?'connected':'disconnected')+' now':verb+' failed: the adapter is not responding');
+}
+// A finished change says so; one the core never confirms gives up after a while.
+function settleLinks(){
+ let changed=false;
+ for(const [id,link] of linking){
+  const l=lamps.find(l=>l.id===id),done=link.kind==='connect'?enrolled.has(id):!enrolled.has(id);
+  if(done){linking.delete(id);changed=true;if(l)tell((link.kind==='connect'?'Connected ':'Disconnected ')+l.name)}
+  else if(performance.now()-link.since>LINK_TIMEOUT_MS){linking.delete(id);changed=true;if(l)tell((link.kind==='connect'?'Connecting ':'Disconnecting ')+l.name+' did not finish')}
+ }
+ if(changed)paintLink();
+}
+function paintLink(){if(drag)return;render();paintPanel();if(menuOpen&&!cal)refreshCard()}
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
@@ -941,6 +983,17 @@ function menuAction(id){
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
+ if(id==='connect-now'){connectPrompt=null;refreshCard();changeLink(l,'connect');return true}
+ if(id==='connect-later'){connectPrompt=null;closeObjectMenu();return true}
+ if(id==='connected'){
+  if(linkState(l))return true;
+  if(l.unbound){changeLink(l,'connect');return true}
+  const f=menu.querySelector('[data-connected-field]');
+  if(f)f.outerHTML='<div class="card-confirm" data-connected-field><span>Disconnect '+esc(l.name)+'?</span><button data-menu="disconnect-cancel">Cancel</button><button class="danger" data-menu="disconnect-ok">Disconnect</button></div>';
+  menu.querySelector('[data-menu="disconnect-cancel"]')?.focus();return true;
+ }
+ if(id==='disconnect-cancel'){const f=menu.querySelector('[data-connected-field]');if(f)f.outerHTML=connectedField(l);return true}
+ if(id==='disconnect-ok'){changeLink(l,'disconnect');return true}
  if(id==='blink'){if(!l.unbound){const row=menu.querySelector('[data-menu="blink"]');row?.classList.remove('pulsing');void row?.offsetWidth;row?.classList.add('pulsing');setTimeout(()=>row?.classList.remove('pulsing'),1000);blinkLamp(l)}return true}
  if(id==='calibrate'){openCalibrate(l);return true}
  if(!cal)return false;
@@ -1126,7 +1179,8 @@ function paintSwatches(){
  });
 }
 function lampRowStatus(l){
- if(l.unbound)return '<span class="lp-status">Not connected</span>';
+ const link=linkState(l);if(link)return '<span class="lp-status">'+(link==='connect'?'Connecting…':'Disconnecting…')+'</span>';
+ if(l.unbound)return realDevice(l.id)?'<button class="lp-connect" data-connect="'+l.id+'">Connect</button>':'<span class="lp-status">Not connected</span>';
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
  if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
@@ -1152,7 +1206,7 @@ function foundRows(){
  return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':'<button class="lp-add" data-place="'+e.id+'" aria-label="Place '+esc(e.name)+'" data-tooltip="Place in the room">'+plusIcon+'</button>')+'</div>'}).join('');
 }
 function foundCount(){return catalogEntries().filter(e=>!catalogReason(e)).length+removedLamps().length}
-const PANEL_FOCUS=['data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
+const PANEL_FOCUS=['data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
 function paintPanel(){
  const p=$('#lamp-panel');if(!p||p.hidden)return;const top=p.scrollTop;
  const active=p.contains(document.activeElement)?document.activeElement:null;
@@ -1224,7 +1278,9 @@ function placeDevice(entry,position){
  remember();
  const l={id:entry.id,name:entry.name,model:entry.model,shape:entry.shape,form:entry.form,zones:entry.zones,x:position.x,h:position.h,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:'sync',unbound:true};
  clampFixture(l);lamps.push(l);selected=l.id;
- cancelPlacement();render();tell('Added to layout');
+ cancelPlacement();render();
+ // The prompt opens beside the new lamp; Not now leaves it in the layout, not connected.
+ connectPrompt=l.id;requestAnimationFrame(()=>{const chip=$('#stage').querySelector('[data-chip-action="more"]');if(chip&&selected===l.id&&!menuOpen)openObjectMenu(chip);else connectPrompt=null});
 }
 
 // ----------------------------------------------------------- persistence --
@@ -1336,6 +1392,7 @@ function applyEnrollment(){
  for(const l of lamps)if(realDevice(l.id)){const unbound=!next.has(l.id);if(l.unbound!==unbound){l.unbound=unbound;changed=true}}
  enrolled=next;
  if(changed&&!drag){render();paintPanel()}
+ settleLinks();
 }
 function expireLive(){liveSnapshot=null;liveAt=-Infinity;paintLive()}
 function watchLive(){
@@ -1520,6 +1577,7 @@ panel.addEventListener('click',e=>{
  const ok=e.target.closest('[data-remove-ok]');if(ok){e.stopPropagation();confirmRemove=null;removeLampById(ok.dataset.removeOk);return}
  const back=e.target.closest('[data-restore]');if(back){e.stopPropagation();restoreLamp(back.dataset.restore);return}
  const add=e.target.closest('[data-place]');if(add){e.stopPropagation();beginPlacement(add.dataset.place);return}
+ const link=e.target.closest('[data-connect]');if(link){e.stopPropagation();const l=lamps.find(l=>l.id===link.dataset.connect);if(l)changeLink(l,'connect');return}
  const row=e.target.closest('[data-list-lamp]');if(row){e.stopPropagation();select(row.dataset.listLamp);paintPanel()}
 });
 panel.addEventListener('mouseover',e=>{const row=e.target.closest('[data-list-lamp]');markLamp(row?.dataset.listLamp)});
