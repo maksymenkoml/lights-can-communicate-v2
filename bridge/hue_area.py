@@ -291,6 +291,8 @@ class HueArea:
     def _create(self, light):
         """Create the core's area with ``light`` as its only member."""
         service = self._service(light)
+        # Areas that exist before the creation are never removed by its cleanup.
+        before = self._area_ids()
         try:
             created = self._data("/clip/v2/resource/entertainment_configuration", "POST", {
                 "type": "entertainment_configuration",
@@ -301,11 +303,12 @@ class HueArea:
                      "positions": [{"x": 0, "y": 0, "z": 0}]}]},
             })
         except (OSError, ValueError):
-            self._remove_uncertain(service)
+            self._remove_uncertain(service, before)
             raise
         rid = _uuid(created[0].get("rid")) if len(created) == 1 and isinstance(
             created[0], dict) else None
-        if rid is None:
+        if rid is None or rid in before:
+            self._remove_uncertain(service, before)
             raise ValueError("Invalid Hue area response")
         previous, self.area_id = self.area_id, rid
         try:
@@ -320,9 +323,17 @@ class HueArea:
         self._created = rid
         return {"service": service, "segments": segments}, True
 
-    def _remove_uncertain(self, service):
-        """After a creation with an unknown result, delete an area that it may have
-        left: named Light Studio, with this light's service as its only member."""
+    def _area_ids(self):
+        areas = self._data("/clip/v2/resource/entertainment_configuration")
+        ids = {_uuid(area.get("id")) for area in areas if isinstance(area, dict)}
+        if None in ids:
+            raise ValueError("Invalid Hue area response")
+        return ids
+
+    def _remove_uncertain(self, service, before):
+        """After a creation with an unknown result, delete the area that it left: one
+        that did not exist before it, named Light Studio, with this light's service
+        as its only member."""
         try:
             areas = self._data("/clip/v2/resource/entertainment_configuration")
         except (OSError, ValueError):
@@ -331,7 +342,7 @@ class HueArea:
             rows = (area.get("locations") or {}).get("service_locations") \
                 if isinstance(area, dict) else None
             rid = _uuid(area.get("id")) if isinstance(area, dict) else None
-            if (rid is not None and rid != self.area_id
+            if (rid is not None and rid not in before
                     and (area.get("metadata") or {}).get("name") == AREA_NAME
                     and isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
                     and _uuid((rows[0].get("service") or {}).get("rid")) == service):

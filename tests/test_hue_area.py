@@ -167,6 +167,8 @@ class Creating:
             self.areas[NEW_AREA] = body
             return {"errors": [], "data": [{"rid": NEW_AREA,
                                             "rtype": "entertainment_configuration"}]}
+        if path == base:
+            return {"errors": [], "data": [{"id": rid} for rid in self.areas]}
         rid = path.rsplit("/", 1)[1]
         if method == "DELETE":
             self.areas.pop(rid, None)
@@ -235,32 +237,58 @@ class HueAreaCreationTests(unittest.TestCase):
         self.assertEqual(hue.join(LIGHT, replace_missing=True)[1], True)
         self.assertEqual(hue.area_id, NEW_AREA)
 
-    def test_an_uncertain_creation_removes_only_the_area_it_may_have_left(self):
+    def uncertain_bridge(self, post):
+        """A bridge whose owner already has a Light Studio area with this light; the
+        POST runs ``post`` and may leave a new area behind."""
         base = "/clip/v2/resource/entertainment_configuration"
-        left = {"id": NEW_AREA, "metadata": {"name": AREA_NAME}, "locations": {
-            "service_locations": [{"service": {"rid": SERVICE, "rtype": "entertainment"}}]}}
-        owners = [
-            {"id": AREA, "metadata": {"name": "Mykola Office"}, "locations": {
-                "service_locations": [{"service": {"rid": SERVICE, "rtype": "entertainment"}}]}},
-            {"id": "f2222222-2222-4222-8222-222222222222", "metadata": {"name": AREA_NAME},
-             "locations": {"service_locations": [
-                 {"service": {"rid": OTHER_SERVICE, "rtype": "entertainment"}}]}}]
+
+        def row(rid, name, service):
+            return {"id": rid, "metadata": {"name": name}, "locations": {
+                "service_locations": [{"service": {"rid": service, "rtype": "entertainment"}}]}}
+
+        areas = [row(AREA, AREA_NAME, SERVICE),  # the owner's own area, same name and light
+                 row("f2222222-2222-4222-8222-222222222222", AREA_NAME, OTHER_SERVICE)]
         deleted = []
 
         def bridge(path, method="GET", body=None):
             if path == "/clip/v2/resource/entertainment":
                 return SERVICES
             if method == "POST":
-                raise OSError("timed out")
+                areas.append(row(NEW_AREA, AREA_NAME, SERVICE))
+                return post()
             if method == "DELETE":
                 deleted.append(path.rsplit("/", 1)[1])
                 return {"errors": [], "data": []}
             self.assertEqual(path, base)
-            return {"errors": [], "data": [left, *owners]}
+            return {"errors": [], "data": copy.deepcopy(areas)}
 
-        with self.assertRaises(OSError):
+        return bridge, deleted
+
+    def test_an_uncertain_creation_removes_only_the_area_it_left(self):
+        def timeout():
+            raise OSError("timed out")
+
+        for post, error in ((timeout, OSError),
+                            (lambda: {"errors": [], "data": [{"rid": "x"}]}, ValueError),
+                            (lambda: {"errors": [], "data": [{"rid": AREA}]}, ValueError)):
+            bridge, deleted = self.uncertain_bridge(post)
+            with self.subTest(error=error), self.assertRaises(error):
+                HueArea(CONFIG, None, requester=bridge).join(LIGHT)
+            # The owner's earlier area with the same name and light stays.
+            self.assertEqual(deleted, [NEW_AREA])
+
+    def test_no_area_is_created_when_the_existing_areas_cannot_be_read(self):
+        calls = []
+
+        def bridge(path, method="GET", body=None):
+            calls.append(method)
+            if path == "/clip/v2/resource/entertainment":
+                return SERVICES
+            return {"errors": [], "data": [{"id": "not-an-id"}]}
+
+        with self.assertRaises(ValueError):
             HueArea(CONFIG, None, requester=bridge).join(LIGHT)
-        self.assertEqual(deleted, [NEW_AREA])
+        self.assertNotIn("POST", calls)
 
     def test_a_created_area_answers_201(self):
         class Created(FakeConnection):
