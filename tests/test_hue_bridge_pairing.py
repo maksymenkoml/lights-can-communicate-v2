@@ -168,6 +168,21 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(self.wait(pairing)["state"], "paired")
         self.assertEqual((self.root / "hue-bridge-id").read_text(), BRIDGE_ID + "\n")
 
+    def test_another_bridge_error_ends_the_attempt_at_once(self):
+        class Refusing(Bridge):
+            def __call__(self, ip, method, path, body=None, key=None, timeout=None):
+                if path == "/api":
+                    self.calls.append((method, path, body, key))
+                    return 200, [{"error": {"type": 7, "description": "invalid value"}}], \
+                        self.identity, {}
+                return super().__call__(ip, method, path, body=body, key=key)
+
+        bridge = Refusing()
+        pairing = self.pairing(bridge)
+        pairing.pair("192.168.10.5")
+        self.assertEqual(self.wait(pairing), {"state": "none", "result": "failed"})
+        self.assertEqual(len([call for call in bridge.calls if call[1] == "/api"]), 1)
+
     def test_invalid_keys_or_a_missing_application_id_fail(self):
         pairing = self.pairing(Bridge(success={"username": "short", "clientkey": CLIENT_KEY}))
         pairing.pair("192.168.10.5")

@@ -341,10 +341,14 @@ test('the Lamps panel pairs the Hue bridge after its button is pressed, without 
  assert.match(panel.textContent,/Press the button on the bridge/);assert.match(panel.textContent,/Hue <Bridge> · 192\.168\.10\.5/);
  const looked=app.requests.discovery.length;
  await app.advance(1000);await app.advance(1000);
- assert.match(panel.textContent,/Hue <Bridge>192\.168\.10\.5Connected/);
+ assert.match(panel.textContent,/Hue bridgeConnectedHue <Bridge>192\.168\.10\.5Change/);
  // The core restarts with the new bridge: discovery looks for its lamps again.
  assert.ok(app.requests.discovery.length>looked);
- assert.ok(!panel.querySelector('[data-hue]'));
+ // A paired bridge can be paired again, for another bridge or a new address.
+ await app.click(panel.querySelector('[data-hue="find"]'));
+ assert.match(panel.textContent,/Found on this network:/);
+ await app.click(panel.querySelector('[data-hue="close"]'));
+ assert.match(panel.textContent,/Hue <Bridge>192\.168\.10\.5Change/);
 });
 
 test('a Hue bridge from the service configuration shows as connected without Connect',async()=>{

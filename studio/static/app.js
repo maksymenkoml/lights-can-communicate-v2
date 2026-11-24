@@ -1264,7 +1264,9 @@ function hueRows(){
   const left=Math.max(0,Math.min(HUE_PAIR_S,b.left|0)),share=left/HUE_PAIR_S;
   return '<div class="lp-row hue-pairing"><div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div><span><span class="lp-name">Press the button on the bridge</span><span class="lp-sub">'+esc(b.name)+' · '+esc(b.ip)+'</span></span><button class="lp-confirm-btn" data-hue="cancel">Cancel</button></div>';
  }
- if(b.state==='paired')return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span><span class="lp-status">Connected</span></div>';
+ // Another bridge, or the same one at a new address, is paired through the same steps;
+ // the core refuses another bridge while its Hue lamps are connected.
+ if(b.state==='paired'&&!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span><button class="lp-connect" data-hue="find" data-tooltip="Pair a bridge again">Change</button></div>'+error;
  if(!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Connect it to add Hue lamps</span></span><button class="lp-connect" data-hue="find">Connect</button></div>'+error;
  const rows=(hueFound||[]).map(f=>'<button class="lp-row found" data-hue-ip="'+esc(f.ip)+'"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(f.name)+'</span><span class="lp-sub">'+esc(f.ip)+'</span></span><span class="lp-status">Pair</span></button>').join('');
  const hint=hueFound===null?'Looking on this network…':hueFound.length?'Found on this network:':'None found. Enter its IP address:';

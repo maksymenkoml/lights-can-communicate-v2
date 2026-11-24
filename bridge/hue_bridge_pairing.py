@@ -213,6 +213,11 @@ class HueBridgePairing:
             if status == 200 and isinstance(success, dict):
                 result = self._finish(attempt, success)
                 break
+            error = item.get("error") if isinstance(item, dict) else None
+            if isinstance(error, dict) and error.get("type") != LINK_BUTTON_NOT_PRESSED:
+                # Only a link button that is not pressed yet is worth asking again.
+                result = "failed"
+                break
             self.sleep(1.0)
         with self.lock:
             if self.pairing is attempt:
