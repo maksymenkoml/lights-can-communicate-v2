@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
 from hue_area import AreaBusy, AreaShared  # noqa: E402
 from light_enrollment import LightEnrollment  # noqa: E402
-from test_light_registry import AREA, sample  # noqa: E402
+from test_light_registry import AREA, STRIP, sample  # noqa: E402
 from test_live_adapter import targets  # noqa: E402
 from test_setup_studio import studio  # noqa: E402
 
@@ -78,7 +78,7 @@ class EnrollmentTests(unittest.TestCase):
             with self.subTest(reason=reason), self.assertRaises(adapter.LightRefused) as refused:
                 change(light_id)
             self.assertEqual(refused.exception.reason, reason)
-        for light_id in ("govee-left", "hue-monitor", "left", 7):
+        for light_id in ("govee-middle", "left", 7):
             with self.subTest(light_id=light_id), self.assertRaises(ValueError):
                 self.lights.remove(light_id)
         self.clock.now += 30  # the light went offline
@@ -87,6 +87,26 @@ class EnrollmentTests(unittest.TestCase):
         self.assertEqual(refused.exception.reason, "unavailable")
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(self.restarts, [])
+
+    def test_a_migrated_lamp_is_removed_and_rejoins_with_its_migrated_id(self):
+        device = "AA:BB:CC:DD:EE:FF:00:01"  # a Govee device id as discovery reports it
+        self.lights.registry = self.registry.with_govee_targets(
+            [{**target, "device": device} if target["light"] == "govee-left" else target
+             for target in self.registry.govee_targets()])
+        self.lights.remove("govee-left")
+        self.assertEqual(self.restarts, [True])
+        self.assertNotIn("govee-left", self.stored().ids)
+        # After the restart discovery offers the lamp under its device id.
+        catalog = DeviceCatalog(clock=self.clock, ttl=20)
+        catalog.observe_govee({"device": device.lower(), "sku": "H6076"}, "192.168.10.70")
+        found = catalog.snapshot()["devices"][0]["id"]
+        lights = LightEnrollment(self.path, self.stored(), catalog, busy=lambda: False,
+                                 restart=lambda: self.restarts.append(True))
+        self.assertEqual(lights.enroll(found), "govee-left")
+        light = self.stored().to_dict()["lights"][-1]
+        self.assertEqual((light["id"], light["virtual"], light["govee"]["ip"]),
+                         ("govee-left", {"id_v1": "1", "seed": "Left"}, "192.168.10.70"))
+        self.assertNotIn(found, self.stored().ids)
 
     def test_sync_frames_and_light_changes_are_serialized(self):
         frames = []
@@ -301,7 +321,18 @@ class HueEnrollmentTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in data["lights"]],
                          [item["id"] for item in sample()["lights"]])
         self.assertEqual(data["retired"], [{"id": self.new,
-                                            "virtual": {"id_v1": "7", "seed": self.new}}])
+                                            "virtual": {"id_v1": "7", "seed": self.new},
+                                            "identity": {"provider": "hue",
+                                                         "key": HUE_LIGHT}}])
+
+    def test_a_migrated_hue_lamp_leaves_the_area(self):
+        area = Area()
+        self.enrollment(area).remove("hue-monitor")
+        self.assertEqual(area.calls, [("leave", STRIP)])
+        self.assertEqual(self.restarts, [True])
+        profile = LightRegistry.load(self.path).native_profile()
+        self.assertEqual(profile.channels, {"play-center": (0,), "play-left": (1,),
+                                            "play-right": (2,)})
 
 
 class AdapterRouteTests(unittest.TestCase):
@@ -442,6 +473,18 @@ class StudioRouteTests(unittest.TestCase):
         self.assertEqual(self.post("/api/lights/remove", {"id": light})[0], 200)
         self.assertEqual(self.calls, [("/lights/enroll", {"id": light}),
                                       ("/lights/remove", {"id": light})])
+
+    def test_a_migrated_lamp_is_removed_and_the_enrolled_id_is_passed_on(self):
+        self.assertEqual(self.post("/api/lights/remove", {"id": "play-center"})[0], 200)
+        self.answer = (200, {"accepted": True, "restarting": True, "id": "play-center"})
+        light = "device-" + "c" * 32
+        self.assertEqual(self.post("/api/lights/enroll", {"id": light}),
+                         (200, {"accepted": True, "restarting": True, "id": "play-center"}))
+        self.answer = (200, {"accepted": True, "restarting": True, "id": "../secret"})
+        self.assertEqual(self.post("/api/lights/enroll", {"id": light})[1],
+                         {"accepted": True, "restarting": True})
+        self.assertEqual(self.calls[:2], [("/lights/remove", {"id": "play-center"}),
+                                          ("/lights/enroll", {"id": light})])
 
     def test_only_known_reasons_and_valid_requests_pass(self):
         light = "device-" + "c" * 32

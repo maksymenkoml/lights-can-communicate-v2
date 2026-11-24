@@ -895,13 +895,18 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                         raise ValueError("Invalid light request")
                     change = lights.enroll if self.path == "/lights/enroll" else lights.remove
                     try:
-                        change(payload["id"])
+                        light = change(payload["id"])
                     except LightRefused as refused:
                         return self.respond(409, {"accepted": False, "reason": refused.reason})
                     except OSError:
                         return self.respond(503, {"accepted": False})
                     # The adapter restarts with the new light set (see light_enrollment).
-                    return self.respond(200, {"accepted": True, "restarting": True})
+                    # An enrollment names the registry id: a migrated lamp that
+                    # rejoins gets its migrated id back.
+                    answer = {"accepted": True, "restarting": True}
+                    if light is not None:
+                        answer["id"] = light
+                    return self.respond(200, answer)
                 elif self.path == "/calibration/end":
                     if payload != {}:
                         raise ValueError("Invalid calibration end request")
@@ -1100,7 +1105,12 @@ def main(argv=None, service_info=None):
         resource = getattr(proxy, "resource_id", None)
         if resource and light in NATIVE_SOURCES:
             legacy_roles[("hue", resource)] = light
-    catalog = DeviceCatalog(legacy_roles=legacy_roles)
+    # A removed migrated lamp is found under its migrated id, so Light Studio can
+    # connect its layout row again.
+    rejoin_roles = {(record["identity"]["provider"], record["identity"]["key"]): record["id"]
+                    for record in registry.to_dict().get("retired", [])
+                    if "identity" in record and not record["id"].startswith("device-")}
+    catalog = DeviceCatalog(legacy_roles=legacy_roles, rejoin_roles=rejoin_roles)
     catalog.provider_state("govee", "discovering")
     catalog.provider_state("hue", "discovering" if hue_config is not None else "not_configured")
     stop = threading.Event()

@@ -104,6 +104,36 @@ class HuePlanTests(unittest.TestCase):
             self.assertNotEqual(virtual_lights.signature(state), before)
 
 
+class MigratedHueTests(unittest.TestCase):
+    def test_a_removed_migrated_hue_light_is_no_longer_driven(self):
+        self.assertEqual(virtual_lights.migrated_hue_slots(None),
+                         virtual_lights.MIGRATED_HUE_SLOTS)
+        removed = LightRegistry.from_dict(sample()).without_light("play-center")
+        slots = virtual_lights.migrated_hue_slots(removed.to_dict())
+        self.assertEqual(slots, {"3": "hue-monitor", "4": "play-left", "6": "play-right"})
+        output = BridgeOutput("http://adapter", "t", sender=lambda value: None,
+                              include_strip=True, include_hue_play=True, migrated_hue=slots)
+        self.assertFalse(output.submit("5", {"on": True}, 0))
+        self.assertTrue(output.submit("4", {"on": True}, 0))
+        self.assertEqual(set(output.slots.values()) - {"govee-left", "govee-right"},
+                         {"hue-monitor", "play-left", "play-right"})
+        without_strip = virtual_lights.migrated_hue_slots(
+            LightRegistry.from_dict(sample()).without_light("hue-monitor").to_dict())
+        output = BridgeOutput("http://adapter", "t", sender=lambda value: None,
+                              include_strip=True, include_hue_play=True,
+                              migrated_hue=without_strip)
+        self.assertFalse(output.submit("3", {"on": True}, 0))
+
+    def test_the_signature_follows_a_removed_migrated_light(self):
+        with tempfile.TemporaryDirectory(prefix="tmp_virtual_signature_") as folder:
+            state = Path(folder)
+            LightRegistry.from_dict(sample()).save(state / "lights.json")
+            before = virtual_lights.signature(state)
+            LightRegistry.from_dict(sample()).without_light("play-left").save(
+                state / "lights.json")
+            self.assertNotEqual(virtual_lights.signature(state), before)
+
+
 class SlotMapTests(unittest.TestCase):
     SLOTS = {"1": "govee-left", "2": "govee-right", "7": THIRD}
 

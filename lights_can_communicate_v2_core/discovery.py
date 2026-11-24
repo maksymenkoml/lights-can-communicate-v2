@@ -64,7 +64,8 @@ def _finite_positive(value):
 class DeviceCatalog:
     """Thread-safe, copied public projections of recent physical observations."""
 
-    def __init__(self, legacy_roles=None, clock=time.monotonic, ttl=20, max_devices=128):
+    def __init__(self, legacy_roles=None, clock=time.monotonic, ttl=20, max_devices=128,
+                 rejoin_roles=None):
         if (not _finite_positive(ttl) or type(max_devices) is not int
                 or not 1 <= max_devices <= 4096):
             raise ValueError("Invalid discovery bounds")
@@ -74,16 +75,24 @@ class DeviceCatalog:
         self._contradictory_peers = {}
         self._govee_blocked_until = float("-inf")
         self._providers = {"govee": "unavailable", "hue": "unavailable"}
-        self._legacy_roles = {}
-        if isinstance(legacy_roles, dict):
-            for key, role in itertools.islice(legacy_roles.items(), max_devices):
+        # An enrolled migrated lamp owns its layout row and is not enrolled again. A
+        # removed one (rejoin_roles) names its migrated row but can be enrolled; the
+        # registry then gives it its migrated id back.
+        self._legacy_roles = self._roles(legacy_roles, max_devices)
+        self._rejoin_roles = self._roles(rejoin_roles, max_devices)
+
+    def _roles(self, roles, max_devices):
+        result = {}
+        if isinstance(roles, dict):
+            for key, role in itertools.islice(roles.items(), max_devices):
                 if not isinstance(key, tuple) or len(key) != 2:
                     continue
                 provider, identity = key
                 identity = _mac(identity) if provider == "govee" else _resource(identity)
                 if (provider in self._providers and identity and isinstance(role, str)
                         and _ROLE.fullmatch(role)):
-                    self._legacy_roles[(provider, identity)] = role
+                    result[(provider, identity)] = role
+        return result
 
     def _now(self, now=None):
         value = self._clock() if now is None else now
@@ -298,7 +307,9 @@ class DeviceCatalog:
                     "supported": shape is not None, "online": online,
                     "selectable": online and shape is not None and not ambiguous,
                     "ambiguous": ambiguous,
-                    "layout_id": self._legacy_roles.get((entry["provider"], entry["physical_id"])),
+                    "layout_id": (self._legacy_roles.get((entry["provider"], entry["physical_id"]))
+                                  or self._rejoin_roles.get((entry["provider"],
+                                                             entry["physical_id"]))),
                     "height_cm": height, "width_cm": width,
                 })
             return {"connected": True, "devices": rows, "providers": dict(self._providers)}

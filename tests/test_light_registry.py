@@ -221,13 +221,10 @@ class RegistryModelTests(unittest.TestCase):
             "version 2": lambda d: d.__setitem__("version", 2),
             "bool version": lambda d: d.__setitem__("version", True),
             "hue without top-level hue": lambda d: d.pop("hue"),
-            "top-level hue without hue lights": lambda d: d["lights"].__delitem__(
-                slice(2, None)),
-            "three hue lights": lambda d: d["lights"].pop(),
+            "a gap in the hue channels": lambda d: d["lights"].pop(),
             "unknown govee id": lambda d: d["lights"][0].__setitem__("id", "govee-middle"),
             "govee side key": lambda d: d["lights"][0]["govee"].__setitem__("side", "left"),
             "govee without ip": lambda d: d["lights"][0]["govee"].pop("ip"),
-            "empty registry": lambda d: d.clear() or d.update(version=1, lights=[]),
             "device id with 31 hex digits": lambda d: d["lights"][0].__setitem__(
                 "id", "device-" + "a" * 31),
             "device id with upper-case hex": lambda d: d["lights"][0].__setitem__(
@@ -336,7 +333,9 @@ class EnrollmentTests(unittest.TestCase):
         removed = registry.without_light(NEW)
         data = removed.to_dict()
         self.assertNotIn(NEW, removed.ids)
-        self.assertEqual(data["retired"], [{"id": NEW, "virtual": {"id_v1": "7", "seed": NEW}}])
+        self.assertEqual(data["retired"], [{
+            "id": NEW, "virtual": {"id_v1": "7", "seed": NEW},
+            "identity": {"provider": "govee", "key": "CCCCCCCCCCCCCCCC"}}])
         # A third light does not take the retired slot; the rejoin gets it back.
         third = "device-" + "e" * 32
         other = removed.with_govee_light(third, "EE:EE:EE:EE:EE:EE:EE:EE", "192.168.10.54",
@@ -359,11 +358,63 @@ class EnrollmentTests(unittest.TestCase):
         with self.assertRaises(RegistryError):
             enrolled.with_govee_light(NEW, "DD:DD:DD:DD:DD:DD:DD:DD", "192.168.10.53", "H6008")
 
-    def test_removal_refuses_the_migrated_lamps_and_unknown_lights(self):
-        registry = LightRegistry.from_dict(sample())
-        for light_id in ("govee-left", "hue-monitor", NEW):
+    def test_removal_refuses_unknown_lights(self):
+        registry = LightRegistry.from_dict(sample(hue=False))
+        for light_id in (NEW, "hue-monitor", "govee-middle", "", None):
             with self.subTest(light_id=light_id), self.assertRaises(RegistryError):
                 registry.without_light(light_id)
+
+    def test_any_light_or_none_is_a_valid_registry(self):
+        empty = LightRegistry.from_dict({"version": 1, "lights": []})
+        self.assertEqual(empty.ids, ())
+        self.assertIsNone(empty.native_profile())
+        area_only = LightRegistry.from_dict({"version": 1, "lights": [], "hue": {"area_id": AREA}})
+        self.assertIsNone(area_only.native_profile())
+        data = sample()
+        del data["lights"][0]
+        self.assertEqual(LightRegistry.from_dict(data).ids[0], "govee-right")
+
+    def test_a_migrated_govee_lamp_rejoins_with_its_migrated_id(self):
+        removed = LightRegistry.from_dict(sample()).without_light("govee-left")
+        self.assertNotIn("govee-left", removed.ids)
+        self.assertEqual(removed.to_dict()["retired"], [{
+            "id": "govee-left", "virtual": {"id_v1": "1", "seed": "Left"},
+            "identity": {"provider": "govee", "key": GOVEE_TARGETS[0]["device"]
+                         .replace(":", "").upper()}}])
+        # Discovery offers the lamp under its device id; the registry restores the
+        # migrated id and virtual identity, so the HomeKit accessory is the same.
+        device = GOVEE_TARGETS[0]["device"].lower()
+        rejoined = removed.with_govee_light(NEW, device, "192.168.10.70", "H6076")
+        light = rejoined.to_dict()["lights"][-1]
+        self.assertEqual((light["id"], light["virtual"]), ("govee-left", {"id_v1": "1",
+                                                                          "seed": "Left"}))
+        self.assertNotIn(NEW, rejoined.ids)
+        self.assertNotIn("retired", rejoined.to_dict())
+
+    def test_a_migrated_hue_lamp_leaves_and_rejoins(self):
+        removed = LightRegistry.from_dict(sample()).without_light("play-center")
+        profile = removed.native_profile()
+        # Channel 0 left; the later channels move down by one.
+        self.assertEqual(profile.channels, {"hue-monitor": tuple(range(2, 11)),
+                                            "play-left": (0,), "play-right": (1,)})
+        self.assertEqual(removed.to_dict()["hue"], {"area_id": AREA})
+        rejoined = removed.with_hue_light(NEW, AREA, CENTER, CENTER_SERVICE, 1, "LCT016")
+        light = rejoined.to_dict()["lights"][-1]
+        self.assertEqual((light["id"], light["virtual"]),
+                         ("play-center", {"id_v1": "5", "seed": "HuePlayCenter"}))
+        self.assertEqual(rejoined.native_profile().channels["play-center"], (11,))
+
+    def test_every_hue_light_can_go_and_the_area_stays(self):
+        registry = LightRegistry.from_dict(sample())
+        for light_id in ("hue-monitor", "play-left", "play-center", "play-right"):
+            registry = registry.without_light(light_id)
+        self.assertEqual(registry.ids, ("govee-left", "govee-right"))
+        self.assertEqual(registry.to_dict()["hue"], {"area_id": AREA})
+        self.assertIsNone(registry.native_profile())
+        for light_id in ("govee-left", "govee-right"):
+            registry = registry.without_light(light_id)
+        self.assertEqual(registry.ids, ())
+        self.assertEqual(len(registry.to_dict()["retired"]), 6)
 
     def test_a_hue_light_gets_the_channels_after_the_enrolled_ones(self):
         strip, service = NEW_STRIP, NEW_SERVICE
@@ -407,7 +458,7 @@ class EnrollmentTests(unittest.TestCase):
         self.assertEqual(registry.to_dict()["hue"], {"area_id": AREA})
         self.assertEqual(registry.native_profile().channels, {NEW: (0, 1)})
         removed = registry.without_light(NEW)
-        self.assertNotIn("hue", removed.to_dict())
+        self.assertEqual(removed.to_dict()["hue"], {"area_id": AREA})
         self.assertIsNone(removed.native_profile())
 
     def test_removing_a_hue_light_renumbers_the_later_channels(self):
@@ -425,7 +476,8 @@ class EnrollmentTests(unittest.TestCase):
         self.assertEqual(profile.expected_members[12:],
                          tuple((second_service, index) for index in range(3)))
         self.assertEqual(removed.to_dict()["retired"],
-                         [{"id": NEW, "virtual": {"id_v1": "7", "seed": NEW}}])
+                         [{"id": NEW, "virtual": {"id_v1": "7", "seed": NEW},
+                           "identity": {"provider": "hue", "key": first}}])
         rejoined = removed.with_hue_light(NEW, AREA, first, first_service, 2, "LCX005")
         self.assertEqual(rejoined.to_dict()["lights"][-1]["virtual"],
                          {"id_v1": "7", "seed": NEW})
@@ -537,7 +589,7 @@ class MigrationTests(unittest.TestCase):
                          ["native.json", "targets.json"])
 
     def test_ensure_corrupt_registry_fails_closed(self):
-        for content in ("{not json", json.dumps({"version": 1, "lights": []}), ""):
+        for content in ("{not json", json.dumps({"version": 1}), ""):
             with self.subTest(content=content[:12]):
                 (self.root / REGISTRY_FILE).write_text(content)
                 with self.assertRaises(RegistryError):

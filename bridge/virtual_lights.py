@@ -25,6 +25,8 @@ LEGACY = (
 LEGACY_SLOTS = frozenset(item["slot"] for item in LEGACY)
 # The migrated native Hue lights; the gateway gives them slots 3-6 by role.
 MIGRATED_HUE = ("hue-monitor", "play-left", "play-center", "play-right")
+MIGRATED_HUE_SLOTS = {"3": "hue-monitor", "4": "play-left", "5": "play-center",
+                      "6": "play-right"}
 
 
 def _registry_class():
@@ -94,13 +96,26 @@ def hue_plan(data):
     return sorted(lights, key=lambda item: int(item["slot"]))
 
 
+def migrated_hue_slots(data):
+    """Return ``{slot: light}`` of the migrated Hue lights that the registry drives.
+
+    Without a registry the gateway keeps all four. A removed one keeps its virtual
+    light, which stays in the Sync Box's Entertainment area, but nothing drives it.
+    """
+    if data is None:
+        return dict(MIGRATED_HUE_SLOTS)
+    enrolled = {item["id"] for item in data["lights"] if item["provider"] == "hue"}
+    return {slot: light for slot, light in MIGRATED_HUE_SLOTS.items() if light in enrolled}
+
+
 def signature(state):
     """A comparable summary of the virtual lights the registry asks for."""
     data = load(state)
     lights, retired = plan(data)
     return (tuple((item["slot"], item["light"], item["segmented"]) for item in lights),
             tuple(sorted(retired)),
-            tuple((item["slot"], item["light"], item["channels"]) for item in hue_plan(data)))
+            tuple((item["slot"], item["light"], item["channels"]) for item in hue_plan(data)),
+            tuple(sorted(migrated_hue_slots(data))))
 
 
 def default_name(item):

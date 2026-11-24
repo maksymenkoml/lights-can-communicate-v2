@@ -99,6 +99,19 @@ class CatalogTests(unittest.TestCase):
         self.assertIsNone(unavailable.hue_enrollment(
             unavailable.snapshot()["devices"][0]["id"]))
 
+    def test_a_removed_migrated_lamp_is_found_under_its_row_and_enrollable(self):
+        # The registry keeps a removed Govee lamp's device key without separators.
+        catalog = DeviceCatalog(clock=lambda: self.now, ttl=20, rejoin_roles={
+            ("govee", MAC.replace(":", "").upper()): "govee-left",
+            ("hue", LIGHT): "play-center"})
+        catalog.observe_govee({"device": MAC, "sku": "H6076"}, "192.168.1.10")
+        catalog.observe_hue(BRIDGE, *hue())
+        rows = {row["provider"]: row for row in catalog.snapshot()["devices"]}
+        self.assertEqual((rows["govee"]["layout_id"], rows["hue"]["layout_id"]),
+                         ("govee-left", "play-center"))
+        self.assertIsNotNone(catalog.govee_enrollment(rows["govee"]["id"]))
+        self.assertIsNotNone(catalog.hue_enrollment(rows["hue"]["id"]))
+
     def test_identity_survives_name_case_and_address_change(self):
         self.scan(device=MAC.lower(), deviceName="First")
         original = self.one()["id"]
