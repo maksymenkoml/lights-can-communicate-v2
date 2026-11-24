@@ -1607,3 +1607,45 @@ test('without a registered Sync Box no room shows the Sync settings',async()=>{
  assert.ok(app.$('#app').classList.contains('no-sync'));assert.equal(app.run('mode'),'placement');
  assert.equal(app.$('#room-box').hidden,true);
 });
+
+test('a click outside the lamp card keeps it open; its chip and Esc close it',async()=>{
+ const app=await harness();
+ app.run('select("govee-left")');await app.settle();await openCard(app);
+ const menu=app.$('#object-menu'),name=()=>menu.querySelector('.card-name').value;
+ assert.equal(name(),'Govee Left');
+ app.dispatch(app.stage,'pointerdown',{clientX:20,clientY:20});app.dispatch(app.stage,'pointerup');await app.click(app.stage);await app.advance(200);
+ assert.equal(menu.hidden,false,'a click on the empty scene keeps the card');
+ assert.equal(app.run('selected'),'govee-left','and the selection');
+ await app.click(app.$('#list-toggle'));await app.advance(200);
+ assert.equal(menu.hidden,false,'a click on the header keeps the card');
+ await app.click(app.$('#list-toggle'));await app.advance(200);
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.advance(200);
+ assert.equal(menu.hidden,false,'another lamp takes over the open card');
+ assert.equal(app.run('selected'),'play-right');assert.equal(name(),'Hue Play Right');
+ app.dispatch(app.stage.querySelector('[data-chip-action="more"]'),'pointerdown');await app.advance(200);
+ assert.equal(menu.hidden,true,'the chip closes the card');
+ await openCard(app);await app.press(menu,'Escape');await app.advance(200);
+ assert.equal(menu.hidden,true,'Esc closes the card');
+});
+
+test('while calibrating, a click on another lamp keeps the calibration',async()=>{
+ const calls=[];
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:(url,body)=>{calls.push([url,body]);return {status:200,body:{active:true}}}});
+ app.run('select("play-center")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.advance(200);
+ assert.equal(app.run('selected'),'play-center');assert.ok(app.$('#object-menu [data-cal="correction"]'),'still on the Calibrate page');
+ assert.ok(!calls.some(([url])=>url==='/api/calibration/end'),'the session goes on');
+});
+
+test('a click outside the Sync Box connect card keeps it open; Cancel closes it',async()=>{
+ const box=fakeBox();
+ const app=await harness({syncBox:box.api});
+ await app.click(app.$('#sync-box [data-box="connect"]'));
+ await app.click(app.$('#box-card [data-box-ip]'));
+ app.dispatch(app.stage,'pointerdown',{clientX:20,clientY:20});await app.click(app.stage);
+ assert.equal(app.$('#box-card').hidden,false,'pairing goes on');
+ assert.ok(!app.requests.box.some(r=>r.url==='/api/sync-box/cancel'));
+ await app.click(app.$('#box-card [data-box="close"]'));
+ assert.equal(app.$('#box-card').hidden,true);
+});

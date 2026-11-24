@@ -1627,7 +1627,6 @@ const stage=$('#stage');
 document.addEventListener('pointerdown',()=>{skipClick=false},true);
 document.addEventListener('click',e=>{
  if(skipClick){skipClick=false;return}
- if(menuOpen&&!e.target.closest('#object-menu'))closeObjectMenu();
  const b=e.target.closest('[data-select]');if(b&&b.closest('#stage')){select(b.dataset.select);return}
 });
 stage.addEventListener('pointerdown',event=>{
@@ -1639,8 +1638,10 @@ stage.addEventListener('pointerdown',e=>{
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
  if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}
- closeObjectMenu();
  const grip=e.target.closest('[data-handle]');
+ // The lamp card stays open until its chip or Esc closes it: a stray click must not lose
+ // a setting. Another lamp takes the card over, except during a calibration.
+ if(menuOpen&&!grip&&!keepsCard(e)){e.preventDefault();skipClick=true;return}
  if(grip){e.preventDefault();skipClick=true;drag={handle:grip.dataset.handle,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);return}
  const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"]');
  if(!node){if(e.target.closest('[data-select]'))return;deselect();return}
@@ -1649,13 +1650,19 @@ stage.addEventListener('pointerdown',e=>{
  drag={start:point(e),x:l.x,h:l.h,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);renderInspector();renderList();
  stage.querySelectorAll('[data-lamp],[data-select="monitor"]').forEach(n=>n.classList.toggle('chosen',n.dataset.lamp===selected||selected==='monitor'&&n.dataset.select==='monitor'));
 });
+function keepsCard(e){
+ const node=e.target.closest('[data-lamp]'),id=node?.dataset.lamp;
+ if(id===selected)return true;
+ if(!id||cal||!lamps.some(l=>l.id===id))return false;
+ selected=id;render();refreshCard();return false;
+}
 stage.addEventListener('pointermove',e=>{
- if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));return}
+ if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));placeOpenMenu();return}
  const l=movableFixture();if(!l)return;const p=point(e),oldX=l.x,oldH=l.h;
  l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampFixture(l);
  if(l.x===oldX&&l.h===oldH)return;
  drag.moved=l.x!==drag.x||l.h!==drag.h;
- renderScene();refreshHandles();renderInspector();
+ renderScene();refreshHandles();renderInspector();placeOpenMenu();
 });
 stage.addEventListener('pointerup',()=>{
  if(!drag)return;const before=drag.before;drag=null;recordChange(before);endDragView();renderScene();renderHistory();renderInspector();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
@@ -1878,7 +1885,8 @@ function boxClick(e){
 $('#sync-box').addEventListener('click',boxClick);
 $('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .box-error')?.remove()}}});
 $('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
-document.addEventListener('pointerdown',e=>{if(boxCard&&!e.target.closest('#sync-box'))closeBoxCard()},true);
+// The connect card stays open while the owner pairs the box; Cancel or Esc closes it.
+document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box'))closeBoxCard()},true);
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
 document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
 
