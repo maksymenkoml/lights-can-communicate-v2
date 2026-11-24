@@ -105,7 +105,10 @@ class LightEnrollment:
             if hue is None:
                 raise LightRefused("unavailable")
         # The bridge is called outside the lock, so Sync frames never wait for it.
-        member, added = self._area_call(self.area.join, hue["light"])
+        # Without a Hue light, an area that the bridge lost can be replaced.
+        replace = self.registry.native_profile() is None
+        member, added = self._area_call(
+            lambda light: self.area.join(light, replace_missing=replace), hue["light"])
         try:
             with self.lock:
                 self._check(light_id)
@@ -119,7 +122,7 @@ class LightEnrollment:
         except BaseException:
             if added:
                 try:
-                    self.area.leave(hue["light"])
+                    self.area.abandon(hue["light"])
                 except (AreaBusy, AreaShared, OSError, ValueError):
                     pass  # The relay refuses the unknown member until it is enrolled.
             raise

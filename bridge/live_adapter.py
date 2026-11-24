@@ -1163,12 +1163,12 @@ def main(argv=None, service_info=None):
         # Leave time for the HTTP answer; Docker restarts the finished container.
         threading.Timer(0.5, stop.set).start()
 
-    # A new Hue light is enrolled into the paired Entertainment area (#60 chooses it later).
+    # A new Hue light joins the core's Entertainment area; the first one creates it.
     # Without usable paired credentials a Hue enrollment is refused as unavailable.
     try:
         area = (HueArea(hue_config, paired_area,
                         pin_file=state_dir / "hue-bridge-id")
-                if hue_config is not None and paired_area is not None else None)
+                if hue_config is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None
     enrollment = LightEnrollment(

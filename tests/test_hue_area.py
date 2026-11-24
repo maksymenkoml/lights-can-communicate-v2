@@ -14,7 +14,14 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import hue_area  # noqa: E402
-from hue_area import AreaBusy, AreaShared, CertificateChanged, HueArea  # noqa: E402
+from hue_area import (  # noqa: E402
+    AREA_NAME,
+    AreaBusy,
+    AreaMissing,
+    AreaShared,
+    CertificateChanged,
+    HueArea,
+)
 
 AREA = "e5555555-5555-4555-8555-555555555555"
 LIGHT = "a0000000-0000-4000-8000-00000000000a"
@@ -135,9 +142,115 @@ class HueAreaReaderTests(unittest.TestCase):
 
     def test_configuration_is_checked_without_io(self):
         for config, area_id in (({}, AREA), ({"bridge": "192.168.10.20"}, AREA),
-                                (CONFIG, "not-an-area"), (CONFIG, None)):
+                                (CONFIG, "not-an-area"), (CONFIG, "")):
             with self.subTest(config=config, area_id=area_id), self.assertRaises(ValueError):
                 HueArea(config, area_id, requester=lambda *call: self.fail(call))
+
+
+NEW_AREA = "f1111111-1111-4111-8111-111111111111"
+
+
+class Creating:
+    """A bridge where the core creates its own area; ``lost`` names an area that
+    the bridge no longer has."""
+
+    def __init__(self, shared=False, lost=None, contains=True):
+        self.areas, self.calls, self.shared, self.lost = {}, [], shared, lost
+        self.contains = contains
+
+    def __call__(self, path, method="GET", body=None):
+        self.calls.append((method, path, copy.deepcopy(body)))
+        if path == "/clip/v2/resource/entertainment":
+            return SERVICES
+        base = "/clip/v2/resource/entertainment_configuration"
+        if method == "POST" and path == base:
+            self.areas[NEW_AREA] = body
+            return {"errors": [], "data": [{"rid": NEW_AREA,
+                                            "rtype": "entertainment_configuration"}]}
+        rid = path.rsplit("/", 1)[1]
+        if method == "DELETE":
+            self.areas.pop(rid, None)
+            return {"errors": [], "data": [{"rid": rid}]}
+        if rid not in self.areas:
+            raise AreaMissing("Hue area not found")
+        members = [SERVICE] if self.contains else []
+        channels = [channel(0, SERVICE, 0), channel(1, SERVICE, 1), channel(2, SERVICE, 2)]
+        if self.shared:
+            channels[0]["members"].append(channels.pop(1)["members"][0])
+        return {"errors": [], "data": [{
+            "id": rid, "type": "entertainment_configuration", "status": "inactive",
+            "light_services": [{"rid": LIGHT, "rtype": "light"} for _ in members],
+            "channels": channels if members else []}]}
+
+
+class HueAreaCreationTests(unittest.TestCase):
+    def test_the_first_hue_light_creates_the_cores_own_area(self):
+        bridge = Creating()
+        hue = HueArea(CONFIG, None, requester=bridge)
+        self.assertIsNone(hue.area_id)
+        self.assertEqual(hue.join(LIGHT), ({"service": SERVICE, "segments": 3}, True))
+        self.assertEqual(hue.area_id, NEW_AREA)
+        self.assertEqual(bridge.areas[NEW_AREA], {
+            "type": "entertainment_configuration", "metadata": {"name": AREA_NAME},
+            "configuration_type": "screen",
+            "locations": {"service_locations": [
+                {"service": {"rid": SERVICE, "rtype": "entertainment"},
+                 "positions": [{"x": 0, "y": 0, "z": 0}]}]}})
+        self.assertEqual(AREA_NAME, "Light Studio")
+        # Without an area there is nothing to leave or restore.
+        self.assertIsNone(HueArea(CONFIG, None, requester=bridge).leave(LIGHT))
+
+    def test_a_failed_creation_deletes_the_new_area(self):
+        for bridge, error in ((Creating(shared=True), AreaShared),
+                              (Creating(contains=False), ValueError)):
+            hue = HueArea(CONFIG, None, requester=bridge)
+            with self.subTest(error=error), self.assertRaises(error):
+                hue.join(LIGHT)
+            self.assertEqual(bridge.areas, {})
+            self.assertIsNone(hue.area_id)
+
+    def test_abandon_deletes_an_area_created_for_a_failed_enrollment(self):
+        bridge = Creating()
+        hue = HueArea(CONFIG, None, requester=bridge)
+        hue.join(LIGHT)
+        hue.abandon(LIGHT)
+        self.assertEqual(bridge.areas, {})
+        self.assertIsNone(hue.area_id)
+
+    def test_abandon_only_takes_the_light_out_of_an_existing_area(self):
+        bridge = Bridge()
+        hue = HueArea(CONFIG, AREA, requester=bridge)
+        hue.join(LIGHT)
+        hue.abandon(LIGHT)
+        self.assertEqual(bridge.rows, Bridge().rows)
+        self.assertEqual(hue.area_id, AREA)
+
+    def test_a_lost_area_is_replaced_only_without_dependent_hue_lights(self):
+        bridge = Creating()
+        hue = HueArea(CONFIG, AREA, requester=bridge)
+        with self.assertRaises(AreaMissing):
+            hue.join(LIGHT)
+        self.assertEqual(hue.area_id, AREA)
+        self.assertFalse([call for call in bridge.calls if call[0] == "POST"])
+        self.assertEqual(hue.join(LIGHT, replace_missing=True)[1], True)
+        self.assertEqual(hue.area_id, NEW_AREA)
+
+    def test_a_missing_area_is_reported_only_for_its_own_path(self):
+        class Missing(FakeConnection):
+            def getresponse(self):
+                return mock.Mock(status=404, read1=io.BytesIO(b"").read1)
+
+        with tempfile.TemporaryDirectory(prefix="tmp_pin_") as folder:
+            hue = HueArea(CONFIG, AREA, pin_file=Path(folder) / "hue-bridge-id")
+            with mock.patch.object(hue_area.http.client, "HTTPSConnection", Missing):
+                with self.assertRaises(AreaMissing):
+                    hue._request(hue._path)
+                with self.assertRaises(OSError) as other:
+                    hue._request("/clip/v2/resource/entertainment")
+                self.assertNotIsInstance(other.exception, AreaMissing)
+                with self.assertRaises(OSError) as written:
+                    hue._request(hue._path, "PUT", {})
+                self.assertNotIsInstance(written.exception, AreaMissing)
 
 
 class HueAreaChangeTests(unittest.TestCase):

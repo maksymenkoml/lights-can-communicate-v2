@@ -1,10 +1,11 @@
-"""A light's membership in the paired native Entertainment area (#7 stage 5b).
+"""A light's membership in the core's native Entertainment area (#7, #60).
 
-Before the setup flow (#60) chooses the area, a new Hue light is enrolled into
-the physical area that the existing pairing already uses. With the paired
+The core owns one Entertainment area on the paired bridge: the one in the light
+registry (an existing pairing's area is adopted as the core's), or one that it
+creates, named "Light Studio", for the first Hue light. With the paired
 credentials this module finds the light's entertainment service and its channels
 there, and adds a light to the area or takes it out. The area is changed only
-while nothing streams to it.
+while nothing streams to it. Areas that the core does not own are never changed.
 """
 
 import http.client
@@ -64,6 +65,13 @@ sFgDAiEA1Fj/C3AN5psFMjo0//mrQebo0eKd3aWRx+pQY08mk48=
 -----END CERTIFICATE-----
 """
 _BRIDGE_ID = re.compile(r"[0-9a-f]{16}\Z")
+
+
+AREA_NAME = "Light Studio"
+
+
+class AreaMissing(OSError):
+    """The bridge has no area with the registry's area ID."""
 
 
 class CertificateChanged(OSError):
@@ -145,9 +153,12 @@ class HueArea:
             raise ValueError("Invalid paired Hue configuration")
         self._bridge = lan.local_ip(config["bridge"])
         self._key, self._timeout = key, timeout
-        self.area_id = _uuid(area_id)
-        if self.area_id is None:
+        # None until the core creates its area for the first Hue light.
+        self.area_id = _uuid(area_id) if area_id is not None else None
+        if area_id is not None and self.area_id is None:
             raise ValueError("Invalid paired Entertainment area")
+        # The area this object created and no enrollment has kept yet.
+        self._created = None
         if requester is None and pin_file is None:
             raise ValueError("A pinned Hue bridge certificate file is required")
         self._pin_file = pin_file
@@ -168,6 +179,9 @@ class HueArea:
                 headers["Content-Type"] = "application/json"
             connection.request(method, path, body=data, headers=headers)
             response = connection.getresponse()
+            if response.status == 404 and method == "GET" and self.area_id is not None \
+                    and path == self._path:
+                raise AreaMissing("Hue area not found")
             if response.status != 200:
                 raise OSError("Hue area request failed")
             raw = bytearray()
@@ -273,15 +287,70 @@ class HueArea:
         except (OSError, ValueError):
             pass  # The relay refuses the changed area until it is repaired.
 
-    def join(self, light):
+    def _create(self, light):
+        """Create the core's area with ``light`` as its only member."""
+        service = self._service(light)
+        created = self._data("/clip/v2/resource/entertainment_configuration", "POST", {
+            "type": "entertainment_configuration",
+            "metadata": {"name": AREA_NAME},
+            "configuration_type": "screen",
+            "locations": {"service_locations": [
+                {"service": {"rid": service, "rtype": "entertainment"},
+                 "positions": [{"x": 0, "y": 0, "z": 0}]}]},
+        })
+        rid = _uuid(created[0].get("rid")) if len(created) == 1 and isinstance(
+            created[0], dict) else None
+        if rid is None:
+            raise ValueError("Invalid Hue area response")
+        previous, self.area_id = self.area_id, rid
+        try:
+            area = self._area()
+            if not self._contains(area, light):
+                raise ValueError("Hue light did not join the area")
+            segments = self._segments(area, service)
+        except BaseException:
+            self._delete(rid)
+            self.area_id = previous
+            raise
+        self._created = rid
+        return {"service": service, "segments": segments}, True
+
+    def _delete(self, rid):
+        try:
+            self._data("/clip/v2/resource/entertainment_configuration/" + rid, "DELETE")
+        except (OSError, ValueError):
+            pass  # An empty area named Light Studio stays; the owner can delete it.
+
+    def abandon(self, light):
+        """Undo a ``join`` whose enrollment failed: delete an area created for it,
+        else take the light out again."""
+        if self._created is not None and self._created == self.area_id:
+            rid, self._created = self._created, None
+            self._delete(rid)
+            self.area_id = None
+            return
+        self.leave(light)
+
+    def join(self, light, replace_missing=False):
         """Add native ``light`` to the inactive area; return
         ``({"service", "segments"}, added)``. ``added`` is False when the light
-        was already a member. Raise AreaBusy while the area streams, AreaShared
-        when the light's channels are shared; the area is then unchanged."""
+        was already a member. Without an area, the core creates its own with this
+        light. With ``replace_missing`` (no Hue light depends on the area), an area
+        that the bridge no longer has is replaced the same way. Raise AreaBusy
+        while the area streams, AreaShared when the light's channels are shared;
+        the area is then unchanged."""
         light = _uuid(light)
         if light is None:
             raise ValueError("Invalid Hue light")
-        area = self._inactive()
+        self._created = None
+        if self.area_id is None:
+            return self._create(light)
+        try:
+            area = self._inactive()
+        except AreaMissing:
+            if not replace_missing:
+                raise
+            return self._create(light)
         if self._contains(area, light):
             service = self._service(light)
             return {"service": service, "segments": self._segments(area, service)}, False
@@ -308,6 +377,8 @@ class HueArea:
         light = _uuid(light)
         if light is None:
             raise ValueError("Invalid Hue light")
+        if self.area_id is None:
+            return None
         area = self._inactive()
         if not self._contains(area, light):
             return None
@@ -324,5 +395,6 @@ class HueArea:
 
     def rejoin(self, before):
         """Undo ``leave`` with the locations it returned, if the area is inactive."""
-        if before is not None and self._area().get("status") == "inactive":
+        if (before is not None and self.area_id is not None
+                and self._area().get("status") == "inactive"):
             self._restore(before)
