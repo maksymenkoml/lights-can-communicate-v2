@@ -255,9 +255,17 @@ enrolling it under its discovered id gives it its migrated id, slot and seed
 back, so its HomeKit accessory responds again. The enrollment answer names the
 registry id (`"id"`).
 
-A Hue light is enrolled into the native Entertainment area that the existing
-pairing uses (#60 adds the choice of area later). With Sync off, the adapter adds
-the light to that area through the bridge with the paired credentials. The
+A Hue light is enrolled into the core's native Entertainment area: the area in
+the light registry (an existing pairing's area is adopted as the core's), or one
+that the core creates for the first Hue light. The core creates the area named
+"Light Studio" (configuration type `screen`) with that light as its only member;
+when the light cannot join it on its own (shared channels, no channel), the core
+deletes the area again, and it deletes it as well when the enrollment fails
+afterwards. When the registry names an area that the bridge no longer has (after
+a pairing with another bridge) and no Hue light depends on it, the first Hue
+light replaces it with a new area. The core never changes an area that it does
+not own. With Sync off, the adapter adds the light to the area through the
+bridge with the paired credentials. The
 bridge merges lights at one position into one channel, so the light takes the
 free point farthest from the area's channels; otherwise positions in the area do
 not matter, because the Light Studio layout gives the light its Sync zone. The
@@ -436,9 +444,9 @@ configuration names neither `hue_config_file` nor `hue_stream_config_file`;
 explicit files always win. With explicit files, the section shows the bridge as
 set in the service configuration and offers no pairing; Light Studio does not
 read those files. The adapter restarts when the file changes (not
-while Sync output owns the lamps), so it starts with the new bridge. Hue lights
-of a newly paired bridge are connected after the core owns an Entertainment
-area (issue #60, stage 2).
+while Sync output owns the lamps), so it starts with the new bridge. The first Hue light
+connected on a newly paired bridge creates the core's Entertainment area (see
+"Enrolling and removing lights").
 
 ### Native Hue power from the Hue app
 

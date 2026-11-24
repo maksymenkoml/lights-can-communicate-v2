@@ -167,11 +167,15 @@ class Area:
     def __init__(self, member=None, error=None, added=True):
         self.result, self.error, self.added, self.calls = member, error, added, []
 
-    def join(self, light):
+    def join(self, light, replace_missing=False):
         self.calls.append(("join", light))
+        self.replace_missing = replace_missing
         if self.error is not None:
             raise self.error
         return self.result, self.added
+
+    def abandon(self, light):
+        self.calls.append(("abandon", light))
 
     def leave(self, light):
         self.calls.append(("leave", light))
@@ -224,7 +228,7 @@ class HueEnrollmentTests(unittest.TestCase):
                 (Area(error=ValueError()), "unavailable", [("join", HUE_LIGHT)]),
                 # Too many channels: the light that joined leaves again.
                 (Area({"service": HUE_SERVICE, "segments": 9}), "area_full",
-                 [("join", HUE_LIGHT), ("leave", HUE_LIGHT)]),
+                 [("join", HUE_LIGHT), ("abandon", HUE_LIGHT)]),
                 # A light that was already a member stays there.
                 (Area({"service": HUE_SERVICE, "segments": 9}, added=False), "area_full",
                  [("join", HUE_LIGHT)])):
@@ -249,8 +253,8 @@ class HueEnrollmentTests(unittest.TestCase):
         catalog = self.catalog
 
         class Offline(Area):
-            def join(self, light):
-                result = super().join(light)
+            def join(self, light, replace_missing=False):
+                result = super().join(light, replace_missing)
                 catalog._entries[next(iter(catalog._entries))]["seen"] = -100
                 return result
 
@@ -258,17 +262,45 @@ class HueEnrollmentTests(unittest.TestCase):
         with self.assertRaises(adapter.LightRefused) as refused:
             self.enrollment(area).enroll(self.new)
         self.assertEqual(refused.exception.reason, "unavailable")
-        self.assertEqual(area.calls, [("join", HUE_LIGHT), ("leave", HUE_LIGHT)])
+        self.assertEqual(area.calls, [("join", HUE_LIGHT), ("abandon", HUE_LIGHT)])
         self.assertEqual(self.restarts, [])
+
+    def test_the_first_hue_light_sets_the_area_that_the_core_created(self):
+        registry = self.registry
+        for item in self.registry.to_dict()["lights"]:
+            if item["provider"] == "hue":
+                registry = registry.without_light(item["id"])
+        registry.save(self.path)
+        new_area = "f1111111-1111-4111-8111-111111111111"
+
+        class Created(Area):
+            area_id = None
+
+            def join(self, light, replace_missing=False):
+                result = super().join(light, replace_missing)
+                self.area_id = new_area
+                return result
+
+        area = Created({"service": HUE_SERVICE, "segments": 7})
+        self.enrollment(area, registry).enroll(self.new)
+        # No Hue light depended on the old area, so a lost one may be replaced.
+        self.assertTrue(area.replace_missing)
+        stored = LightRegistry.load(self.path)
+        self.assertEqual(stored.to_dict()["hue"], {"area_id": new_area})
+        self.assertEqual(stored.native_profile().channels[self.new], tuple(range(7)))
+        # With Hue lights enrolled, their area is never replaced.
+        with_lights = Area({"service": HUE_SERVICE, "segments": 1})
+        self.enrollment(with_lights).enroll(self.new)
+        self.assertFalse(with_lights.replace_missing)
 
     def test_concurrent_enrollments_of_one_light_change_the_area_once(self):
         joining, release = threading.Event(), threading.Event()
 
         class Slow(Area):
-            def join(self, light):
+            def join(self, light, replace_missing=False):
                 joining.set()
                 release.wait(5)
-                return super().join(light)
+                return super().join(light, replace_missing)
 
         area = Slow({"service": HUE_SERVICE, "segments": 1})
         lights = self.enrollment(area)

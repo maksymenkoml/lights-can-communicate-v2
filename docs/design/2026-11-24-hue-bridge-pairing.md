@@ -57,3 +57,17 @@ owner presses its link button, and the core keeps the keys as private state.
    ID.
 
 Each stage is a separate PR, verified live on the NAS before it is offered.
+
+## Stage 2 decisions
+
+- The core's area is the one in the light registry. An existing pairing's area
+  is adopted as it is; nothing is renamed or moved.
+- Without an area, the first Hue light creates one: name "Light Studio",
+  configuration type `screen`, that light as its only member. A creation that
+  cannot hold the light on its own, or an enrollment that fails afterwards,
+  deletes the new area again.
+- A registry area that the bridge no longer has is replaced the same way, but
+  only while no Hue light depends on it. Otherwise the enrollment is refused as
+  unavailable.
+- The area stays when its last Hue light leaves, so a later light joins it
+  again. Choosing the area per room follows with the rooms work (#78).

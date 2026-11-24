@@ -362,8 +362,11 @@ class LightRegistry:
         hue = [item for item in data["lights"] if item["provider"] == "hue"]
         if any(item["hue"]["light"] == light for item in hue):
             raise RegistryError("Light is already enrolled.")
-        if data.setdefault("hue", {"area_id": area_id})["area_id"] != area_id:
+        if hue and data["hue"]["area_id"] != area_id:
             raise RegistryError("Light is outside the paired Entertainment area.")
+        # The first Hue light sets the area: a new one the core created, or the
+        # area that replaces one the bridge no longer has.
+        data["hue"] = {"area_id": area_id}
         first = sum(len(item["hue"]["channels"]) for item in hue)
         channels = [{"channel_id": first + index, "rid": service, "index": index}
                     for index in range(segments)]
