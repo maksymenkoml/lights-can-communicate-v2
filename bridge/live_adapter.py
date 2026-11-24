@@ -713,6 +713,7 @@ def registry_lights(registry, controller):
     """
     native = registry.native_profile()
     channels = native.channels if native is not None else {}
+    outside = registry.outside()
     result = []
     for item in registry.to_dict()["lights"]:
         light, provider = item["id"], item["provider"]
@@ -722,10 +723,14 @@ def registry_lights(registry, controller):
             target = controller.by_light.get(light, {}) if controller is not None else {}
             zones = target.get("segment_count", 0)
             model = item["govee"].get("model") or item["govee"].get("sku")
-        result.append({"id": light, "provider": provider,
-                       "model": model if isinstance(model, str) else None,
-                       "zones": zones if type(zones) is int and zones > 0 else 1,
-                       "migrated": not light.startswith("device-")})
+        row = {"id": light, "provider": provider,
+               "model": model if isinstance(model, str) else None,
+               "zones": zones if type(zones) is int and zones > 0 else 1,
+               "migrated": not light.startswith("device-")}
+        # A Hue light for scenes only is outside the Entertainment area (#78).
+        if light in outside:
+            row["outside"] = outside[light]
+        result.append(row)
     return result
 
 
@@ -845,7 +850,7 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
             if self.path not in ("/command", "/stream", "/power-owner", "/power-request",
                                  "/native-power", "/identify", "/calibration",
                                  "/calibration/end", "/homekit", "/lights/enroll",
-                                 "/lights/remove") or (
+                                 "/lights/remove", "/lights/rooms") or (
                 self.path == "/stream" and video_output is None
             ) or (self.path == "/identify" and identify is None) or (
                 self.path.startswith("/lights/") and lights is None) or (
@@ -905,6 +910,18 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                         return self.respond(200, calibration.update(payload))
                     except CalibrationRefused as refused:
                         return self.respond(409, {"active": False, "reason": refused.reason})
+                elif self.path == "/lights/rooms":
+                    # The rooms changed: the area follows the Sync Box's room (#78).
+                    if payload != {}:
+                        raise ValueError("Invalid rooms request")
+                    try:
+                        changes = lights.follow_rooms()
+                    except LightRefused as refused:
+                        return self.respond(409, {"accepted": False, "reason": refused.reason})
+                    except OSError:
+                        return self.respond(503, {"accepted": False})
+                    return self.respond(200, {"accepted": True, "restarting": bool(changes),
+                                              "changes": changes})
                 elif self.path in ("/lights/enroll", "/lights/remove"):
                     if not isinstance(payload, dict) or set(payload) != {"id"}:
                         raise ValueError("Invalid light request")
@@ -1012,8 +1029,10 @@ def main(argv=None, service_info=None):
         raise SystemExit("Owner live-output hold is active; physical adapter remains stopped")
     registry = LightRegistry.load(args.registry)
     native_profile = registry.native_profile()
-    if native_profile and not args.hue_config:
-        parser.error("A native Hue profile in the light registry requires --hue-config")
+    # Every Hue light: those of the area and those connected for scenes only (#78).
+    hue_lights = registry.hue_lights()
+    if hue_lights and not args.hue_config:
+        parser.error("A Hue light in the light registry requires --hue-config")
     # A paired bridge may have no Hue light and no area yet (a new pairing), or no
     # Hue light any more; until one is enrolled, Sync drives the Govee lights only.
     paired_area = registry.to_dict().get("hue", {}).get("area_id")
@@ -1080,16 +1099,20 @@ def main(argv=None, service_info=None):
         link = HueBridgeLink(
             hue_config["bridge"], state_dir / "hue-bridge-id",
             find=lambda: discover_hue_bridges(interface=args.lan_address))
-        # One proxy per native light of the profile, keyed by its registry id.
-        for light, resource in (native_profile.light_ids if native_profile else {}).items():
+        # One proxy per Hue light, keyed by its registry id. A light of the area is
+        # also driven by Sync; a light for scenes only through the CLIP API alone.
+        for light, resource in (hue_lights.light_ids if hue_lights else {}).items():
             hue_proxies[light] = HueStripProxy(
-                PinnedHueClient(hue_config, resource_id=resource, profile=native_profile,
+                PinnedHueClient(hue_config, resource_id=resource, profile=hue_lights,
                                 link=link),
                 light,
                 layout_store=layout_store,
                 preview=preview,
-                profile=native_profile,
+                profile=hue_lights,
             )
+    # The proxies of the area's lights: only these take part in Sync and its handoffs.
+    area_proxies = {light: proxy for light, proxy in hue_proxies.items()
+                    if native_profile is not None and light in native_profile.channels}
     video = None
     if args.hue_stream_config:
         stream_config = json.loads(args.hue_stream_config.read_text())
@@ -1104,10 +1127,11 @@ def main(argv=None, service_info=None):
                 stream_config, layout_store=layout_store, preview=preview, profile=native_profile,
                 location_cache_file=state_dir / "native-location-cache.json", link=link)
             if native_profile is not None else NoNativeRelay(),
-            hue_proxies.values(),
+            area_proxies.values(),
             diagnostics=StreamDiagnostics(state_dir / 'adapter-stream-health.jsonl'),
         )
-        for proxy in hue_proxies.values():
+        # A light for scenes only keeps its scenes during Sync.
+        for proxy in area_proxies.values():
             proxy.output_lock = video.lock
             proxy.write_gate = lambda: not video.active()
     identify = Identify(controller, hue_proxies, video=video, power_owner=power_owner,
@@ -1141,7 +1165,7 @@ def main(argv=None, service_info=None):
         idle["release"] = release_scene
     controller.pause_gate = lambda: (
         (video is None or not video.active())
-        and all(proxy.govee_allowed() for proxy in hue_proxies.values() if proxy.included())
+        and all(proxy.govee_allowed() for proxy in area_proxies.values() if proxy.included())
     )
 
     def remember_targets():
@@ -1184,7 +1208,8 @@ def main(argv=None, service_info=None):
         args.registry, registry, catalog,
         busy=lambda: video is not None and video.owns_lights(),
         restart=restart_with_new_lights,
-        area=area)
+        area=area,
+        rooms=layout_store)
     server = ThreadingHTTPServer(
         (args.bind, args.port),
         handler_for(

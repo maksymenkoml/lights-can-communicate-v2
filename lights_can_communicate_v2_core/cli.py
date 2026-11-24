@@ -54,12 +54,13 @@ def prepare(config, *, write_registry):
     try:
         registry = ensure(config.state_dir, config.targets_file, config.native_profile_file)
         profile = registry.native_profile()
+        hue_lights = registry.hue_lights()
     except RegistryError as error:
         raise ConfigError(str(error)) from None
     except NativeProfileError:
         raise ConfigError("Invalid native Hue profile") from None
-    if profile is not None and not config.hue_config_file:
-        raise ConfigError("A native Hue profile in the light registry requires a Hue configuration")
+    if hue_lights is not None and not config.hue_config_file:
+        raise ConfigError("A Hue light in the light registry requires a Hue configuration")
     os.environ["PROBE_GOVEE_GRADIENT"] = "true" if config.gradient else "false"
     # Source mode explicitly adds only the known bridge module directory. In an
     # archive all runtime modules already live in the archive's import root.
@@ -87,10 +88,10 @@ def prepare(config, *, write_registry):
             if not _hue_identity(hue.get("hue_key")):
                 raise ConfigError("Invalid Hue credential")
             # A paired bridge may have no Hue light yet, or none any more.
-            for light, resource in (profile.light_ids if profile else {}).items():
+            for light, resource in (hue_lights.light_ids if hue_lights else {}).items():
                 live_adapter.HueStripProxy(
-                    live_adapter.PinnedHueClient(hue, resource_id=resource, profile=profile),
-                    light, profile=profile,
+                    live_adapter.PinnedHueClient(hue, resource_id=resource, profile=hue_lights),
+                    light, profile=hue_lights,
                 )
         if config.hue_stream_config_file:
             stream = read_json(config.hue_stream_config_file, "Hue stream configuration")

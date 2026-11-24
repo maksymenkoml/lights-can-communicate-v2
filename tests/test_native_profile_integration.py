@@ -22,7 +22,7 @@ from lights_can_communicate_v2_core.light_registry import (
     LightRegistry,
     RegistryError,
 )
-from lights_can_communicate_v2_core.native_profile import NativeHueProfile
+from lights_can_communicate_v2_core.native_profile import HueLightSet, NativeHueProfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import live_adapter as adapter  # noqa: E402
@@ -332,19 +332,24 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
         self.assertEqual(len(objects["PinnedHueClient"]), 4)
         self.assertEqual(len(objects["HueStripProxy"]), 4)
         self.assertEqual(len(objects["HueEntertainmentRelay"]), 1)
-        profile = objects["PinnedHueClient"][0].profile
+        # The relay streams the area's profile; the clients and proxies share the set
+        # of every Hue light, the scenes-only ones too (#78).
+        profile = objects["HueEntertainmentRelay"][0].profile
         self.assertIsInstance(profile, NativeHueProfile)
         self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
-        for instances in objects.values():
-            for instance in instances:
-                self.assertIs(instance.profile, profile)
-        # One client and proxy per profile light, in the profile's channel order.
+        lights = objects["PinnedHueClient"][0].profile
+        self.assertIsInstance(lights, HueLightSet)
+        self.assertEqual(lights.light_ids, profile.light_ids)
+        for name in ("PinnedHueClient", "HueStripProxy"):
+            for instance in objects[name]:
+                self.assertIs(instance.profile, lights)
+        # One client and proxy per Hue light, in registry order.
         self.assertEqual([instance.resource_id for instance in objects["PinnedHueClient"]],
-                         [CENTER, LEFT, RIGHT, STRIP])
+                         [STRIP, LEFT, CENTER, RIGHT])
         self.assertEqual([instance.light for instance in objects["HueStripProxy"]],
-                         ["play-center", "play-left", "play-right", "hue-monitor"])
+                         ["hue-monitor", "play-left", "play-center", "play-right"])
         self.assertEqual([instance.resource_id for instance in objects["HueStripProxy"]],
-                         [CENTER, LEFT, RIGHT, STRIP])
+                         [STRIP, LEFT, CENTER, RIGHT])
 
     def test_relative_profile_path_is_a_migration_input_and_arguments_pass_the_registry(self):
         config = self.config()
@@ -482,6 +487,45 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
                 adapter.main(arguments)
             loader.assert_called_once_with(self.root / REGISTRY_FILE)
         self.assert_shared_profile(objects)
+
+    def test_a_hue_light_for_scenes_only_is_driven_outside_sync(self):
+        class BeforeServer(Exception):
+            pass
+
+        registry = write_registry(self.root, targets(), profile_data())
+        registry.with_outside("play-left", "room").save(self.root / REGISTRY_FILE)
+        arguments = ["--registry", str(self.root / REGISTRY_FILE), "--token-file",
+                     str(self.root / "token"), "--state-dir", str(self.root / "state"),
+                     "--hue-config", str(self.root / "hue.json"), "--hue-play",
+                     "--hue-stream-config", str(self.root / "stream.json")]
+        previous_lan_config = adapter.lan.CONFIG
+        self.addCleanup(setattr, adapter.lan, "CONFIG", previous_lan_config)
+        videos = []
+        constructor = adapter.VideoOutput
+
+        def video(*args, **kwargs):
+            videos.append(constructor(*args, **kwargs))
+            return videos[-1]
+
+        with ExitStack() as stack:
+            self.no_device_io(stack)
+            objects = self.capture_constructors(stack)
+            stack.enter_context(patch.object(adapter, "VideoOutput", side_effect=video))
+            stack.enter_context(patch.object(adapter, "ThreadingHTTPServer",
+                                            side_effect=BeforeServer))
+            with self.assertRaises(BeforeServer):
+                adapter.main(arguments)
+        # Every Hue light has a proxy; only the area's lights stream and join Sync.
+        proxies = {proxy.light: proxy for proxy in objects["HueStripProxy"]}
+        self.assertEqual(set(proxies), {"hue-monitor", "play-left", "play-center",
+                                        "play-right"})
+        self.assertNotIn("play-left", objects["HueEntertainmentRelay"][0].profile.ids)
+        self.assertEqual({proxy.light for proxy in videos[0].proxies},
+                         {"hue-monitor", "play-center", "play-right"})
+        # During Sync the light for scenes only still takes its scenes.
+        videos[0].active = lambda: True
+        self.assertTrue(proxies["play-left"].write_gate())
+        self.assertFalse(proxies["play-right"].write_gate())
 
     def test_main_starts_without_hue_lights_with_the_paired_area(self):
         class BeforeServer(Exception):

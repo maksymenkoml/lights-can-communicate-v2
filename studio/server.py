@@ -40,6 +40,7 @@ DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
 # Adapter refusal reasons passed through to the UI; anything else is "refused".
 # Owner enrollment of a discovered light (adapter /lights/enroll and /lights/remove).
 LIGHT_ROUTES = {"/api/lights/enroll": "/lights/enroll", "/api/lights/remove": "/lights/remove"}
+OUTSIDE_REASONS = ("room", "channels_shared", "area_full")
 LIGHT_REASONS = ("sync_active", "restarting", "enrolled", "not_enrolled", "unavailable",
                  "area_full", "channels_shared")
 IDENTIFY_REASONS = ("lamp off", "writer closed", "sync active", "busy", "unavailable",
@@ -157,6 +158,9 @@ def _registry_lights(value):
             continue
         result[row["id"]] = {key: row.get(key)
                              for key in ("id", "provider", "model", "zones", "migrated")}
+        # A Hue light for scenes only, outside the Entertainment area, and why (#78).
+        if row["provider"] == "hue" and row.get("outside") in OUTSIDE_REASONS:
+            result[row["id"]]["outside"] = row["outside"]
     return result
 
 

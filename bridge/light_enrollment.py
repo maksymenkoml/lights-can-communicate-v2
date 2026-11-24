@@ -9,9 +9,12 @@ change is saved atomically, and then the adapter restarts so that every layer
 starts from the new light set. Docker restarts the finished container. While Sync
 output is active the light set is not changed.
 
-A Hue light is also added to the paired Entertainment area, and its channels
-come from that area; a removal takes it out again. The area is changed before
-the registry, and an enrollment that is refused after the change undoes it.
+A Hue light of the Sync Box's room is also added to the paired Entertainment
+area, and its channels come from that area; a removal takes it out again. A Hue
+light of another room, or one that the area cannot take (shared channels, a full
+area), is connected for scenes only, outside the area (#78). ``follow_rooms``
+moves the Hue lights into or out of the area when the rooms change. The area is
+changed before the registry, and a change that is refused after it undoes it.
 """
 
 import threading
@@ -34,8 +37,11 @@ class LightRefused(Exception):
 
 
 class LightEnrollment:
-    def __init__(self, path, registry, catalog, busy, restart, area=None):
+    def __init__(self, path, registry, catalog, busy, restart, area=None, rooms=None):
         self.path = path
+        # The room index (rooms.Rooms): a Hue light is in the area only in the Sync
+        # Box's room. Without it, every light is in that room.
+        self.rooms = rooms
         self.registry = registry
         self.catalog = catalog
         # The paired native Entertainment area (HueArea), or None without one.
@@ -55,6 +61,9 @@ class LightEnrollment:
     def _check(self, light_id, pattern=DEVICE_ID):
         if type(light_id) is not str or pattern.match(light_id) is None:
             raise ValueError("Invalid light id")
+        self._check_state()
+
+    def _check_state(self):
         if self.pending:
             raise LightRefused("restarting")
         if self.busy():
@@ -97,45 +106,89 @@ class LightEnrollment:
             self._apply(registry)
         self.restart()
 
-    def _enroll_hue(self, light_id):
-        with self.lock:
-            self._check(light_id)
-            self._hue_check(light_id)
-            hue = self.catalog.hue_enrollment(light_id)
-            if hue is None:
-                raise LightRefused("unavailable")
-        # The bridge is called outside the lock, so Sync frames never wait for it.
-        # Without a Hue light, an area that the bridge lost can be replaced.
-        replace = self.registry.native_profile() is None
-        member, added = self._area_call(
-            lambda light: self.area.join(light, replace_missing=replace), hue["light"])
-        try:
-            with self.lock:
-                self._check(light_id)
-                self._hue_check(light_id)
-                # The light can go offline or ambiguous while the area changes.
-                if self.catalog.hue_enrollment(light_id) is None:
-                    raise LightRefused("unavailable")
-                model = hue["model"] if MODEL_ID.match(hue["model"]) else "unknown"
-                self._apply(self._with_hue_light(light_id, {**member, "light": hue["light"],
-                                                            "model": model}))
-        except BaseException:
-            if added:
-                try:
-                    self.area.abandon(hue["light"])
-                except (AreaBusy, AreaShared, OSError, ValueError):
-                    pass  # The relay refuses the unknown member until it is enrolled.
-            raise
-        self.restart()
+    def _in_sync_room(self, light_id):
+        if self.rooms is None:
+            return True
+        sync = self.rooms.sync_room()
+        return sync is not None and self.rooms.room_of(light_id) == sync
 
-    def _hue_check(self, light_id):
+    def _hue_ready(self, light_id):
+        """Check a Hue enrollment under ``lock``; return the catalog's binding."""
+        self._check(light_id)
         if light_id in self.registry.ids:
             raise LightRefused("enrolled")
         if self.area is None:
             raise LightRefused("unavailable")
-        profile = self.registry.native_profile()
+        hue = self.catalog.hue_enrollment(light_id)
+        if hue is None:
+            raise LightRefused("unavailable")
+        return hue
+
+    def _fits(self, registry, segments):
+        """Whether the area of ``registry`` has room for a light of ``segments``."""
+        profile = registry.native_profile()
+        if profile is None:
+            return segments <= MAX_CHANNELS
+        return (len(profile.ids) < MAX_LIGHTS
+                and len(profile.expected_members) + segments <= MAX_CHANNELS)
+
+    def _join(self, light, registry):
+        """Join ``light`` to the area. Return ``(member, added, None)``, or
+        ``(None, False, reason)`` when the area cannot take it."""
+        profile = registry.native_profile()
         if profile is not None and len(profile.ids) >= MAX_LIGHTS:
-            raise LightRefused("area_full")
+            return None, False, "area_full"
+        # Without a light in the area, an area that the bridge lost can be replaced.
+        try:
+            member, added = self._area_call(
+                lambda native: self.area.join(native, replace_missing=profile is None), light)
+        except LightRefused as refused:
+            if refused.reason != "channels_shared":
+                raise
+            return None, False, "channels_shared"
+        if not self._fits(registry, member["segments"]):
+            self._undo_join(light, added)
+            return None, False, "area_full"
+        return member, added, None
+
+    def _undo_join(self, light, added):
+        # A light that was a member before is left there.
+        if not added:
+            return
+        try:
+            self.area.abandon(light)
+        except (AreaBusy, AreaShared, OSError, ValueError):
+            pass  # The relay refuses the unknown member until it is enrolled.
+
+    def _enroll_hue(self, light_id):
+        with self.lock:
+            hue = self._hue_ready(light_id)
+        model = hue["model"] if MODEL_ID.match(hue["model"]) else "unknown"
+        # The bridge is called outside the lock, so Sync frames never wait for it.
+        member, added, reason = None, False, "room"
+        if self._in_sync_room(light_id):
+            member, added, reason = self._join(hue["light"], self.registry)
+        try:
+            with self.lock:
+                self._hue_ready(light_id)
+                if member is not None:
+                    registry = self.registry.with_hue_light(
+                        light_id, self.area.area_id, hue["light"], member["service"],
+                        member["segments"], model)
+                else:
+                    registry = self.registry.with_scene_hue_light(
+                        light_id, hue["light"], model, reason)
+                self._apply(registry)
+        except RegistryError:
+            if member is not None:
+                self._undo_join(hue["light"], added)
+            # The same device is already enrolled under another id.
+            raise LightRefused("enrolled") from None
+        except BaseException:
+            if member is not None:
+                self._undo_join(hue["light"], added)
+            raise
+        self.restart()
 
     def _area_call(self, call, light):
         try:
@@ -147,23 +200,65 @@ class LightEnrollment:
         except (OSError, ValueError):
             raise LightRefused("unavailable") from None
 
-    def _with_hue_light(self, light_id, member):
-        profile = self.registry.native_profile()
-        lights = profile.ids if profile is not None else ()
-        channels = len(profile.expected_members) if profile is not None else 0
-        if len(lights) >= MAX_LIGHTS or channels + member["segments"] > MAX_CHANNELS:
-            raise LightRefused("area_full")
-        try:
-            return self.registry.with_hue_light(
-                light_id, self.area.area_id, member["light"], member["service"],
-                member["segments"], member["model"])
-        except RegistryError:
-            # The same device is already enrolled under another id.
-            raise LightRefused("enrolled") from None
+    def follow_rooms(self):
+        """Move the Hue lights into or out of the area so that it holds the Hue
+        lights of the Sync Box's room that it can take. Return ``{light id: reason
+        or None}`` of the lights that changed: None for a light that joined the
+        area, else why it is outside now. Raise LightRefused; a refused change
+        undoes the area changes made before it."""
+        with self.changes:
+            with self.lock:
+                self._check_state()
+                if self.area is None:
+                    raise LightRefused("unavailable")
+                registry = self.registry
+            hue = [(item["id"], item["hue"]) for item in registry.to_dict()["lights"]
+                   if item["provider"] == "hue"]
+            changes, left, joined = {}, None, []
+            try:
+                # Leaving first frees channels for the lights that join.
+                for light_id, item in hue:
+                    if self._in_sync_room(light_id) or item.get("outside") == "room":
+                        continue
+                    if item["channels"]:
+                        before = self._area_call(self.area.leave, item["light"])
+                        left = left if left is not None else before
+                    registry = registry.with_outside(light_id, "room")
+                    changes[light_id] = "room"
+                for light_id, item in hue:
+                    if item["channels"] or not self._in_sync_room(light_id):
+                        continue
+                    member, added, reason = self._join(item["light"], registry)
+                    if member is None:
+                        if reason != item["outside"]:
+                            registry = registry.with_outside(light_id, reason)
+                            changes[light_id] = reason
+                        continue
+                    joined.append((item["light"], added))
+                    registry = registry.with_area_member(
+                        light_id, self.area.area_id, member["service"], member["segments"])
+                    changes[light_id] = None
+                with self.lock:
+                    self._check_state()
+                    if changes:
+                        self._apply(registry)
+            except BaseException:
+                for light, added in reversed(joined):
+                    self._undo_join(light, added)
+                if left is not None:
+                    try:
+                        self.area.rejoin(left)
+                    except (OSError, ValueError):
+                        pass  # The relay restores an enrolled member from its location cache.
+                raise
+        if changes:
+            self.restart()
+        return changes
 
     def _native_light(self, light_id):
         for item in self.registry.to_dict()["lights"]:
-            if item["id"] == light_id and item.get("provider") == "hue":
+            if item["id"] == light_id and item.get("provider") == "hue" \
+                    and item["hue"]["channels"]:
                 return item["hue"]["light"]
         return None
 
@@ -180,6 +275,7 @@ class LightEnrollment:
             self._check(light_id, LIGHT_ID)
             if light_id not in self.registry.ids:
                 raise LightRefused("not_enrolled")
+            # A light for scenes only is not in the area.
             native = self._native_light(light_id)
         before = None
         if native is not None:
