@@ -169,8 +169,9 @@ class StudioRoomTests(unittest.TestCase):
         self.syncing = False
         self.assertEqual(self.request("/api/rooms/delete",
                                       {"room": hall[1]["rooms"][2]["id"]})[0], 200)
-        (self.state / "lights.json").write_text("{not json")
-        self.assertEqual(self.request("/api/rooms/delete", {"room": room}), unavailable)
+        for broken in ("{not json", '{"lights": {}}', '{"lights": [{"id": "lamp"}]}', "[]"):
+            (self.state / "lights.json").write_text(broken)
+            self.assertEqual(self.request("/api/rooms/delete", {"room": room}), unavailable)
         self.assertEqual(self.request("/api/rooms/move", {"light": "play-left",
                                                           "room": room}), unavailable)
         self.assertEqual(len(self.request("/api/rooms")[1]["rooms"]), 2)

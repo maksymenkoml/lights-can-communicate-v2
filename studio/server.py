@@ -404,13 +404,17 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         when it is given; None when the registry cannot be read (no registry: none)."""
         try:
             data = json.loads((state_dir / "lights.json").read_text())
-            return [item["id"] for item in data["lights"]
-                    if isinstance(item, dict) and _light_id(item.get("id"))
-                    and provider in (None, item.get("provider"))]
         except FileNotFoundError:
             return []
-        except (OSError, ValueError, AttributeError, TypeError, KeyError):
+        except (OSError, ValueError):
             return None
+        items = data.get("lights") if isinstance(data, dict) else None
+        # Malformed contents prove nothing about the connected lights.
+        if not isinstance(items, list) or any(
+                not isinstance(item, dict) or not _light_id(item.get("id"))
+                or item.get("provider") not in ("govee", "hue") for item in items):
+            return None
+        return [item["id"] for item in items if provider in (None, item["provider"])]
 
     def rooms_payload():
         index = rooms.index()
