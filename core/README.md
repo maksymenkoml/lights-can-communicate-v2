@@ -76,11 +76,13 @@ index keeps the last good one; without one no light takes part in Sync. The
 state schema `rooms` is 1, so a rollback restores the state snapshot taken
 before the upgrade.
 
-Light Studio manages the rooms through its API (the room switcher in the page
-comes later; until then the page edits the first room):
+Light Studio manages the rooms through the room cards of its page (see
+`studio/README.md`) and its API:
 
 - `GET /api/rooms` lists the rooms in order with their names, the Sync Box's room
-  (`sync`) and the room of every connected light.
+  (`sync`), the room of every connected light (`lights`), every recorded room of
+  a light (`assigned`; any other light is in the first room) and the room whose
+  layout has each light's row (`placed`).
 - `GET` and `POST /api/layout?room=<id>` read and write a room's layout (the first
   room without `room`); a write still needs `If-Match`.
 - `POST /api/rooms/create {"name"}` adds a room at the end with the default desk

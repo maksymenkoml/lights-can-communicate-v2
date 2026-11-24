@@ -85,6 +85,14 @@ class StudioRoomTests(unittest.TestCase):
         self.assertEqual(body["sync"], FIRST_ROOM)
         self.assertEqual(set(body["lights"].values()), {FIRST_ROOM})
         self.assertEqual(len(body["lights"]), 6)
+        # Every light row says where it is; nothing is recorded before a room change.
+        self.assertEqual(set(body["placed"].values()), {FIRST_ROOM})
+        self.assertIn("play-left", body["placed"])
+        self.assertEqual(body["assigned"], {})
+        room = self.request("/api/rooms/create", {"name": "Bedroom"})[1]["rooms"][1]["id"]
+        body = self.request("/api/rooms/move", {"light": "govee-left", "room": room})[1]
+        self.assertEqual((body["assigned"], body["placed"]["govee-left"]),
+                         ({"govee-left": room}, room))
 
     def test_a_new_room_has_its_own_layout(self):
         status_, body = self.request("/api/rooms/create", {"name": "Bedroom"})
