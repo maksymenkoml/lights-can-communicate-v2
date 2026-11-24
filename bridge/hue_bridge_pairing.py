@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 
 from hue_area import bridge_context, bridge_id
-from sync_box import MDNS_GROUP, box_address, mdns_answers_service, mdns_query
+from sync_box import box_address, mdns_search
 
 SERVICE = "_hue._tcp.local"
 DEVICE_TYPE = "lights_can_communicate#light_studio"
@@ -78,25 +78,9 @@ def https_json(ip, method, path, body=None, key=None, timeout=READ_TIMEOUT):
         connection.close()
 
 
-def discover(timeout=1.5):
+def discover(timeout=1.5, interface=None):
     """Addresses of the Hue bridges that answer an mDNS query on this network."""
-    import socket
-
-    found = []
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-        sock.bind(("", 0))
-        sock.sendto(mdns_query(SERVICE), MDNS_GROUP)
-        end = time.monotonic() + timeout
-        while (left := end - time.monotonic()) > 0:
-            sock.settimeout(left)
-            try:
-                packet, (ip, _) = sock.recvfrom(9000)
-            except (socket.timeout, OSError):
-                break
-            if ip not in found and mdns_answers_service(packet, SERVICE):
-                found.append(ip)
-    return found
+    return mdns_search(SERVICE, timeout, interface)
 
 
 def _uuid(value):

@@ -731,7 +731,7 @@ def registry_lights(registry, controller):
 def handler_for(controller, token, hue_proxies=None, video_output=None,
                 power_owner=None, power_token=None, service_info=None, catalog=None, preview=None,
                 power_requests=None, homekit=None, identify=None, sync_off=None,
-                calibration=None, lights=None):
+                calibration=None, lights=None, lan_address=None):
     if power_owner is not None and (
         not isinstance(power_token, str) or not power_token
         or hmac.compare_digest(power_token.encode(), token.encode())
@@ -789,7 +789,7 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                 return self.respond(200, catalog.snapshot())
             if self.path in LAN_SEARCHES:
                 try:
-                    addresses = LAN_SEARCHES[self.path]()
+                    addresses = LAN_SEARCHES[self.path](interface=lan_address)
                 except OSError:
                     addresses = []
                 return self.respond(200, {"addresses": addresses})
@@ -995,6 +995,8 @@ def main(argv=None, service_info=None):
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--hue-config", type=Path)
     parser.add_argument("--hue-play", action="store_true")
+    parser.add_argument("--lan-address", type=lan.local_ip,
+                        help="this adapter's LAN address, for mDNS searches")
     parser.add_argument("--hue-stream-config", type=Path)
     parser.add_argument("--power-owner-token-file", type=Path)
     parser.add_argument("--power-authority", choices=("owner", "homekit"), default="owner",
@@ -1192,6 +1194,7 @@ def main(argv=None, service_info=None):
             sync_off=sync_off,
             calibration=calibration_session,
             lights=enrollment,
+            lan_address=args.lan_address,
         ),
     )
     video_thread = http_thread = None

@@ -285,6 +285,8 @@ class ServiceConfig:
             result.append("--hue-play")
         if self.hue_stream_config_file:
             result.extend(["--hue-stream-config", str(self.hue_stream_config_file)])
+        # The adapter is on the LAN and the core network; LAN searches send from here.
+        result.extend(["--lan-address", self.container.adapter_ip])
         result.extend(["--power-authority", self.power_authority])
         return result
 

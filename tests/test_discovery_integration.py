@@ -99,14 +99,22 @@ class DiscoveryIntegrationTests(unittest.TestCase):
         import live_adapter
 
         controller = GoveeController(targets(), sender=lambda *args: None)
-        handler = handler_for(controller, "private-adapter-key")
+        handler = handler_for(controller, "private-adapter-key", lan_address="192.168.10.12")
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         base = f"http://127.0.0.1:{server.server_port}"
-        searches = {"/lan/hue-bridges": lambda: ["192.168.10.21"],
-                    "/lan/sync-boxes": lambda: (_ for _ in ()).throw(OSError("no LAN"))}
+        used = []
+
+        def bridges(interface=None):
+            used.append(interface)
+            return ["192.168.10.21"]
+
+        def boxes(interface=None):
+            raise OSError("no LAN")
+
+        searches = {"/lan/hue-bridges": bridges, "/lan/sync-boxes": boxes}
         try:
             with patch.dict(live_adapter.LAN_SEARCHES, searches):
                 with self.assertRaises(urllib.error.HTTPError) as rejected:
@@ -119,6 +127,7 @@ class DiscoveryIntegrationTests(unittest.TestCase):
                         base + path, headers={"X-Adapter-Token": "private-adapter-key"})
                     with opener.open(request) as response:
                         self.assertEqual(json.load(response), {"addresses": expected})
+                self.assertEqual(used, ["192.168.10.12"])
         finally:
             server.shutdown()
             server.server_close()

@@ -252,6 +252,7 @@ class ContainerProfileTests(unittest.TestCase):
         self.assertEqual(arguments[arguments.index("--hue-config") + 1], str(paired))
         self.assertEqual(arguments[arguments.index("--hue-stream-config") + 1], str(paired))
         self.assertIn("--hue-play", arguments)
+        self.assertEqual(arguments[arguments.index("--lan-address") + 1], "192.168.99.11")
         # Explicit files always win over the paired bridge.
         self.value["adapter"].update(hue_config_file="../state/hue.json", hue_play=True)
         self.save()
