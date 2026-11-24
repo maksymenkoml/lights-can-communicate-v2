@@ -88,6 +88,20 @@ Sync Box's room require, saves the registry and restarts the adapter. It answers
 Sync output is active or the area streams, and an area change that fails is
 undone.
 
+Each room is a Room group on the virtual bridge, named as the room, with the
+virtual lights of its connected lights. The first room keeps group "1"; a new
+room's group takes the lowest free group id from 2 and the `id_v2`
+`uuid5(URL, "smart-lighting-probe/<room id>")`, with the Hue class Other.
+`room-groups.json` in the bridge state records which group belongs to which
+room; the gateway changes or deletes only those groups. A light is in its room's
+group only. A Hue app scene of a room never drives a light of another room: a
+light that leaves a group is removed from the group's scenes. Deleting a room
+deletes its group and its scenes. A removed light's virtual light stays where it
+is. A renamed room renames its group without a restart. The Sync Box's stream to
+group "90" does not change. During Sync only the lights of the Sync Box's room
+follow the stream: the Govee lights of the other rooms keep their scenes and
+HomeKit power.
+
 ## Managed service release
 
 A release directory holds everything the services run, without a checkout:
@@ -368,14 +382,15 @@ light in the gradient mode; any other light is a color bulb (`LCT015`). A Hue
 light enrolled later mirrors its native light: a gradient light (`LCX006`) with
 several channels, else a color bulb; its scenes and power go to its native
 light through the adapter. New
-lights join the room, so Hue app scenes, group power and the Hue app reach
-them, but not the Entertainment area: the Sync Box pairing and the sampler stay
+lights join the Room group of their room (see "Rooms"), so Hue app scenes, group
+power and the Hue app reach them, but not the Entertainment area: the Sync Box pairing and the sampler stay
 as they are, and Sync drives the new light by projection. Scene output, power
 requests and feedback, scene Play replay and owner names use the registry slot
 map instead of fixed slots. A removed light keeps its virtual light, unreachable
 and not driven, so a rejoin gets the same light and its scenes. The gateway
-checks the registry every two seconds and restarts (Docker starts it again)
-when the virtual lights change; an address update does not restart it.
+checks the registry and the room index every two seconds and restarts (Docker
+starts it again) when the virtual lights, the rooms or the rooms of the lights
+change; an address update or a renamed room does not restart it.
 
 ### Govee lights and model tiers
 

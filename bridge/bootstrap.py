@@ -23,6 +23,7 @@ from hue_events import install_event_journal, install_event_route  # noqa: E402
 event_journal = install_event_journal()
 
 import configManager  # noqa: E402
+import room_groups  # noqa: E402
 from entertainment_stream import (  # noqa: E402
     CAPTURE_POSITIONS,
     GRADIENT_MODE,
@@ -50,7 +51,7 @@ from HueObjects import (  # noqa: E402
     Scene,
     StreamEvent,
 )
-from rooms import Rooms  # noqa: E402
+from rooms import FIRST_ROOM, Rooms  # noqa: E402
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from virtual_lights import default_name, hue_plan, migrated_hue_slots, plan  # noqa: E402
 from virtual_lights import load as load_registry  # noqa: E402
@@ -181,19 +182,13 @@ for identifier, lamp in config["lights"].items():
     # of a registry that is gone or invalid. Neither is driven.
     if identifier not in selected_slots:
         lamp.state["reachable"] = False
-if "1" not in config["groups"]:
+if "1" not in config["groups"] and FIRST_ROOM in layout_store.index()["rooms"]:
     room = Group.Group(
         {"id_v1": "1", "name": ROOM_NAME, "type": "Room", "class": "Office"}
     )
     for lamp in config["lights"].values():
         room.add_light(lamp)
     config["groups"]["1"] = room
-for identifier in [*govee_slots, *hue_slots]:
-    # A light enrolled later joins the room, so Hue app scenes and power reach it,
-    # but not the Entertainment area: the Sync Box pairing stays as it is.
-    room = config["groups"]["1"]
-    if not any(reference() is config["lights"][identifier] for reference in room.lights):
-        room.add_light(config["lights"][identifier])
 if include_strip:
     if "3" not in config["lights"]:
         lamp = Light.Light(
@@ -220,9 +215,6 @@ if include_strip:
         )
         config["lights"]["3"] = lamp
         config["groups"]["0"].add_light(lamp)
-    room = config["groups"]["1"]
-    if not any(reference() is config["lights"]["3"] for reference in room.lights):
-        room.add_light(config["lights"]["3"])
 if include_hue_play:
     for identifier, side in (("4", "Left"), ("5", "Center"), ("6", "Right")):
         if identifier not in config["lights"]:
@@ -241,9 +233,6 @@ if include_hue_play:
             lamp.state.update({"on": True, "bri": 200, "reachable": True})
             config["lights"][identifier] = lamp
             config["groups"]["0"].add_light(lamp)
-        room = config["groups"]["1"]
-        if not any(reference() is config["lights"][identifier] for reference in room.lights):
-            room.add_light(config["lights"][identifier])
 if include_entertainment:
     if not include_strip or not include_hue_play:
         raise RuntimeError("Desk Entertainment requires all six virtual lights")
@@ -337,6 +326,23 @@ def publish_light_names(lamps):
                       if key in resource}],
         })
 
+
+# Each room is a Room group with the virtual lights of its connected lights (#78);
+# a light enrolled later joins its room's group, but not the Entertainment area:
+# the Sync Box pairing stays as it is. A removed light's virtual light stays.
+room_index = layout_store.index()
+room_owned = room_groups.load_owned(state, FIRST_ROOM)
+room_group_ids, room_deleted = room_groups.plan(room_index["rooms"], room_owned,
+                                                set(config["groups"]))
+room_slots = {slot: light for slot, light in
+              {**govee_slots, **hue_slots, **migrated_hue}.items() if slot in selected_slots}
+room_groups.apply(
+    config, Group.Group, IDENTITY_NAMESPACE, room_group_ids, room_deleted,
+    room_groups.members(room_index["rooms"],
+                        lambda light: layout_store.room_of(light, room_index), room_slots),
+    room_groups.room_names(layout_store))
+room_groups.save_owned(state, room_group_ids)
+rooms_at_start = room_groups.signature(layout_store)
 
 # A name set in Light Studio for a role lamp names its virtual light. Resource
 # IDs stay; without an owner name the current name stays.
@@ -533,6 +539,10 @@ def watch_owner_names():
     while True:
         try:
             owner_names.apply()
+            # A renamed room renames its group without a restart.
+            if room_groups.rename(config, room_group_ids, room_groups.room_names(layout_store)):
+                with play_guard.lock:
+                    configManager.bridgeConfig.save_config(backup=False)
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
         time.sleep(.5)
@@ -542,7 +552,8 @@ threading.Thread(target=watch_owner_names, daemon=True, name='desk-names').start
 
 
 def watch_registry():
-    """Restart the bridge when the enrolled lights change (see light_enrollment).
+    """Restart the bridge when the enrolled lights or the rooms change (see
+    light_enrollment and room_groups).
 
     The adapter changes the registry only while Sync output is off. Docker
     restarts the finished container, and the bootstrap creates the new virtual
@@ -551,11 +562,12 @@ def watch_registry():
     while True:
         time.sleep(2)
         try:
-            changed = registry_signature(state) != registry_at_start
+            changed = (registry_signature(state) != registry_at_start
+                       or room_groups.signature(layout_store) != rooms_at_start)
         except (OSError, ValueError):
             continue
         if changed:
-            print("Light registry changed; restarting the bridge.", flush=True)
+            print("Light registry or rooms changed; restarting the bridge.", flush=True)
             with play_guard.lock:
                 configManager.bridgeConfig.save_config(backup=False)
             os._exit(0)
