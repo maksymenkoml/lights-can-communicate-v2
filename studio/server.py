@@ -399,21 +399,18 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
     state_dir = Path(state_dir) if state_dir is not None else Path(token_file).parent
     rooms = Rooms(state_dir)
 
-    def room_store(room=None):
-        """The layout store of ``room`` (the first room by default), or None for a room
-        that does not exist."""
-        return rooms.store(room if room is not None else rooms.index()["rooms"][0])
-
     def registry_lights(provider=None):
         """The ids of the connected lights (the light registry), of ``provider`` only
-        when it is given."""
+        when it is given; None when the registry cannot be read (no registry: none)."""
         try:
             data = json.loads((state_dir / "lights.json").read_text())
-            return [item["id"] for item in data.get("lights", ())
+            return [item["id"] for item in data["lights"]
                     if isinstance(item, dict) and _light_id(item.get("id"))
                     and provider in (None, item.get("provider"))]
-        except (OSError, ValueError, AttributeError, TypeError, KeyError):
+        except FileNotFoundError:
             return []
+        except (OSError, ValueError, AttributeError, TypeError, KeyError):
+            return None
 
     def rooms_payload():
         index = rooms.index()
@@ -424,7 +421,8 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             names[room] = data.get("room") if isinstance(data, dict) else None
         return {"rooms": [{"id": room, "name": names[room]} for room in index["rooms"]],
                 "sync": index["sync"],
-                "lights": {light: rooms.room_of(light, index) for light in registry_lights()}}
+                "lights": {light: rooms.room_of(light, index)
+                           for light in registry_lights() or ()}}
 
     # The Sync Box token lives with the other private state, never in the layout.
     def lan_search(path, local):
@@ -588,7 +586,8 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         return 503, {"accepted": False, "reason": "adapter unavailable"}
 
     def sync_busy():
-        """True while the adapter's Sync output owns the lights or releases them."""
+        """True while the adapter's Sync output owns the lights or releases them, None
+        when that is unknown."""
         try:
             if live_fetch is not None:
                 data = live_fetch()
@@ -599,11 +598,12 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         except Exception as error:
             if isinstance(error, urllib.error.HTTPError):
                 error.close()
-            # The adapter refuses its own changes during Sync; without it nothing streams.
-            return False
+            return None
         video = data.get("video") if isinstance(data, dict) else None
-        return isinstance(video, dict) and any(
-            video.get(key) is True for key in ("active", "cleanup_pending", "native_owned"))
+        if not isinstance(video, dict):
+            return None
+        return any(video.get(key) is True
+                   for key in ("active", "cleanup_pending", "native_owned"))
 
     def follow_rooms():
         """Let the adapter move the Hue lights into or out of the area; return None or
@@ -622,8 +622,17 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
 
     def change_rooms(action, data):
         """Apply a room change; return (status, body)."""
-        if action in ROOM_CHANGES_OUTSIDE_SYNC and sync_busy():
-            return 409, {"accepted": False, "reason": "sync_active"}
+        if action in ROOM_CHANGES_OUTSIDE_SYNC:
+            busy = sync_busy()
+            if busy is None:
+                # Without the adapter's state such a change could meet a running Sync.
+                return 503, {"accepted": False, "reason": "unavailable"}
+            if busy:
+                return 409, {"accepted": False, "reason": "sync_active"}
+        hue = registry_lights("hue") if action == "move" else ()
+        if hue is None:
+            # An unreadable registry cannot tell whether the area must follow.
+            return 503, {"accepted": False, "reason": "unavailable"}
         with rooms.lock:
             before = rooms.state()
             try:
@@ -634,7 +643,11 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 elif action == "order":
                     rooms.reorder(data["rooms"])
                 elif action == "delete":
-                    rooms.delete(data["room"], registry_lights())
+                    connected = registry_lights()
+                    if connected is None:
+                        # An unreadable registry cannot prove that the room is empty.
+                        return 503, {"accepted": False, "reason": "unavailable"}
+                    rooms.delete(data["room"], connected)
                 elif action == "move":
                     rooms.move(data["light"], data["room"])
                 else:
@@ -644,7 +657,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             # The Hue lights follow their rooms into or out of the area; a Govee light
             # has no area, so its move needs no adapter (which may be restarting).
             follow = action == "sync-box" or (
-                action == "move" and data["light"] in registry_lights("hue"))
+                action == "move" and data["light"] in hue)
             refusal = follow_rooms() if follow else None
             if refusal is not None:
                 rooms.restore(before)
@@ -807,7 +820,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             return values[0] if values else rooms.index()["rooms"][0]
 
         def room_store(self):
-            return room_store(self.room_id())
+            return rooms.store(self.room_id())
 
         def rooms(self, action):
             fields = {"create": {"name"}, "rename": {"room", "name"}, "order": {"rooms"},

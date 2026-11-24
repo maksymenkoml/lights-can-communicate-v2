@@ -250,6 +250,19 @@ class RoomManagementTests(unittest.TestCase):
         self.assertEqual(self.rooms.store(room).snapshot()["devices"], [])
         self.assertFalse((self.state / "rooms" / (extra + ".json")).exists())
 
+    def test_restore_returns_to_the_single_layout(self):
+        before = (self.state / "desk-layout.json").read_text()
+        state = self.rooms.state()
+        self.rooms.place_sync_box(None)
+        self.rooms.create("Bedroom")
+        self.rooms.restore(state)
+        self.assertFalse((self.state / "rooms.json").exists())
+        self.assertEqual(list((self.state / "rooms").glob("*.json")), [])
+        self.assertEqual(json.loads((self.state / "desk-layout.json").read_text()),
+                         json.loads(before))
+        self.assertEqual(self.rooms.index()["sync"], FIRST_ROOM)
+        self.assertEqual(len(self.rooms.store(FIRST_ROOM).snapshot()["devices"]), 6)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,8 @@ class StudioRoomTests(unittest.TestCase):
             return self.answers[route]
 
         def live():
+            if self.syncing is None:
+                raise OSError("adapter unavailable")
             data = status()
             if self.syncing:
                 data["video"].update(active=True, ready=True, frame_age=0.1)
@@ -148,6 +150,32 @@ class StudioRoomTests(unittest.TestCase):
         self.request("/api/rooms/move", {"light": "govee-left", "room": FIRST_ROOM})
         status_, body = self.request("/api/rooms/delete", {"room": room})
         self.assertEqual((status_, [item["id"] for item in body["rooms"]]), (200, [FIRST_ROOM]))
+
+    def test_unknown_sync_state_or_registry_refuses_the_risky_changes(self):
+        room = self.request("/api/rooms/create", {"name": "Bedroom"})[1]["rooms"][1]["id"]
+        self.syncing = None
+        unavailable = (503, {"accepted": False, "reason": "unavailable"})
+        self.assertEqual(self.request("/api/rooms/create", {"name": "Hall"}), unavailable)
+        self.assertEqual(self.request("/api/rooms/move", {"light": "govee-left",
+                                                          "room": room}), unavailable)
+        self.assertEqual(self.request("/api/rooms/rename", {"room": room, "name": "Den"})[0],
+                         200)
+        self.syncing = False
+        (self.state / "lights.json").write_text("{not json")
+        self.assertEqual(self.request("/api/rooms/delete", {"room": room}), unavailable)
+        self.assertEqual(self.request("/api/rooms/move", {"light": "play-left",
+                                                          "room": room}), unavailable)
+        self.assertEqual(len(self.request("/api/rooms")[1]["rooms"]), 2)
+        (self.state / "lights.json").unlink()
+        self.assertEqual(self.request("/api/rooms/delete", {"room": room})[0], 200)
+
+    def test_a_refused_sync_box_move_restores_the_single_layout(self):
+        self.answers["/lights/rooms"] = (409, {"accepted": False, "reason": "sync_active"})
+        self.assertEqual(self.request("/api/rooms/sync-box", {"room": None})[1]["reason"],
+                         "sync_active")
+        self.assertFalse((self.state / "rooms.json").exists())
+        self.assertTrue((self.state / "desk-layout.json").exists())
+        self.assertEqual(self.request("/api/rooms")[1]["sync"], FIRST_ROOM)
 
     def test_an_enrolled_light_joins_the_named_room(self):
         room = self.request("/api/rooms/create", {"name": "Bedroom"})[1]["rooms"][1]["id"]

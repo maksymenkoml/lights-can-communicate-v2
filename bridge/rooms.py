@@ -333,6 +333,14 @@ class Rooms:
         """Put back the rooms that ``state`` recorded (after a refused change)."""
         with self.lock:
             if not state["materialized"]:
+                # Back to the single layout: no index and no room files.
+                legacy = state["layouts"].get(FIRST_ROOM)
+                if legacy is not None:
+                    LayoutStore(self.state_dir / LEGACY_LAYOUT).save(legacy)
+                for room in self.index()["rooms"]:
+                    (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
+                self.index_path.unlink(missing_ok=True)
+                self.signature, self.data = None, None
                 return
             for room in self.index()["rooms"]:
                 if room not in state["index"]["rooms"]:
