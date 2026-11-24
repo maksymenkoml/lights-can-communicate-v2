@@ -487,7 +487,9 @@ function lampSvg(l){
   box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';
   const rotation=l.vertical?-90:0;
   body='<g transform="rotate('+rotation+')"><ellipse class="contact-shadow" cx="3" cy="13" rx="43" ry="5"/><rect x="-41" y="-12" width="82" height="24" rx="10" fill="url(#body-metal)" stroke="#64738a" stroke-width="1"/><path class="object-edge" d="M-30 -9h60"/></g>';
-  wash='<g transform="rotate('+rotation+')"><path class="render-wash" opacity="'+(glowOpacity*1.4)+'" d="M-32 -2 -105 -105 Q0 -163 105 -105 L32 -2Z"/></g>';
+  // A Play faces the wall like every other lamp: its light spreads around it, above
+  // and below the desktop, longest along the bar.
+  wash='<g transform="rotate('+rotation+')"><ellipse class="render-wash" opacity="'+(glowOpacity*1.1)+'" cx="0" cy="0" rx="125" ry="100"/><ellipse class="render-wash" opacity="'+(glowOpacity*1.2)+'" cx="0" cy="0" rx="72" ry="48"/></g>';
   off='<g transform="rotate('+rotation+')"><rect class="lens-off" x="-35" y="-7" width="70" height="13" rx="6.5"/></g>';
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }

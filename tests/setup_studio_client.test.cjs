@@ -1672,3 +1672,14 @@ test('the page uses three type sizes and scene labels keep them at any window si
  assert.match(app.run("labelUnit=.5,chipSvg(100,200,'Govee Left','',[])"),/translate\(100 200\) scale\(0\.5\)/,'a chip is drawn at screen size around its anchor');
  assert.match(app.run("labelUnit=.5,tagSvg(40,60,'80 cm')"),/^<g transform="translate\(40 60\) scale\(0\.5\) translate\(-40 -60\)">/,'so is a dimension tag');
 });
+
+test('a Play lamp lights the wall around it, below the desktop as well as above',async()=>{
+ const app=await harness();
+ const washes=[...app.stage.querySelectorAll('[data-wash-for="play-left"] .render-wash')];
+ assert.ok(washes.length>0,'the Play has a wall wash');
+ for(const w of washes){
+  assert.equal(w.tagName.toLowerCase(),'ellipse');
+  assert.equal(+w.getAttribute('cy'),0,'centred on the lamp');
+  assert.ok(+w.getAttribute('ry')>0,'reaching below it as far as above it');
+ }
+});
