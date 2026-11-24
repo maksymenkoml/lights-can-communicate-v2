@@ -29,17 +29,15 @@ const MONITOR='hue-monitor';
 // The six role lamps; the adapter names each by its registry light id.
 const ROLES={'govee-left':'govee-left','govee-right':'govee-right','hue-monitor':'hue-monitor','play-left':'play-left','play-center':'play-center','play-right':'play-right'};
 // How the six migrated lamps are drawn: their rows store no shape, name or model.
-// None of them is required; a room can hold any set of lamps, or none. x is cm from
-// the desk centre; h is the bottom of a floor lamp and the centre of other lamps.
-// Layout x has the desk centre at 100 cm and a floor lamp's height is its bottom +
-// 60 cm (desk_layout.minimum_anchor_height).
+// None of them is required; a room can hold any set of lamps, or none. A row or the
+// placement gives the position; scale is the first brightness correction.
 const MIGRATED=[
- {id:'govee-left',name:'Govee Left',model:'H6076',shape:'floor',zones:7,x:-80,h:0,scale:65},
- {id:'govee-right',name:'Govee Right',model:'H6076',shape:'floor',zones:7,x:80,h:0,scale:65},
- {id:'hue-monitor',name:'Monitor Strip',model:'Hue LCX006',shape:'strip',zones:9,x:0,h:110,scale:100},
- {id:'play-left',name:'Hue Play Left',model:'Hue Play',shape:'bar',zones:1,x:-30,h:40,scale:100},
- {id:'play-center',name:'Hue Play Center',model:'Hue Play',shape:'bar',zones:1,x:0,h:40,scale:50},
- {id:'play-right',name:'Hue Play Right',model:'Hue Play',shape:'bar',zones:1,x:30,h:40,scale:100}
+ {id:'govee-left',name:'Govee Left',model:'H6076',shape:'floor',zones:7,scale:65},
+ {id:'govee-right',name:'Govee Right',model:'H6076',shape:'floor',zones:7,scale:65},
+ {id:'hue-monitor',name:'Monitor Strip',model:'Hue LCX006',shape:'strip',zones:9,scale:100},
+ {id:'play-left',name:'Hue Play Left',model:'Hue Play',shape:'bar',zones:1,scale:100},
+ {id:'play-center',name:'Hue Play Center',model:'Hue Play',shape:'bar',zones:1,scale:50},
+ {id:'play-right',name:'Hue Play Right',model:'Hue Play',shape:'bar',zones:1,scale:100}
 ];
 const SHAPES=['floor','strip','bar'];
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
@@ -646,7 +644,10 @@ function syncScreenAxis(){const g=sceneGeometry(),stage=$('#stage'),ax=stage.que
 function refreshHandles(washes=true){syncScreenAxis();const old=$('#stage').querySelector('.handles'),box=document.createElementNS('http://www.w3.org/2000/svg','g');box.innerHTML=handlesSvg(sceneGeometry());const fresh=box.firstElementChild;if(old&&fresh)old.replaceWith(fresh);else if(fresh)$('#stage').append(fresh);else old?.remove();if(washes)syncWashes()}
 function renderHistory(){$('#undo').disabled=!past.length;$('#redo').disabled=!future.length;persistIfChanged()}
 function renderList(){$('#count').textContent=activeLamps().length}
-function render(){renderScene();renderInspector();renderList();renderHistory()}
+// The monitor strip carries the screen position while the room has one; the screen
+// keeps it, so removing the strip later leaves the screen where it was.
+function syncScreen(){const m=lamps.find(l=>l.id===MONITOR);if(m)environment.screen={x:m.x,h:m.h}}
+function render(){syncScreen();renderScene();renderInspector();renderList();renderHistory()}
 function renderInspector(){if(menuOpen&&!lamps.some(l=>l.id===selected))closeObjectMenu()}
 function paintTitle(){const node=$('#room-name');if(node&&node.textContent!==room)node.textContent=room}
 function paintEmptyRoom(){$('#empty-room').hidden=activeLamps().length>0}

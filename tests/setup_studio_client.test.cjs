@@ -1361,3 +1361,10 @@ test('a layout without a screen and without the monitor row is not loaded',async
  const app=await harness();
  assert.equal(app.run('fromLayout('+JSON.stringify(broken)+')'),null);
 });
+
+test('the screen keeps the place of a moved monitor strip after the strip row goes',async()=>{
+ const app=await harness({layout:screenLayout(['hue-monitor','play-left'])});
+ await app.advance(1000);
+ app.run('lamps.find(l=>l.id==="hue-monitor").x=20;render();lamps=lamps.filter(l=>l.id!=="hue-monitor");render()');
+ assert.deepEqual(json(app,'pack().screen.positionCm'),{x:120,height:110});
+});
