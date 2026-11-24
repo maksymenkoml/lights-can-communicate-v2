@@ -306,6 +306,29 @@ class StudioHueBridgeRouteTests(unittest.TestCase):
                          (409, {"error": "the service configuration names a Hue bridge",
                                 "reason": "configured"}))
 
+    def test_studio_searches_the_lan_through_the_adapter(self):
+        studio = studio_module()
+        (self.folder / "token").write_text("private-adapter-key")
+        asked = []
+
+        def answer(url, timeout, headers=None):
+            asked.append((url, headers))
+            return {"addresses": ["192.168.10.21", 7]}
+
+        studio._read_local_json = answer
+        handler = studio.handler_for(self.folder / "token", self.folder / "desk-layout.json",
+                                     adapter_url="http://adapter:19880")
+        self.assertEqual(handler.lan_search("/lan/hue-bridges", lambda: ["local"])(),
+                         ["192.168.10.21"])
+        self.assertEqual(asked, [("http://adapter:19880/lan/hue-bridges",
+                                  {"X-Adapter-Token": "private-adapter-key"})])
+
+        def down(url, timeout, headers=None):
+            raise OSError("adapter down")
+
+        studio._read_local_json = down
+        self.assertEqual(handler.lan_search("/lan/sync-boxes", lambda: ["local"])(), ["local"])
+
     def test_a_device_that_is_not_a_verified_bridge_is_not_found(self):
         self.serve(Bridge(answer_id="0000000000000000"))
         self.assertEqual(self.call("/api/hue-bridge/pair", {"ip": "192.168.10.5"}),

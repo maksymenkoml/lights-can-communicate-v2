@@ -21,7 +21,9 @@ from hue_bridge_pairing import (  # noqa: E402
     HueBridgePairing,
     OtherBridge,
 )
+from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
+from sync_box import discover as discover_sync_boxes  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
 
@@ -382,7 +384,23 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 hue_config=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
     # The Sync Box token lives with the other private state, never in the layout.
-    box = sync_box or SyncBox(store.path.parent / "sync-box.json")
+    def lan_search(path, local):
+        """Addresses that the adapter finds by mDNS on the LAN; without the adapter,
+        this process searches itself (a source run on the LAN)."""
+        def find():
+            try:
+                token = token_file.read_text().strip()
+                answer = _read_local_json(adapter_url + path, 5, {"X-Adapter-Token": token})
+                addresses = answer.get("addresses") if isinstance(answer, dict) else None
+                if isinstance(addresses, list):
+                    return [item for item in addresses if isinstance(item, str)][:16]
+            except (OSError, ValueError):
+                pass
+            return local()
+        return find
+
+    box = sync_box or SyncBox(store.path.parent / "sync-box.json",
+                              find=lan_search("/lan/sync-boxes", discover_sync_boxes))
 
     def has_hue_lights():
         """True when the light registry holds a Hue light (of the pinned bridge)."""
@@ -399,7 +417,9 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
     bridge = hue_bridge or HueBridgePairing(store.path.parent / "hue-bridge.json",
                                             store.path.parent / "hue-bridge-id",
                                             has_hue_lights=has_hue_lights,
-                                            configured=hue_config)
+                                            configured=hue_config,
+                                            find=lan_search("/lan/hue-bridges",
+                                                            discover_hue_bridges))
 
     def default_source_fetch():
         data = _read_local_json(bridge_url + "/probe/status", 0.25)
@@ -778,6 +798,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
     Handler.guard = guard
     Handler.has_hue_lights = staticmethod(has_hue_lights)
+    Handler.lan_search = staticmethod(lan_search)
     return Handler
 
 

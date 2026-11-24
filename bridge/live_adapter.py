@@ -31,6 +31,13 @@ from homekit_power import (  # noqa: E402
     response_signature,
 )
 from hue_area import HueArea  # noqa: E402
+from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
+from sync_box import discover as discover_sync_boxes  # noqa: E402
+
+# Light Studio runs on the core network only, where LAN multicast does not reach;
+# the adapter is on the LAN and answers its mDNS searches.
+LAN_SEARCHES = {"/lan/hue-bridges": discover_hue_bridges,
+                "/lan/sync-boxes": discover_sync_boxes}
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient, xy_color  # noqa: E402
 from identify import Identify, IdentifyFailed, IdentifyRefused  # noqa: E402
@@ -780,6 +787,12 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                 return self.respond(200, homekit.wire_state())
             if self.path == "/discovery" and catalog is not None:
                 return self.respond(200, catalog.snapshot())
+            if self.path in LAN_SEARCHES:
+                try:
+                    addresses = LAN_SEARCHES[self.path]()
+                except OSError:
+                    addresses = []
+                return self.respond(200, {"addresses": addresses})
             if self.path not in ("/status", "/diagnostics"):
                 return self.respond(404, {"error": "not found"})
             result = controller.snapshot()

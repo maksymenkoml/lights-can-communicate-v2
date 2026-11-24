@@ -95,6 +95,35 @@ class DiscoveryIntegrationTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_lan_searches_for_light_studio_are_authenticated_and_return_addresses(self):
+        import live_adapter
+
+        controller = GoveeController(targets(), sender=lambda *args: None)
+        handler = handler_for(controller, "private-adapter-key")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        base = f"http://127.0.0.1:{server.server_port}"
+        searches = {"/lan/hue-bridges": lambda: ["192.168.10.21"],
+                    "/lan/sync-boxes": lambda: (_ for _ in ()).throw(OSError("no LAN"))}
+        try:
+            with patch.dict(live_adapter.LAN_SEARCHES, searches):
+                with self.assertRaises(urllib.error.HTTPError) as rejected:
+                    opener.open(base + "/lan/hue-bridges")
+                self.assertEqual(rejected.exception.code, 403)
+                rejected.exception.close()
+                for path, expected in (("/lan/hue-bridges", ["192.168.10.21"]),
+                                       ("/lan/sync-boxes", [])):
+                    request = urllib.request.Request(
+                        base + path, headers={"X-Adapter-Token": "private-adapter-key"})
+                    with opener.open(request) as response:
+                        self.assertEqual(json.load(response), {"addresses": expected})
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_single_listener_observes_unselected_scan_without_enrolling_or_sending(self):
         observations = []
 
