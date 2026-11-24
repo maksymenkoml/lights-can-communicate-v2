@@ -158,6 +158,10 @@ class RoomStateTests(unittest.TestCase):
             self.assertEqual(room_groups.room_names(rooms),
                              {FIRST_ROOM: "Office", SECOND: "Bedroom"})
             self.assertNotEqual(room_groups.signature(rooms), before)
+            # The order of the rooms does not restart the bridge.
+            moved = room_groups.signature(rooms)
+            rooms.reorder([SECOND, FIRST_ROOM])
+            self.assertEqual(room_groups.signature(rooms), moved)
 
 
 def write_rooms(state, lights):

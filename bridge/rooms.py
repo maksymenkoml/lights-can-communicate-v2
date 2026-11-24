@@ -17,6 +17,7 @@ import copy
 import json
 import os
 import re
+import secrets
 import tempfile
 import threading
 from pathlib import Path
@@ -36,6 +37,30 @@ SINGLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync":
 UNREADABLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": None}
 ROOM_ID = re.compile(r"room-[0-9a-f]{8}")
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}")
+MAX_ROWS = 12
+
+
+class RoomRefused(ValueError):
+    """A change of the rooms that is not allowed now; ``reason`` names why."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def room_name(value):
+    """A room name of 1-40 characters, without surrounding spaces."""
+    if not isinstance(value, str) or not 1 <= len(value.strip()) <= 40:
+        raise RoomRefused("invalid_name")
+    return value.strip()
+
+
+def new_layout(name):
+    """The layout of a new room: the default desk and screen of Light Studio, no rows."""
+    return {"version": 7, "gridStepCm": 5, "room": name,
+            "desk": {"width": 160, "height": 85},
+            "screen": {"positionCm": {"x": 80, "height": 110}, "inches": 32},
+            "devices": []}
 
 
 def _light(value):
@@ -273,3 +298,171 @@ class Rooms:
         """The layout of the light's room, or None when it has none."""
         store = self._room_store(light)
         return store.snapshot() if store is not None else None
+
+    # -- room management (Light Studio, #78 stage 4) ----------------------------
+    def _materialize(self):
+        """Create the room files from the single layout before the rooms change."""
+        if self.materialized():
+            return
+        legacy = self.store(FIRST_ROOM).snapshot()
+        if legacy is not None:
+            self.save(FIRST_ROOM, legacy)
+        else:
+            self.write_index(SINGLE)
+
+    def _layout_store(self, room):
+        return LayoutStore(self.state_dir / LAYOUTS_DIR / (room + ".json"),
+                           self.native, self.migrated)
+
+    def _known(self, room, index):
+        if room not in index["rooms"]:
+            raise RoomRefused("unknown_room")
+
+    def state(self):
+        """A copy of the index and every room's layout, for ``restore``."""
+        with self.lock:
+            index = self.index()
+            layouts = {}
+            for room in index["rooms"]:
+                store = self.store(room)
+                layouts[room] = store.snapshot() if store is not None else None
+            return {"materialized": self.materialized(), "index": index,
+                    "layouts": layouts}
+
+    def restore(self, state):
+        """Put back the rooms that ``state`` recorded (after a refused change)."""
+        with self.lock:
+            if state["materialized"]:
+                self._restore_rooms(state)
+            else:
+                self._restore_single(state)
+
+    def _restore_rooms(self, state):
+        for room in self.index()["rooms"]:
+            if room not in state["index"]["rooms"]:
+                (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
+        self.write_index(state["index"])
+        for room, data in state["layouts"].items():
+            path = self.state_dir / LAYOUTS_DIR / (room + ".json")
+            if data is not None:
+                self._layout_store(room).save(data)
+            else:
+                # A room without a layout before the change has none again.
+                path.unlink(missing_ok=True)
+                self.stores.pop(path, None)
+
+    def _restore_single(self, state):
+        """Back to the single layout of a state captured before the rooms existed: the
+        captured layout in ``desk-layout.json``, no index and no room files."""
+        legacy = state["layouts"].get(FIRST_ROOM)
+        if legacy is not None:
+            LayoutStore(self.state_dir / LEGACY_LAYOUT).save(legacy)
+        for room in self.index()["rooms"]:
+            (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
+        self.index_path.unlink(missing_ok=True)
+        self.signature, self.data = None, None
+
+    def create(self, name):
+        """Add a room with the default layout at the end; return its id."""
+        name = room_name(name)
+        with self.lock:
+            self._materialize()
+            index = self.index()
+            if len(index["rooms"]) >= MAX_ROOMS:
+                raise RoomRefused("room_limit")
+            room = FIRST_ROOM
+            while room in index["rooms"] or room == FIRST_ROOM:
+                room = "room-" + secrets.token_hex(4)
+            self._layout_store(room).save(new_layout(name))
+            index["rooms"].append(room)
+            self.write_index(index)
+            return room
+
+    def rename(self, room, name):
+        name = room_name(name)
+        with self.lock:
+            index = self.index()
+            self._known(room, index)
+            data = self._own_layout(room, index) or new_layout(name)
+            data["room"] = name
+            return self.save(room, data)
+
+    def reorder(self, order):
+        with self.lock:
+            self._materialize()
+            index = self.index()
+            if (not isinstance(order, list) or len(order) != len(index["rooms"])
+                    or set(order) != set(index["rooms"])):
+                raise RoomRefused("unknown_room")
+            index["rooms"] = list(order)
+            self.write_index(index)
+
+    def delete(self, room, connected):
+        """Delete an empty room: no connected light (``connected`` lists them all) and
+        no Sync Box. Its layout goes with it, with the rows of drawings and of lights
+        that are not connected."""
+        with self.lock:
+            self._materialize()
+            index = self.index()
+            self._known(room, index)
+            if len(index["rooms"]) == 1:
+                raise RoomRefused("last_room")
+            if index["sync"] == room:
+                raise RoomRefused("has_sync_box")
+            if any(self.room_of(light, index) == room for light in connected):
+                raise RoomRefused("has_lights")
+            index["rooms"].remove(room)
+            index["lights"] = {light: home for light, home in index["lights"].items()
+                               if home != room}
+            self.write_index(index)
+            (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
+            self.stores.pop(self.state_dir / LAYOUTS_DIR / (room + ".json"), None)
+            self.fade_cache.pop(room, None)
+
+    def move(self, light, room):
+        """Put ``light`` in ``room``; its layout row moves with its corrections."""
+        if not _light(light):
+            raise RoomRefused("unknown_light")
+        with self.lock:
+            self._materialize()
+            index = self.index()
+            self._known(room, index)
+            old = self.room_of(light, index)
+            if old == room:
+                return
+            source = self._own_layout(old, index)
+            target = self._own_layout(room, index) or new_layout("Room")
+            row = next((row for row in (source or {}).get("devices", ())
+                        if row["id"] == light), None)
+            if row is not None and len(target["devices"]) >= MAX_ROWS:
+                raise RoomRefused("layout_full")
+            index["lights"][light] = room
+            self.write_index(index)
+            if row is not None:
+                target["devices"] = [item for item in target["devices"]
+                                     if item["id"] != light] + [row]
+                self.save(room, target)
+                source["devices"] = [item for item in source["devices"]
+                                     if item["id"] != light]
+                self.save(old, source)
+
+    def place(self, light, room):
+        """Record the room of a light that is connected now (before its enrollment)."""
+        if not _light(light):
+            raise RoomRefused("unknown_light")
+        with self.lock:
+            self._materialize()
+            index = self.index()
+            self._known(room, index)
+            index["lights"][light] = room
+            self.write_index(index)
+
+    def place_sync_box(self, room):
+        """Register the Sync Box in ``room``, or in no room with None."""
+        with self.lock:
+            self._materialize()
+            index = self.index()
+            if room is not None:
+                self._known(room, index)
+            index["sync"] = room
+            self.write_index(index)

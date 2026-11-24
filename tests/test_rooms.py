@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from desk_layout import LayoutStore, validate_layout  # noqa: E402
-from rooms import FIRST_ROOM, Rooms, validate_index  # noqa: E402
+from rooms import FIRST_ROOM, RoomRefused, Rooms, validate_index  # noqa: E402
 from test_desk_layout import layout  # noqa: E402
 
 SECOND = "room-0a1b2c3d"
@@ -156,6 +156,124 @@ class RoomsTests(unittest.TestCase):
                        {"version": 2}, {"extra": 1}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate_index({**good, **change})
+
+
+
+class RoomManagementTests(unittest.TestCase):
+    def setUp(self):
+        temp = TemporaryDirectory(prefix="tmp_rooms_manage_")
+        self.addCleanup(temp.cleanup)
+        self.state = Path(temp.name)
+        (self.state / "desk-layout.json").write_text(json.dumps(current()))
+        self.rooms = Rooms(self.state)
+
+    def refused(self, reason, call, *args):
+        with self.assertRaises(RoomRefused) as refused:
+            call(*args)
+        self.assertEqual(refused.exception.reason, reason)
+
+    def test_a_new_room_gets_an_id_the_default_layout_and_its_name(self):
+        room = self.rooms.create("  Bedroom ")
+        self.assertRegex(room, r"room-[0-9a-f]{8}\Z")
+        self.assertNotEqual(room, FIRST_ROOM)
+        # The single layout became the first room on the way.
+        self.assertFalse((self.state / "desk-layout.json").exists())
+        self.assertEqual(self.rooms.index()["rooms"], [FIRST_ROOM, room])
+        layout = self.rooms.store(room).snapshot()
+        self.assertEqual((layout["room"], layout["devices"], layout["screen"]["inches"]),
+                         ("Bedroom", [], 32))
+        self.assertEqual(self.rooms.index()["sync"], FIRST_ROOM)
+        for name in ("", "   ", "x" * 41, 5):
+            self.refused("invalid_name", self.rooms.create, name)
+        for _ in range(8):
+            self.rooms.create("Room")
+        self.refused("room_limit", self.rooms.create, "Eleventh")
+
+    def test_rename_and_reorder(self):
+        room = self.rooms.create("Bedroom")
+        self.rooms.rename(FIRST_ROOM, "Study")
+        self.assertEqual(self.rooms.store(FIRST_ROOM).snapshot()["room"], "Study")
+        self.assertEqual(len(self.rooms.store(FIRST_ROOM).snapshot()["devices"]), 6)
+        self.rooms.reorder([room, FIRST_ROOM])
+        self.assertEqual(self.rooms.index()["rooms"], [room, FIRST_ROOM])
+        self.refused("unknown_room", self.rooms.reorder, [room])
+        self.refused("unknown_room", self.rooms.rename, "room-ffffffff", "X")
+
+    def test_a_light_moves_with_its_row_and_corrections(self):
+        room = self.rooms.create("Bedroom")
+        before = next(row for row in self.rooms.store(FIRST_ROOM).snapshot()["devices"]
+                      if row["id"] == "govee-right")
+        self.rooms.move("govee-right", room)
+        self.assertEqual(self.rooms.room_of("govee-right"), room)
+        self.assertEqual(self.rooms.store(room).snapshot()["devices"], [before])
+        self.assertNotIn("govee-right", [row["id"] for row in
+                                         self.rooms.store(FIRST_ROOM).snapshot()["devices"]])
+        self.assertFalse(self.rooms.enabled("govee-right"))
+        # Back again, and a light without a row only changes its room.
+        self.rooms.move("govee-right", FIRST_ROOM)
+        self.assertIn(before, self.rooms.store(FIRST_ROOM).snapshot()["devices"])
+        self.rooms.move("device-" + "a" * 32, room)
+        self.assertEqual(self.rooms.room_of("device-" + "a" * 32), room)
+        self.refused("unknown_light", self.rooms.move, "lamp", room)
+        self.refused("unknown_room", self.rooms.move, "govee-right", "room-ffffffff")
+
+    def test_only_an_empty_room_without_the_sync_box_can_go(self):
+        room = self.rooms.create("Bedroom")
+        self.rooms.move("govee-right", room)
+        self.refused("has_lights", self.rooms.delete, room, ["govee-left", "govee-right"])
+        self.refused("has_sync_box", self.rooms.delete, FIRST_ROOM, [])
+        # A disconnected light's row goes with the room.
+        self.rooms.delete(room, ["govee-left"])
+        self.assertEqual(self.rooms.index(), {"version": 1, "rooms": [FIRST_ROOM],
+                                              "lights": {}, "sync": FIRST_ROOM})
+        self.assertFalse((self.state / "rooms" / (room + ".json")).exists())
+        self.refused("last_room", self.rooms.delete, FIRST_ROOM, [])
+
+    def test_the_sync_box_moves_between_rooms(self):
+        room = self.rooms.create("Bedroom")
+        self.rooms.move("govee-right", room)
+        self.rooms.place_sync_box(room)
+        self.assertTrue(self.rooms.enabled("govee-right"))
+        self.assertFalse(self.rooms.enabled("govee-left"))
+        self.rooms.place_sync_box(None)
+        self.assertIsNone(self.rooms.sync_profile())
+        self.refused("unknown_room", self.rooms.place_sync_box, "room-ffffffff")
+
+    def test_restore_puts_back_the_rooms_and_their_layouts(self):
+        room = self.rooms.create("Bedroom")
+        state = self.rooms.state()
+        self.rooms.move("govee-right", room)
+        extra = self.rooms.create("Hall")
+        self.rooms.restore(state)
+        self.assertEqual(self.rooms.index(), state["index"])
+        self.assertEqual(self.rooms.store(FIRST_ROOM).snapshot(), state["layouts"][FIRST_ROOM])
+        self.assertEqual(self.rooms.store(room).snapshot()["devices"], [])
+        self.assertFalse((self.state / "rooms" / (extra + ".json")).exists())
+
+    def test_restore_removes_a_layout_that_the_change_created(self):
+        room = self.rooms.create("Bedroom")
+        (self.state / "rooms" / (room + ".json")).unlink()
+        state = self.rooms.state()
+        self.assertIsNone(state["layouts"][room])
+        self.rooms.move("govee-right", room)
+        self.assertTrue((self.state / "rooms" / (room + ".json")).exists())
+        self.rooms.restore(state)
+        self.assertFalse((self.state / "rooms" / (room + ".json")).exists())
+        self.assertIsNone(self.rooms.store(room).snapshot())
+        self.assertEqual(self.rooms.room_of("govee-right"), FIRST_ROOM)
+
+    def test_restore_returns_to_the_single_layout(self):
+        before = (self.state / "desk-layout.json").read_text()
+        state = self.rooms.state()
+        self.rooms.place_sync_box(None)
+        self.rooms.create("Bedroom")
+        self.rooms.restore(state)
+        self.assertFalse((self.state / "rooms.json").exists())
+        self.assertEqual(list((self.state / "rooms").glob("*.json")), [])
+        self.assertEqual(json.loads((self.state / "desk-layout.json").read_text()),
+                         json.loads(before))
+        self.assertEqual(self.rooms.index()["sync"], FIRST_ROOM)
+        self.assertEqual(len(self.rooms.store(FIRST_ROOM).snapshot()["devices"]), 6)
 
 
 if __name__ == "__main__":

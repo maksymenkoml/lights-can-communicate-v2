@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES  # noqa: E402
@@ -22,7 +22,7 @@ from hue_bridge_pairing import (  # noqa: E402
     OtherBridge,
 )
 from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
-from rooms import Rooms  # noqa: E402
+from rooms import RoomRefused, Rooms  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_box import discover as discover_sync_boxes  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
@@ -39,6 +39,15 @@ ASSETS = {
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}\Z")
 # Adapter refusal reasons passed through to the UI; anything else is "refused".
 # Owner enrollment of a discovered light (adapter /lights/enroll and /lights/remove).
+# Room management (#78): each route names an action of ``Rooms``.
+ROOM_ROUTES = ("/api/rooms/create", "/api/rooms/rename", "/api/rooms/order",
+               "/api/rooms/delete", "/api/rooms/move", "/api/rooms/sync-box")
+# Changes that restart the virtual bridge or change the Entertainment area; they wait
+# until Sync is off.
+ROOM_CHANGES_OUTSIDE_SYNC = ("create", "delete", "move", "sync-box")
+ROOM_REASONS = ("invalid_name", "room_limit", "unknown_room", "unknown_light", "last_room",
+                "has_sync_box", "has_lights", "layout_full", "sync_active", "restarting",
+                "unavailable")
 LIGHT_ROUTES = {"/api/lights/enroll": "/lights/enroll", "/api/lights/remove": "/lights/remove"}
 OUTSIDE_REASONS = ("room", "channels_shared", "area_full")
 LIGHT_REASONS = ("sync_active", "restarting", "enrolled", "not_enrolled", "unavailable",
@@ -390,23 +399,35 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
     state_dir = Path(state_dir) if state_dir is not None else Path(token_file).parent
     rooms = Rooms(state_dir)
 
-    class FirstRoom:
-        """The layout that Light Studio edits: the first room until rooms are
-        managed in Light Studio (#78)."""
+    def registry_lights(provider=None):
+        """The ids of the connected lights (the light registry), of ``provider`` only
+        when it is given; None when the registry cannot be read (no registry: none)."""
+        try:
+            data = json.loads((state_dir / "lights.json").read_text())
+        except FileNotFoundError:
+            return []
+        except (OSError, ValueError):
+            return None
+        items = data.get("lights") if isinstance(data, dict) else None
+        # Malformed contents prove nothing about the connected lights.
+        if not isinstance(items, list) or any(
+                not isinstance(item, dict) or not _light_id(item.get("id"))
+                or item.get("provider") not in ("govee", "hue") for item in items):
+            return None
+        return [item["id"] for item in items if provider in (None, item["provider"])]
 
-        lock = rooms.lock
+    def rooms_payload():
+        index = rooms.index()
+        names = {}
+        for room in index["rooms"]:
+            store = rooms.store(room)
+            data = store.snapshot() if store is not None else None
+            names[room] = data.get("room") if isinstance(data, dict) else None
+        return {"rooms": [{"id": room, "name": names[room]} for room in index["rooms"]],
+                "sync": index["sync"],
+                "lights": {light: rooms.room_of(light, index)
+                           for light in registry_lights() or ()}}
 
-        @staticmethod
-        def room():
-            return rooms.index()["rooms"][0]
-
-        def __getattr__(self, name):
-            return getattr(rooms.store(self.room()), name)
-
-        def save(self, data):
-            return rooms.save(self.room(), data)
-
-    store = FirstRoom()
     # The Sync Box token lives with the other private state, never in the layout.
     def lan_search(path, local):
         """Addresses that the adapter finds by mDNS on the LAN; without the adapter,
@@ -539,15 +560,16 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             return 400, {"error": "invalid calibration request"}
         return 503, {"active": False, "reason": "adapter unavailable"}
 
+    def adapter_post(route, body):
+        if lights_post is not None:
+            return lights_post(route, body)
+        token = token_file.read_text().strip()
+        return _post_local_json(adapter_url + route, body, 10, {"X-Adapter-Token": token})
+
     def change_lights(route, light_id):
         """Forward an owner enrollment or removal to the adapter; return (status, body)."""
         try:
-            if lights_post is not None:
-                status, answer = lights_post(route, {"id": light_id})
-            else:
-                token = token_file.read_text().strip()
-                status, answer = _post_local_json(adapter_url + route, {"id": light_id}, 3,
-                                                  {"X-Adapter-Token": token})
+            status, answer = adapter_post(route, {"id": light_id})
         except Exception as error:
             if isinstance(error, urllib.error.HTTPError):
                 error.close()
@@ -566,6 +588,88 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         if status == 400:
             return 400, {"error": "invalid light request"}
         return 503, {"accepted": False, "reason": "adapter unavailable"}
+
+    def sync_busy():
+        """True while the adapter's Sync output owns the lights or releases them, None
+        when that is unknown."""
+        try:
+            if live_fetch is not None:
+                data = live_fetch()
+            else:
+                token = token_file.read_text().strip()
+                data = _read_local_json(adapter_url + "/status", 0.5,
+                                        {"X-Adapter-Token": token})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return None
+        if not isinstance(data, dict):
+            return None
+        # An adapter without Sync output lists no video state.
+        video = data.get("video")
+        if video is None:
+            return False
+        return isinstance(video, dict) and any(
+            video.get(key) is True for key in ("active", "cleanup_pending", "native_owned"))
+
+    def follow_rooms():
+        """Let the adapter move the Hue lights into or out of the area; return None or
+        a refusal (status, body)."""
+        try:
+            status, answer = adapter_post("/lights/rooms", {})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return 503, {"accepted": False, "reason": "unavailable"}
+        if status == 200 and isinstance(answer, dict) and answer.get("accepted") is True:
+            return None
+        reason = answer.get("reason") if isinstance(answer, dict) else None
+        return (409 if status == 409 else 503), {
+            "accepted": False, "reason": reason if reason in ROOM_REASONS else "unavailable"}
+
+    def change_rooms(action, data):
+        """Apply a room change; return (status, body)."""
+        if action in ROOM_CHANGES_OUTSIDE_SYNC:
+            busy = sync_busy()
+            if busy is None:
+                # Without the adapter's state such a change could meet a running Sync.
+                return 503, {"accepted": False, "reason": "unavailable"}
+            if busy:
+                return 409, {"accepted": False, "reason": "sync_active"}
+        hue = registry_lights("hue") if action == "move" else ()
+        if hue is None:
+            # An unreadable registry cannot tell whether the area must follow.
+            return 503, {"accepted": False, "reason": "unavailable"}
+        with rooms.lock:
+            before = rooms.state()
+            try:
+                if action == "create":
+                    rooms.create(data["name"])
+                elif action == "rename":
+                    rooms.rename(data["room"], data["name"])
+                elif action == "order":
+                    rooms.reorder(data["rooms"])
+                elif action == "delete":
+                    connected = registry_lights()
+                    if connected is None:
+                        # An unreadable registry cannot prove that the room is empty.
+                        return 503, {"accepted": False, "reason": "unavailable"}
+                    rooms.delete(data["room"], connected)
+                elif action == "move":
+                    rooms.move(data["light"], data["room"])
+                else:
+                    rooms.place_sync_box(data["room"])
+            except RoomRefused as refused:
+                return 409, {"accepted": False, "reason": refused.reason}
+            # The Hue lights follow their rooms into or out of the area; a Govee light
+            # has no area, so its move needs no adapter (which may be restarting).
+            follow = action == "sync-box" or (
+                action == "move" and data["light"] in hue)
+            refusal = follow_rooms() if follow else None
+            if refusal is not None:
+                rooms.restore(before)
+                return refusal
+        return 200, {"accepted": True, **rooms_payload()}
 
     def stream_state():
         sync = live().get("sync")
@@ -589,7 +693,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             (guard.started if active else guard.stopped)()
         return code, {**status, **guard.public()}
 
-    def validate_bindings(data):
+    def validate_bindings(data, store):
         if not isinstance(data, dict) or not isinstance(data.get("devices"), list):
             raise ValueError("Expected layout devices")
         previous = {row["id"]: row for row in (store.snapshot() or {}).get("devices", [])}
@@ -644,7 +748,12 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 name, kind = ASSETS[path]
                 return self.respond(200, _asset(name), kind)
             if path == "/api/layout":
+                store = self.room_store()
+                if store is None:
+                    return self.respond(404, {"error": "unknown room"})
                 return self.respond(200, store.response())
+            if path == "/api/rooms":
+                return self.respond(200, rooms_payload())
             if path == "/api/discovery":
                 return self.respond(200, discovery())
             if path == "/api/live":
@@ -658,7 +767,8 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         def do_POST(self):
             path = urlsplit(self.path).path
             if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES,
-                            *SYNC_BOX_ROUTES, *HUE_BRIDGE_ROUTES, *LIGHT_ROUTES):
+                            *SYNC_BOX_ROUTES, *HUE_BRIDGE_ROUTES, *LIGHT_ROUTES,
+                            *ROOM_ROUTES):
                 return self.respond(405, {"error": "unsupported write route"})
             if not self.local_request():
                 return self.respond(403, {"error": "local origin required"})
@@ -674,12 +784,17 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 return self.hue_bridge(path.rsplit("/", 1)[1])
             if path in LIGHT_ROUTES:
                 return self.lights(LIGHT_ROUTES[path])
+            if path in ROOM_ROUTES:
+                return self.rooms(path.rsplit("/", 1)[1])
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 16384:
                     return self.respond(413, {"error": "layout payload too large"})
                 data = json.loads(self.rfile.read(size))
-                with store.lock:
+                with rooms.lock:
+                    store = self.room_store()
+                    if store is None:
+                        return self.respond(404, {"error": "unknown room"})
                     # Every write names the revision it edits ("" when none is saved), so
                     # a page loaded before an upgrade or another edit cannot overwrite it.
                     expected = self.headers.get("If-Match")
@@ -698,13 +813,42 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                             # A stale client cannot silently erase a newer custom zone.
                             # New clients send explicit null to return to automatic.
                             data = {**data, zone: previous[zone]}
-                    validate_bindings(data)
-                    result = store.save(data)
+                    validate_bindings(data, store)
+                    result = rooms.save(self.room_id(), data)
                 return self.respond(200, result)
             except (ValueError, TypeError, KeyError):
                 return self.respond(400, {"error": "invalid desk layout"})
             except OSError:
                 return self.respond(503, {"error": "layout storage unavailable"})
+
+        def room_id(self):
+            """The room that ``?room=`` names, or the first room."""
+            values = parse_qs(urlsplit(self.path).query).get("room")
+            return values[0] if values else rooms.index()["rooms"][0]
+
+        def room_store(self):
+            return rooms.store(self.room_id())
+
+        def rooms(self, action):
+            fields = {"create": {"name"}, "rename": {"room", "name"}, "order": {"rooms"},
+                      "delete": {"room"}, "move": {"light", "room"},
+                      "sync-box": {"room"}}[action]
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 1024:
+                    return self.respond(413, {"error": "room payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if not isinstance(data, dict) or set(data) != fields:
+                    raise ValueError("Expected the room fields")
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid room request"})
+            try:
+                return self.respond(*change_rooms(action, data))
+            except (ValueError, TypeError):
+                # A rooms layout that a room's rows no longer fit.
+                return self.respond(400, {"error": "invalid room request"})
+            except OSError:
+                return self.respond(503, {"error": "room storage unavailable"})
 
         def identify(self):
             try:
@@ -733,12 +877,29 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 # one too, can be removed.
                 known = (_light_id if route == "/lights/remove"
                          else lambda value: DEVICE_ID.fullmatch(value) is not None)
-                if (not isinstance(data, dict) or set(data) != {"id"}
+                # An enrollment may name the room the light joins (#78).
+                fields = ({"id"}, {"id", "room"}) if route == "/lights/enroll" else ({"id"},)
+                if (not isinstance(data, dict) or set(data) not in fields
                         or not isinstance(data["id"], str) or not known(data["id"])):
                     raise ValueError("Expected a light id")
             except (ValueError, TypeError):
                 return self.respond(400, {"error": "invalid light request"})
-            return self.respond(*change_lights(route, data["id"]))
+            if "room" not in data:
+                return self.respond(*change_lights(route, data["id"]))
+            with rooms.lock:
+                before = rooms.state()
+                try:
+                    # The adapter reads the light's room to decide its area membership.
+                    rooms.place(data["id"], data["room"])
+                except RoomRefused as refused:
+                    return self.respond(409, {"accepted": False, "reason": refused.reason})
+                status, answer = change_lights(route, data["id"])
+                if status != 200:
+                    rooms.restore(before)
+                elif answer.get("id", data["id"]) != data["id"]:
+                    # A migrated lamp that rejoins keeps its migrated id.
+                    rooms.place(answer["id"], data["room"])
+            return self.respond(status, answer)
 
         def calibrate(self, route):
             try:
