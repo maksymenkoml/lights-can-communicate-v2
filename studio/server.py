@@ -599,11 +599,14 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             if isinstance(error, urllib.error.HTTPError):
                 error.close()
             return None
-        video = data.get("video") if isinstance(data, dict) else None
-        if not isinstance(video, dict):
+        if not isinstance(data, dict):
             return None
-        return any(video.get(key) is True
-                   for key in ("active", "cleanup_pending", "native_owned"))
+        # An adapter without Sync output lists no video state.
+        video = data.get("video")
+        if video is None:
+            return False
+        return isinstance(video, dict) and any(
+            video.get(key) is True for key in ("active", "cleanup_pending", "native_owned"))
 
     def follow_rooms():
         """Let the adapter move the Hue lights into or out of the area; return None or

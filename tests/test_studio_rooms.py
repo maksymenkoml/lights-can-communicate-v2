@@ -44,7 +44,9 @@ class StudioRoomTests(unittest.TestCase):
             if self.syncing is None:
                 raise OSError("adapter unavailable")
             data = status()
-            if self.syncing:
+            if self.syncing == "no-video":
+                del data["video"]
+            elif self.syncing:
                 data["video"].update(active=True, ready=True, frame_age=0.1)
                 data["preview"]["mode"] = "sync"
             return data
@@ -160,7 +162,13 @@ class StudioRoomTests(unittest.TestCase):
                                                           "room": room}), unavailable)
         self.assertEqual(self.request("/api/rooms/rename", {"room": room, "name": "Den"})[0],
                          200)
+        # An adapter without Sync output has nothing that Sync could own.
+        self.syncing = "no-video"
+        hall = self.request("/api/rooms/create", {"name": "Hall"})
+        self.assertEqual(hall[0], 200)
         self.syncing = False
+        self.assertEqual(self.request("/api/rooms/delete",
+                                      {"room": hall[1]["rooms"][2]["id"]})[0], 200)
         (self.state / "lights.json").write_text("{not json")
         self.assertEqual(self.request("/api/rooms/delete", {"room": room}), unavailable)
         self.assertEqual(self.request("/api/rooms/move", {"light": "play-left",
