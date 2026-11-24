@@ -346,7 +346,7 @@ class StudioSyncBoxRouteTests(unittest.TestCase):
         self.control = SyncBox(folder / "sync-box.json", transport=self.box,
                                find=lambda: [self.box.ip], background=False)
         self.handler = studio.handler_for(
-            folder / "missing-token", folder / "desk-layout.json", sync_box=self.control)
+            folder / "missing-token", folder, sync_box=self.control)
         server = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
         worker = threading.Thread(target=server.serve_forever)
         worker.start()

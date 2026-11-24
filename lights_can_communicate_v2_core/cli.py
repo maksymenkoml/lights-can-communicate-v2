@@ -198,7 +198,7 @@ def _setup(config):
     studio = _setup_module()
     urls = services.endpoints(config)
     _interruptible(lambda: studio.serve(
-        config.token_file, config.state_dir / "desk-layout.json",
+        config.token_file, config.state_dir,
         bind=config.setup.bind, port=config.setup.port,
         adapter_url=urls["adapter"],
         bridge_url=urls["bridge"],

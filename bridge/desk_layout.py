@@ -447,6 +447,10 @@ class LayoutStore:
                 self.fade_cache = (self.signature, scene_fade(data))
             return copy.deepcopy(self.fade_cache[1])
 
+    def layout_for(self, light):
+        """The layout that holds ``light``'s row: this store's layout (one room)."""
+        return self.snapshot()
+
     def sync_profile(self):
         from sync_projection import sync_profile
 

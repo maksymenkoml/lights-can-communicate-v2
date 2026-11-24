@@ -275,7 +275,7 @@ class SetupLiveStatusTests(unittest.TestCase):
             try:
                 handler = studio.handler_for(
                     root / "credentials/missing",
-                    state / "desk-layout.json",
+                    state,
                     live_fetch=lambda: calls.append("live"),
                     source_fetch=lambda: calls.append("source"),
                 )

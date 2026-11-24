@@ -11,6 +11,7 @@ from . import __version__
 RUNTIME_MODULES = (
     "live_adapter",
     "desk_layout",
+    "rooms",
     "entertainment_stream",
     "govee_segments",
     "govee_models",

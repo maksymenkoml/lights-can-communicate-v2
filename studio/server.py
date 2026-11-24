@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
+from desk_layout import LAYOUT_VERSION, ROLES  # noqa: E402
 from hue_bridge_pairing import (  # noqa: E402
     BridgeError,
     Configured,
@@ -22,6 +22,7 @@ from hue_bridge_pairing import (  # noqa: E402
     OtherBridge,
 )
 from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
+from rooms import Rooms  # noqa: E402
 from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_box import discover as discover_sync_boxes  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
@@ -377,12 +378,31 @@ def _post_local_json(url, body, timeout, headers):
                 return error.code, {}
 
 
-def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
+def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
                 sync_box=None, hosts=(), lights_post=None, hue_bridge=None,
                 hue_config=None):
-    store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
+    state_dir = Path(state_dir) if state_dir is not None else Path(token_file).parent
+    rooms = Rooms(state_dir)
+
+    class FirstRoom:
+        """The layout that Light Studio edits: the first room until rooms are
+        managed in Light Studio (#78)."""
+
+        lock = rooms.lock
+
+        @staticmethod
+        def room():
+            return rooms.index()["rooms"][0]
+
+        def __getattr__(self, name):
+            return getattr(rooms.store(self.room()), name)
+
+        def save(self, data):
+            return rooms.save(self.room(), data)
+
+    store = FirstRoom()
     # The Sync Box token lives with the other private state, never in the layout.
     def lan_search(path, local):
         """Addresses that the adapter finds by mDNS on the LAN; without the adapter,
@@ -399,13 +419,13 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
             return local()
         return find
 
-    box = sync_box or SyncBox(store.path.parent / "sync-box.json",
+    box = sync_box or SyncBox(state_dir / "sync-box.json",
                               find=lan_search("/lan/sync-boxes", discover_sync_boxes))
 
     def has_hue_lights():
         """True when the light registry holds a Hue light (of the pinned bridge)."""
         try:
-            data = json.loads((store.path.parent / "lights.json").read_text())
+            data = json.loads((state_dir / "lights.json").read_text())
             return any(isinstance(item, dict) and item.get("provider") == "hue"
                        for item in data.get("lights", ()))
         except (OSError, ValueError, AttributeError, TypeError):
@@ -414,8 +434,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
     # The paired bridge keys live with the other private state; the adapter restarts
     # when the file changes and then uses this bridge.
-    bridge = hue_bridge or HueBridgePairing(store.path.parent / "hue-bridge.json",
-                                            store.path.parent / "hue-bridge-id",
+    bridge = hue_bridge or HueBridgePairing(state_dir / "hue-bridge.json",
+                                            state_dir / "hue-bridge-id",
                                             has_hue_lights=has_hue_lights,
                                             configured=hue_config,
                                             find=lan_search("/lan/hue-bridges",
@@ -429,7 +449,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
     source_cache = SourceActivityCache(source_fetch or default_source_fetch)
 
     def live():
-        if (store.path.parent / "live-output-hold").exists():
+        if (state_dir / "live-output-hold").exists():
             return _unavailable("paused")
         try:
             if live_fetch is not None:
@@ -468,7 +488,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
     def identify(role):
         """Forward an owner Blink to the adapter; return (status, public body)."""
-        if (store.path.parent / "live-output-hold").exists():
+        if (state_dir / "live-output-hold").exists():
             return 409, {"accepted": False, "reason": "paused"}
         try:
             if identify_post is not None:
@@ -492,7 +512,7 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
     def calibrate(route, body):
         """Forward a calibration request to the adapter; return (status, public body)."""
-        if (store.path.parent / "live-output-hold").exists():
+        if (state_dir / "live-output-hold").exists():
             return 409, {"active": False, "reason": "paused"}
         try:
             if calibration_post is not None:
@@ -802,12 +822,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
     return Handler
 
 
-def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
+def serve(token_file, state_dir, bind="127.0.0.1", port=19881,
           adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1",
           hosts=(), hue_config=None):
     """Serve until interrupted; SIGTERM handling belongs to the caller."""
     handler = handler_for(
-        Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url,
+        Path(token_file), Path(state_dir), adapter_url=adapter_url, bridge_url=bridge_url,
         hosts=hosts, hue_config=hue_config)
     server = ThreadingHTTPServer((bind, port), handler)
     stop = threading.Event()
@@ -828,7 +848,7 @@ def main():
     args = parser.parse_args()
     # Development entry point; the packaged service passes explicit paths.
     token = Path(__file__).resolve().parents[1] / "bridge/state/adapter-token"
-    serve(token, token.parent / "desk-layout.json", port=args.port)
+    serve(token, token.parent, port=args.port)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,6 @@ from pathlib import Path
 if Path(__file__).is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from calibration_session import CalibrationRefused, CalibrationSession  # noqa: E402
-from desk_layout import LayoutStore  # noqa: E402
 from entertainment_stream import GRADIENT_MODE, NATIVE_SOURCES  # noqa: E402
 from govee_calibration import GoveeCalibration  # noqa: E402
 from govee_models import target_capabilities  # noqa: E402
@@ -33,6 +32,7 @@ from homekit_power import (  # noqa: E402
 from hue_area import HueArea  # noqa: E402
 from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
 from hue_link import HueBridgeLink  # noqa: E402
+from rooms import Rooms  # noqa: E402
 from sync_box import discover as discover_sync_boxes  # noqa: E402
 
 # Light Studio runs on the core network only, where LAN multicast does not reach;
@@ -1018,8 +1018,10 @@ def main(argv=None, service_info=None):
     # Hue light any more; until one is enrolled, Sync drives the Govee lights only.
     paired_area = registry.to_dict().get("hue", {}).get("area_id")
     config = {"targets": registry.govee_targets()}
-    layout_store = LayoutStore(
-        state_dir / "desk-layout.json",
+    # Every room's layout; per-light values come from the light's room and Sync
+    # from the room of the Sync Box (#78).
+    layout_store = Rooms(
+        state_dir,
         native={light: len(channels) for light, channels in native_profile.channels.items()
                 if light not in NATIVE_SOURCES} if native_profile else None,
         migrated={light for light in native_profile.channels if light in NATIVE_SOURCES}

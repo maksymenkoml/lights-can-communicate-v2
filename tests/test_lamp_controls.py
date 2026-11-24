@@ -881,7 +881,7 @@ class StudioIdentifyTests(unittest.TestCase):
             return self.answer
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler_for(
-            self.folder / "missing-token", self.folder / "desk-layout.json",
+            self.folder / "missing-token", self.folder,
             identify_post=post))
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
@@ -969,7 +969,7 @@ class StudioCalibrationTests(unittest.TestCase):
             return self.answer
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler_for(
-            self.folder / "missing-token", self.folder / "desk-layout.json",
+            self.folder / "missing-token", self.folder,
             calibration_post=post))
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
