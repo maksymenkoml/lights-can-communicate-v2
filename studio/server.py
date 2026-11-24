@@ -418,15 +418,22 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
 
     def rooms_payload():
         index = rooms.index()
-        names = {}
+        names, placed = {}, {}
         for room in index["rooms"]:
             store = rooms.store(room)
             data = store.snapshot() if store is not None else None
             names[room] = data.get("room") if isinstance(data, dict) else None
+            # Where each light's row is, so Found lists only lights that no room shows.
+            for row in data.get("devices", ()) if isinstance(data, dict) else ():
+                if isinstance(row, dict) and _light_id(row.get("id")):
+                    placed.setdefault(row["id"], room)
         return {"rooms": [{"id": room, "name": names[room]} for room in index["rooms"]],
                 "sync": index["sync"],
                 "lights": {light: rooms.room_of(light, index)
-                           for light in registry_lights() or ()}}
+                           for light in registry_lights() or ()},
+                # Every recorded room of a light; any other light is in the first room.
+                "assigned": index["lights"],
+                "placed": placed}
 
     # The Sync Box token lives with the other private state, never in the layout.
     def lan_search(path, local):

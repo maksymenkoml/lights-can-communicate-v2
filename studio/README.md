@@ -19,9 +19,9 @@ files and credentials are never served. The page makes no external requests.
 
 ## The room
 
-- "Light Studio | Office ✓" in the top-left corner; the check mark means the
-  layout is saved. The Sync Box corner is at the top right (see Sync Box); it
-  also shows Sync problems. Bottom panels: Lamps (left), the Settings switch and
+- "Light Studio | Office ⌄ ✓" in the top-left corner; the check mark means the
+  layout is saved. The room name opens the room cards (see Rooms). The Sync Box
+  corner is at the top right (see Sync Box); it also shows Sync problems. Bottom panels: Lamps (left), the Settings switch and
   the light/dark scene (centre), undo/redo (right).
 - Select an object to edit it in place: name chip above, height on the left,
   offset from the screen centre at the floor and resize knobs on its edges.
@@ -40,14 +40,38 @@ files and credentials are never served. The page makes no external requests.
 - The light/dark switch previews the room at night. It and the Sync view are
   browser preferences and are not part of the layout.
 
+## Rooms
+
+- The room name in the header opens the room cards. Each card draws its room
+  small (desk, screen and a dot per lamp) with its name and lamp count; the room
+  with the Sync Box shows the box, and so does the header while there is more
+  than one room. Click a card to edit that room. Hover a card for Rename and
+  Delete (Delete asks inline); drag a card to change the order; the last card
+  adds a room. A refusal, such as "Move its lamps to another room first", is said
+  on its card.
+- The page edits one room at a time. Each room has its own layout, browser
+  draft and undo history, and this browser remembers the room it edits
+  (`light-studio-room-v1`).
+- The Settings switch, the Sync view and the Sync Box corner appear only in the
+  room with the Sync Box. In another room the lamp card has no "During Sync"
+  choice; the Sync view stays the browser's choice for the Sync Box room.
+- Found lists the discovered lamps that no other room holds. Placing a lamp that
+  belongs to the first room in another room moves it there first; Connect
+  connects a lamp in the room it is in.
+- "Move to room ›" on a lamp card moves a lamp to another room with its
+  corrections. The page saves its edits first and reads the room again
+  afterwards, so undo does not bring the lamp back.
+
 ## Layout API
 
-`GET /api/layout` returns `{layout, revision}`. `POST /api/layout` takes the
+`GET /api/layout?room=<id>` returns `{layout, revision}` of a room (the first
+room without `room`). `POST /api/layout` takes the
 whole layout with `If-Match: "<revision>"` (`""` when nothing is saved yet). A
 missing header returns 428 and a stale revision returns 409; the client then
 refetches and merges its changes field by field. Writes must use the current
 layout version (5); older versions are refused. The browser keeps a
-draft (`light-studio-grid-v3`, `-base`, `-pending`): offline edits are retried
+draft per room (`light-studio-grid-v3` for the first room and
+`light-studio-grid-v3:<room>` for the others, each with `-base` and `-pending`): offline edits are retried
 every 3 s, and the first load imports a browser draft when the server has none.
 
 Layout version 5 stores centimetres. World x has the desk centre at 100 cm. A

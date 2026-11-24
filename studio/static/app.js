@@ -19,7 +19,14 @@ const store={
 function readJson(key){try{return JSON.parse(store.get(key))}catch{return null}}
 
 // ---------------------------------------------------------------- model --
-const KEY='light-studio-grid-v3',VIEW_KEY='light-studio-view-v1',DARK_KEY='light-studio-dark-scene-v1';
+const VIEW_KEY='light-studio-view-v1',DARK_KEY='light-studio-dark-scene-v1',ROOM_KEY='light-studio-room-v1';
+// Each room keeps its own browser draft; the first room keeps the draft from before rooms.
+const FIRST_ROOM='room-00000001',ROOM_ID=/^room-[0-9a-f]{8}$/;
+const draftKey=id=>!id||id===FIRST_ROOM?'light-studio-grid-v3':'light-studio-grid-v3:'+id;
+// The room this browser edits; the server's first room until the rooms are known.
+let currentRoom=ROOM_ID.test(store.get(ROOM_KEY)||'')?store.get(ROOM_KEY):null,KEY=draftKey(currentRoom);
+// /api/rooms: the rooms in order, the Sync Box's room and where each light is.
+let roomsInfo=null,roomsOpen=false,roomEditing=null,roomAdding=false,roomConfirm=null,roomNote=null,roomDragged=null,roomLayouts={},moveOpen=false;
 const SAVE_DELAY_MS=300,RETRY_MS=3000,DISCOVERY_POLL_MS=3000;
 // About 20 updates a second: Sync frames arrive at 15-25 Hz and a loopback answer takes a few ms.
 const LIVE_POLL_MS=50,LIVE_DEADLINE_MS=1000,LIVE_FRESH_MS=1500;
@@ -328,7 +335,8 @@ const chipIcons={
  rotate:'<path d="M-3.4 -2.6A4.2 4.2 0 1 1 -3.8 1.9M-3.4 -2.6V-5.8M-3.4 -2.6H-0.2"/>',
  blink:'<path d="M2 0A2 2 0 1 1 -2 0A2 2 0 1 1 2 0M0 -5.6V-4M0 4V5.6M-5.6 0H-4M4 0H5.6M-4 -4l1.1 1.1M2.9 2.9 4 4M4 -4 2.9 -2.9M-2.9 2.9-4 4"/>',
  reset:'<path d="M-4 -1.5A4.2 4.2 0 1 1 -2.6 3.2M-4 -1.5V-5M-4 -1.5H-0.6"/>',
- remove:'<path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/>'
+ remove:'<path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/>',
+ room:'<path d="M-4.8 -0.4 0 -4.6 4.8 -0.4M-3.5 -1.5V4.6H3.5V-1.5"/>'
 };
 function iconSvg(id){return '<svg viewBox="-7 -7 14 14" aria-hidden="true">'+chipIcons[id]+'</svg>'}
 function knob(kind,x,y,cursor,label){return '<g class="handle'+(drag?.handle===kind?' active':'')+'" data-handle="'+kind+'" style="cursor:'+cursor+'" data-tooltip="'+label+'" aria-label="'+label+'"><circle cx="'+x+'" cy="'+y+'" r="14" fill="transparent"/><circle class="knob" cx="'+x+'" cy="'+y+'" r="5.5"/></g>'}
@@ -651,7 +659,10 @@ function renderList(){$('#count').textContent=activeLamps().length}
 function syncScreen(){const m=lamps.find(l=>l.id===MONITOR);if(m)environment.screen={x:m.x,h:m.h}}
 function render(){syncScreen();renderScene();renderInspector();renderList();renderHistory()}
 function renderInspector(){if(menuOpen&&!lamps.some(l=>l.id===selected))closeObjectMenu()}
-function paintTitle(){const node=$('#room-name');if(node&&node.textContent!==room)node.textContent=room}
+function paintTitle(){
+ const node=$('#room-name');if(node&&node.textContent!==room)node.textContent=room;
+ const mark=$('#room-box');if(mark)mark.hidden=!(roomsInfo&&roomsInfo.sync===currentRoom&&roomsInfo.rooms.length>1);
+}
 function paintEmptyRoom(){$('#empty-room').hidden=activeLamps().length>0}
 
 // Wall washes sit behind every object, in one layer after the scene defs.
@@ -846,10 +857,10 @@ function toggleDarkScene(){
  };
 }
 // The Sync switch chooses which settings are shown; it does not start or stop Sync.
-function applyMode(m){
+function applyMode(m,keep=true){
  mode=m;
  $('#sync-tool').classList.toggle('active',m==='sync');$('#sync-tool').setAttribute('aria-pressed',String(m==='sync'));$('#app').classList.toggle('sync-mode',m==='sync');
- store.set(VIEW_KEY,m);renderScene();renderInspector();
+ if(keep)store.set(VIEW_KEY,m);renderScene();renderInspector();
 }
 function setMode(m){
  if(m===mode||matchMedia('(prefers-reduced-motion:reduce)').matches)return applyMode(m);
@@ -868,7 +879,7 @@ function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
 const reduceMotion=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
 let menuHideTimer=null;
 function closeObjectMenu(){
- if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;connectPrompt=null;
+ if(!menuOpen)return;if(cal)closeCalibrate(false);menuOpen=false;connectPrompt=null;moveOpen=false;
  const menu=$('#object-menu'),c=$('#stage').querySelector('[data-chip-action="more"]');c?.classList.remove('open');c?.setAttribute('aria-expanded','false');
  clearTimeout(menuHideTimer);
  if(reduceMotion()){menu.hidden=true;return}
@@ -895,9 +906,10 @@ function cardMenu(l){
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
   +connectedField(l)
-  +'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>'
+  +(syncHere()?'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>':'')
   +'<div class="card-list"><button class="card-row" data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'<span>Blink</span></button>'
-  +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button></div>'
+  +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button>'
+  +(movable(l)?'<button class="card-row" data-menu="move">'+iconSvg('room')+'<span>Move to room</span>'+iconSvg('next')+'</button>':'')+'</div>'
   +'<div class="card-list card-end"><button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button></div>';
 }
 // The card sits beside the selected object, never over it, and does not follow the chip width.
@@ -963,7 +975,7 @@ async function blinkLamp(l){
 // until /api/live lists it (or no longer lists it).
 const LINK_TIMEOUT_MS=90000;
 let linking=new Map(),connectPrompt=null;
-const LIGHT_REFUSED={sync_active:'Stop Sync to connect or disconnect a lamp',restarting:'The lamps are restarting; try again in a moment',enrolled:'The lamp is already connected',not_enrolled:'The lamp is already disconnected',unavailable:'The lamp does not respond',area_full:'The Hue entertainment area is full',channels_shared:'Hue gives this lamp the same channels as another lamp'};
+const LIGHT_REFUSED={unknown_room:'This room no longer exists',sync_active:'Stop Sync to connect or disconnect a lamp',restarting:'The lamps are restarting; try again in a moment',enrolled:'The lamp is already connected',not_enrolled:'The lamp is already disconnected',unavailable:'The lamp does not respond',area_full:'The Hue entertainment area is full',channels_shared:'Hue gives this lamp the same channels as another lamp'};
 const linkState=l=>linking.get(l.id)?.kind||null;
 // A disconnected migrated lamp is discovered under a device id and named by its row
 // (layout_id); the core enrolls that device and gives it its migrated id back.
@@ -974,7 +986,7 @@ async function changeLink(l,kind){
  if(!id){tell(LIGHT_REFUSED.unavailable);return}
  linking.set(l.id,{kind,since:performance.now()});paintLink();
  let status=0,body={};
- try{const r=await fetch(kind==='connect'?'/api/lights/enroll':'/api/lights/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});status=r.status;body=await r.json().catch(()=>({}))}catch{}
+ try{const r=await fetch(kind==='connect'?'/api/lights/enroll':'/api/lights/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(kind==='connect'&&roomsInfo?{id,room:currentRoom}:{id})});status=r.status;body=await r.json().catch(()=>({}))}catch{}
  // The deadline holds even when /api/live stops answering.
  if(status===200&&body.accepted===true){tell((kind==='connect'?'Connecting ':'Disconnecting ')+l.name);setTimeout(settleLinks,LINK_TIMEOUT_MS+50);return}
  linking.delete(l.id);paintLink();
@@ -1012,6 +1024,9 @@ function menuAction(id){
  if(id==='disconnect-ok'){changeLink(l,'disconnect');return true}
  if(id==='blink'){if(!l.unbound){const row=menu.querySelector('[data-menu="blink"]');row?.classList.remove('pulsing');void row?.offsetWidth;row?.classList.add('pulsing');setTimeout(()=>row?.classList.remove('pulsing'),1000);blinkLamp(l)}return true}
  if(id==='calibrate'){openCalibrate(l);return true}
+ if(id==='move'){openMovePage(l);return true}
+ if(id==='move-back'){closeMovePage();return true}
+ if(id.startsWith('move-to-')){moveLamp(l,id.slice(8));return true}
  if(!cal)return false;
  if(id==='cal-back'||id==='cal-cancel'){closeCalibrate(false);return true}
  if(id==='cal-save'){closeCalibrate(true);return true}
@@ -1172,7 +1187,7 @@ function catalogRows(){return discovery&&discovery.connected===true&&Array.isArr
 // registry id (layout_id) and placed with that id; a removed row returns through Found too.
 function catalogEntries(){
  return catalogRows().map(d=>{const m=MIGRATED.find(s=>s.id===d.layout_id);return m?{...d,id:m.id,shape:m.shape,zones:m.zones,selectable:true}:d})
-  .filter(d=>(!d.layout_id||MIGRATED.some(s=>s.id===d.id))&&!lamps.some(l=>l.id===d.id))}
+  .filter(d=>(!d.layout_id||MIGRATED.some(s=>s.id===d.id))&&!lamps.some(l=>l.id===d.id)&&!elsewhere(d.id))}
 function catalogReason(d){
  if(d.ambiguous!==false)return 'Ambiguous';
  if(d.supported!==true||!SHAPES.includes(d.shape)||!Number.isInteger(d.zones))return 'Unsupported';
@@ -1307,7 +1322,7 @@ function placePanel(){
 }
 function markLamp(id){$('#stage').querySelectorAll('.lamp.list-hover').forEach(n=>n.classList.remove('list-hover'));if(id)$('#stage').querySelector('[data-lamp="'+id+'"]')?.classList.add('list-hover')}
 function openPanel(kind){
- cancelPlacement();panelKind=kind;const p=$('#lamp-panel');p.hidden=false;p.scrollTop=0;paintPanel();p.scrollTop=0;placePanel();
+ cancelPlacement();closeRooms();panelKind=kind;refreshRooms().then(paintPanel);const p=$('#lamp-panel');p.hidden=false;p.scrollTop=0;paintPanel();p.scrollTop=0;placePanel();
  $('#list-toggle').setAttribute('aria-expanded','true');$('#list-toggle').classList.add('active');
  startDiscovery();
 }
@@ -1359,6 +1374,11 @@ function paintPlacementGhost(position){
 }
 function placeDevice(entry,position){
  if(lamps.length>=MAX_ROWS||lamps.some(l=>l.id===entry.id))return;
+ if(roomsInfo&&roomOf(entry.id)!==currentRoom){
+  const room=currentRoom;
+  roomChange('move',{light:entry.id,room}).then(ok=>{if(ok&&room===currentRoom&&roomOf(entry.id)===room)placeDevice(entry,position);else cancelPlacement()});
+  return;
+ }
  remember();
  const m=MIGRATED.find(s=>s.id===entry.id);
  // The monitor strip wraps the screen, so it takes the screen's place.
@@ -1375,7 +1395,7 @@ function placeDevice(entry,position){
 }
 
 // ----------------------------------------------------------- persistence --
-let serverReady=false,revision=null,pendingLayout=null,saving=false,saveTimer,retryTimer,offlineNotice=false,editGeneration=0;
+let serverReady=false,revision=null,pendingLayout=null,saving=false,saveTimer,retryTimer,offlineNotice=false,editGeneration=0,flushDone=Promise.resolve(),roomGeneration=0;
 let serverBaseline=readJson(KEY+'-base')||pack();
 // A drag in progress is not saved; the last committed state is.
 function committedModel(){return drag?{...JSON.parse(drag.before),room}:{room,environment,lamps}}
@@ -1436,14 +1456,14 @@ function reconcile(saved,base=serverBaseline){
 async function flushLayout(){
  if(saving||!serverReady)return;
  if(drag){clearTimeout(saveTimer);saveTimer=setTimeout(flushLayout,SAVE_DELAY_MS);return}
- saving=true;
+ saving=true;let finish;flushDone=new Promise(resolve=>finish=resolve);
  try{
   let conflicts=0;
   while(pendingLayout){
    const payload=pendingLayout,base=clone(serverBaseline);pendingLayout=null;
-   const response=await fetch('/api/layout',{method:'POST',headers:{'Content-Type':'application/json','If-Match':'"'+(revision||'')+'"'},body:JSON.stringify(payload)});
+   const response=await fetch(layoutUrl(),{method:'POST',headers:{'Content-Type':'application/json','If-Match':'"'+(revision||'')+'"'},body:JSON.stringify(payload)});
    if(response.status===409&&conflicts++<2){
-    const current=await fetch('/api/layout',{cache:'no-store'});if(!current.ok)throw new Error('offline');
+    const current=await fetch(layoutUrl(),{cache:'no-store'});if(!current.ok)throw new Error('offline');
     reconcile(await current.json(),base);pendingLayout=pack(committedModel());continue;
    }
    if(!response.ok){pendingLayout=pendingLayout||payload;throw new Error('save');}
@@ -1453,12 +1473,24 @@ async function flushLayout(){
  }catch{
   serverReady=false;setDraftState('error');if(!offlineNotice)tell('Changes are not saved yet. They are kept in this browser.');offlineNotice=true;
   clearTimeout(retryTimer);retryTimer=setTimeout(connectLayout,RETRY_MS);
- }finally{saving=false;}
+ }finally{saving=false;finish();}
 }
-async function connectLayout(){
+async function connectLayout(retried=false){
+ const generation=roomGeneration;
  try{
-  const response=await fetch('/api/layout',{cache:'no-store'});if(!response.ok)throw new Error('offline');
-  const saved=await response.json(),hasLocalEdits=editGeneration>0||!!store.get(KEY+'-pending');revision=saved.revision;
+  if(!await refreshRooms(false))throw new Error('offline');
+  if(generation!==roomGeneration)return;
+  const first=roomsInfo.rooms[0].id;
+  if(!currentRoom&&draftKey(first)===KEY){currentRoom=first;applyRoomChrome()}
+  // A room deleted elsewhere: this browser edits the first room instead.
+  else if(!roomsInfo.rooms.some(r=>r.id===currentRoom)){enterRoom(first);return connectLayout(retried)}
+  const response=await fetch(layoutUrl(),{cache:'no-store'});
+  if(generation!==roomGeneration)return;
+  if(response.status===404&&!retried)return connectLayout(true);
+  if(!response.ok)throw new Error('offline');
+  const saved=await response.json(),hasLocalEdits=editGeneration>0||!!store.get(KEY+'-pending');
+  if(generation!==roomGeneration)return;
+  revision=saved.revision;
   if(saved.layout){
    if(hasLocalEdits)reconcile(saved);
    else{const m=fromLayout(saved.layout);if(m)applyModel(m);acceptBaseline(saved);pendingLayout=null;store.set(KEY,JSON.stringify(pack()));render();}
@@ -1467,6 +1499,7 @@ async function connectLayout(){
   // The first load imports this browser's draft when the server has no layout yet.
   if(!saved.layout||hasLocalEdits)save();else setDraftState('saved');
  }catch{
+  if(generation!==roomGeneration)return;
   serverReady=false;setDraftState('error');if(!offlineNotice)tell('Light Studio server is unavailable. The layout is kept in this browser.');offlineNotice=true;
   clearTimeout(retryTimer);retryTimer=setTimeout(connectLayout,RETRY_MS);
  }
@@ -1849,7 +1882,220 @@ document.addEventListener('pointerdown',e=>{if(boxCard&&!e.target.closest('#sync
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
 document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
 
+// ----------------------------------------------------------------- rooms --
+// The room name opens the room cards: each card draws its room small, the current one
+// is marked, and the Sync Box's room shows the box. The page edits one room at a time;
+// its layout, browser draft and undo history belong to that room.
+const ROOM_REFUSED={invalid_name:'A name has 1 to 40 characters',room_limit:'A home has up to ten rooms',unknown_room:'This room no longer exists',unknown_light:'This lamp cannot change rooms',
+ last_room:'The last room stays',has_sync_box:'The Sync Box is in this room',has_lights:'Move its lamps to another room first',layout_full:'That room holds up to '+MAX_ROWS+' lamps',
+ sync_active:'Not while Sync is on',restarting:'The lamps are restarting; try again in a moment',unavailable:'Light Studio cannot reach the lamps now'};
+const boxIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="14" height="6.5" rx="1.6"/><path d="M6 10.2h.01M14 10.2h2"/></svg>';
+const roomIcons={pen:'<path d="m12.5 4.5 3 3-8 8H4.5v-3z"/>',trash:'<path d="M4.5 6h11M8 6V4.5h4V6m-6 0 .7 9.5h6.6L14 6"/>',plus:'<path d="M10 4v12M4 10h12"/>'};
+const roomSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+roomIcons[id]+'</svg>';
+function layoutUrl(){return '/api/layout'+(currentRoom?'?room='+encodeURIComponent(currentRoom):'')}
+const roomName=id=>roomsInfo?.rooms.find(r=>r.id===id)?.name||'Room';
+// A light's room: its recorded room, otherwise the first room (as the core decides).
+function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.rooms[0]?.id}
+// A light that another room holds: its row is there, or the core put it there.
+function elsewhere(id){
+ if(!roomsInfo)return false;const placed=roomsInfo.placed?.[id],assigned=roomsInfo.assigned?.[id];
+ return !!(placed&&placed!==currentRoom||assigned&&assigned!==currentRoom);
+}
+// Sync settings belong to the Sync Box's room; until the rooms are known the page shows them.
+function syncHere(){return !roomsInfo||roomsInfo.sync===currentRoom}
+function validRooms(b){return !!b&&Array.isArray(b.rooms)&&b.rooms.length>0&&b.rooms.every(r=>r&&ROOM_ID.test(r.id)&&typeof r.name==='string')}
+function takeRooms(b){roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,assigned:b.assigned||{},placed:b.placed||{}}}
+// connectLayout handles a missing room itself; any other refresh leaves a room deleted
+// elsewhere for the first room (its unsent draft stays under the deleted room's key).
+async function refreshRooms(follow=true){
+ try{
+  const r=await fetch('/api/rooms',{cache:'no-store'});if(!r.ok)return false;
+  const b=await r.json();if(!validRooms(b))return false;
+  takeRooms(b);
+  if(!currentRoom||roomsInfo.rooms.some(r=>r.id===currentRoom))applyRoomChrome();
+  else if(follow){closeRooms();closePanel();closeObjectMenu();enterRoom(roomsInfo.rooms[0].id);tell('That room was deleted');connectLayout()}
+  return true;
+ }catch{return false}
+}
+function applyRoomChrome(){
+ const here=syncHere();$('#app').classList.toggle('no-sync',!here);
+ if(!here&&mode==='sync')applyMode('placement',false);
+ else if(here&&mode!=='sync'&&store.get(VIEW_KEY)==='sync')applyMode('sync',false);
+ paintTitle();if(roomsOpen)paintRooms();
+}
+// Loads a room's browser draft into the page; the server's layout follows from connectLayout.
+function enterRoom(id){
+ roomGeneration++;currentRoom=id;store.set(ROOM_KEY,id);KEY=draftKey(id);
+ clearTimeout(retryTimer);clearTimeout(saveTimer);serverReady=false;revision=null;pendingLayout=null;editGeneration=0;offlineNotice=false;
+ past=[];future=[];selected=null;
+ const m=fromLayout(readJson(KEY));({room,environment,lamps}=m||{...defaults(),room:roomName(id)});
+ serverBaseline=readJson(KEY+'-base')||pack();lastPersisted=JSON.stringify(pack());
+ for(const l of lamps)if(linkable(l.id)&&liveSnapshot?.connected===true)l.unbound=!enrolled.has(l.id);
+ applyRoomChrome();render();setDraftState('pending');
+}
+// Edits not yet on the server go first; what cannot be sent stays in the room's draft.
+async function settleSave(){clearTimeout(saveTimer);if(serverReady&&pendingLayout&&!saving)flushLayout();await flushDone}
+async function switchRoom(id){
+ if(id===currentRoom){closeRooms();return}
+ closeRooms();cancelPlacement();closePanel();if(cal)closeCalibrate(false);closeObjectMenu();
+ await settleSave();
+ enterRoom(id);connectLayout();
+}
+// Room changes go through the server; a refusal is said where it was asked.
+async function roomChange(action,body,where=null){
+ let status=0,answer={};
+ try{const r=await fetch('/api/rooms/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});status=r.status;answer=await r.json().catch(()=>({}))}catch{}
+ if(status===200&&validRooms(answer)){takeRooms(answer);applyRoomChrome();return true}
+ const text=status===409||status===503?ROOM_REFUSED[answer.reason]||'Not changed now':status===400?ROOM_REFUSED.invalid_name:'Light Studio server is unavailable';
+ if(roomsOpen){roomNote={room:where,text};paintRooms()}else tell(text);
+ return false;
+}
+async function addRoom(name){
+ if(!await roomChange('create',{name:String(name).trim()},'new'))return;
+ roomAdding=false;switchRoom(roomsInfo.rooms[roomsInfo.rooms.length-1].id);
+}
+async function renameRoom(id,name){
+ const value=String(name).trim();roomEditing=null;
+ if(!value||value===roomName(id)){paintRooms();return}
+ if(id===currentRoom)await settleSave();
+ if(await roomChange('rename',{room:id,name:value},id)&&id===currentRoom)connectLayout();
+ paintRooms();
+}
+async function deleteRoom(id){
+ roomConfirm=null;
+ if(!await roomChange('delete',{room:id},id))return;
+ for(const suffix of ['','-base','-pending'])store.remove(draftKey(id)+suffix);
+ delete roomLayouts[id];
+ if(id===currentRoom){enterRoom(roomsInfo.rooms[0].id);connectLayout()}
+ paintRooms();
+}
+async function reorderRooms(from,to){
+ const ids=roomsInfo.rooms.map(r=>r.id),at=ids.indexOf(to);if(from===to||at<0)return;
+ ids.splice(ids.indexOf(from),1);ids.splice(at,0,from);
+ await roomChange('order',{rooms:ids});paintRooms();
+}
+async function openRooms(){
+ closePanel();closeObjectMenu();cancelPlacement();
+ roomsOpen=true;roomNote=null;roomEditing=null;roomAdding=false;roomConfirm=null;paintRooms();
+ const known=await refreshRooms();if(!roomsOpen)return;
+ if(!known||!roomsInfo){roomNote={room:'all',text:'Light Studio server is unavailable'};paintRooms();return}
+ await Promise.all(roomsInfo.rooms.filter(r=>r.id!==currentRoom).map(async r=>{
+  try{const a=await fetch('/api/layout?room='+encodeURIComponent(r.id),{cache:'no-store'});if(a.ok)roomLayouts[r.id]=(await a.json()).layout}catch{}
+ }));
+ if(roomsOpen)paintRooms();
+}
+function closeRooms(){
+ if(!roomsOpen)return;roomsOpen=false;roomEditing=null;roomAdding=false;roomConfirm=null;roomNote=null;
+ $('#room-cards').hidden=true;$('#room-switch').setAttribute('aria-expanded','false');
+}
+// The room drawn small: floor, desk, screen and a dot per lamp, in the room's own centimetres.
+function roomThumb(layout){
+ if(!layout?.desk||!layout.screen)return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true"></svg>';
+ const X=x=>20+(x+40)*160/320,Y=h=>100-h*80/220,len=v=>v*80/220;
+ const dw=layout.desk.width,dh=layout.desk.height,sw=layout.screen.inches*2.54*16/Math.hypot(16,9),sh=sw*9/16,sx=layout.screen.positionCm.x,sy=layout.screen.positionCm.height;
+ let out='<line class="rc-floor" x1="8" y1="100" x2="192" y2="100"/>'
+  +'<rect class="rc-desk" x="'+X(0)+'" y="'+Y(dh)+'" width="'+(X(dw)-X(0))+'" height="3"/>'
+  +'<path class="rc-leg" d="M'+X(6)+' '+Y(dh)+'V100M'+X(dw-6)+' '+Y(dh)+'V100"/>'
+  +'<rect class="rc-screen" x="'+X(sx-sw/2)+'" y="'+Y(sy+sh/2)+'" width="'+(X(sx+sw/2)-X(sx-sw/2))+'" height="'+len(sh)+'" rx="1"/>';
+ for(const d of layout.devices||[])if(d.enabled!==false&&d.positionCm)out+='<circle class="rc-lamp" cx="'+X(d.positionCm.x)+'" cy="'+Y(d.positionCm.height)+'" r="4"/>';
+ return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true">'+out+'</svg>';
+}
+function roomCount(id){
+ const layout=id===currentRoom?pack():roomLayouts[id];
+ const n=layout?(layout.devices||[]).filter(d=>d.enabled!==false).length:null;
+ return n===null?'':n?n+(n===1?' lamp':' lamps'):'No lamps';
+}
+function roomNoteHtml(where){return roomNote&&roomNote.room===where?'<p class="rc-note" role="alert">'+esc(roomNote.text)+'</p>':''}
+function roomCard(r){
+ const here=r.id===currentRoom,box=roomsInfo?.sync===r.id;
+ if(roomConfirm===r.id)return '<div class="rc-card confirm"><div class="rc-confirm"><span>Delete '+esc(r.name)+'?</span><button data-room-cancel>Cancel</button><button class="danger" data-room-delete-ok="'+r.id+'">Delete</button></div>'+roomNoteHtml(r.id)+'</div>';
+ const name=roomEditing===r.id?'<input class="rc-input" data-room-name="'+r.id+'" maxlength="40" value="'+esc(r.name)+'" aria-label="Room name">':'<span class="rc-name">'+esc(r.name)+'</span>';
+ return '<div class="rc-card'+(here?' current':'')+'" draggable="'+(roomEditing?'false':'true')+'" data-room-card="'+r.id+'">'
+  +'<button class="rc-pick" data-room-go="'+r.id+'" aria-label="'+esc(r.name)+(here?' (this room)':'')+'"'+(here?' aria-current="true"':'')+'>'+roomThumb(here?pack():roomLayouts[r.id])+'</button>'
+  +'<div class="rc-foot">'+(box?'<span class="rc-box" data-tooltip="Sync Box">'+boxIcon+'</span>':'')+'<div class="rc-text">'+name+'<span class="rc-sub">'+roomCount(r.id)+'</span></div></div>'
+  +'<span class="rc-acts"><button data-room-rename="'+r.id+'" aria-label="Rename '+esc(r.name)+'" data-tooltip="Rename">'+roomSvg('pen')+'</button><button data-room-delete="'+r.id+'" aria-label="Delete '+esc(r.name)+'" data-tooltip="Delete">'+roomSvg('trash')+'</button></span>'
+  +roomNoteHtml(r.id)+'</div>';
+}
+function paintRooms(){
+ const node=$('#room-cards');if(!roomsOpen){node.hidden=true;return}
+ $('#room-switch').setAttribute('aria-expanded','true');
+ const list=roomsInfo?roomsInfo.rooms:[{id:currentRoom||FIRST_ROOM,name:room}];
+ const add=roomAdding?'<div class="rc-card rc-add editing"><input class="rc-input" data-room-new maxlength="40" placeholder="Room name" aria-label="New room name"><button class="lp-connect" data-room-create>Add</button>'+roomNoteHtml('new')+'</div>'
+  :list.length<10?'<button class="rc-card rc-add" data-room-add>'+roomSvg('plus')+'<span>Add room</span></button>':'';
+ node.innerHTML='<div class="rc-grid">'+list.map(roomCard).join('')+(roomsInfo?add:'')+'</div>'+roomNoteHtml('all')+(roomsInfo&&list.length>1?'<p class="rc-hint">Drag a card to change the order</p>':'');
+ node.hidden=false;
+ const a=$('#app').getBoundingClientRect(),r=$('#room-switch').getBoundingClientRect();
+ node.style.left=Math.max(12,r.left-a.left)+'px';node.style.top=(r.bottom-a.top+8)+'px';
+ const input=node.querySelector('[data-room-name],[data-room-new]');if(input&&document.activeElement!==input){input.focus();input.select?.()}
+}
+$('#room-cards').addEventListener('click',e=>{
+ e.stopPropagation();
+ const t=e.target.closest('[data-room-go],[data-room-add],[data-room-create],[data-room-rename],[data-room-delete],[data-room-cancel],[data-room-delete-ok]');if(!t)return;
+ const d=t.dataset;roomNote=null;
+ if('roomGo' in d){if(!roomEditing)switchRoom(d.roomGo);return}
+ if('roomAdd' in d){roomAdding=true;roomEditing=null;roomConfirm=null;paintRooms();return}
+ if('roomCreate' in d){addRoom($('#room-cards [data-room-new]').value);return}
+ if('roomRename' in d){roomEditing=d.roomRename;roomAdding=false;roomConfirm=null;paintRooms();return}
+ if('roomDelete' in d){roomConfirm=d.roomDelete;roomEditing=null;paintRooms();$('#room-cards [data-room-cancel]')?.focus();return}
+ if('roomCancel' in d){roomConfirm=null;paintRooms();return}
+ if('roomDeleteOk' in d)deleteRoom(d.roomDeleteOk);
+});
+$('#room-cards').addEventListener('keydown',e=>{
+ const t=e.target;
+ if(t.matches('[data-room-name]')){if(e.key==='Enter'){e.preventDefault();renameRoom(t.dataset.roomName,t.value)}else if(e.key==='Escape'){e.preventDefault();roomEditing=null;paintRooms()}e.stopPropagation();return}
+ if(t.matches('[data-room-new]')){if(e.key==='Enter'){e.preventDefault();addRoom(t.value)}else if(e.key==='Escape'){e.preventDefault();roomAdding=false;roomNote=null;paintRooms()}e.stopPropagation();return}
+ if(e.key==='Escape'){e.stopPropagation();closeRooms();$('#room-switch').focus()}
+});
+$('#room-cards').addEventListener('focusout',e=>{const t=e.target;if(t.matches?.('[data-room-name]'))setTimeout(()=>{if(roomEditing===t.dataset.roomName&&document.activeElement!==t)renameRoom(t.dataset.roomName,t.value)},0)});
+$('#room-cards').addEventListener('dragstart',e=>{const c=e.target.closest?.('[data-room-card]');if(!c)return;roomDragged=c.dataset.roomCard;if(e.dataTransfer)e.dataTransfer.effectAllowed='move';c.classList.add('dragging')});
+$('#room-cards').addEventListener('dragover',e=>{const c=e.target.closest?.('[data-room-card]');if(!c||!roomDragged)return;e.preventDefault();$('#room-cards').querySelectorAll('.drop').forEach(n=>n.classList.remove('drop'));if(c.dataset.roomCard!==roomDragged)c.classList.add('drop')});
+$('#room-cards').addEventListener('drop',e=>{const c=e.target.closest?.('[data-room-card]');if(!c||!roomDragged)return;e.preventDefault();const from=roomDragged;roomDragged=null;reorderRooms(from,c.dataset.roomCard)});
+$('#room-cards').addEventListener('dragend',()=>{roomDragged=null;$('#room-cards').querySelectorAll('.drop,.dragging').forEach(n=>n.classList.remove('drop','dragging'))});
+document.addEventListener('pointerdown',e=>{if(roomsOpen&&!e.target.closest('#room-cards,#room-switch'))closeRooms()},true);
+// Inside the cards Esc first leaves a name field; the cards' own handler decides.
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&roomsOpen&&!e.target.closest?.('#room-cards')){e.preventDefault();e.stopImmediatePropagation();closeRooms()}},true);
+
+// A connected or found lamp moves to another room with its corrections; layout-only
+// drawings stay in their room.
+function movable(l){return !!roomsInfo&&roomsInfo.rooms.length>1&&linkable(l.id)&&l.enabled!==false}
+function movePageHtml(l){
+ const rows=roomsInfo.rooms.filter(r=>r.id!==currentRoom).map(r=>'<button class="card-row" data-menu="move-to-'+r.id+'">'+iconSvg('room')+'<span>'+esc(r.name)+'</span>'+(roomsInfo.sync===r.id?'<em>Sync Box</em>':'')+'</button>').join('');
+ return '<div class="card-back"><button data-menu="move-back" aria-label="Back">'+iconSvg('back')+'</button><div><b>Move to room</b><div class="card-sub">'+esc(l.name)+'</div></div></div>'
+  +'<div class="card-list">'+rows+'</div><p class="card-refusal" data-move-note role="alert" hidden></p>';
+}
+function openMovePage(l){
+ const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');if(!pages||!movable(l))return;
+ const [main,page]=pages.children;page.innerHTML=movePageHtml(l);moveOpen=true;
+ menu.style.height=main.offsetHeight+'px';
+ requestAnimationFrame(()=>{pages.classList.add('at-cal');menu.style.height=page.offsetHeight+'px';placeOpenMenu();page.querySelector('[data-menu="move-back"]')?.focus?.({preventScroll:true})});
+}
+function closeMovePage(){
+ const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');moveOpen=false;if(!pages)return;
+ const [main,page]=pages.children;pages.classList.remove('at-cal');menu.style.height=main.offsetHeight+'px';placeOpenMenu();
+ setTimeout(()=>{if(!moveOpen&&!cal){page.innerHTML='';menu.style.height=''}},300);
+}
+// The row moves on the server with its corrections, so the page's edits are saved first
+// and the room's layout is read again afterwards; undo cannot bring the row back here.
+async function moveLamp(l,target){
+ if(!roomsInfo?.rooms.some(r=>r.id===target))return;
+ await settleSave();
+ if(!serverReady){tell('Light Studio server is unavailable');return}
+ const note=$('#object-menu [data-move-note]');
+ let status=0,answer={};
+ try{const r=await fetch('/api/rooms/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({light:l.id,room:target})});status=r.status;answer=await r.json().catch(()=>({}))}catch{}
+ if(!(status===200&&validRooms(answer))){
+  const text=ROOM_REFUSED[answer.reason]||'Light Studio server is unavailable';
+  if(note){note.textContent=text;note.hidden=false;const menu=$('#object-menu'),page=note.closest('.card-page');if(page)menu.style.height=page.offsetHeight+'px';placeOpenMenu()}else tell(text);return;
+ }
+ takeRooms(answer);
+ moveOpen=false;closeObjectMenu();selected=null;past=[];future=[];
+ lamps=lamps.filter(x=>x.id!==l.id);lastPersisted=JSON.stringify(pack());render();
+ tell(l.name+' moved to '+roomName(target));
+ connectLayout();
+}
+
 // ----------------------------------------------------------------- start --
+$('#room-switch').addEventListener('click',e=>{e.stopPropagation();roomsOpen?closeRooms():openRooms()});
 applyDarkScene();applyMode(mode);render();annotateTooltips();
 connectLayout();
 if(!document.hidden){watchLive();refreshLive();refreshBox();}

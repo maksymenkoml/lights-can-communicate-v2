@@ -170,12 +170,16 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
+async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
- const server={layout:layout&&canonical(layout),revision};
- const posts=[],requests={layout:0,discovery:[],live:[],box:[],hue:[]};
+ const FIRST='room-00000001';
+ const server={layout:layout&&canonical(layout),revision,rooms:{},index:rooms||{rooms:[{id:FIRST,name:'Office'}],sync:FIRST,lights:{},assigned:{},placed:{}}};
+ for(const r of server.index.rooms)if(r.id!==FIRST)server.rooms[r.id]={layout:r.layout?canonical(r.layout):null,revision:'q1'};
+ server.index={...server.index,rooms:server.index.rooms.map(({id,name})=>({id,name}))};
+ const roomsAnswer=()=>structuredClone(server.index);
+ const posts=[],requests={layout:0,discovery:[],live:[],box:[],hue:[],rooms:[],roomPosts:[],otherLayouts:[]};
  const context={structuredClone,AbortController,console,
   setTimeout:clock.setTimeout,clearTimeout:clock.clearTimeout,
   requestAnimationFrame:fn=>clock.setTimeout(()=>fn(now),16),
@@ -193,7 +197,16 @@ async function harness({layout=saved(),revision='r1',storage=new Map(),live=live
    if(url.startsWith('/api/hue-bridge')){const body=options.body?JSON.parse(options.body):null;requests.hue.push({url,body,at:now});if(!hueBridge)return response(404,{});const result=await hueBridge(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
    if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
-   assert.equal(url,'/api/layout');
+   if(url==='/api/rooms'){requests.rooms.push(now);if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
+   if(url.startsWith('/api/rooms/')){const body=JSON.parse(options.body);requests.roomPosts.push({url,body});const result=roomPost?await roomPost(url.slice(11),body,server):null;return result?response(result.status,result.body):response(200,roomsAnswer())}
+   const [route,query]=url.split('?');assert.equal(route,'/api/layout');
+   const asked=query?decodeURIComponent(query.replace(/^room=/,'')):FIRST;
+   if(asked!==FIRST){
+    if(options.method!=='POST'){requests.otherLayouts.push(asked);const value=server.rooms[asked];return value?response(200,{layout:value.layout,revision:value.revision}):response(404,{error:'unknown room'})}
+    const body=JSON.parse(options.body);posts.push({body,ifMatch:options.headers['If-Match'],room:asked});const value=server.rooms[asked];
+    if(options.headers['If-Match']!=='"'+(value.layout?value.revision:'')+'"')return response(409,{error:'layout changed'});
+    value.layout=canonical(body);value.revision='r'+(posts.length+1);return response(200,{layout:value.layout,revision:value.revision});
+   }
    if(options.method!=='POST'){requests.layout++;if(layoutGet)return layoutGet(server);return response(200,{layout:server.layout,revision:server.layout?server.revision:null})}
    const body=JSON.parse(options.body);posts.push({body,ifMatch:options.headers['If-Match']});
    if(onPost){const result=await onPost(body,server,options);if(result)return result}
@@ -1305,7 +1318,7 @@ test('Connect enrolls the lamp; it is Connected once the core lists it',async()=
  const app=await harness({live:()=>liveOk({lights}),lights:(url,body)=>{calls.push([url,body]);return {status:200,body:{accepted:true,restarting:true}}}});
  await placeFound(app);
  await app.click(app.$('#object-menu [data-menu="connect-now"]'));await app.advance(40);
- assert.deepEqual(calls,[['/api/lights/enroll',{id}]]);
+ assert.deepEqual(calls,[['/api/lights/enroll',{id,room:'room-00000001'}]]);
  assert.match(app.$('#object-menu').textContent,/Connecting…/);
  const sw=app.$('#object-menu [data-menu="connected"]');assert.ok(sw.disabled,'no second request while connecting');
  await app.click(app.$('#list-toggle'));
@@ -1446,7 +1459,7 @@ test('a migrated lamp disconnects with a HomeKit note and reconnects through its
  // Reconnecting enrolls the found device that discovery names after the row.
  await app.click(app.$('#list-toggle'));await app.advance(40);
  await app.click(app.$('#lamp-panel').querySelector('[data-connect="play-center"]'));await app.advance(40);
- assert.deepEqual(calls.at(-1),['/api/lights/enroll',{id:device}]);
+ assert.deepEqual(calls.at(-1),['/api/lights/enroll',{id:device,room:'room-00000001'}]);
  lights=[...lights,enrolledRow('play-center',{migrated:true})];await app.advance(1500);
  assert.equal(app.run('lamps.find(l=>l.id==="play-center").unbound'),false);
  assert.match(app.$('#toast').textContent,/Connected Hue Play Center/);
@@ -1462,4 +1475,135 @@ test('a disconnected migrated lamp that is not discovered cannot reconnect',asyn
  await app.click(app.$('#lamp-panel').querySelector('[data-connect="play-center"]'));await app.advance(40);
  assert.deepEqual(calls,[]);
  assert.match(app.$('#toast').textContent,/The lamp does not respond/);
+});
+
+// ---------------------------------------------------------------- rooms --
+const BEDROOM='room-0000000b',OFFICE='room-00000001';
+function bedroomLayout(){return {version:7,gridStepCm:5,room:'Bedroom',desk:{width:120,height:75},screen:{positionCm:{x:60,height:100},inches:27},devices:[{id:'govee-right',scale:70,positionCm:{x:140,height:60},orientation:'horizontal'}]};}
+function twoRooms(extra={}){return {rooms:[{id:OFFICE,name:'Office'},{id:BEDROOM,name:'Bedroom',layout:bedroomLayout()}],sync:OFFICE,lights:{},assigned:{'govee-right':BEDROOM},placed:{'govee-right':BEDROOM},...extra};}
+
+test('the room cards switch rooms; each room has its own layout, draft and Sync settings',async()=>{
+ const storage=new Map([['light-studio-view-v1','sync']]);
+ const layout=saved();layout.devices=layout.devices.filter(d=>d.id!=='govee-right');
+ const app=await harness({rooms:twoRooms(),layout,storage});await app.advance(100);
+ assert.equal(app.$('#room-name').textContent,'Office');
+ assert.equal(app.$('#room-box').hidden,false,'the Sync Box room is marked');
+ assert.equal(app.run('mode'),'sync');assert.ok(!app.$('#app').classList.contains('no-sync'));
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ const cards=app.$('#room-cards');assert.equal(cards.hidden,false);
+ assert.deepEqual(cards.querySelectorAll('[data-room-card]').map(c=>c.dataset.roomCard),[OFFICE,BEDROOM]);
+ assert.ok(cards.querySelector('[data-room-card="'+OFFICE+'"]').classList.contains('current'));
+ assert.ok(cards.querySelector('[data-room-card="'+OFFICE+'"] .rc-box'),'the Sync Box shows on its room');
+ assert.deepEqual(app.requests.otherLayouts,[BEDROOM],'the other rooms are drawn from their layouts');
+ assert.equal(cards.querySelectorAll('[data-room-card="'+BEDROOM+'"] .rc-lamp').length,1);
+ await app.click(cards.querySelector('[data-room-go="'+BEDROOM+'"]'));await app.advance(0);
+ assert.equal(cards.hidden,true);
+ assert.equal(app.$('#room-name').textContent,'Bedroom');
+ assert.deepEqual(json(app,'lamps.map(l=>l.id)'),['govee-right']);
+ assert.equal(app.storage.get('light-studio-room-v1'),BEDROOM);
+ assert.ok(app.$('#app').classList.contains('no-sync'),'Sync settings stay in the Sync Box room');
+ assert.equal(app.run('mode'),'placement');assert.equal(app.storage.get('light-studio-view-v1'),'sync','the view choice is kept');
+ assert.equal(app.run('past.length'),0,'undo history belongs to its room');
+ app.lamp('govee-right').focus();await app.press(app.lamp('govee-right'),'ArrowRight');await app.advance(300);
+ assert.equal(app.posts.at(-1).room,BEDROOM);assert.equal(app.posts.at(-1).body.devices[0].positionCm.x,145);
+ assert.ok(app.storage.has('light-studio-grid-v3:'+BEDROOM),'the room keeps its own browser draft');
+ assert.equal(JSON.parse(app.storage.get('light-studio-grid-v3')).room,'Office','the first room keeps its draft');
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ await app.click(app.$('#room-cards').querySelector('[data-room-go="'+OFFICE+'"]'));await app.advance(0);
+ assert.equal(app.$('#room-name').textContent,'Office');assert.equal(app.run('mode'),'sync');
+ assert.equal(app.lamp('govee-right'),null);assert.ok(app.lamp('govee-left'));
+});
+
+test('a remembered room opens first; a room deleted elsewhere falls back to the first room',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ assert.equal(app.$('#room-name').textContent,'Bedroom');assert.equal(app.requests.layout,0,'the first room is not loaded');
+ const gone=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1','room-000000ff']])});await gone.advance(100);
+ assert.equal(gone.$('#room-name').textContent,'Office');assert.equal(gone.storage.get('light-studio-room-v1'),OFFICE);
+});
+
+test('Found leaves out lamps of other rooms, and placing a lamp from the first room moves it first',async()=>{
+ const other=discovered({id:'device-'+'c'.repeat(32),name:'Spare'});
+ const rooms=twoRooms({placed:{'govee-right':BEDROOM,[discovered().id]:OFFICE}});
+ const app=await harness({rooms,storage:new Map([['light-studio-room-v1',BEDROOM]]),discovery:{connected:true,devices:[discovered(),other],providers:{govee:'ready',hue:'ready'}},
+  roomPost:(action,body,server)=>{if(action==='move'){server.index.assigned[body.light]=body.room;return null}return {status:404,body:{}}}});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.equal(panel.querySelector('[data-place="'+discovered().id+'"]'),null,'a lamp in another room is not found here');
+ await app.click(panel.querySelector('[data-place="'+other.id+'"]'));
+ app.dispatch(app.stage,'pointerdown',{clientX:500+100*3.3,clientY:600});await app.settle();await app.advance(300);
+ assert.deepEqual(app.requests.roomPosts,[{url:'/api/rooms/move',body:{light:other.id,room:BEDROOM}}]);
+ assert.equal(app.posts.at(-1).room,BEDROOM);assert.ok(app.posts.at(-1).body.devices.some(d=>d.id===other.id));
+});
+
+test('Move to room moves a lamp with its corrections and reads the room again',async()=>{
+ const app=await harness({rooms:twoRooms(),roomPost:(action,body,server)=>{
+  if(action!=='move')return {status:404,body:{}};
+  server.index.assigned[body.light]=body.room;server.layout.devices=server.layout.devices.filter(d=>d.id!==body.light);server.revision='r9';return null}});
+ await app.advance(100);
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.settle();
+ app.dispatch(app.stage.querySelector('[data-chip-action="more"]'),'pointerdown');await app.settle();
+ await app.click(app.$('#object-menu').querySelector('[data-menu="move"]'));await app.advance(20);
+ const target=app.$('#object-menu').querySelector('[data-menu="move-to-'+BEDROOM+'"]');assert.ok(target);
+ assert.equal(app.$('#object-menu').querySelector('[data-menu="move-to-'+OFFICE+'"]'),null,'only the other rooms');
+ await app.click(target);await app.advance(300);
+ assert.deepEqual(app.requests.roomPosts.at(-1),{url:'/api/rooms/move',body:{light:'play-right',room:BEDROOM}});
+ assert.equal(app.lamp('play-right'),null);assert.match(app.$('#toast').textContent,/Hue Play Right moved to Bedroom/);
+ assert.equal(app.run('past.length'),0,'undo cannot bring the row back');
+ assert.ok(app.posts.every(p=>!p.body.devices.some(d=>d.id==='play-right')),'the page never writes the moved row back');
+});
+
+test('rooms are added, renamed and deleted on the cards; a refusal is said on its card',async()=>{
+ const NEW='room-0000000c';
+ const app=await harness({rooms:twoRooms(),roomPost:(action,body,server)=>{
+  if(action==='create'){server.index.rooms.push({id:NEW,name:body.name});server.rooms[NEW]={layout:{...bedroomLayout(),room:body.name,devices:[],version:7},revision:'n1'};return null}
+  if(action==='rename'){server.index.rooms.find(r=>r.id===body.room).name=body.name;if(body.room===OFFICE){server.layout.room=body.name;server.revision='r7'}return null}
+  if(action==='delete'){if(body.room===OFFICE)return {status:409,body:{accepted:false,reason:'has_sync_box'}};server.index.rooms=server.index.rooms.filter(r=>r.id!==body.room);return null}
+  return {status:404,body:{}}}});
+ await app.advance(100);
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ await app.click(app.$('#room-cards').querySelector('[data-room-add]'));
+ await app.press(app.$('#room-cards').querySelector('[data-room-new]'),'Escape');
+ assert.equal(app.$('#room-cards').hidden,false,'Esc in a name field only leaves the field');
+ assert.equal(app.$('#room-cards').querySelector('[data-room-new]'),null);
+ await app.click(app.$('#room-cards').querySelector('[data-room-add]'));
+ const input=app.$('#room-cards').querySelector('[data-room-new]');input.value='Hall';await app.press(input,'Enter');await app.advance(0);
+ assert.deepEqual(app.requests.roomPosts.at(-1),{url:'/api/rooms/create',body:{name:'Hall'}});
+ assert.equal(app.$('#room-name').textContent,'Hall','a new room opens');assert.equal(app.storage.get('light-studio-room-v1'),NEW);
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ await app.click(app.$('#room-cards').querySelector('[data-room-delete="'+OFFICE+'"]'));
+ await app.click(app.$('#room-cards').querySelector('[data-room-delete-ok="'+OFFICE+'"]'));await app.advance(0);
+ assert.match(app.$('#room-cards').querySelector('[data-room-card="'+OFFICE+'"]').textContent,/The Sync Box is in this room/);
+ await app.click(app.$('#room-cards').querySelector('[data-room-delete="'+NEW+'"]'));
+ await app.click(app.$('#room-cards').querySelector('[data-room-delete-ok="'+NEW+'"]'));await app.advance(0);
+ assert.equal(app.$('#room-name').textContent,'Office','deleting the open room opens the first one');
+ assert.equal(app.storage.has('light-studio-grid-v3:'+NEW),false,'its draft is gone');
+ assert.equal(app.$('#room-cards').hidden,false,'the cards stay open');
+ await app.click(app.$('#room-cards').querySelector('[data-room-rename="'+OFFICE+'"]'));
+ const name=app.$('#room-cards').querySelector('[data-room-name="'+OFFICE+'"]');name.value='Studio';await app.press(name,'Enter');await app.advance(0);
+ assert.deepEqual(app.requests.roomPosts.at(-1),{url:'/api/rooms/rename',body:{room:OFFICE,name:'Studio'}});
+ assert.equal(app.$('#room-name').textContent,'Studio','the open room reads its new name');
+});
+
+test('a room deleted elsewhere falls back to the first room when the rooms are read again',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ assert.equal(app.$('#room-name').textContent,'Bedroom');
+ app.server.index.rooms=app.server.index.rooms.filter(r=>r.id!==BEDROOM);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ assert.equal(app.$('#room-name').textContent,'Office');assert.match(app.$('#toast').textContent,/That room was deleted/);
+ assert.equal(app.$('#lamp-panel').hidden,true);
+});
+
+test('the room cards say so when the rooms cannot be read',async()=>{
+ const app=await harness({rooms:twoRooms(),roomsDown:()=>true});await app.advance(100);
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ const cards=app.$('#room-cards');assert.equal(cards.hidden,false);
+ assert.match(cards.textContent,/Light Studio server is unavailable/);
+ assert.equal(cards.querySelector('[data-room-add]'),null,'nothing to add to without the rooms');
+});
+
+test('without a registered Sync Box no room shows the Sync settings',async()=>{
+ const app=await harness({rooms:twoRooms({sync:null}),storage:new Map([['light-studio-view-v1','sync']])});await app.advance(100);
+ assert.ok(app.$('#app').classList.contains('no-sync'));assert.equal(app.run('mode'),'placement');
+ assert.equal(app.$('#room-box').hidden,true);
 });
