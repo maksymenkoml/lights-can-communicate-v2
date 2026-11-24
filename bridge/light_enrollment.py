@@ -178,6 +178,11 @@ class LightEnrollment:
             if light_id not in self.registry.ids:
                 raise LightRefused("not_enrolled")
             native = self._native_light(light_id)
+            # Sync output streams through the paired Hue area, which needs a Hue
+            # light; the adapter does not start with a paired bridge and none.
+            profile = self.registry.native_profile()
+            if native is not None and profile is not None and len(profile.ids) == 1:
+                raise LightRefused("last_hue_light")
         before = None
         if native is not None:
             if self.area is None:

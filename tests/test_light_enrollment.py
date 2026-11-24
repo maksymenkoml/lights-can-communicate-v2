@@ -325,6 +325,22 @@ class HueEnrollmentTests(unittest.TestCase):
                                             "identity": {"provider": "hue",
                                                          "key": HUE_LIGHT}}])
 
+    def test_the_last_hue_light_stays_while_the_bridge_is_paired(self):
+        registry = LightRegistry.from_dict(sample())
+        for light in ("hue-monitor", "play-left", "play-center"):
+            registry = registry.without_light(light)
+        registry.save(self.path)
+        before = self.path.read_bytes()
+        area = Area()
+        with self.assertRaises(adapter.LightRefused) as refused:
+            self.enrollment(area, registry).remove("play-right")
+        self.assertEqual(refused.exception.reason, "last_hue_light")
+        self.assertEqual((area.calls, self.restarts), ([], []))
+        self.assertEqual(self.path.read_bytes(), before)
+        # A Govee lamp can still go.
+        self.enrollment(area, registry).remove("govee-left")
+        self.assertEqual(area.calls, [])
+
     def test_a_migrated_hue_lamp_leaves_the_area(self):
         area = Area()
         self.enrollment(area).remove("hue-monitor")

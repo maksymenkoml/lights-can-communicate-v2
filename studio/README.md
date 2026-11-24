@@ -153,8 +153,9 @@ lists it (or no longer lists it), then "Connected <name>" or "Disconnected
 <name>"; after 90 s without that change it says the change did not finish. A
 refusal is said in words: `sync_active` (stop Sync first), `restarting`,
 `enrolled`, `not_enrolled`, `unavailable`, `area_full` (the Hue entertainment
-area is full) and `channels_shared` (Hue gives the lamp the same channels as
-another lamp). The answers are 200 `{"accepted": true, "restarting": true}` (an enrollment
+area is full), `channels_shared` (Hue gives the lamp the same channels as
+another lamp) and `last_hue_light` (Sync streams through the paired Hue area, so
+one Hue lamp stays connected while the Hue bridge is paired). The answers are 200 `{"accepted": true, "restarting": true}` (an enrollment
 adds the registry `"id"`), 409
 `{"accepted": false, "reason"}`, 400 for a malformed body and 503 when the adapter
 is not reachable. Removing a row from the layout does not disconnect its light.

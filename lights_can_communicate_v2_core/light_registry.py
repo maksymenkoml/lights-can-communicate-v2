@@ -194,7 +194,6 @@ def _identity(value):
         _uuid(value["key"])
     else:
         raise _invalid()
-    return value
 
 
 def _identity_of(item):
@@ -215,7 +214,7 @@ def _payload(data):
 
 
 def _append(data, light_id, provider, details):
-    """Append a light and return its registry id.
+    """Append a light.
 
     A light removed earlier gets its virtual identity back: found by id, or by its
     physical identity, so a migrated lamp that rejoins under a discovered id gets
@@ -238,7 +237,6 @@ def _append(data, light_id, provider, details):
                            provider: details})
     if retired:
         data["retired"] = retired
-    return light_id
 
 
 def _profile(data):

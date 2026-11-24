@@ -963,7 +963,7 @@ async function blinkLamp(l){
 // until /api/live lists it (or no longer lists it).
 const LINK_TIMEOUT_MS=90000;
 let linking=new Map(),connectPrompt=null;
-const LIGHT_REFUSED={sync_active:'Stop Sync to connect or disconnect a lamp',restarting:'The lamps are restarting; try again in a moment',enrolled:'The lamp is already connected',not_enrolled:'The lamp is already disconnected',unavailable:'The lamp does not respond',area_full:'The Hue entertainment area is full',channels_shared:'Hue gives this lamp the same channels as another lamp'};
+const LIGHT_REFUSED={sync_active:'Stop Sync to connect or disconnect a lamp',restarting:'The lamps are restarting; try again in a moment',enrolled:'The lamp is already connected',not_enrolled:'The lamp is already disconnected',unavailable:'The lamp does not respond',area_full:'The Hue entertainment area is full',channels_shared:'Hue gives this lamp the same channels as another lamp',last_hue_light:'Keep one Hue lamp connected while the Hue bridge is paired'};
 const linkState=l=>linking.get(l.id)?.kind||null;
 // A disconnected migrated lamp is discovered under a device id and named by its row
 // (layout_id); the core enrolls that device and gives it its migrated id back.

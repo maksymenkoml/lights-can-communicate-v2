@@ -243,7 +243,9 @@ device gets the same slot and seed.
 
 Any enrolled light can be removed, the six migrated lamps too; the registry may
 hold any set of lights, or none, and keeps the paired Hue area without Hue
-lights. A removed migrated Hue light leaves the native area like any Hue light,
+lights. While the adapter runs with a paired Hue bridge, the last Hue light is
+refused (`last_hue_light`): Sync output streams through the paired Hue area, and
+the adapter does not start with a paired bridge and no Hue light. A removed migrated Hue light leaves the native area like any Hue light,
 and the later channels move down. Its virtual light stays in the bridge and in
 the Sync Box's Entertainment area, so the stream topology does not change, but
 nothing drives it and HomeKit shows it as not responding. Discovery names a
