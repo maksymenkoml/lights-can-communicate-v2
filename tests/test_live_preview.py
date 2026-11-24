@@ -529,7 +529,8 @@ class ProducerTests(unittest.TestCase):
             captured.update(controller=args[0], proxies=args[2], **kwargs)
             return object()
 
-        def client(_config, resource_id=None, profile=None):
+        def client(_config, resource_id=None, profile=None, link=None):
+            self.assertIsNotNone(link)  # the key goes only over the verified link
             self.assertEqual(profile, NativeHueProfile.from_dict(profile_data()))
             result = FakeHue()
             result.profile = profile

@@ -1,16 +1,14 @@
 """Host-only, owner-fenced DTLS relay to the selected native Entertainment area."""
 
 import copy
+import http.client
 import json
 import math
 import os
 import shutil
-import ssl
 import subprocess
 import threading
 import time
-import urllib.error
-import urllib.request
 
 from entertainment_stream import (
     NATIVE_SOURCES,
@@ -92,7 +90,7 @@ STREAMING_SECONDS = 1.0
 class HueEntertainmentRelay:
     def __init__(
         self, config, requester=None, connection_factory=DtlsConnection, layout_store=None,
-        preview=None, profile=None, location_cache_file=None,
+        preview=None, profile=None, location_cache_file=None, link=None,
     ):
         if not isinstance(profile, NativeHueProfile):
             raise ValueError("An explicit native Hue profile is required")
@@ -107,6 +105,9 @@ class HueEntertainmentRelay:
         ):
             raise ValueError("Invalid selected Entertainment credential")
         self.config = {**config, "bridge": lan.local_ip(config["bridge"]), "area_id": self.area_id}
+        # The verified connection to the pinned bridge (HueBridgeLink); it also
+        # knows the bridge's current address for the DTLS stream.
+        self.link = link
         self.requester = requester or self.request
         self.connection_factory = connection_factory
         self.connection = None
@@ -127,30 +128,25 @@ class HueEntertainmentRelay:
         self.locations = self.location_cache.snapshot() if self.location_cache is not None else {}
 
     def request(self, method, body=None):
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=ctx)
-        )
-        req = urllib.request.Request(
-            "https://"
-            + self.config["bridge"]
-            + "/clip/v2/resource/entertainment_configuration/"
-            + self.area_id,
-            method=method,
-            data=None if body is None else json.dumps(body).encode(),
-            headers={
-                "hue-application-key": self.config["hue_key"],
-                "Content-Type": "application/json",
-            },
-        )
+        # The key is sent only over a connection that verified the pinned bridge.
+        if self.link is None:
+            raise OSError("No verified Hue bridge connection")
+        connection = self.link.connect(1.5)
+        headers = {"hue-application-key": self.config["hue_key"],
+                   "Content-Type": "application/json"}
         try:
-            with opener.open(req, timeout=1.5) as response:
-                result = json.load(response)
-        except urllib.error.HTTPError as error:
-            error.close()
-            raise
+            connection.request(
+                method, "/clip/v2/resource/entertainment_configuration/" + self.area_id,
+                body=None if body is None else json.dumps(body).encode(), headers=headers)
+            response = connection.getresponse()
+            raw = response.read(1024 * 1024 + 1)
+        except http.client.HTTPException:
+            raise OSError("Native Entertainment request failed") from None
+        finally:
+            connection.close()
+        if not 200 <= response.status < 300 or len(raw) > 1024 * 1024:
+            raise OSError("Native Entertainment request failed")
+        result = json.loads(raw)
         if not isinstance(result, dict) or result.get("errors"):
             raise ValueError("Native Entertainment request rejected")
         if method == "GET":
@@ -390,6 +386,8 @@ class HueEntertainmentRelay:
             confirmation = self.area(self.applied_roles)
             if confirmation["status"] != "active" or not self.ours(confirmation):
                 raise ValueError("Native stream ownership not confirmed")
+            if self.link is not None:
+                self.config["bridge"] = self.link.address
             self.connection = self.connection_factory(self.config)
             return True
         except Exception:

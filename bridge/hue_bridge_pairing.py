@@ -18,7 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
-from hue_area import bridge_context, bridge_id
+from hue_link import bridge_context, bridge_id
 from sync_box import box_address, mdns_search
 
 SERVICE = "_hue._tcp.local"

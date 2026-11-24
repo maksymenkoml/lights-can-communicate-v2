@@ -1,11 +1,9 @@
 """Bounded read-only discovery using the already paired local Hue Bridge."""
 
+import http.client
 import json
 import re
-import ssl
 import time
-import urllib.error
-import urllib.request
 
 from .discovery import _finite_positive, _local_ip
 
@@ -13,15 +11,11 @@ _PATHS = tuple("/clip/v2/resource/" + resource for resource in ("bridge", "devic
 _MAX_BYTES = 1024 * 1024
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
 class HueDiscoveryReader:
     """No constructor IO. The owner controls the background worker and stop event."""
 
-    def __init__(self, config, catalog, requester=None, interval=10, timeout=1.5):
+    def __init__(self, config, catalog, requester=None, interval=10, timeout=1.5,
+                 connect=None):
         if not isinstance(config, dict):
             raise ValueError("Invalid paired Hue configuration")
         bridge, key = _local_ip(config.get("bridge")), config.get("hue_key")
@@ -33,29 +27,24 @@ class HueDiscoveryReader:
             raise ValueError("Invalid Hue discovery bounds")
         self._bridge, self._key = bridge, key
         self._catalog, self._interval, self._timeout = catalog, interval, timeout
+        # connect(timeout) returns a connection that verified the pinned bridge
+        # (the adapter's HueBridgeLink); the key is never sent without it.
+        self._connect = connect
         self._requester = requester or self._request
 
     def _request(self, path):
         if path not in _PATHS:
             raise ValueError("Unexpected Hue discovery resource")
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context),
-            _NoRedirect(),
-        )
-        request = urllib.request.Request(
-            "https://" + self._bridge + path, method="GET",
-            headers={"hue-application-key": self._key, "Accept": "application/json"},
-        )
+        if self._connect is None:
+            raise OSError("No verified Hue bridge connection")
         deadline = time.monotonic() + self._timeout
+        connection = self._connect(self._timeout)
         try:
-            response = opener.open(request, timeout=self._timeout)
-        except urllib.error.HTTPError as error:
-            error.close()
-            raise
-        with response:
+            connection.request("GET", path, headers={"hue-application-key": self._key,
+                                                     "Accept": "application/json"})
+            response = connection.getresponse()
+            if response.status != 200:
+                raise OSError("Hue discovery request failed")
             raw = bytearray()
             while len(raw) <= _MAX_BYTES:
                 if time.monotonic() >= deadline:
@@ -66,6 +55,10 @@ class HueDiscoveryReader:
                 raw.extend(chunk)
             if len(raw) > _MAX_BYTES:
                 raise ValueError("Hue discovery response too large")
+        except http.client.HTTPException:
+            raise ValueError("Invalid Hue discovery response") from None
+        finally:
+            connection.close()
         return json.loads(raw)
 
     def _poll(self, stop_event=None):

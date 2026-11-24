@@ -284,15 +284,24 @@ cannot be saved; an enrollment that is refused after the area changed takes the
 light out again, and a failed or uncertain area write restores the earlier
 locations. Enrollments and removals run one at a time.
 
-The area client authenticates the bridge before it sends the application key.
-It verifies the certificate chain against the Signify root CA for Hue bridges
-(`root-bridge`, embedded in `bridge/hue_area.py`), and the certificate's common
-name is the bridge id. The first verified request pins that id in
-`state/hue-bridge-id`; every later request must name the same bridge, otherwise
-the change is refused (`unavailable`). After a bridge replacement, delete that
-file. A bridge whose certificate is not issued by that CA cannot change the area.
-The native relay and light proxies do not verify the bridge yet. The relay refuses an area with
-a member that is not enrolled, so do not add lights to this area in the Hue app.
+Every client that sends the application key authenticates the bridge first: the
+area client, the light proxies, the native relay's area requests and Hue
+discovery. They share one verified connection (`bridge/hue_link.py`). It checks
+the certificate chain against the Signify root CA for Hue bridges (`root-bridge`),
+and the certificate's common name is the bridge id. The first verified
+connection pins that id in `state/hue-bridge-id` (pairing in Light Studio writes
+it too); every later connection must name the same bridge, otherwise nothing is
+sent. A bridge whose certificate is not issued by that CA gets no key.
+
+When the bridge stops answering at its address, or another device answers there,
+the connection looks for the pinned bridge id among the Hue bridges that answer
+mDNS on the LAN (from the adapter's LAN address), at most every 30 seconds, and
+follows it to its new address. The Sync stream (DTLS, authenticated by the
+client key) connects to that current address. The address is followed in
+memory: after a restart the configured address is tried first. Without a pin the
+connection never moves. After a bridge replacement, pair the new bridge in Light
+Studio (or delete the pin file). The relay refuses an area with a member that is
+not enrolled, so do not add lights to this area in the Hue app.
 
 A change is refused with 409 and a reason while Sync output is active
 (`sync_active`), when the light is already enrolled (`enrolled`) or not enrolled

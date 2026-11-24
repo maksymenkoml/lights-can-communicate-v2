@@ -25,7 +25,6 @@ from lights_can_communicate_v2_core.light_registry import (
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-import hue_entertainment_relay as relay_module  # noqa: E402
 import live_adapter as adapter  # noqa: E402
 from hue_entertainment_relay import HueEntertainmentRelay  # noqa: E402
 from hue_strip_proxy import HueStripProxy, PinnedHueClient  # noqa: E402
@@ -205,20 +204,27 @@ class ProfileRelayIntegrationTests(unittest.TestCase):
         self.assertEqual([body for method, body in self.calls if method == "PUT"],
                          [{"action": "start"}, {"action": "stop"}])
 
-    def test_request_uses_instance_area_url_without_opening_http(self):
+    def test_request_uses_instance_area_path_over_the_verified_link(self):
         requests = []
 
-        def open_request(request, **_):
-            requests.append((request.full_url, request.get_method(), request.data))
-            return io.BytesIO(json.dumps({"data": [self.area], "errors": []}).encode())
+        class Connection:
+            def request(self, method, path, body=None, headers=None):
+                requests.append((path, method, body))
 
-        opener = types.SimpleNamespace(open=open_request)
-        with patch.object(relay_module.urllib.request, "build_opener", return_value=opener):
-            self.assertEqual(self.relay.request("GET"), self.area)
-            self.relay.request("PUT", {"action": "start"})
-        expected_url = "https://192.168.99.2/clip/v2/resource/entertainment_configuration/" + AREA
-        self.assertEqual(requests, [(expected_url, "GET", None),
-                                    (expected_url, "PUT", b'{"action": "start"}')])
+            def getresponse(inner):
+                answer = json.dumps({"data": [self.area], "errors": []}).encode()
+                return types.SimpleNamespace(status=200, read=io.BytesIO(answer).read)
+
+            def close(self):
+                pass
+
+        self.relay.link = types.SimpleNamespace(connect=lambda timeout: Connection(),
+                                                address="192.168.99.2")
+        self.assertEqual(self.relay.request("GET"), self.area)
+        self.relay.request("PUT", {"action": "start"})
+        expected = "/clip/v2/resource/entertainment_configuration/" + AREA
+        self.assertEqual(requests, [(expected, "GET", None),
+                                    (expected, "PUT", b'{"action": "start"}')])
 
     def test_changed_or_malformed_area_fails_before_start_or_dtls(self):
         invalid = [None, [], {**self.area, "id": OTHER},

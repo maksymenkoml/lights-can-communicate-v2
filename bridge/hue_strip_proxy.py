@@ -4,7 +4,6 @@ import copy
 import http.client
 import json
 import math
-import ssl
 import threading
 import time
 
@@ -92,7 +91,7 @@ STALE_CONNECTION = (
 
 class PinnedHueClient:
     def __init__(self, config, requester=None, resource_id=None, profile=None,
-                 connection_factory=None):
+                 connection_factory=None, link=None):
         if not isinstance(profile, NativeHueProfile):
             raise ValueError("An explicit native Hue profile is required")
         self.profile = profile
@@ -104,16 +103,18 @@ class PinnedHueClient:
         self.key = config["hue_key"]
         self.path = "/clip/v2/resource/light/" + self.resource_id
         self.requester = requester or self.request
+        # The verified connection to the pinned bridge (HueBridgeLink).
+        self.link = link
         self.connection_factory = connection_factory or self.connect
         self.connection = None
         # Status polling and power writes run on different threads.
         self.connection_lock = threading.Lock()
 
     def connect(self):
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        return http.client.HTTPSConnection(self.bridge, timeout=1.5, context=context)
+        # The key is sent only over a connection that verified the pinned bridge.
+        if self.link is None:
+            raise OSError("No verified Hue bridge connection")
+        return self.link.connect(1.5)
 
     def _drop(self):
         if self.connection is not None:

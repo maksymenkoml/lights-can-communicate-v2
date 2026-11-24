@@ -32,6 +32,7 @@ from homekit_power import (  # noqa: E402
 )
 from hue_area import HueArea  # noqa: E402
 from hue_bridge_pairing import discover as discover_hue_bridges  # noqa: E402
+from hue_link import HueBridgeLink  # noqa: E402
 from sync_box import discover as discover_sync_boxes  # noqa: E402
 
 # Light Studio runs on the core network only, where LAN multicast does not reach;
@@ -1069,12 +1070,19 @@ def main(argv=None, service_info=None):
                                  configuration="scene")
     hue_proxies = {}
     hue_config = None
+    link = None
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
+        # Every client that sends the key shares one verified connection to the pinned
+        # bridge; it follows the bridge to a new LAN address by its ID.
+        link = HueBridgeLink(
+            hue_config["bridge"], state_dir / "hue-bridge-id",
+            find=lambda: discover_hue_bridges(interface=args.lan_address))
         # One proxy per native light of the profile, keyed by its registry id.
         for light, resource in (native_profile.light_ids if native_profile else {}).items():
             hue_proxies[light] = HueStripProxy(
-                PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
+                PinnedHueClient(hue_config, resource_id=resource, profile=native_profile,
+                                link=link),
                 light,
                 layout_store=layout_store,
                 preview=preview,
@@ -1092,7 +1100,7 @@ def main(argv=None, service_info=None):
                             power_owner=power_owner),
             HueEntertainmentRelay(
                 stream_config, layout_store=layout_store, preview=preview, profile=native_profile,
-                location_cache_file=state_dir / "native-location-cache.json")
+                location_cache_file=state_dir / "native-location-cache.json", link=link)
             if native_profile is not None else NoNativeRelay(),
             hue_proxies.values(),
             diagnostics=StreamDiagnostics(state_dir / 'adapter-stream-health.jsonl'),
@@ -1166,8 +1174,7 @@ def main(argv=None, service_info=None):
     # A new Hue light joins the core's Entertainment area; the first one creates it.
     # Without usable paired credentials a Hue enrollment is refused as unavailable.
     try:
-        area = (HueArea(hue_config, paired_area,
-                        pin_file=state_dir / "hue-bridge-id")
+        area = (HueArea(hue_config, paired_area, link=link)
                 if hue_config is not None else None)
     except (KeyError, TypeError, ValueError):
         area = None
@@ -1210,7 +1217,7 @@ def main(argv=None, service_info=None):
 
     try:
         if hue_config is not None:
-            reader = HueDiscoveryReader(hue_config, catalog)
+            reader = HueDiscoveryReader(hue_config, catalog, connect=link.connect)
             threading.Thread(target=reader.run, args=(stop,), daemon=True,
                              name="hue-discovery").start()
         for light, proxy in hue_proxies.items():

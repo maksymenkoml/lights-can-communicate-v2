@@ -3,9 +3,7 @@ import io
 import sys
 import types
 import unittest
-import urllib.error
 from pathlib import Path
-from unittest.mock import patch
 
 from lights_can_communicate_v2_core.native_profile import NativeHueProfile
 
@@ -207,24 +205,42 @@ class RelayTests(unittest.TestCase):
                     self.relay.start()
                 self.assertFalse(self.relay.owned)
 
+    def link_answering(self, status, payload):
+        """A verified link whose connection answers ``status`` with ``payload``."""
+        connection = types.SimpleNamespace(closed=False, sent=[])
+        connection.request = lambda method, path, body=None, headers=None: \
+            connection.sent.append((method, path, headers))
+        connection.getresponse = lambda: types.SimpleNamespace(
+            status=status, read=io.BytesIO(payload).read)
+        connection.close = lambda: setattr(connection, "closed", True)
+        self.relay.link = types.SimpleNamespace(connect=lambda timeout: connection,
+                                                address="192.168.99.2")
+        return connection
+
     def test_malformed_http_json_is_reported_as_recoverable_native_error(self):
         for payload in (b"null", b"[]", b'{"data":null}', b'{"data":[null]}'):
             with self.subTest(payload=payload):
-                response = io.BytesIO(payload)
-                opener = types.SimpleNamespace(open=lambda *_args, **_kwargs: response)
-                with patch("hue_entertainment_relay.urllib.request.build_opener",
-                           return_value=opener), self.assertRaises(ValueError):
+                connection = self.link_answering(200, payload)
+                with self.assertRaises(ValueError):
                     self.relay.request("GET")
-                self.assertTrue(response.closed)
+                self.assertTrue(connection.closed)
 
     def test_native_http_error_response_is_closed_for_recovery_retry(self):
-        response = io.BytesIO(b"temporarily unavailable")
-        error = urllib.error.HTTPError("https://bridge/area", 503, "Unavailable", {}, response)
-        opener = types.SimpleNamespace(open=lambda *_args, **_kwargs: (_ for _ in ()).throw(error))
-        with patch("hue_entertainment_relay.urllib.request.build_opener", return_value=opener):
-            with self.assertRaises(OSError):
-                self.relay.request("GET")
-        self.assertTrue(response.closed)
+        connection = self.link_answering(503, b"temporarily unavailable")
+        with self.assertRaises(OSError):
+            self.relay.request("GET")
+        self.assertTrue(connection.closed)
+
+    def test_the_key_is_sent_only_over_the_verified_link(self):
+        self.relay.link = None
+        with self.assertRaises(OSError):
+            self.relay.request("GET")
+        connection = self.link_answering(200, b'{"errors":[],"data":[{"id":"x"}]}')
+        self.relay.request("GET")
+        method, path, headers = connection.sent[0]
+        self.assertEqual((method, path), ("GET", "/clip/v2/resource/entertainment_configuration/"
+                                                + self.relay.area_id))
+        self.assertIn("hue-application-key", headers)
 
     def test_unknown_status_during_cleanup_retains_owned_fence_until_read_recovers(self):
         self.relay.start()
