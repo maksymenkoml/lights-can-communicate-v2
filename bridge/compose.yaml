@@ -38,6 +38,7 @@ services:
       - ./hue_resource_compat.py:/probe/hue_resource_compat.py:ro
       - ./desk_layout.py:/probe/desk_layout.py:ro
       - ./rooms.py:/probe/rooms.py:ro
+      - ./room_groups.py:/probe/room_groups.py:ro
       - ./hue_names.py:/probe/hue_names.py:ro
       - ./sync_projection.py:/probe/sync_projection.py:ro
       - ./sync_zone.py:/probe/sync_zone.py:ro

@@ -12,6 +12,7 @@ RUNTIME_MODULES = (
     "live_adapter",
     "desk_layout",
     "rooms",
+    "room_groups",
     "entertainment_stream",
     "govee_segments",
     "govee_models",

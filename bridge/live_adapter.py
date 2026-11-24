@@ -272,6 +272,9 @@ class GoveeController:
         )
         self.commands_sent = 0
         self.pause_gate = None
+        # Whether Sync can own a light (a light of the Sync Box's room, #78). A closed
+        # pause gate holds only such lights; without it, it holds every light.
+        self.sync_member = None
         self.skipped_state = {light: 0 for light in self.by_light}
         self.rejected_sends = {light: 0 for light in self.by_light}
         self.color_samples = {light: deque(maxlen=500) for light in self.by_light}
@@ -467,13 +470,17 @@ class GoveeController:
             for light in self.by_light:
                 if not self.included(light):
                     self.clear_light(light)
-            if self.pause_gate is not None and not self.pause_gate():
+            paused = self.pause_gate is not None and not self.pause_gate()
+            if paused and self.sync_member is None:
                 self.last_sent.clear()
                 return
             now = self.clock()
             for light, device in self.by_light.items():
                 if not self.included(light):
                     self.clear_light(light)
+                    continue
+                if paused and self.sync_member(light):
+                    self.last_sent.pop(light, None)
                     continue
                 if self.power_owner is not None:
                     revision = self.power_owner.revision(light)
@@ -1153,16 +1160,22 @@ def main(argv=None, service_info=None):
         layout_store, (lambda: video.active()) if video is not None else (lambda: False),
         state_dir / SYNC_OFF_FILE, govee=power_owner, native=hue_proxies,
         observe=controller.power_observations)
+    def sync_owns(light):
+        # Sync owns only a light of the Sync Box's room (#78).
+        return video is not None and video.active() and layout_store.enabled(light)
+
     if homekit is not None:
-        idle["check"] = lambda light: (
-            (video is None or not video.active()) and light not in controller.jobs)
+        idle["check"] = lambda light: not sync_owns(light) and light not in controller.jobs
 
         def release_scene(light):
             # Sync output owns the lamp until it ends; only a Hue scene yields.
-            if video is None or not video.active():
+            if not sync_owns(light):
                 controller.clear_light(light)
 
         idle["release"] = release_scene
+    # Sync holds the scenes of the Sync Box's room only; the lights of the other
+    # rooms keep their scenes during Sync (#78).
+    controller.sync_member = layout_store.enabled
     controller.pause_gate = lambda: (
         (video is None or not video.active())
         and all(proxy.govee_allowed() for proxy in area_proxies.values() if proxy.included())

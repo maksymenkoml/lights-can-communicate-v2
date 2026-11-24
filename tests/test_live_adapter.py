@@ -744,6 +744,22 @@ class LiveAdapterTests(unittest.TestCase):
         self.controller.render()
         self.assertTrue(self.sent)
 
+    def test_sync_pauses_only_the_scenes_of_the_sync_rooms_lights(self):
+        self.controller.submit(command(transitiontime=0))
+        self.controller.render()
+        self.sent.clear()
+        self.controller.pause_gate = lambda: False
+        # The lamp is in a room without the Sync Box: its scene goes on (#78).
+        self.controller.sync_member = lambda light: False
+        self.controller.submit(command(transitiontime=0, sequence=2, xy=(0.15, 0.06)))
+        self.controller.render()
+        self.assertTrue(self.sent)
+        self.sent.clear()
+        self.controller.sync_member = lambda light: True
+        self.controller.submit(command(transitiontime=0, sequence=3, xy=(0.3, 0.3)))
+        self.controller.render()
+        self.assertEqual(self.sent, [])
+
     def test_positive_render_uses_only_color_and_brightness_for_pinned_id(self):
         self.controller.submit(command(xy=(0.15, 0.06)))
         self.now = 0.5
