@@ -332,11 +332,13 @@ def positions(layout, gradient=True):
 
 
 class LayoutStore:
-    def __init__(self, path, native=None):
+    def __init__(self, path, native=None, migrated=None):
         self.path = Path(path)
         # Channel count of each native Hue light outside the migrated rows; its
         # Sync zones follow its channels (see sync_projection.sync_profile).
         self.native = dict(native or {})
+        # The migrated Hue lights the registry drives, or None for all of them.
+        self.migrated = None if migrated is None else frozenset(migrated)
         self.lock = threading.RLock()
         self.signature = None
         self.data = None
@@ -449,7 +451,7 @@ class LayoutStore:
         from sync_projection import sync_profile
 
         data = self.snapshot()
-        return sync_profile(data, self.native) if data is not None else None
+        return sync_profile(data, self.native, self.migrated) if data is not None else None
 
     def save(self, value):
         data = validate_layout(value)

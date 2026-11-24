@@ -11,7 +11,7 @@ from live_adapter import GoveeController, normalize_state  # noqa: E402
 from power_owner import PowerOwner  # noqa: E402
 from test_entertainment_stream import envelope  # noqa: E402
 from test_live_adapter import LEFT, RIGHT, targets  # noqa: E402
-from video_output import VideoOutput, govee_stream_state  # noqa: E402
+from video_output import NoNativeRelay, VideoOutput, govee_stream_state  # noqa: E402
 
 
 class FakeRelay:
@@ -197,6 +197,56 @@ class VideoTests(unittest.TestCase):
         self.assertEqual(self.relay.projected,
                          {new: sync_projection.project_light_frame(frame, new, profile)})
         self.assertEqual(len(self.relay.projected[new]), 3)
+
+    def test_without_hue_lights_sync_drives_the_govee_lights_only(self):
+        import sync_projection
+        from test_sync_projection import current, layout
+
+        # The layout keeps the rows of the disconnected migrated Hue lights.
+        profile = sync_projection.sync_profile(current(layout()), migrated=frozenset())
+        self.assertEqual(profile["native_roles"], [])
+
+        class Layout:
+            def sync_profile(self):
+                return profile
+
+            def scale(self, light, fallback):
+                return fallback
+
+        self.controller.layout_store = Layout()
+        self.output = VideoOutput(self.controller, NoNativeRelay(), [], lease=self.lease,
+                                  clock=lambda: self.now)
+        self.lease.submit(envelope(colors=[[i, 1000 * i, 0, 0] for i in range(14)]))
+        self.assertTrue(self.output.process_once(),
+                        (self.output.last_result, self.output.last_safety_failure))
+        self.output.render()
+        self.assertTrue(self.sent, "the Govee lights get Sync colors")
+
+    def test_a_disconnected_migrated_hue_row_is_not_awaited(self):
+        import sync_projection
+        from test_sync_projection import current, layout
+
+        profile = sync_projection.sync_profile(
+            current(layout()), migrated={"hue-monitor", "play-left", "play-right"})
+        self.assertEqual(sorted(profile["native_roles"]),
+                         ["hue-monitor", "play-left", "play-right"])
+
+        class Layout:
+            def sync_profile(self):
+                return profile
+
+            def scale(self, light, fallback):
+                return fallback
+
+        self.controller.layout_store = Layout()
+        proxies = self.proxies[:3]
+        for proxy, light in zip(proxies, ("hue-monitor", "play-left", "play-right")):
+            proxy.light = light
+        self.output = VideoOutput(self.controller, self.relay, proxies, lease=self.lease,
+                                  clock=lambda: self.now)
+        self.lease.submit(envelope())
+        self.assertTrue(self.output.process_once(),
+                        (self.output.last_result, self.output.last_safety_failure))
 
     def test_black_video_frame_is_color_black_without_power_command(self):
         self.lease.submit(envelope(colors=[[i, 0, 0, 0] for i in range(14)]))

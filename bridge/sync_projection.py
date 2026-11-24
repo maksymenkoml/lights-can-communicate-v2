@@ -157,12 +157,14 @@ def _light_entries(validated_layout, projector=None, **options):
     return {key: projector.light(devices[key]) for key in _ROLES if key in devices}
 
 
-def sync_profile(validated_layout, native=None):
+def sync_profile(validated_layout, native=None, migrated=None):
     """Build a deterministic, public-role-only Sync profile from a validated layout.
 
     ``native`` maps each enrolled native Hue light outside the migrated rows to its
     channel count. Such a light is driven by the native relay with one projected
-    zone per channel.
+    zone per channel. ``migrated`` is the set of migrated Hue lights the registry
+    drives (None: all four); the row of a disconnected one is not a native role,
+    so Sync does not wait for a light that has no output.
     """
     native = native or {}
     devices = _devices(validated_layout)
@@ -179,7 +181,8 @@ def sync_profile(validated_layout, native=None):
     profile = {
         "basis": "screen-perimeter-v1",
         "enabled_roles": enabled,
-        "native_roles": [role for role in enabled if role not in ("left", "right")]
+        "native_roles": [role for role in enabled if role not in ("left", "right")
+                         and (migrated is None or role in migrated)]
         + [light for light in lights if light in native],
         "lights": lights,
         # The legacy keys below are derived from the per-light entries of the role rows
