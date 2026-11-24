@@ -1258,6 +1258,7 @@ async function pairHueBridge(ip){
 }
 function hueRows(){
  const b=hueBridge;if(b.state==='unknown')return '';
+ if(b.state==='configured')return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Set in the service configuration</span></span><span class="lp-status">Connected</span></div>';
  const error=hueError?'<p class="box-error lp-hue-error" role="alert">'+esc(hueError)+'</p>':'';
  if(b.state==='pairing'){
   const left=Math.max(0,Math.min(HUE_PAIR_S,b.left|0)),share=left/HUE_PAIR_S;
@@ -1272,7 +1273,7 @@ function hueRows(){
 }
 function hueSection(){
  if(hueBridge.state==='unknown')return '';
- return '<div class="lp-section"><span>Hue bridge</span><span>'+(hueBridge.state==='paired'?'Connected':hueBridge.state==='pairing'?'Pairing':'Not connected')+'</span></div>'+hueRows();
+ return '<div class="lp-section"><span>Hue bridge</span><span>'+(['paired','configured'].includes(hueBridge.state)?'Connected':hueBridge.state==='pairing'?'Pairing':'Not connected')+'</span></div>'+hueRows();
 }
 function hueClick(e){
  const ip=e.target.closest('[data-hue-ip]');if(ip){e.stopPropagation();pairHueBridge(ip.dataset.hueIp);return true}

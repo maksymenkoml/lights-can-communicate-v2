@@ -15,7 +15,12 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import LAYOUT_VERSION, ROLES, LayoutStore  # noqa: E402
-from hue_bridge_pairing import BridgeError, HueBridgePairing, OtherBridge  # noqa: E402
+from hue_bridge_pairing import (  # noqa: E402
+    BridgeError,
+    Configured,
+    HueBridgePairing,
+    OtherBridge,
+)
 from sync_box import BoxError, SyncBox  # noqa: E402
 from sync_guard import SyncGuard  # noqa: E402
 from sync_health import derive as derive_sync_health  # noqa: E402
@@ -373,7 +378,8 @@ def _post_local_json(url, body, timeout, headers):
 def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
-                sync_box=None, hosts=(), lights_post=None, hue_bridge=None):
+                sync_box=None, hosts=(), lights_post=None, hue_bridge=None,
+                hue_config=None):
     store = LayoutStore(layout_file or token_file.parent / "desk-layout.json")
     # The Sync Box token lives with the other private state, never in the layout.
     box = sync_box or SyncBox(store.path.parent / "sync-box.json")
@@ -392,7 +398,8 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
     # when the file changes and then uses this bridge.
     bridge = hue_bridge or HueBridgePairing(store.path.parent / "hue-bridge.json",
                                             store.path.parent / "hue-bridge-id",
-                                            has_hue_lights=has_hue_lights)
+                                            has_hue_lights=has_hue_lights,
+                                            configured=hue_config)
 
     def default_source_fetch():
         data = _read_local_json(bridge_url + "/probe/status", 0.25)
@@ -743,6 +750,9 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 if data:
                     raise ValueError("Expected an empty object")
                 return self.respond(200, {"find": bridge.find, "cancel": bridge.cancel}[action]())
+            except Configured:
+                return self.respond(409, {"error": "the service configuration names a Hue bridge",
+                                          "reason": "configured"})
             except OtherBridge:
                 return self.respond(409, {"error": "another Hue bridge has connected lights",
                                           "reason": "other_bridge"})
@@ -773,11 +783,11 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
 
 def serve(token_file, layout_file, bind="127.0.0.1", port=19881,
           adapter_url="http://127.0.0.1:19880", bridge_url="http://127.0.0.1",
-          hosts=()):
+          hosts=(), hue_config=None):
     """Serve until interrupted; SIGTERM handling belongs to the caller."""
     handler = handler_for(
         Path(token_file), Path(layout_file), adapter_url=adapter_url, bridge_url=bridge_url,
-        hosts=hosts)
+        hosts=hosts, hue_config=hue_config)
     server = ThreadingHTTPServer((bind, port), handler)
     stop = threading.Event()
     threading.Thread(target=handler.guard.run, args=(stop,), daemon=True).start()

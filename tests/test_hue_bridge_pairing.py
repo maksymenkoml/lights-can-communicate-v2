@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_bridge_pairing import (  # noqa: E402
     DEVICE_TYPE,
     BridgeError,
+    Configured,
     HueBridgePairing,
     OtherBridge,
 )
@@ -183,6 +184,21 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(self.wait(pairing), {"state": "none", "result": "failed"})
         self.assertFalse((self.root / "hue-bridge.json").exists())
 
+    def test_a_bridge_from_the_service_configuration_is_not_paired_again(self):
+        explicit = self.root / "hue.json"
+        explicit.write_text('{"bridge": "192.168.10.5", "hue_key": "PRIVATE"}')
+        bridge = Bridge()
+        pairing = HueBridgePairing(self.root / "hue-bridge.json", self.root / "hue-bridge-id",
+                                   transport=bridge, configured=explicit)
+        self.assertEqual(pairing.status(), {"state": "configured"})
+        with self.assertRaises(Configured):
+            pairing.pair("192.168.10.5")
+        self.assertEqual(bridge.calls, [])
+        # The paired file named as the service's own file is an ordinary pairing.
+        pairing = HueBridgePairing(self.root / "hue-bridge.json", self.root / "hue-bridge-id",
+                                   transport=bridge, configured=self.root / "hue-bridge.json")
+        self.assertEqual(pairing.status(), {"state": "none"})
+
     def test_a_damaged_file_reads_as_not_paired(self):
         (self.root / "hue-bridge.json").write_text('{"bridge": "192.168.10.5"}')
         self.assertEqual(self.pairing(Bridge()).status(), {"state": "none"})
@@ -273,6 +289,22 @@ class StudioHueBridgeRouteTests(unittest.TestCase):
         # An unreadable registry cannot prove that no Hue light depends on the pin.
         (self.folder / "lights.json").write_text("not json")
         self.assertEqual(self.call("/api/hue-bridge/pair", {"ip": "192.168.10.5"})[0], 409)
+
+    def test_a_configured_bridge_is_reported_and_not_paired(self):
+        studio = studio_module()
+        (self.folder / "hue.json").write_text('{"bridge": "192.168.10.5"}')
+        handler = studio.handler_for(self.folder / "missing-token",
+                                     self.folder / "desk-layout.json",
+                                     hue_config=self.folder / "hue.json")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), worker.join(2)))
+        self.base = "http://127.0.0.1:" + str(server.server_port)
+        self.assertEqual(self.call("/api/hue-bridge"), (200, {"state": "configured"}))
+        self.assertEqual(self.call("/api/hue-bridge/pair", {"ip": "192.168.10.5"}),
+                         (409, {"error": "the service configuration names a Hue bridge",
+                                "reason": "configured"}))
 
     def test_a_device_that_is_not_a_verified_bridge_is_not_found(self):
         self.serve(Bridge(answer_id="0000000000000000"))

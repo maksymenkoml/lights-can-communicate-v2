@@ -433,7 +433,9 @@ pinned one is refused while the light registry holds a Hue light.
 
 The service uses `hue-bridge.json` for scenes and the Sync stream only when its
 configuration names neither `hue_config_file` nor `hue_stream_config_file`;
-explicit files always win. The adapter restarts when the file changes (not
+explicit files always win. With explicit files, the section shows the bridge as
+set in the service configuration and offers no pairing; Light Studio does not
+read those files. The adapter restarts when the file changes (not
 while Sync output owns the lamps), so it starts with the new bridge. Hue lights
 of a newly paired bridge are connected after the core owns an Entertainment
 area (issue #60, stage 2).

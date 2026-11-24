@@ -203,6 +203,7 @@ def _setup(config):
         adapter_url=urls["adapter"],
         bridge_url=urls["bridge"],
         hosts=config.container.studio_hosts,
+        hue_config=config.hue_config_file,
     ))
     return 0
 

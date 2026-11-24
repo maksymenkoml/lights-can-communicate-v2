@@ -347,6 +347,14 @@ test('the Lamps panel pairs the Hue bridge after its button is pressed, without 
  assert.ok(!panel.querySelector('[data-hue]'));
 });
 
+test('a Hue bridge from the service configuration shows as connected without Connect',async()=>{
+ const app=await harness({hueBridge:()=>({state:'configured'})});
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/Hue bridgeConnectedHue bridgeSet in the service configurationConnected/);
+ assert.ok(!panel.querySelector('[data-hue]'));
+});
+
 test('a Hue bridge address is typed when none is found, and errors stay readable',async()=>{
  const app=await harness({hueBridge:(url,body)=>{
   if(url==='/api/hue-bridge/find')return {bridges:[]};

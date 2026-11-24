@@ -42,6 +42,10 @@ class OtherBridge(Exception):
     """Another bridge is pinned and Hue lights of it are connected."""
 
 
+class Configured(Exception):
+    """The service configuration names its own Hue files, which always win."""
+
+
 def https_json(ip, method, path, body=None, key=None, timeout=READ_TIMEOUT):
     """One verified HTTPS request; return (status, JSON value, bridge ID, headers).
 
@@ -107,8 +111,12 @@ class HueBridgePairing:
 
     def __init__(self, path, pin_file, has_hue_lights=lambda: False, transport=https_json,
                  find=discover, clock=time.monotonic, sleep=time.sleep,
-                 pair_seconds=PAIR_SECONDS):
+                 pair_seconds=PAIR_SECONDS, configured=None):
         self.path, self.pin_file = Path(path), Path(pin_file)
+        # The Hue configuration file that the service configuration names, if any.
+        self.configured = Path(configured) if configured is not None else None
+        if self.configured is not None and self.configured.resolve() == self.path.resolve():
+            self.configured = None
         self.has_hue_lights = has_hue_lights
         self.transport, self.find_addresses = transport, find
         self.clock, self.sleep, self.pair_seconds = clock, sleep, pair_seconds
@@ -188,6 +196,8 @@ class HueBridgePairing:
         bridge, OtherBridge when another bridge is pinned and its Hue lights are
         connected.
         """
+        if self.configured is not None:
+            raise Configured()
         info = self.describe(box_address(ip))
         pinned = self._pinned()
         if pinned is not None and pinned != info["bridge_id"] and self.has_hue_lights():
@@ -267,6 +277,9 @@ class HueBridgePairing:
                 return {"state": "pairing", "name": self.pairing["name"],
                         "ip": self.pairing["ip"],
                         "left": max(0, round(self.pairing["deadline"] - self.clock()))}
+            if self.configured is not None:
+                # Light Studio does not read that file: it holds the service's keys.
+                return {"state": "configured"}
             config = self.config()
             result = {"state": "paired", "name": config["name"], "ip": config["bridge"]} \
                 if config is not None else {"state": "none"}
