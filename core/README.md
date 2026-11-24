@@ -228,17 +228,32 @@ Govee light an output; discovery never does.
 
 The owner enrolls a discovered Govee or Hue light with `POST /api/lights/enroll` and
 removes one with `POST /api/lights/remove` in Light Studio (body `{"id":
-"device-<32 hex>"}`, local origin only). Light Studio forwards the request to the
+"device-<32 hex>"}`, or a migrated id such as `"play-center"` for a removal; local
+origin only). Light Studio forwards the request to the
 adapter (`/lights/enroll`, `/lights/remove`, adapter token), the only writer of
 the registry. An enrollment needs the light to pass the binding rules at that
 moment: discovered, online, at one address that no other device uses, and not
-one of the migrated lamps. Any model qualifies; a model outside the capability
+one of the enrolled migrated lamps. Any model qualifies; a model outside the capability
 table is driven as a basic light. The new entry takes the Govee device ID, the
 current address and the model; its virtual slot is the lowest free `id_v1`, with
 the light ID as the identity seed. A removal keeps the light's virtual identity
-in `retired` (at most 64 records, oldest dropped first), so a rejoin of the same
-device gets the same slot and seed. The migrated lamps cannot be removed: they
-still own the fixed layout rows.
+and its physical identity (the Govee device key or the Hue light UUID) in
+`retired` (at most 64 records, oldest dropped first), so a rejoin of the same
+device gets the same slot and seed.
+
+Any enrolled light can be removed, the six migrated lamps too; the registry may
+hold any set of lights, or none, and keeps the paired Hue area without Hue
+lights. Without Hue lights the adapter still starts with the paired bridge, so
+a Hue light can be enrolled again, and Sync drives the Govee lights only. The
+row of a disconnected migrated Hue light is not a native Sync role, so Sync does
+not wait for a light that has no output. A removed migrated Hue light leaves the native area like any Hue light,
+and the later channels move down. Its virtual light stays in the bridge and in
+the Sync Box's Entertainment area, so the stream topology does not change, but
+nothing drives it and HomeKit shows it as not responding. Discovery names a
+removed migrated lamp by its migrated id (`layout_id`) and keeps it enrollable;
+enrolling it under its discovered id gives it its migrated id, slot and seed
+back, so its HomeKit accessory responds again. The enrollment answer names the
+registry id (`"id"`).
 
 A Hue light is enrolled into the native Entertainment area that the existing
 pairing uses (#60 adds the choice of area later). With Sync off, the adapter adds

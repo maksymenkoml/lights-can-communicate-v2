@@ -1,11 +1,13 @@
-"""Owner enrollment and removal of discovered lights in the light registry.
+"""Owner enrollment and removal of lights in the light registry.
 
 The adapter is the only writer of the registry: it also records a lamp's new
-address there. An enrollment or a removal is checked against the discovery
-catalog at that moment (discovered, online, unambiguous, not a migrated lamp),
-saved atomically, and then the adapter restarts so that every layer starts from
-the new light set. Docker restarts the finished container. While Sync output is
-active the light set is not changed.
+address there. An enrollment is checked against the discovery catalog at that
+moment (discovered, online, unambiguous, not an enrolled migrated lamp). Any
+enrolled light can be removed, the six migrated lamps too; a removed migrated
+lamp that is enrolled again gets its migrated id back (see light_registry). A
+change is saved atomically, and then the adapter restarts so that every layer
+starts from the new light set. Docker restarts the finished container. While Sync
+output is active the light set is not changed.
 
 A Hue light is also added to the paired Entertainment area, and its channels
 come from that area; a removal takes it out again. The area is changed before
@@ -18,6 +20,7 @@ from hue_area import AreaBusy, AreaShared
 
 from lights_can_communicate_v2_core.light_registry import (
     DEVICE_ID,
+    LIGHT_ID,
     MODEL_ID,
     RegistryError,
 )
@@ -49,8 +52,8 @@ class LightEnrollment:
         self.changes = threading.Lock()
         self.pending = False
 
-    def _check(self, light_id):
-        if type(light_id) is not str or DEVICE_ID.match(light_id) is None:
+    def _check(self, light_id, pattern=DEVICE_ID):
+        if type(light_id) is not str or pattern.match(light_id) is None:
             raise ValueError("Invalid light id")
         if self.pending:
             raise LightRefused("restarting")
@@ -66,9 +69,14 @@ class LightEnrollment:
         self.pending = True
 
     def enroll(self, light_id):
-        """Add a discovered Govee or Hue light; raise LightRefused or ValueError."""
+        """Add a discovered Govee or Hue light and return its registry id.
+
+        The id is ``light_id``, or the migrated id of a migrated lamp that rejoins.
+        Raise LightRefused or ValueError."""
         with self.changes:
             self._enroll(light_id)
+            # A light is appended last (see light_registry._append).
+            return self.registry.ids[-1]
 
     def _enroll(self, light_id):
         if self.catalog.hue_enrollment(light_id) is not None:
@@ -157,7 +165,7 @@ class LightEnrollment:
         return None
 
     def remove(self, light_id):
-        """Remove an enrolled discovered light; its identity stays for a rejoin.
+        """Remove an enrolled light, a migrated one too; its identity stays for a rejoin.
 
         A Hue light leaves the paired area first, so the relay never meets an
         area member that is not enrolled; a refused removal puts it back."""
@@ -166,7 +174,7 @@ class LightEnrollment:
 
     def _remove(self, light_id):
         with self.lock:
-            self._check(light_id)
+            self._check(light_id, LIGHT_ID)
             if light_id not in self.registry.ids:
                 raise LightRefused("not_enrolled")
             native = self._native_light(light_id)
@@ -177,7 +185,7 @@ class LightEnrollment:
             before = self._area_call(self.area.leave, native)
         try:
             with self.lock:
-                self._check(light_id)
+                self._check(light_id, LIGHT_ID)
                 if light_id not in self.registry.ids:
                     raise LightRefused("not_enrolled")
                 self._apply(self.registry.without_light(light_id))

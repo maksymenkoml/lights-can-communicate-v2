@@ -477,6 +477,36 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
             loader.assert_called_once_with(self.root / REGISTRY_FILE)
         self.assert_shared_profile(objects)
 
+    def test_main_starts_without_hue_lights_with_the_paired_area(self):
+        class BeforeServer(Exception):
+            pass
+
+        registry = write_registry(self.root, targets(), profile_data())
+        for light in ("hue-monitor", "play-left", "play-center", "play-right"):
+            registry = registry.without_light(light)
+        registry.save(self.root / REGISTRY_FILE)
+        arguments = ["--registry", str(self.root / REGISTRY_FILE), "--token-file",
+                     str(self.root / "token"), "--state-dir", str(self.root / "state"),
+                     "--hue-config", str(self.root / "hue.json"), "--hue-play",
+                     "--hue-stream-config", str(self.root / "stream.json")]
+        previous_lan_config = adapter.lan.CONFIG
+        self.addCleanup(setattr, adapter.lan, "CONFIG", previous_lan_config)
+        outputs = []
+        with ExitStack() as stack:
+            self.no_device_io(stack)
+            objects = self.capture_constructors(stack)
+            constructor = adapter.VideoOutput
+            stack.enter_context(patch.object(
+                adapter, "VideoOutput",
+                side_effect=lambda *a, **k: outputs.append(constructor(*a, **k)) or outputs[-1]))
+            stack.enter_context(patch.object(adapter, "ThreadingHTTPServer",
+                                            side_effect=BeforeServer))
+            with self.assertRaises(BeforeServer):
+                adapter.main(arguments)
+        self.assertEqual([len(objects[name]) for name in objects], [0, 0, 0])
+        self.assertIsInstance(outputs[0].relay, adapter.NoNativeRelay)
+        self.assertEqual(outputs[0].proxies, [])
+
     def test_main_rejects_bad_profile_before_creating_missing_token(self):
         (self.root / REGISTRY_FILE).write_text("private-profile-data")
         token = self.root / "not-created-token"

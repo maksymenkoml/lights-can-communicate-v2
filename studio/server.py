@@ -483,8 +483,12 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 error.close()
             return 503, {"accepted": False, "reason": "adapter unavailable"}
         if status == 200 and isinstance(answer, dict) and answer.get("accepted") is True:
-            # The adapter restarts with the new light set.
-            return 200, {"accepted": True, "restarting": True}
+            # The adapter restarts with the new light set. An enrollment names the
+            # registry id: a migrated lamp that rejoins gets its migrated id back.
+            result = {"accepted": True, "restarting": True}
+            if _light_id(answer.get("id")):
+                result["id"] = answer["id"]
+            return 200, result
         if status == 409:
             reason = answer.get("reason") if isinstance(answer, dict) else None
             return 409, {"accepted": False,
@@ -651,9 +655,13 @@ def handler_for(token_file, layout_file=None, catalog_fetch=None, live_fetch=Non
                 if not 0 < size <= 256:
                     return self.respond(413, {"error": "light payload too large"})
                 data = json.loads(self.rfile.read(size))
+                # Only a discovered light is enrolled; any enrolled light, a migrated
+                # one too, can be removed.
+                known = (_light_id if route == "/lights/remove"
+                         else lambda value: DEVICE_ID.fullmatch(value) is not None)
                 if (not isinstance(data, dict) or set(data) != {"id"}
-                        or not isinstance(data["id"], str) or not DEVICE_ID.fullmatch(data["id"])):
-                    raise ValueError("Expected a discovered light id")
+                        or not isinstance(data["id"], str) or not known(data["id"])):
+                    raise ValueError("Expected a light id")
             except (ValueError, TypeError):
                 return self.respond(400, {"error": "invalid light request"})
             return self.respond(*change_lights(route, data["id"]))

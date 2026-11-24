@@ -41,6 +41,8 @@ const MIGRATED=[
 ];
 const SHAPES=['floor','strip','bar'];
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
+// A lamp the core can drive: a discovered device or one of the six migrated lamps.
+const linkable=id=>realDevice(id)||MIGRATED.some(s=>s.id===id);
 const virtualDevice=id=>/^virtual-[a-z0-9]{1,32}$/.test(id||'');
 const isRole=id=>Object.hasOwn(ROLES,id);
 // Lights enrolled in the core, from /api/live: the six migrated lamps always are; a
@@ -881,7 +883,7 @@ function connectPromptHtml(l){
   +'<div class="card-foot"><span class="card-gap"></span><button data-menu="connect-later">Not now</button><button class="primary" data-menu="connect-now">Connect</button></div>';
 }
 function connectedField(l){
- if(!realDevice(l.id))return '';
+ if(!linkable(l.id))return '';
  const link=linkState(l),on=link?link==='connect':!l.unbound;
  const label=link==='connect'?'Connecting…':link==='disconnect'?'Disconnecting…':'Connected';
  return '<div class="card-field" data-connected-field><span>'+label+'</span><button class="card-switch" role="switch" aria-label="Connected" aria-checked="'+on+'" data-menu="connected"'+(link?' disabled':'')+'><span class="switch"><i></i></span></button></div>';
@@ -963,12 +965,16 @@ const LINK_TIMEOUT_MS=90000;
 let linking=new Map(),connectPrompt=null;
 const LIGHT_REFUSED={sync_active:'Stop Sync to connect or disconnect a lamp',restarting:'The lamps are restarting; try again in a moment',enrolled:'The lamp is already connected',not_enrolled:'The lamp is already disconnected',unavailable:'The lamp does not respond',area_full:'The Hue entertainment area is full',channels_shared:'Hue gives this lamp the same channels as another lamp'};
 const linkState=l=>linking.get(l.id)?.kind||null;
+// A disconnected migrated lamp is discovered under a device id and named by its row
+// (layout_id); the core enrolls that device and gives it its migrated id back.
+function enrollId(l){return realDevice(l.id)?l.id:catalogRows().find(d=>d.layout_id===l.id)?.id||null}
 async function changeLink(l,kind){
- if(!realDevice(l.id)||linking.has(l.id))return;
- const verb=kind==='connect'?'Connect':'Disconnect';
+ if(!linkable(l.id)||linking.has(l.id))return;
+ const verb=kind==='connect'?'Connect':'Disconnect',id=kind==='connect'?enrollId(l):l.id;
+ if(!id){tell(LIGHT_REFUSED.unavailable);return}
  linking.set(l.id,{kind,since:performance.now()});paintLink();
  let status=0,body={};
- try{const r=await fetch(kind==='connect'?'/api/lights/enroll':'/api/lights/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:l.id})});status=r.status;body=await r.json().catch(()=>({}))}catch{}
+ try{const r=await fetch(kind==='connect'?'/api/lights/enroll':'/api/lights/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});status=r.status;body=await r.json().catch(()=>({}))}catch{}
  // The deadline holds even when /api/live stops answering.
  if(status===200&&body.accepted===true){tell((kind==='connect'?'Connecting ':'Disconnecting ')+l.name);setTimeout(settleLinks,LINK_TIMEOUT_MS+50);return}
  linking.delete(l.id);paintLink();
@@ -998,7 +1004,8 @@ function menuAction(id){
   if(linkState(l))return true;
   if(l.unbound){changeLink(l,'connect');return true}
   const f=menu.querySelector('[data-connected-field]');
-  if(f)f.outerHTML='<div class="card-confirm" data-connected-field><span>Disconnect '+esc(l.name)+'?</span><button data-menu="disconnect-cancel">Cancel</button><button class="danger" data-menu="disconnect-ok">Disconnect</button></div>';
+  // A migrated lamp's HomeKit accessory and Hue app light stay, without a response.
+  if(f)f.outerHTML='<div class="card-confirm" data-connected-field><span>Disconnect '+esc(l.name)+'?'+(realDevice(l.id)?'':'<small>HomeKit will show it as not responding</small>')+'</span><button data-menu="disconnect-cancel">Cancel</button><button class="danger" data-menu="disconnect-ok">Disconnect</button></div>';
   menu.querySelector('[data-menu="disconnect-cancel"]')?.focus();return true;
  }
  if(id==='disconnect-cancel'){const f=menu.querySelector('[data-connected-field]');if(f)f.outerHTML=connectedField(l);return true}
@@ -1192,7 +1199,7 @@ function paintSwatches(){
 }
 function lampRowStatus(l){
  const link=linkState(l);if(link)return '<span class="lp-status">'+(link==='connect'?'Connecting…':'Disconnecting…')+'</span>';
- if(l.unbound)return realDevice(l.id)?'<button class="lp-connect" data-connect="'+l.id+'">Connect</button>':'<span class="lp-status">Not connected</span>';
+ if(l.unbound)return linkable(l.id)?'<button class="lp-connect" data-connect="'+l.id+'">Connect</button>':'<span class="lp-status">Not connected</span>';
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
  if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
@@ -1290,7 +1297,9 @@ function placeDevice(entry,position){
  remember();
  const m=MIGRATED.find(s=>s.id===entry.id);
  // The monitor strip wraps the screen, so it takes the screen's place.
- const l=m?{...migratedLamp(m),...(m.id===MONITOR?{x:environment.screen.x,h:environment.screen.h}:{x:position.x,h:position.h})}
+ // A migrated lamp is connected unless the core lists its lights without it.
+ const listed=liveSnapshot?.connected===true&&Array.isArray(liveSnapshot.lights);
+ const l=m?{...migratedLamp(m),...(m.id===MONITOR?{x:environment.screen.x,h:environment.screen.h}:{x:position.x,h:position.h}),unbound:listed&&!enrolled.has(m.id)}
   :{id:entry.id,name:entry.name,model:entry.model,shape:entry.shape,form:entry.form,zones:entry.zones,x:position.x,h:position.h,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:'sync',unbound:!enrolled.has(entry.id)};
  clampFixture(l);lamps.push(l);selected=l.id;
  cancelPlacement();render();
@@ -1406,7 +1415,7 @@ function applyEnrollment(){
  if(!list)return;
  const next=new Map(list.filter(r=>r&&typeof r.id==='string'&&['govee','hue'].includes(r.provider)).map(r=>[r.id,r]));
  let changed=false;
- for(const l of lamps)if(realDevice(l.id)){const unbound=!next.has(l.id);if(l.unbound!==unbound){l.unbound=unbound;changed=true}}
+ for(const l of lamps)if(linkable(l.id)){const unbound=!next.has(l.id);if(l.unbound!==unbound){l.unbound=unbound;changed=true}}
  enrolled=next;
  if(changed&&!drag){render();paintPanel()}
  settleLinks();

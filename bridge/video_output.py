@@ -20,6 +20,27 @@ def govee_stream_state(rgb, stops=None):
     return state
 
 
+class NoNativeRelay:
+    """The native Hue output of a light set without Hue lights: nothing to stream.
+
+    Sync then drives the Govee lights only; the paired Hue area stays unused.
+    """
+
+    owned = False
+
+    def start(self, composition_profile=None):
+        return True
+
+    def send(self, frame, projected=None):
+        pass
+
+    def stop(self):
+        pass
+
+    def recover(self):
+        pass
+
+
 class VideoOutput:
     def __init__(self, controller, relay, proxies, lease=None, clock=time.monotonic,
                  diagnostics=None):

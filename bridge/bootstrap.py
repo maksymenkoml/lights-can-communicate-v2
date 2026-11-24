@@ -52,7 +52,7 @@ from HueObjects import (  # noqa: E402
     StreamEvent,
 )
 from stream_diagnostics import StreamDiagnostics  # noqa: E402
-from virtual_lights import default_name, hue_plan, plan  # noqa: E402
+from virtual_lights import default_name, hue_plan, migrated_hue_slots, plan  # noqa: E402
 from virtual_lights import load as load_registry  # noqa: E402
 from virtual_lights import signature as registry_signature  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
@@ -121,11 +121,14 @@ govee_slots = {item["slot"]: item["light"] for item in govee_lights}
 hue_lights = hue_plan(registry_data) if include_strip and include_hue_play else []
 hue_slots = {item["slot"]: item["light"] for item in hue_lights}
 gradient_slots = {item["slot"] for item in govee_lights if GRADIENT_MODE and item["segmented"]}
+# A migrated Hue light that the owner removed keeps its virtual light in the Sync
+# Box's Entertainment area, so the stream topology stays; nothing drives it.
+migrated_hue = migrated_hue_slots(registry_data)
 selected_slots = (
     set(govee_slots)
     | set(hue_slots)
-    | ({"3"} if include_strip else set())
-    | ({"4", "5", "6"} if include_hue_play else set())
+    | ({"3"} & set(migrated_hue) if include_strip else set())
+    | ({"4", "5", "6"} & set(migrated_hue) if include_hue_play else set())
 )
 if any(light.protocol != "dummy" for light in config["lights"].values()):
     raise RuntimeError("This probe refuses physical-device protocols")
@@ -404,6 +407,7 @@ if (
         include_hue_play=include_hue_play,
         govee_slots=govee_slots,
         hue_slots=hue_slots,
+        migrated_hue=migrated_hue,
     )
 
 original_set_state = Light.Light._setV1State

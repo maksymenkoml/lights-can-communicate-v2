@@ -130,8 +130,10 @@ class OutputPreviewStore:
 
     def __init__(self, clock=time.monotonic, native_channels=None):
         self.clock = clock
-        # Native light id -> its canonical channels; the adapter passes its profile's.
-        self.native_channels = dict(native_channels or MIGRATED_NATIVE_CHANNELS)
+        # Native light id -> its canonical channels; the adapter passes its profile's,
+        # empty without Hue lights.
+        self.native_channels = dict(MIGRATED_NATIVE_CHANNELS if native_channels is None
+                                    else native_channels)
         self.lock = threading.RLock()
         self.outputs = {}
 

@@ -46,7 +46,7 @@ from stream_diagnostics import StreamDiagnostics  # noqa: E402
 from sync_health import export as export_diagnostics  # noqa: E402
 from sync_off import STATE_FILE as SYNC_OFF_FILE  # noqa: E402
 from sync_off import SyncOffSession  # noqa: E402
-from video_output import VideoOutput  # noqa: E402
+from video_output import NoNativeRelay, VideoOutput  # noqa: E402
 
 import lights_can_communicate_v2 as lan  # noqa: E402
 from lights_can_communicate_v2_core.discovery import DeviceCatalog  # noqa: E402
@@ -895,13 +895,18 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                         raise ValueError("Invalid light request")
                     change = lights.enroll if self.path == "/lights/enroll" else lights.remove
                     try:
-                        change(payload["id"])
+                        light = change(payload["id"])
                     except LightRefused as refused:
                         return self.respond(409, {"accepted": False, "reason": refused.reason})
                     except OSError:
                         return self.respond(503, {"accepted": False})
                     # The adapter restarts with the new light set (see light_enrollment).
-                    return self.respond(200, {"accepted": True, "restarting": True})
+                    # An enrollment names the registry id: a migrated lamp that
+                    # rejoins gets its migrated id back.
+                    answer = {"accepted": True, "restarting": True}
+                    if light is not None:
+                        answer["id"] = light
+                    return self.respond(200, answer)
                 elif self.path == "/calibration/end":
                     if payload != {}:
                         raise ValueError("Invalid calibration end request")
@@ -969,13 +974,18 @@ def main(argv=None, service_info=None):
     native_profile = registry.native_profile()
     if native_profile and not args.hue_config:
         parser.error("A native Hue profile in the light registry requires --hue-config")
-    if args.hue_config and not native_profile:
-        parser.error("--hue-config requires a native Hue profile in the light registry")
+    # A paired Hue area may have no Hue light now: the owner removed them all and
+    # can enroll one again; until then Sync drives the Govee lights only.
+    paired_area = registry.to_dict().get("hue", {}).get("area_id")
+    if args.hue_config and not native_profile and paired_area is None:
+        parser.error("--hue-config requires a paired Hue area in the light registry")
     config = {"targets": registry.govee_targets()}
     layout_store = LayoutStore(
         state_dir / "desk-layout.json",
         native={light: len(channels) for light, channels in native_profile.channels.items()
-                if light not in NATIVE_SOURCES} if native_profile else None)
+                if light not in NATIVE_SOURCES} if native_profile else None,
+        migrated={light for light in native_profile.channels if light in NATIVE_SOURCES}
+        if native_profile else frozenset())
     composition_profile = layout_store.sync_profile()
     prepare_targets(config["targets"], composition_profile)
     if not args.token_file.exists():
@@ -986,7 +996,7 @@ def main(argv=None, service_info=None):
     power_owner = power_token = homekit = None
     power_requests = None
     preview = OutputPreviewStore(
-        native_channels=native_profile.channels if native_profile else None)
+        native_channels=native_profile.channels if native_profile else {})
     # Per-lamp calibration converts commands to device values on the way out and
     # statuses back to logical values; an invalid profile refuses to start.
     calibration = GoveeCalibration(config["targets"], layout_store)
@@ -1025,7 +1035,7 @@ def main(argv=None, service_info=None):
     if args.hue_config:
         hue_config = json.loads(args.hue_config.read_text())
         # One proxy per native light of the profile, keyed by its registry id.
-        for light, resource in native_profile.light_ids.items():
+        for light, resource in (native_profile.light_ids if native_profile else {}).items():
             hue_proxies[light] = HueStripProxy(
                 PinnedHueClient(hue_config, resource_id=resource, profile=native_profile),
                 light,
@@ -1045,7 +1055,8 @@ def main(argv=None, service_info=None):
                             power_owner=power_owner),
             HueEntertainmentRelay(
                 stream_config, layout_store=layout_store, preview=preview, profile=native_profile,
-                location_cache_file=state_dir / "native-location-cache.json"),
+                location_cache_file=state_dir / "native-location-cache.json")
+            if native_profile is not None else NoNativeRelay(),
             hue_proxies.values(),
             diagnostics=StreamDiagnostics(state_dir / 'adapter-stream-health.jsonl'),
         )
@@ -1100,7 +1111,12 @@ def main(argv=None, service_info=None):
         resource = getattr(proxy, "resource_id", None)
         if resource and light in NATIVE_SOURCES:
             legacy_roles[("hue", resource)] = light
-    catalog = DeviceCatalog(legacy_roles=legacy_roles)
+    # A removed migrated lamp is found under its migrated id, so Light Studio can
+    # connect its layout row again.
+    rejoin_roles = {(record["identity"]["provider"], record["identity"]["key"]): record["id"]
+                    for record in registry.to_dict().get("retired", [])
+                    if "identity" in record and not record["id"].startswith("device-")}
+    catalog = DeviceCatalog(legacy_roles=legacy_roles, rejoin_roles=rejoin_roles)
     catalog.provider_state("govee", "discovering")
     catalog.provider_state("hue", "discovering" if hue_config is not None else "not_configured")
     stop = threading.Event()
@@ -1113,7 +1129,7 @@ def main(argv=None, service_info=None):
     # A new Hue light is enrolled into the paired Entertainment area (#60 chooses it later).
     # Without usable paired credentials a Hue enrollment is refused as unavailable.
     try:
-        area = (HueArea(hue_config, native_profile.area_id,
+        area = (HueArea(hue_config, paired_area,
                         pin_file=state_dir / "hue-bridge-id")
                 if hue_config is not None else None)
     except (KeyError, TypeError, ValueError):

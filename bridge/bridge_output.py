@@ -144,7 +144,7 @@ class PlayGuard:
 class BridgeOutput:
     def __init__(
         self, url, token, sender=None, clock=time.time, include_strip=False, include_hue_play=False,
-        govee_slots=None, hue_slots=None,
+        govee_slots=None, hue_slots=None, migrated_hue=None,
     ):
         self.url, self.token, self.clock = url.rstrip("/"), token, clock
         self.sender = sender or self.post
@@ -159,10 +159,14 @@ class BridgeOutput:
             "1": "govee-left", "2": "govee-right"}
         govee_lights = set(govee.values())
         self.slots = govee
-        if include_strip:
-            self.slots["3"] = "hue-monitor"
+        # The migrated Hue lights by role, only those the registry drives.
+        native = {"3": "hue-monitor", "4": "play-left", "5": "play-center", "6": "play-right"}
+        if migrated_hue is not None:
+            native = {slot: light for slot, light in native.items() if slot in migrated_hue}
+        if include_strip and "3" in native:
+            self.slots["3"] = native["3"]
         if include_hue_play:
-            self.slots.update({"4": "play-left", "5": "play-center", "6": "play-right"})
+            self.slots.update({slot: light for slot, light in native.items() if slot != "3"})
         # Virtual slot -> native Hue light id of the Hue lights enrolled later.
         self.slots.update(hue_slots or {})
         self.hue_roles = set(self.slots.values()) - govee_lights

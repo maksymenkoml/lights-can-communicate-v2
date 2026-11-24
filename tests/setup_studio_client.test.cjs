@@ -1368,3 +1368,41 @@ test('the screen keeps the place of a moved monitor strip after the strip row go
  app.run('lamps.find(l=>l.id==="hue-monitor").x=20;render();lamps=lamps.filter(l=>l.id!=="hue-monitor");render()');
  assert.deepEqual(json(app,'pack().screen.positionCm'),{x:120,height:110});
 });
+
+test('a migrated lamp disconnects with a HomeKit note and reconnects through its found device',async()=>{
+ const calls=[],device='device-'+'b'.repeat(32);
+ let lights=['govee-left','govee-right','hue-monitor','play-left','play-center','play-right'].map(id=>enrolledRow(id,{migrated:true}));
+ const found=discovered({id:device,name:'Hue Play',provider:'hue',layout_id:'play-center'});
+ const app=await harness({live:()=>liveOk({lights}),discovery:{connected:true,devices:[found],providers:{govee:'ready',hue:'ready'}},
+  lights:(url,body)=>{calls.push([url,body]);return {status:200,body:{accepted:true,restarting:true,...(url.endsWith('enroll')?{id:'play-center'}:{})}}}});
+ await app.advance(1500);
+ app.run('select("play-center")');await app.settle();
+ await app.click(app.stage.querySelector('[data-chip-action="more"]'));await app.advance(40);
+ const menu=app.$('#object-menu');
+ await app.click(menu.querySelector('[data-menu="connected"]'));
+ assert.match(menu.querySelector('.card-confirm').textContent,/Disconnect Hue Play Center\?HomeKit will show it as not responding/);
+ await app.click(menu.querySelector('[data-menu="disconnect-ok"]'));
+ assert.deepEqual(calls,[['/api/lights/remove',{id:'play-center'}]]);
+ lights=lights.filter(r=>r.id!=='play-center');await app.advance(1500);
+ assert.equal(app.lamp('play-center')!==null,true,'the row stays in the layout');
+ assert.equal(app.run('lamps.find(l=>l.id==="play-center").unbound'),true);
+ // Reconnecting enrolls the found device that discovery names after the row.
+ await app.click(app.$('#list-toggle'));await app.advance(40);
+ await app.click(app.$('#lamp-panel').querySelector('[data-connect="play-center"]'));await app.advance(40);
+ assert.deepEqual(calls.at(-1),['/api/lights/enroll',{id:device}]);
+ lights=[...lights,enrolledRow('play-center',{migrated:true})];await app.advance(1500);
+ assert.equal(app.run('lamps.find(l=>l.id==="play-center").unbound'),false);
+ assert.match(app.$('#toast').textContent,/Connected Hue Play Center/);
+});
+
+test('a disconnected migrated lamp that is not discovered cannot reconnect',async()=>{
+ const calls=[];
+ const lights=['govee-left','govee-right','hue-monitor','play-left','play-right'].map(id=>enrolledRow(id,{migrated:true}));
+ const app=await harness({live:()=>liveOk({lights}),discovery:{connected:true,devices:[],providers:{govee:'ready',hue:'ready'}},lights:(url,body)=>{calls.push([url,body]);return {status:200,body:{accepted:true}}}});
+ await app.advance(1500);
+ assert.equal(app.run('lamps.find(l=>l.id==="play-center").unbound'),true);
+ await app.click(app.$('#list-toggle'));await app.advance(40);
+ await app.click(app.$('#lamp-panel').querySelector('[data-connect="play-center"]'));await app.advance(40);
+ assert.deepEqual(calls,[]);
+ assert.match(app.$('#toast').textContent,/The lamp does not respond/);
+});
