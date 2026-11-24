@@ -116,9 +116,8 @@ def apply(config, group_class, namespace, groups, deleted, wanted, names):
     ``config`` is the diyHue configuration; ``group_class`` creates a group;
     ``groups`` maps each room to its group id; ``deleted`` lists the groups of
     gone rooms; ``wanted`` maps each room to its slots; ``names`` maps each room to
-    its name. Return True when anything changed.
+    its name.
     """
-    changed = False
     for group_id in deleted:
         group = config["groups"].get(group_id)
         if group is None:
@@ -127,7 +126,6 @@ def apply(config, group_class, namespace, groups, deleted, wanted, names):
             if _scene_group(scene) is group:
                 del config["scenes"][scene_id]
         del config["groups"][group_id]
-        changed = True
     managed = {slot for slots in wanted.values() for slot in slots}
     for room, group_id in groups.items():
         # A room without a layout name keeps its group's name.
@@ -138,30 +136,24 @@ def apply(config, group_class, namespace, groups, deleted, wanted, names):
                                  "name": name or "Room", "type": "Room",
                                  "class": NEW_ROOM_CLASS})
             config["groups"][group_id] = group
-            changed = True
         if name and group.name != name:
             group.name = name
-            changed = True
         mine = set(wanted.get(room, ()))
         # The scenes of the group share its light list, so it changes in place.
         kept = [reference for reference in group.lights if reference() is not None
                 and (reference().id_v1 not in managed or reference().id_v1 in mine)]
         if len(kept) != len(group.lights):
             group.lights[:] = kept
-            changed = True
         present = {reference().id_v1 for reference in group.lights}
         for slot in wanted.get(room, ()):
             if slot not in present and slot in config["lights"]:
                 group.add_light(config["lights"][slot])
-                changed = True
         for scene in config["scenes"].values():
             if _scene_group(scene) is not group:
                 continue
             for light in list(scene.lightstates.keys()):
                 if light.id_v1 in managed and light.id_v1 not in mine:
                     del scene.lightstates[light]
-                    changed = True
-    return changed
 
 
 def rename(config, groups, names):

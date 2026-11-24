@@ -99,11 +99,10 @@ class PlanTests(unittest.TestCase):
 class ApplyTests(unittest.TestCase):
     def test_a_light_moves_to_its_rooms_group_and_leaves_the_other_rooms_scenes(self):
         config = bridge()
-        changed = room_groups.apply(
+        room_groups.apply(
             config, Group, NAMESPACE, {FIRST_ROOM: "1", SECOND: "2"}, [],
             {FIRST_ROOM: ["1", "2", "3", "4", "5"], SECOND: ["6"]},
             {FIRST_ROOM: "Office", SECOND: "Bedroom"})
-        self.assertTrue(changed)
         bedroom = config["groups"]["2"]
         self.assertEqual((bedroom.name, bedroom.type, bedroom.icon_class),
                          ("Bedroom", "Room", "Other"))
@@ -118,11 +117,14 @@ class ApplyTests(unittest.TestCase):
         self.assertIs(scene.lights, config["groups"]["1"].lights)
         # The Entertainment area does not change.
         self.assertEqual(config["groups"]["90"].lights, [])
-        # Nothing changes a second time.
-        self.assertFalse(room_groups.apply(
+        # A second start changes nothing.
+        room_groups.apply(
             config, Group, NAMESPACE, {FIRST_ROOM: "1", SECOND: "2"}, [],
             {FIRST_ROOM: ["1", "2", "3", "4", "5"], SECOND: ["6"]},
-            {FIRST_ROOM: "Office", SECOND: "Bedroom"}))
+            {FIRST_ROOM: "Office", SECOND: "Bedroom"})
+        self.assertIs(config["groups"]["2"], bedroom)
+        self.assertEqual(slots_of(bedroom), ["6"])
+        self.assertEqual(slots_of(config["groups"]["1"]), ["1", "2", "3", "4", "5", "7"])
 
     def test_a_deleted_room_takes_its_group_and_its_scenes(self):
         config = bridge()
