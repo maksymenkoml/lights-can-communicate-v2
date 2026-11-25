@@ -27,6 +27,7 @@ GATEWAY_MODULES = (
     "stream_http",
     "stream_diagnostics",
     "scene_play_intent",
+    "scene_edits",
     "gradient_profile",
     "hue_resource_compat",
     "hue_names",

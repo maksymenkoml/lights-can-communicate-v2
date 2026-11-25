@@ -34,6 +34,7 @@ services:
       - ./stream_http.py:/probe/stream_http.py:ro
       - ./stream_diagnostics.py:/probe/stream_diagnostics.py:ro
       - ./scene_play_intent.py:/probe/scene_play_intent.py:ro
+      - ./scene_edits.py:/probe/scene_edits.py:ro
       - ./gradient_profile.py:/probe/gradient_profile.py:ro
       - ./hue_resource_compat.py:/probe/hue_resource_compat.py:ro
       - ./desk_layout.py:/probe/desk_layout.py:ro
