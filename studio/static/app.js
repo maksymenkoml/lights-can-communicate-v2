@@ -474,6 +474,17 @@ function lensAxis(l){
  if(l.form!=='strip')return 'x1="0" y1="0" x2="0" y2="1"';
  const w=monitorWidthCm(environment.inches)*3.3/2+11;return 'gradientUnits="userSpaceOnUse" x1="'+(-w)+'" y1="0" x2="'+w+'" y2="0"';
 }
+// Every lamp gives the wall the same amount of light at the same brightness. A Play's
+// spot is the reference; a larger wash spreads that light thinner (--wash-a is its opacity
+// on the light wall, the dark scene scales the same way). White light is drawn stronger
+// (--wash-boost): a pale wash barely shows on the light wall, while it brightens a real one.
+const WASH_SPOT=Math.PI*125*100,WASH_LIGHT=.7;
+function washShare(area){return +Math.min(1,WASH_LIGHT*WASH_SPOT/area).toFixed(3)}
+function washBoost(colors){
+ const lit=(colors||[]).filter(c=>Math.max(...c)>0);if(!lit.length)return 1;
+ const sat=lit.reduce((a,c)=>a+(Math.max(...c)-Math.min(...c))/Math.max(...c),0)/lit.length;
+ return +(1+.8*(1-sat)).toFixed(3);
+}
 function lampSvg(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
  const colors=liveColors(l),beam=beamColor(colors),power=opacityText(lampLevel(colors));
@@ -484,8 +495,8 @@ function lampSvg(l){
   body='<ellipse class="contact-shadow" cx="5" cy="225" rx="28" ry="5"/><ellipse fill="url(#body-metal)" stroke="#526075" stroke-width="1" cx="0" cy="220" rx="20" ry="5"/><path d="M0 218v-17" stroke="#49566c" stroke-width="5"/><rect x="-7.5" y="-225" width="15" height="432" rx="7.5" fill="url(#body-metal)" stroke="#718097" stroke-width=".8"/><path class="object-edge" d="M-5 -215V196"/>';
   // The wall light runs the length of the lamp, as wide at the foot as at the top; a
   // segmented lamp lights the wall next to each zone in that zone's colour.
-  const fill=l.zones>1?' style="fill:url(#wash-'+l.id+')"':'';
-  wash='<rect class="render-wash" opacity="'+glowOpacity+'"'+fill+' x="-100" y="-262" width="200" height="482" rx="100"/><ellipse class="render-wash" opacity="'+glowOpacity+'"'+fill+' cx="0" cy="-10" rx="44" ry="205"/>';
+  const a=washShare(200*482-(4-Math.PI)*100*100),style=' style="--wash-a:'+a+(l.zones>1?';fill:url(#wash-'+l.id+')':'')+'"',dark=+(glowOpacity*a/WASH_LIGHT).toFixed(3);
+  wash='<rect class="render-wash" opacity="'+dark+'"'+style+' x="-100" y="-262" width="200" height="482" rx="100"/><ellipse class="render-wash" opacity="'+dark+'"'+style+' cx="0" cy="-10" rx="44" ry="205"/>';
   off='<rect class="lens-off" x="-3.5" y="-220" width="7" height="420" rx="3.5"/>';
   lens='<path class="render-bloom" stroke-width="35" opacity=".3" d="M0 198V-218"'+(l.zones>1?' style="stroke:url(#wash-'+l.id+')"':'')+'/><rect x="-3.5" y="-220" width="7" height="420" rx="3.5" fill="url(#lens-'+l.id+')"/>';
  }else if(l.form==='strip'){
@@ -494,7 +505,8 @@ function lampSvg(l){
   const path='M'+(-w-11)+' '+h+'V'+(-h-11)+'H'+(w+11)+'V'+h;
   hit='<path class="hit" d="'+path+'" style="fill:none;stroke:transparent;stroke-width:25;pointer-events:stroke"/>';
   body='<path d="'+path+'" fill="none" stroke="#58667a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>';
-  wash='<path class="render-bloom" stroke-width="94" opacity="'+(glowOpacity*1.6)+'" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/>';
+  const a=washShare((4*h+2*w+44)*94);
+  wash='<path class="render-bloom" stroke-width="94" opacity="'+(+(glowOpacity*1.6*a/WASH_LIGHT).toFixed(3))+'" d="'+path+'" style="--wash-a:'+a+';stroke:url(#lens-'+l.id+')"/>';
   off='<path class="lens-off" stroke-width="5" d="'+path+'"/>';
   lens='<path class="render-emission" stroke-width="5" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
  }else{
@@ -503,12 +515,12 @@ function lampSvg(l){
   body='<g transform="rotate('+rotation+')"><ellipse class="contact-shadow" cx="3" cy="13" rx="43" ry="5"/><rect x="-41" y="-12" width="82" height="24" rx="10" fill="url(#body-metal)" stroke="#64738a" stroke-width="1"/><path class="object-edge" d="M-30 -9h60"/></g>';
   // A Play faces the wall like every other lamp: its light spreads around it, above
   // and below the desktop, longest along the bar.
-  wash='<g transform="rotate('+rotation+')"><ellipse class="render-wash" opacity="'+(glowOpacity*1.1)+'" cx="0" cy="0" rx="125" ry="100"/><ellipse class="render-wash" opacity="'+(glowOpacity*1.2)+'" cx="0" cy="0" rx="72" ry="48"/></g>';
+  wash='<g transform="rotate('+rotation+')"><ellipse class="render-wash" opacity="'+(glowOpacity*1.1)+'" style="--wash-a:'+WASH_LIGHT+'" cx="0" cy="0" rx="125" ry="100"/><ellipse class="render-wash" opacity="'+(glowOpacity*1.2)+'" style="--wash-a:'+WASH_LIGHT+'" cx="0" cy="0" rx="72" ry="48"/></g>';
   off='<g transform="rotate('+rotation+')"><rect class="lens-off" x="-35" y="-7" width="70" height="13" rx="6.5"/></g>';
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }
  const mark=healthMarkSvg(l);
- return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient>'+washGradient(l,colors)+'</defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
+ return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+';--wash-boost:'+washBoost(colors)+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient>'+washGradient(l,colors)+'</defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
 }
 const BEZEL=5;
 function environmentSvg({cx,cy,mw,mh,w,left,top}){
@@ -699,7 +711,7 @@ function syncWashes(){
  maskWashes();
 }
 function paintWash(w,lamp){
- const lit=lamp.querySelector('[data-beam]');if(lit&&w.style.getPropertyValue('--beam')!==lit.style.getPropertyValue('--beam'))w.style.setProperty('--beam',lit.style.getPropertyValue('--beam'));
+ const lit=lamp.querySelector('[data-beam]');if(lit)for(const k of ['--beam','--wash-boost'])if(w.style.getPropertyValue(k)!==lit.style.getPropertyValue(k))w.style.setProperty(k,lit.style.getPropertyValue(k));
  const power=lamp.querySelector('[data-sync-power]');if(power)[...w.children].forEach(g=>{if(g.tagName.toLowerCase()==='g'&&g.getAttribute('opacity')!==power.getAttribute('opacity'))g.setAttribute('opacity',power.getAttribute('opacity'))});
 }
 function layerWashes(){
@@ -710,7 +722,7 @@ function layerWashes(){
  stage.querySelectorAll('.lamp[data-lamp]').forEach(n=>{
   const lit=n.querySelector('[data-beam]'),wash=lit?.querySelector(':scope > g[data-sync-power]');if(!wash)return;
   const w=document.createElementNS(NS,'g');w.setAttribute('class','lamp lamp-wash');w.dataset.washFor=n.dataset.lamp;
-  w.setAttribute('transform',n.getAttribute('transform')||'');w.style.setProperty('--beam',lit.style.getPropertyValue('--beam'));
+  w.setAttribute('transform',n.getAttribute('transform')||'');w.style.setProperty('--beam',lit.style.getPropertyValue('--beam'));w.style.setProperty('--wash-boost',lit.style.getPropertyValue('--wash-boost'));
   w.style.opacity=n.style.opacity;wash.removeAttribute('data-sync-power');w.append(wash);
   const lens=lit.querySelector(':scope > g[data-sync-power]'),blooms=lens?[...lens.querySelectorAll('.render-bloom')]:[];
   if(blooms.length){const glow=document.createElementNS(NS,'g');glow.setAttribute('opacity',lens.getAttribute('opacity'));
@@ -748,7 +760,7 @@ function paintLive(){
  for(const l of activeLamps()){
   const node=stage.querySelector('[data-lamp="'+l.id+'"]');if(!node)continue;
   const colors=liveColors(l),beam=beamColor(colors);
-  setVar(node.querySelector('[data-beam]'),'--beam',beam);
+  setVar(node.querySelector('[data-beam]'),'--beam',beam);setVar(node.querySelector('[data-beam]'),'--wash-boost',String(washBoost(colors)));
   const level=lampLevel(colors);
   node.querySelectorAll('[data-sync-power]').forEach(g=>setAttr(g,'opacity',opacityText(level)));
   const stops=node.querySelectorAll('[id="lens-'+l.id+'"] stop');

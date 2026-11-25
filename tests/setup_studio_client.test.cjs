@@ -1695,3 +1695,13 @@ test('a segmented floor lamp lights the wall in its zone colours along its whole
  assert.ok(column,'an even column, not a shape that narrows to the foot');
  assert.equal(+column.getAttribute('width'),200);
 });
+
+test('every lamp gives the wall the same light: a long lamp spreads it thinner, white shows as clearly as colour',async()=>{
+ const app=await harness();
+ const share=id=>+app.stage.querySelector('[data-wash-for="'+id+'"] .render-wash').style.getPropertyValue('--wash-a');
+ const play=share('play-left'),floor=share('govee-left');
+ assert.equal(play,.7);
+ assert.ok(floor<play/2,'the floor lamp wash covers more than twice the area of a Play spot');
+ assert.ok(app.run('washBoost([[255,235,207]])')>app.run('washBoost([[255,0,0]])'),'a white light is drawn stronger than a saturated one');
+ assert.equal(app.run('washBoost([[255,0,0]])'),1);
+});

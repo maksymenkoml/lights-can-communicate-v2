@@ -257,8 +257,8 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 /* Light scene in half-tone: glow reads as light */
 .app:not(.dark-scene)>.scene-background,.app .scene-snapshot.snapshot-light .scene-background{background-color:#c9d3db}
 .app:not(.dark-scene) #stage,.app .scene-snapshot.snapshot-light .stage{--halo:#c9d3db;--canvas:#c9d3db;--zone-off:#8e9cab}
-.app:not(.dark-scene) #stage .lamp .render-wash,.app .scene-snapshot.snapshot-light .lamp .render-wash{opacity:.7;filter:url(#wall-wash) saturate(1.5) brightness(1.15)}
-.app:not(.dark-scene) #stage .lamp .render-bloom,.app .scene-snapshot.snapshot-light .lamp .render-bloom{opacity:.38;filter:url(#bloom) saturate(1.5) brightness(1.15)}
+.app:not(.dark-scene) #stage .lamp .render-wash,.app .scene-snapshot.snapshot-light .lamp .render-wash{opacity:calc(var(--wash-a,.7)*var(--wash-boost,1));filter:url(#wall-wash) saturate(1.5) brightness(1.15)}
+.app:not(.dark-scene) #stage .lamp .render-bloom,.app .scene-snapshot.snapshot-light .lamp .render-bloom{opacity:calc(var(--wash-a,.38)*var(--wash-boost,1));filter:url(#bloom) saturate(1.5) brightness(1.15)}
 
 #hover-tag .tag-text{font-weight:500}
 
