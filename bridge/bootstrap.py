@@ -668,9 +668,12 @@ def remember_power_state():
         g.power_request_before = power_requests.snapshot()
 
 
-# Edits hold it until their request ends, so an edit that also recalls the scene
-# recalls (and switches power for) the states it stored, not another edit's.
-scene_edit_lock = threading.Lock()
+# An edit holds its scene's lock until its request ends, so an edit that also
+# recalls the scene recalls (and switches power for) the states it stored, not
+# another edit's. Each scene has its own lock; a busy scene answers 503.
+scene_edit_locks = {}
+scene_edit_guard = threading.Lock()
+SCENE_EDIT_WAIT = 5
 
 
 @app.before_request
@@ -699,22 +702,32 @@ def keep_scene_edit():
                   if getattr(item, "id_v2", None) == rid), None)
     if scene is None:
         return None
-    scene_edit_lock.acquire()
-    g.scene_edit_locked = True
     try:
+        # Checked before the lock: a long list never holds up another edit.
         states = scene_edits.edited_states(scene, payload["actions"], config["lights"])
     except scene_edits.InvalidEdit as error:
         response = jsonify({"errors": [{"description": str(error)}], "data": []})
         response.status_code = 400
         return response
+    with scene_edit_guard:
+        lock = scene_edit_locks.setdefault(rid, threading.Lock())
+    if not lock.acquire(timeout=SCENE_EDIT_WAIT):
+        response = jsonify({"errors": [{"description": "Scene is busy; try again"}], "data": []})
+        response.status_code = 503
+        return response
+    g.scene_edit_lock = lock
+    if power_requests is not None:
+        # The power before this request's recall, not before it waited for the lock.
+        g.power_request_before = power_requests.snapshot()
     g.scene_edited = scene_edits.replace(scene, states)
     return None
 
 
 @app.teardown_request
 def release_scene_edit(error=None):
-    if g.pop("scene_edit_locked", False):
-        scene_edit_lock.release()
+    lock = g.pop("scene_edit_lock", None)
+    if lock is not None:
+        lock.release()
 
 
 @app.after_request

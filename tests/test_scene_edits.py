@@ -96,6 +96,14 @@ class SceneEditTests(unittest.TestCase):
         free = Scene({})
         self.assertTrue(self.edit(free, [action("light-3", on={"on": True})]))
 
+    def test_too_many_actions_or_two_for_one_light_are_refused(self):
+        scene = Scene({}, self.room)
+        one = action("light-1", on={"on": True})
+        for actions in ([one] * (scene_edits.MAX_ACTIONS + 1), [one, one]):
+            with self.assertRaises(InvalidEdit):
+                self.edit(scene, actions)
+        self.assertEqual(dict(scene.lightstates), {})
+
     def test_a_bad_action_anywhere_changes_nothing(self):
         before = {self.lights["1"]: {"on": True}}
         bad = [

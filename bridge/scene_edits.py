@@ -17,6 +17,8 @@ room's scene.
 
 import weakref
 
+# A scene holds at most this many light actions (diyHue holds at most 128 lights).
+MAX_ACTIONS = 128
 # The gradient modes a Hue light accepts; any other is not stored.
 GRADIENT_MODES = frozenset({"interpolated_palette", "interpolated_palette_mirrored",
                             "random_pixelated", "segmented_palette"})
@@ -99,7 +101,7 @@ def edited_states(scene, actions, lights):
     ``lights`` is diyHue's ``config["lights"]``. Every action must target a light;
     a room scene's actions must target lights of its room.
     """
-    if not isinstance(actions, list):
+    if not isinstance(actions, list) or len(actions) > MAX_ACTIONS:
         raise InvalidEdit("Invalid actions")
     by_v2 = {getattr(light, "id_v2", None): light for light in list(lights.values())}
     allowed = members(scene)
@@ -112,6 +114,8 @@ def edited_states(scene, actions, lights):
         light = by_v2.get(rid) if isinstance(rid, str) else None
         if light is None or (allowed is not None and light not in allowed):
             raise InvalidEdit("Target is not a light of this scene's room")
+        if light in states:
+            raise InvalidEdit("Two actions for one light")
         states[light] = light_state(item.get("action"))
     return states
 
