@@ -64,6 +64,12 @@ const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
 const SYNC_ROLES=['sync','own','off'];
 function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
+// The Sync Box lies on the desktop of its room, 18 cm wide and 3.5 cm high from the front.
+// Until it is dragged it sits right of the monitor stand and follows the monitor; a dragged
+// box keeps its own place (desk-centred cm, like the lamps), stored as the layout's syncBox.
+const BOX_W=18,BOX_H=3.5,BOX_GAP=30;
+function clampBoxX(x,env=environment){const edge=Math.floor((env.width/2-BOX_W/2-2)/STEP)*STEP;return clamp(Math.round(x/STEP)*STEP,-edge,edge)}
+function boxX(env=environment){return clampBoxX(env.box?env.box.x:(env.screen?.x??0)+BOX_GAP,env)}
 function defaults(){
  // A new room is empty: lamps are placed from the Found list.
  const environment={width:160,height:85,inches:32,screen:{x:0,h:110},zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
@@ -91,6 +97,7 @@ function fromLayout(data){
  const screenAt=data.screen?.positionCm??rows.get(MONITOR)?.positionCm;
  if(!screenAt||typeof screenAt!=='object')return null;
  environment.screen={x:finite(screenAt.x,-400,600,DESK_CENTER)-DESK_CENTER,h:finite(screenAt.height,-400,600,110)};
+ if(typeof data.syncBox?.x==='number'&&Number.isFinite(data.syncBox.x))environment.box={kind:'box',x:clampBoxX(data.syncBox.x-DESK_CENTER,environment),h:0};
  const place=(lamp,row)=>{
   lamp.x=finite(row.positionCm.x,-400,600,DESK_CENTER)-DESK_CENTER;
   const height=finite(row.positionCm.height,-400,600,0);
@@ -122,6 +129,7 @@ function pack(m={room,environment,lamps}){
  const monitor=m.lamps.find(l=>l.id===MONITOR)||env.screen;
  return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
+  ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
   devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
    ...(l.enabled===false?{enabled:false}:{}),...((/^govee-/.test(l.id)||realDevice(l.id))&&calibrated(l.calibration)?{calibration:{...l.calibration}}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
@@ -134,8 +142,17 @@ let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],f
 const strip=()=>lamps.find(l=>l.id===MONITOR)||environment.screen;
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
 const syncRole=l=>SYNC_ROLES.includes(l.syncRole)?l.syncRole:'sync';
-function movableFixture(){return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false)}
-function selectionFocus(){return selected==='monitor'?'[data-select="monitor"]':'[data-lamp="'+selected+'"]'}
+function movableFixture(){
+ if(selected==='box')return environment.box||{kind:'box',x:boxX(),h:0};
+ return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false);
+}
+// The Sync Box moves along the desktop only; it keeps a place of its own once it has moved.
+function clampMovable(l){
+ if(l.kind!=='box'){clampFixture(l);return}
+ l.x=clampBoxX(l.x);l.h=0;
+ if(!environment.box&&l.x!==boxX())environment.box=l;
+}
+function selectionFocus(){return ['monitor','box'].includes(selected)?'[data-select="'+selected+'"]':'[data-lamp="'+selected+'"]'}
 function snapshot(){return JSON.stringify({lamps,environment})}
 function remember(){past.push(snapshot());future=[];if(past.length>40)past.shift()}
 function recordChange(before){if(snapshot()===before)return;past.push(before);if(past.length>40)past.shift();future=[]}
@@ -538,6 +555,19 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
  return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
 }
+// The Sync Box on the desktop of its room. Its front light shows the box: dark when it is
+// not connected or not answering, dim when ready, lit while it syncs.
+function boxLed(){return box.syncing===true?'sync':box.state==='ready'?'ready':'off'}
+function syncBoxSvg({top}){
+ if(!syncHere())return '';
+ const bx=500+boxX()*3.3,w=BOX_W*3.3,h=BOX_H*3.3,x=bx-w/2,y=top-h;
+ return '<g class="box-group'+(selected==='box'?' chosen':'')+'" data-select="box" data-led="'+boxLed()+'" tabindex="0" role="button" aria-label="Sync Box">'
+  +'<rect x="'+(x-5)+'" y="'+(y-10)+'" width="'+(w+10)+'" height="'+(h+12)+'" fill="transparent"/>'
+  +'<rect class="box-body" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/>'
+  +'<path d="M'+(x+3)+' '+(y+1)+'H'+(x+w-3)+'" stroke="#ffffff" stroke-opacity=".2"/>'
+  +'<rect class="box-led" x="'+(bx-10)+'" y="'+(y+h-3.6)+'" width="20" height="1.6" rx=".8"/>'
+  +'<rect class="furniture-select" x="'+(x-4)+'" y="'+(y-4)+'" width="'+(w+8)+'" height="'+(h+8)+'" rx="5"/></g>';
+}
 // The monitor picture in the Sync view: a soft gradient of the strip's emitted colours
 // while Sync runs; otherwise a fixed radial demo picture that the lamps preview.
 function liveScreenStops(){
@@ -641,7 +671,7 @@ function focusKey(n){return n.dataset.lamp||n.dataset.washFor||n.dataset.select}
 function applyFocus(){
  const on=!!selected;
  const keep=new Set([selected]);if(cal?.mode==='test')keep.add(cal.reference);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
- const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group');
+ const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group,.box-group');
  nodes.forEach(n=>{
   const key=focusKey(n),want=on&&!keep.has(key)?.22:1,was=focusState.has(key)?focusState.get(key):want;
   next.set(key,want);n.style.transition='none';n.style.opacity=was;if(was!==want)changed.push([n,want]);
@@ -655,7 +685,7 @@ function renderBaseScene(){
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" filterUnits="userSpaceOnUse" x="-600" y="-600" width="1200" height="1200"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
  out+=syncVisibilitySvg();
- out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
+ out+=environmentSvg(g)+syncBoxSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
  $('#stage').innerHTML=out;applyFocus();
 }
 const RAY_MS=280;
@@ -1659,6 +1689,7 @@ document.addEventListener('visibilitychange',()=>{
 // ----------------------------------------------------------------- hover --
 let hoverKey=null;
 function hoverAnchor(key){
+ if(key==='box'){const top=740-environment.height*3.3;return {x:500+boxX()*3.3,y:top-BOX_H*3.3-17,name:'Sync Box'}}
  if(key==='desk'){const top=740-environment.height*3.3;return {x:500,y:top-23,name:'Desk'}}
  if(key==='monitor'){const m=strip(),mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16;return {x:500+m.x*3.3,y:740-m.h*3.3-mh/2-41,name:'Monitor'}}
  if(key==='zone'){const P=zonePoints();return {x:(500+P[0].x*3.3+500-environment.width/2*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
@@ -1693,7 +1724,7 @@ function tooltipLabelText(node){
  if(node.id==='redo')return node.disabled?'Nothing to redo':'Redo · ⇧⌘Z';
  if(node.id==='list-toggle')return 'All lamps';
  if(node.dataset.lamp)return '';
- if(node.closest('#stage')&&['zone','desk','monitor'].includes(node.dataset.select))return '';
+ if(node.closest('#stage')&&['zone','desk','monitor','box'].includes(node.dataset.select))return '';
  return node.dataset.originalTitle||node.getAttribute('aria-label')||node.textContent.trim().replace(/\s+/g,' ');
 }
 function tooltipLabel(node){const label=tooltipLabelText(node);return repeatsText(node,label)?'':label}
@@ -1748,12 +1779,13 @@ stage.addEventListener('pointerdown',e=>{
  // a setting. Another lamp takes the card over, except during a calibration.
  if(menuOpen&&!grip&&!keepsCard(e)){e.preventDefault();skipClick=true;return}
  if(grip){e.preventDefault();skipClick=true;drag={handle:grip.dataset.handle,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);return}
- const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"]');
+ const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"],[data-select="box"]');
  if(!node){if(e.target.closest('[data-select]'))return;deselect();return}
- selected=node.dataset.select==='monitor'?'monitor':node.dataset.lamp;
+ const card=boxCard==='info';
+ selected=node.dataset.select||node.dataset.lamp;
  const l=movableFixture();if(!l)return;
- drag={start:point(e),x:l.x,h:l.h,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);renderInspector();renderList();
- stage.querySelectorAll('[data-lamp],[data-select="monitor"]').forEach(n=>n.classList.toggle('chosen',n.dataset.lamp===selected||selected==='monitor'&&n.dataset.select==='monitor'));
+ drag={start:point(e),x:l.x,h:l.h,before:snapshot(),moved:false,card};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);renderInspector();renderList();
+ stage.querySelectorAll('[data-lamp],[data-select="monitor"],[data-select="box"]').forEach(n=>n.classList.toggle('chosen',n.dataset.lamp===selected||n.dataset.select===selected));
 });
 function keepsCard(e){
  const node=e.target.closest('[data-lamp]'),id=node?.dataset.lamp;
@@ -1764,22 +1796,23 @@ function keepsCard(e){
 stage.addEventListener('pointermove',e=>{
  if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));placeOpenMenu();return}
  const l=movableFixture();if(!l)return;const p=point(e),oldX=l.x,oldH=l.h;
- l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampFixture(l);
+ l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampMovable(l);
  if(l.x===oldX&&l.h===oldH)return;
  drag.moved=l.x!==drag.x||l.h!==drag.h;
  renderScene();refreshHandles();renderInspector();placeOpenMenu();
 });
 stage.addEventListener('pointerup',()=>{
- if(!drag)return;const before=drag.before;drag=null;recordChange(before);endDragView();renderScene();renderHistory();renderInspector();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
+ if(!drag)return;const before=drag.before,clicked=!drag.moved&&selected==='box',card=drag.card;drag=null;
+ if(clicked){if(card)closeBoxCard();else openBoxCard(['ready','offline'].includes(box.state)?'info':'connect')}recordChange(before);endDragView();renderScene();renderHistory();renderInspector();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
 });
 stage.addEventListener('pointercancel',()=>{if(drag){const before=drag.before;drag=null;restore(before)}endDragView()});
 stage.addEventListener('keydown',e=>{
  const id=e.target.dataset.lamp||(e.target.dataset.select==='monitor'?'monitor':e.target.dataset.select);
- if(e.key==='Enter'||e.key===' '){e.preventDefault();if(id)select(id);return}
+ if(e.key==='Enter'||e.key===' '){e.preventDefault();if(id)select(id);if(id==='box')openBoxCard(['ready','offline'].includes(box.state)?'info':'connect');return}
  if(!e.key.startsWith('Arrow')||!id||id==='desk'||id==='zone')return;
  e.preventDefault();selected=id;const l=movableFixture();if(!l)return;const before=snapshot();
  if(e.key==='ArrowLeft')l.x-=5;if(e.key==='ArrowRight')l.x+=5;if(e.key==='ArrowUp')l.h+=5;if(e.key==='ArrowDown')l.h-=5;
- clampFixture(l);recordChange(before);render();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
+ clampMovable(l);recordChange(before);render();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
 });
 stage.addEventListener('pointermove',event=>{if(pendingDevice)paintPlacementGhost(placementPosition(event))});
 stage.addEventListener('pointermove',e=>{
@@ -1880,6 +1913,7 @@ function setBox(next){
  if(box.recovery==='failed'&&wasRecovery!=='failed')boxSay('Sync did not come back. Stop and start it again','bad');
  if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
  paintBox();if(was!==box.state&&panelKind)paintPanel();
+ $('#stage [data-select="box"]')?.setAttribute('data-led',boxLed());
 }
 // A short line inside the corner block; it replaces the page toast for the box.
 function boxSay(text,kind='ok'){
@@ -1991,7 +2025,7 @@ $('#sync-box').addEventListener('click',boxClick);
 $('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .note.bad')?.remove()}}});
 $('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
 // The connect card stays open while the owner pairs the box; Cancel or Esc closes it.
-document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box'))closeBoxCard()},true);
+document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box,#stage [data-select="box"]'))closeBoxCard()},true);
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
 document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
 

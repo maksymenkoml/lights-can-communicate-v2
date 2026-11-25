@@ -182,6 +182,16 @@ class LayoutTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(data["screen"])):
                 validate_layout(data)
 
+    def test_sync_box_place_is_kept_and_checked(self):
+        data = validate_layout(layout())
+        self.assertNotIn("syncBox", data, "without a drag the box sits beside the stand")
+        data["syncBox"] = {"x": 135}
+        self.assertEqual(validate_layout(data)["syncBox"], {"x": 135})
+        for bad in ({"x": 133}, {"x": "135"}, {"x": 135, "height": 85}, {"x": 900}, [135]):
+            data["syncBox"] = bad
+            with self.assertRaises(ValueError):
+                validate_layout(data)
+
     def test_monitor_row_follows_screen(self):
         data = validate_layout(layout())
         data["screen"]["positionCm"] = {"x": 60, "height": 135}

@@ -25,7 +25,11 @@ h1,h2,p{margin:0}
 .stage{position:absolute;inset:80px 40px 95px;width:calc(100% - 80px);height:calc(100% - 175px);touch-action:none;overflow:visible}
 .scene-background{position:absolute;inset:0;z-index:-1}
 .floor{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
-.desk-group,.monitor-group{cursor:pointer;outline:none}
+.desk-group,.monitor-group,.box-group{cursor:pointer;outline:none}
+.box-body{fill:#1c2431;stroke:#465468;stroke-width:1}
+.box-led{fill:#3b4657;transition:fill .3s ease}
+.box-group[data-led="ready"] .box-led{fill:#a7b6c8}
+.box-group[data-led="sync"] .box-led{fill:#e9fcff;filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 5px var(--accent))}
 .lamp{cursor:grab}
 .lamp:active{cursor:grabbing}
 .lamp .hit{fill:transparent;stroke:transparent;stroke-width:15;pointer-events:all}
@@ -77,7 +81,7 @@ h1,h2,p{margin:0}
 .lamp .contact-shadow{fill:#172334;opacity:.12;filter:url(#bloom);pointer-events:none}
 .lamp .object-edge{stroke:#ffffff;stroke-opacity:.5;stroke-width:1;fill:none;pointer-events:none}
 .furniture-select{fill:none;stroke:var(--accent);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0;pointer-events:none}
-.desk-group.chosen .furniture-select,.monitor-group.chosen .furniture-select{opacity:1}
+.desk-group.chosen .furniture-select,.monitor-group.chosen .furniture-select,.box-group.chosen .furniture-select{opacity:1}
 .stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}.app.dark-scene .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--glass-top:#324355;--glass-bottom:#1b2635}.app .scene-snapshot.snapshot-light .stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}.app .scene-snapshot.snapshot-dark .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--glass-top:#324355;--glass-bottom:#1b2635}
 .sync-mode .lamp{cursor:grab}.sync-mode .lamp:active{cursor:grabbing}
 .app.placing .stage,.app.placing .lamp{cursor:crosshair}
@@ -90,7 +94,7 @@ h1,h2,p{margin:0}
 .ui-tooltip{position:fixed;z-index:1000;max-width:min(270px,calc(100vw - 20px));padding:8px 11px;border:1px solid #ffffff17;font-weight:400;letter-spacing:0;pointer-events:none;opacity:0;transition:opacity 100ms ease;white-space:normal}
 .ui-tooltip.visible{opacity:1}
 
-.lamp,.desk-group,.monitor-group{transition:opacity .28s ease}
+.lamp,.desk-group,.monitor-group,.box-group{transition:opacity .28s ease}
 .handles{pointer-events:none}
 .handle{pointer-events:all;outline:none}
 .handle .knob{fill:var(--surface);stroke:var(--accent);vector-effect:non-scaling-stroke}
@@ -130,7 +134,7 @@ h1,h2,p{margin:0}
 .tag.editable:hover .tag-hit{fill:var(--accent);fill-opacity:.12}
 .tag.editable:hover .tag-text{fill:var(--accent)}
 .handle .knob{stroke-width:1.6}
-.lamp,.lamp:focus,.desk-group:focus,.monitor-group:focus{outline:none}
+.lamp,.lamp:focus,.desk-group:focus,.monitor-group:focus,.box-group:focus{outline:none}
 
 .desk-axis{fill:none;stroke:var(--accent);stroke-width:1;stroke-dasharray:4 6;opacity:.28;vector-effect:non-scaling-stroke;pointer-events:none}
 

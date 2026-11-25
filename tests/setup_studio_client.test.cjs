@@ -1803,3 +1803,50 @@ test('a Sync Box that must connect again offers Reconnect in its own room',async
  await app.click(row.querySelector('[data-box-room="connect"]'));await app.settle();
  assert.ok(panel.hidden);assert.ok(!app.$('#box-card').hidden,'the connect card opens');
 });
+
+test('the Sync Box lies on the desk of its room only, beside the monitor stand until it is dragged',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const node=app.stage.querySelector('[data-select="box"]');
+ assert.ok(node,'drawn in the Sync Box room');
+ assert.equal(node.dataset.led,'ready','the front light shows a ready box');
+ assert.equal(app.run('boxX()'),app.run('clampBoxX(environment.screen.x+BOX_GAP)'),'right of the stand');
+ assert.equal(app.run('environment.box'),undefined,'no own place until dragged');
+ assert.ok(!('syncBox' in app.run('pack()')),'nothing stored for the default place');
+ const other=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX});await other.advance(100);
+ assert.equal(other.stage.querySelector('[data-select="box"]'),null,'not drawn in a room without it');
+});
+
+test('dragging the Sync Box moves it along the desktop and stores its place',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const start=app.run('boxX()'),x=500+start*3.3,y=740-app.run('environment.height')*3.3-5;
+ app.dispatch(app.stage.querySelector('[data-select="box"] .box-body'),'pointerdown',{clientX:x,clientY:y});
+ app.dispatch(app.stage,'pointermove',{clientX:x-10*3.3,clientY:y-200});
+ app.dispatch(app.stage,'pointerup');await app.settle();await app.advance(2000);
+ assert.equal(app.run('boxX()'),start-10,'it follows the pointer in 5 cm steps and stays on the desktop');
+ assert.equal(app.posts.at(-1).body.syncBox.x,start-10+100,'the place is saved with the layout');
+ assert.ok(app.$('#box-card').hidden,'a drag does not open the card');
+ app.run('undo()');assert.equal(app.run('boxX()'),start,'undo puts it back');
+ app.dispatch(app.stage.querySelector('[data-select="box"] .box-body'),'pointerdown',{clientX:x,clientY:y});
+ app.dispatch(app.stage,'pointermove',{clientX:x+2000,clientY:y});app.dispatch(app.stage,'pointerup');await app.settle();
+ const edge=app.run('environment.width')/2-9;
+ assert.ok(app.run('boxX()')<=edge,'it cannot leave the desktop');
+});
+
+test('a click on the Sync Box opens its card, and another click closes it',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const body=()=>app.stage.querySelector('[data-select="box"] .box-body');
+ await app.click(body());
+ assert.ok(!app.$('#box-card').hidden,'the Sync Box card opens');
+ assert.match(app.$('#box-card').textContent,/192\.0\.2\.20/);
+ await app.click(body());
+ assert.ok(app.$('#box-card').hidden,'a second click closes it');
+});
+
+test('the front light of the Sync Box follows Sync',async()=>{
+ let state=READY_BOX();
+ const app=await harness({rooms:twoRooms(),syncBox:url=>url==='/api/sync-box'?state:state});await app.advance(100);
+ state={...state,syncing:true};await app.advance(10000);
+ assert.equal(app.stage.querySelector('[data-select="box"]').dataset.led,'sync');
+ state={state:'offline'};await app.advance(10000);
+ assert.equal(app.stage.querySelector('[data-select="box"]').dataset.led,'off');
+});
