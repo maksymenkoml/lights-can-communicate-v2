@@ -279,11 +279,15 @@ test('in a room without the Monitor Strip a light strip wraps the monitor',async
  const layout={version:7,gridStepCm:5,room:'Anna',desk:{width:160,height:85},screen:{positionCm:{x:100,height:110},inches:32},devices:[
   {id:strip,scale:80,positionCm:{x:180,height:60},orientation:'horizontal',shape:'strip',name:'Lightstrip 27',model:'LCX005',zones:9},
   {id:other,scale:80,positionCm:{x:40,height:60},orientation:'horizontal',shape:'strip',name:'Lightstrip 32',model:'LCX006',zones:9}]};
+ const removed='device-'+'c'.repeat(32);
+ // A removed strip listed first does not wrap the monitor.
+ layout.devices.unshift({id:removed,scale:80,positionCm:{x:60,height:50},orientation:'horizontal',enabled:false,shape:'strip',name:'Old strip',model:'LCX005',zones:9});
  const app=await harness({layout});await app.advance(1000);
  const lamp=id=>JSON.parse(app.run('JSON.stringify(lamps.find(l=>l.id==="'+id+'"))'));
  assert.equal(lamp(strip).form,'strip','the first strip wraps the monitor');
  assert.deepEqual([lamp(strip).x,lamp(strip).h],[0,110],'it takes the screen place');
  assert.equal(lamp(other).form,'bar','a second strip draws as a bar');
+ assert.deepEqual([lamp(removed).x,lamp(removed).h],[-40,50],'a removed strip keeps its place');
  assert.equal(app.lamp(strip).querySelectorAll('stop').length>0,true);
  assert.equal(app.run('stripStops([[1,2,3]]).length'),5,'any zone count gives five stops');
 });

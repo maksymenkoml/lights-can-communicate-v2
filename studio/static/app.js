@@ -62,8 +62,9 @@ const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
 // The lamp that wraps the monitor: the Monitor Strip, or in a room without it the first
-// light strip (a Hue gradient strip is made for a screen). Any other strip draws as a bar.
-const wrapOf=list=>list.find(l=>l.id===MONITOR)||list.find(l=>l.shape==='strip');
+// connected light strip (a Hue gradient strip is made for a screen). Any other strip
+// draws as a bar.
+const wrapOf=list=>list.find(l=>l.id===MONITOR)||list.find(l=>l.shape==='strip'&&l.enabled!==false);
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
 const SYNC_ROLES=['sync','own','off'];
 function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
