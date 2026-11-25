@@ -1705,3 +1705,12 @@ test('every lamp gives the wall the same light: a long lamp spreads it thinner, 
  assert.ok(app.run('washBoost([[255,235,207]])')>app.run('washBoost([[255,0,0]])'),'a white light is drawn stronger than a saturated one');
  assert.equal(app.run('washBoost([[255,0,0]])'),1);
 });
+
+test('wall light adds up: washes blend additively, so no lamp covers another whatever their order',async()=>{
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ assert.match(css,/#wash-layer\{isolation:isolate\}/,'the blend stays inside the wash layer, over the wall');
+ assert.match(css,/#wash-layer>\.lamp-wash\{mix-blend-mode:plus-lighter\}/);
+ const app=await harness();
+ const layer=app.stage.querySelector('#wash-layer');
+ assert.ok([...layer.children].every(w=>w.tagName.toLowerCase()==='defs'||w.classList.contains('lamp-wash')),'every lamp wash is a direct child of the layer');
+});

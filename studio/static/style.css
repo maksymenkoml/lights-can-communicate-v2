@@ -58,6 +58,10 @@ h1,h2,p{margin:0}
 /* Live light eases between Sync updates (about 20 a second), so colour changes read as motion, not steps. */
 @property --beam{syntax:'<color>';inherits:true;initial-value:#b5c7e6}
 [data-beam]{transition:--beam 120ms linear}
+/* Light adds up on the wall: washes blend additively inside their own layer, so where
+   two lamps meet neither covers the other and the drawing order of the lamps does not matter. */
+#wash-layer{isolation:isolate}
+#wash-layer>.lamp-wash{mix-blend-mode:plus-lighter}
 .lamp.lamp-wash{transition:--beam 120ms linear,opacity .28s ease}
 [data-sync-power],.lamp-wash>g{transition:opacity 120ms linear}
 .lamp [data-beam] stop,#screen-colors stop{transition:stop-color 120ms linear,stop-opacity 120ms linear}
