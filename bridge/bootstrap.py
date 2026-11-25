@@ -24,6 +24,7 @@ event_journal = install_event_journal()
 
 import configManager  # noqa: E402
 import room_groups  # noqa: E402
+import scene_edits  # noqa: E402
 from entertainment_stream import (  # noqa: E402
     CAPTURE_POSITIONS,
     GRADIENT_MODE,
@@ -679,6 +680,18 @@ def record_request(response):
     if len(parts) > 2 and parts[1] == "api" and parts[2] not in ("", "config"):
         parts[2] = "<key>"
     payload = request.get_json(silent=True)
+    if (request.method == "PUT" and response.status_code == 200 and isinstance(payload, dict)
+            and "actions" in payload and request.path.startswith("/clip/v2/resource/scene/")):
+        # diyHue drops the actions of an edited scene; keep them (see scene_edits).
+        rid = request.path.rstrip("/").rsplit("/", 1)[-1]
+        scene = next((item for item in list(config["scenes"].values())
+                      if getattr(item, "id_v2", None) == rid), None)
+        if scene is not None and scene_edits.apply_actions(scene, payload["actions"],
+                                                           config["lights"]):
+            configManager.bridgeConfig.save_config(backup=False, resource="scenes")
+            if "recall" in payload:
+                # diyHue recalled the scene before this edit was stored.
+                scene.activate(payload)
     if power_requests is not None:
         try:
             power_requests.after_request(request.method, request.path, response.status_code,

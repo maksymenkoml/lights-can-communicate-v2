@@ -85,6 +85,22 @@ def fixture_request(g):
     assert response.status_code == 200, response.get_json()
     assert calls[before:] == [{'govee-right': True}], calls[before:]
 
+    # An edit in the Hue app replaces the stored light state; pinned diyHue drops it.
+    scene_object = next(item for item in g['config']['scenes'].values() if item.id_v2 == scene_id)
+    scene_object.lightstates[lights['2']] = {'on': True, 'bri': 198, 'ct': 346}
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': True}, 'dimming': {'brightness': 50.0},
+                                'color': {'xy': {'x': .6, 'y': .3}}}}]})
+    assert response.status_code == 200, response.get_json()
+    assert scene_object.lightstates[lights['2']] == {'on': True, 'bri': 127, 'xy': [.6, .3]}, \
+        scene_object.lightstates[lights['2']]
+    actions = client.get('/clip/v2/resource/scene/' + scene_id,
+                         headers=headers).get_json()['data'][0]['actions']
+    action = next(item['action'] for item in actions
+                  if item['target']['rid'] == lights['2'].id_v2)
+    assert action['color']['xy'] == {'x': .6, 'y': .3} and 'color_temperature' not in action, action
+
     # Rejected physical Off must not leave the virtual lamp falsely Off.
     response = client.put(light_path, json={'on': {'on': True}}, headers=headers)
     assert response.status_code == 200, response.get_json()
