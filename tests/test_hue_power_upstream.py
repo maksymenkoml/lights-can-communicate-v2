@@ -100,12 +100,29 @@ def fixture_request(g):
     action = next(item['action'] for item in actions
                   if item['target']['rid'] == lights['2'].id_v2)
     assert action['color']['xy'] == {'x': .6, 'y': .3} and 'color_temperature' not in action, action
-    # A bad action refuses the whole edit and keeps the stored state.
+    # A bad action refuses the whole edit: no stored state, name or recall changes.
+    name = scene_object.name
+    before = len(calls)
     response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'metadata': {'name': 'Renamed'}, 'recall': {'action': 'active'},
         'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
-                     'action': {'color': {'xy': {'x': .6}}}}]})
+                     'action': {'on': {'on': False}, 'color': {'xy': {'x': .6}}}}]})
     assert response.status_code == 400, response.get_json()
     assert scene_object.lightstates[lights['2']] == {'on': True, 'bri': 127, 'xy': [.6, .3]}
+    assert scene_object.name == name and len(calls) == before
+    # An edit and a recall together recall the edited scene: Off, as just stored.
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'recall': {'action': 'active'},
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': False}}}]})
+    assert response.status_code == 200, response.get_json()
+    assert calls[before:] == [{'govee-right': False}], calls[before:]
+    # Without a key the edit changes nothing.
+    response = client.put('/clip/v2/resource/scene/' + scene_id, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': True}}}]})
+    assert response.status_code == 403
+    assert scene_object.lightstates[lights['2']] == {'on': False}
 
     # Rejected physical Off must not leave the virtual lamp falsely Off.
     response = client.put(light_path, json={'on': {'on': True}}, headers=headers)

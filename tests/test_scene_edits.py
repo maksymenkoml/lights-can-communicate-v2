@@ -60,6 +60,25 @@ class SceneEditTests(unittest.TestCase):
         self.assertEqual(scene.lightstates[self.lights["1"]], {"ct": 250})
         self.assertEqual(scene.lightstates[self.lights["2"]], {"on": False, "gradient": gradient})
 
+    def test_a_stored_gradient_keeps_only_checked_points_and_a_known_mode(self):
+        point = {"color": {"xy": {"x": 0.2, "y": 0.3}, "extra": "x" * 1000}, "junk": [1] * 100}
+        scene = Scene({}, self.room)
+        self.edit(scene, [action("light-1", gradient={"points": [point, point], "mode":
+                                                      "random_pixelated", "junk": "x" * 1000}),
+                          action("light-2", gradient={"points": [point, point], "mode": "x" * 50})])
+        clean = {"color": {"xy": {"x": 0.2, "y": 0.3}}}
+        self.assertEqual(scene.lightstates[self.lights["1"]],
+                         {"gradient": {"points": [clean, clean], "mode": "random_pixelated"}})
+        self.assertEqual(scene.lightstates[self.lights["2"]],
+                         {"gradient": {"points": [clean, clean]}})
+
+    def test_a_replacement_is_published_whole(self):
+        scene = Scene({self.lights["1"]: {"on": True}}, self.room)
+        old = scene.lightstates
+        self.edit(scene, [action("light-2", on={"on": True})])
+        self.assertEqual(dict(old), {self.lights["1"]: {"on": True}}, "a reader keeps the old map")
+        self.assertEqual(dict(scene.lightstates), {self.lights["2"]: {"on": True}})
+
     def test_a_room_scene_refuses_a_light_of_another_room_and_keeps_its_states(self):
         before = {self.lights["1"]: {"on": True}}
         scene = Scene(before, self.room)
@@ -84,6 +103,13 @@ class SceneEditTests(unittest.TestCase):
             [action("light-1", on={"on": "yes"})],
             [action("light-1", gradient={"points": [{"color": {"xy": {"x": 0.2, "y": 0.3}}}]})],
             [{"target": {"rid": "light-1", "rtype": "light"}, "action": "x"}],
+            [{"target": {"rid": ["light-1"], "rtype": "light"}, "action": {}}],
+            [{"target": {"rid": {"x": 1}, "rtype": "light"}, "action": {}}],
+            [action("light-1", gradient={"points": [{"color": "red"}, {"color": 1}]})],
+            [action("light-1", gradient={"points": ["x", "y"]})],
+            [action("light-1", dimming={"brightness": 10 ** 400})],
+            [action("light-1", dimming={"brightness": True})],
+            [action("light-1", dimming=None)],
         ]
         for actions in bad:
             with self.subTest(actions=actions):

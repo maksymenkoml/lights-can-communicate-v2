@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 import uuid
 
+import scene_edits
+
 
 class HuePowerUnavailable(RuntimeError):
     """A safe API diagnostic that contains no owner credentials or identifiers."""
@@ -100,11 +102,8 @@ class HuePowerRequests:
     def _recall(self, scene, previous):
         """Switch the scene's lights to the power it stores; only those that differ."""
         wanted = {}
-        reference = getattr(scene, "group", None)
-        group = reference() if callable(reference) else None
         # A room scene switches only lights of its room, whatever it stores.
-        members = (None if group is None else
-                   {light for item in list(group.lights) if (light := item()) is not None})
+        members = scene_edits.members(scene)
         # A WeakKeyDictionary that other threads change (scene edits, a light's
         # removal); iterating it directly can raise "changed size during iteration".
         for lamp, state in list(scene.lightstates.items()):

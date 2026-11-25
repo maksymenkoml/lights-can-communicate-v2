@@ -668,6 +668,36 @@ def remember_power_state():
         g.power_request_before = power_requests.snapshot()
 
 
+@app.before_request
+def keep_scene_edit():
+    """Store the light actions of an edited scene before diyHue handles the edit.
+
+    diyHue drops them (see scene_edits). A refused edit ends here with 400, so
+    diyHue neither renames nor recalls the scene; a recall in the same request
+    then uses the edited states.
+    """
+    if request.method != "PUT" or not request.path.startswith("/clip/v2/resource/scene/"):
+        return None
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or "actions" not in payload:
+        return None
+    if "user" not in v2restapi.authorizeV2(request.headers):
+        return None  # diyHue answers 403.
+    rid = request.path.rstrip("/").rsplit("/", 1)[-1]
+    scene = next((item for item in list(config["scenes"].values())
+                  if getattr(item, "id_v2", None) == rid), None)
+    if scene is None:
+        return None
+    try:
+        states = scene_edits.edited_states(scene, payload["actions"], config["lights"])
+    except scene_edits.InvalidEdit as error:
+        response = jsonify({"errors": [{"description": str(error)}], "data": []})
+        response.status_code = 400
+        return response
+    g.scene_edited = scene_edits.replace(scene, states)
+    return None
+
+
 @app.after_request
 def record_request(response):
     if request.method == "GET" and request.path.rstrip("/") == "/clip/v2/resource":
@@ -680,26 +710,8 @@ def record_request(response):
     if len(parts) > 2 and parts[1] == "api" and parts[2] not in ("", "config"):
         parts[2] = "<key>"
     payload = request.get_json(silent=True)
-    if (request.method == "PUT" and response.status_code == 200 and isinstance(payload, dict)
-            and "actions" in payload and request.path.startswith("/clip/v2/resource/scene/")):
-        # diyHue drops the actions of an edited scene; keep them (see scene_edits).
-        rid = request.path.rstrip("/").rsplit("/", 1)[-1]
-        scene = next((item for item in list(config["scenes"].values())
-                      if getattr(item, "id_v2", None) == rid), None)
-        try:
-            states = (None if scene is None else
-                      scene_edits.edited_states(scene, payload["actions"], config["lights"]))
-        except scene_edits.InvalidEdit as error:
-            # The actions stay as they were; diyHue may have kept the name or palette.
-            states = None
-            response = jsonify({"errors": [{"description": str(error)}], "data": []})
-            response.status_code = 400
-        if states is not None:
-            if scene_edits.replace(scene, states):
-                configManager.bridgeConfig.save_config(backup=False, resource="scenes")
-                if "recall" in payload:
-                    # diyHue recalled the scene before this edit was stored.
-                    scene.activate(payload)
+    if getattr(g, "scene_edited", False) and response.status_code == 200:
+        configManager.bridgeConfig.save_config(backup=False, resource="scenes")
     if power_requests is not None:
         try:
             power_requests.after_request(request.method, request.path, response.status_code,
