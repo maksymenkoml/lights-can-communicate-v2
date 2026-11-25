@@ -240,7 +240,7 @@ const levelColor={idle:'var(--unknown)',ok:'var(--ok)',wait:'var(--wait)',bad:'v
 const OFF_CODES=new Set(['native_off','owner_off']);
 const isOff=b=>OFF_CODES.has(b.code);
 function blockerLevel(b){return isOff(b)?'idle':b.code==='color_fenced'?'wait':'bad'}
-function problemLamps(){return lamps.filter(l=>!l.unbound&&l.enabled!==false&&lampBlocker(l)&&!isOff(lampBlocker(l)))}
+function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)return false;const b=lampBlocker(l);return !!b&&!isOff(b)})}
 // The badge marks a fault with "!"; an off lamp gets a grey power mark only while Sync runs.
 function lampBadge(l){const b=lampBlocker(l);return !b?null:!isOff(b)?{b,off:false}:['active','waiting'].includes(liveState())?{b,off:true}:null}
 function syncStatus(){
