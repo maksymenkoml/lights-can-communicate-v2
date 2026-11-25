@@ -290,6 +290,12 @@ test('in a room without the Monitor Strip a light strip wraps the monitor',async
  assert.deepEqual([lamp(removed).x,lamp(removed).h],[-40,50],'a removed strip keeps its place');
  assert.equal(app.lamp(strip).querySelectorAll('stop').length>0,true);
  assert.equal(app.run('stripStops([[1,2,3]]).length'),5,'any zone count gives five stops');
+ // While the first strip is disconnected the second wraps the monitor, then takes its place back.
+ app.run('lamps.find(l=>l.id==="'+strip+'").enabled=false;render()');
+ assert.deepEqual([lamp(other).form,lamp(other).x,lamp(other).h],['strip',0,110]);
+ app.run('lamps.find(l=>l.id==="'+strip+'").enabled=true;render()');
+ assert.deepEqual([lamp(other).form,lamp(other).x,lamp(other).h],['bar',-60,60]);
+ assert.equal(lamp(strip).form,'strip');
 });
 
 test('a chosen monitor dims its strip like any lamp; a chosen strip keeps the monitor',async()=>{

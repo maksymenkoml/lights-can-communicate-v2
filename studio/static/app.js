@@ -738,12 +738,14 @@ function renderHistory(){$('#undo').disabled=!past.length;$('#redo').disabled=!f
 function renderList(){$('#count').textContent=activeLamps().length}
 // The strip that wraps the monitor carries the screen position while the room has one;
 // the screen keeps it, so removing the strip later leaves the screen where it was. A
-// strip that starts to wrap the monitor takes the screen's place.
+// strip that starts to wrap the monitor takes the screen's place and remembers its own,
+// which it takes back when another strip wraps the monitor again.
 function syncScreen(){
  const w=wrapOf(lamps);
  for(const l of lamps){
   if(l.form==='floor')continue;
-  if(l===w&&l.form!=='strip'){l.x=environment.screen.x;l.h=environment.screen.h}
+  if(l===w&&l.form!=='strip'){l.barAt={x:l.x,h:l.h};l.x=environment.screen.x;l.h=environment.screen.h}
+  else if(l!==w&&l.form==='strip'&&l.barAt){l.x=l.barAt.x;l.h=l.barAt.h;delete l.barAt}
   l.form=l===w?'strip':'bar';
  }
  if(w)environment.screen={x:w.x,h:w.h};
