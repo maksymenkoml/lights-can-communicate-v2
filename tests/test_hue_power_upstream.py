@@ -157,8 +157,15 @@ def fixture_request(g):
         'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
                      'action': {'on': {'on': False}}}]})
     assert response.status_code == 503, response.status_code
-    lock.inner.release()
+    # A request without a valid key never waits for the lock: diyHue refuses it.
     g['SCENE_POWER_WAIT'] = 5
+    lock.waiting.clear()
+    response = client.put('/clip/v2/resource/scene/' + scene_id,
+                          headers={'hue-application-key': 'not-a-key'},
+                          json={'recall': {'action': 'active'}})
+    assert response.status_code == 403, response.status_code
+    assert not lock.waiting.is_set()
+    lock.inner.release()
     client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
         'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
                      'action': {'on': {'on': False}}}]})

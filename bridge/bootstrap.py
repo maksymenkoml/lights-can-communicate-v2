@@ -671,7 +671,11 @@ SCENE_POWER_WAIT = 5
 
 
 def scene_power_request():
-    """Whether this request recalls or edits a scene."""
+    """Whether this is an authorized request that recalls or edits a scene.
+
+    The key is checked as diyHue checks it, before the lock: a request that diyHue
+    will refuse never waits for the lock, nor holds it.
+    """
     if request.method != "PUT" or request.url_rule is None:
         return False
     payload = request.get_json(silent=True)
@@ -679,10 +683,13 @@ def scene_power_request():
         return False
     arguments = request.view_args or {}
     if request.url_rule.rule.startswith("/clip/v2/resource/"):
-        return arguments.get("resource") == "scene" and ("recall" in payload
-                                                         or "actions" in payload)
+        return (arguments.get("resource") == "scene"
+                and ("recall" in payload or "actions" in payload)
+                and "user" in v2restapi.authorizeV2(request.headers))
     return (request.url_rule.rule.startswith("/api/") and "scene" in payload
-            and arguments.get("resource") == "groups" and arguments.get("param") == "action")
+            and arguments.get("resource") == "groups" and arguments.get("param") == "action"
+            and (arguments.get("username") in config["apiUsers"]
+                 or request.remote_addr == "127.0.0.1"))
 
 
 # Registered before remember_power_state, so that the snapshot follows the wait.
@@ -720,22 +727,17 @@ def keep_scene_edit():
 
     diyHue drops them (see scene_edits). A refused edit ends here with 400, so
     diyHue neither renames nor recalls the scene; a recall in the same request
-    then uses the edited states. The request already holds scene_power_lock, so
-    no other recall or edit runs until it ends.
+    then uses the edited states.
     """
-    # Only diyHue's own scene PUT route: before_request also runs for paths that
-    # match no route.
+    # hold_scene_power took the lock only for an authorized scene PUT on
+    # diyHue's own routes, so no other recall or edit runs until this one ends.
+    if "scene_power_lock" not in g:
+        return None
     arguments = request.view_args or {}
-    if (request.method != "PUT" or request.url_rule is None
-            or not request.url_rule.rule.startswith("/clip/v2/resource/")
-            or arguments.get("resource") != "scene"
-            or not isinstance(arguments.get("resourceid"), str)):
-        return None
     payload = request.get_json(silent=True)
-    if not isinstance(payload, dict) or "actions" not in payload:
+    if (arguments.get("resource") != "scene" or not isinstance(arguments.get("resourceid"), str)
+            or "actions" not in payload):
         return None
-    if "user" not in v2restapi.authorizeV2(request.headers):
-        return None  # diyHue answers 403.
     rid = arguments["resourceid"]
     scene = next((item for item in list(config["scenes"].values())
                   if getattr(item, "id_v2", None) == rid), None)
