@@ -10,11 +10,15 @@ created in the Hue app.
 
 A light is in the group of its room only, as on a Hue bridge. A scene of a room's
 group never drives a light of another room: a light that left the group is
-dropped from the scene's stored light states. Deleting a room deletes its group
-and the group's scenes. A virtual light that no connected light uses (a removed
-light) stays where it is.
+dropped from the scene's stored light states. ``scene-light-states.json`` keeps
+those states, and a light that comes back gets them back in each scene. Without
+that, the scene gets the light back later with what the light shows at that time
+(seen live: both Office scenes got Play Left as off). Deleting a room deletes its
+group and the group's scenes. A virtual light that no connected light uses (a
+removed light) stays where it is.
 """
 
+import copy
 import json
 import os
 import re
@@ -23,6 +27,9 @@ import uuid
 from pathlib import Path
 
 GROUPS_FILE = "room-groups.json"
+# {scene id: {light slot: state}}: the light states a scene lost when a light left
+# its room, kept until the light comes back.
+KEPT_FILE = "scene-light-states.json"
 FIRST_GROUP = "1"
 # The Hue Room class of a room created after the first one.
 NEW_ROOM_CLASS = "Other"
@@ -52,13 +59,35 @@ def load_owned(state, first_room):
 
 
 def save_owned(state, owned):
-    path = Path(state) / GROUPS_FILE
+    _write(Path(state) / GROUPS_FILE, owned)
+
+
+def load_kept(state):
+    """The kept ``{scene id: {slot: state}}``; a missing or bad record keeps nothing."""
+    try:
+        data = json.loads((Path(state) / KEPT_FILE).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {scene: {slot: light_state for slot, light_state in states.items()
+                    if isinstance(slot, str) and _GROUP_ID.match(slot)
+                    and isinstance(light_state, dict)}
+            for scene, states in data.items()
+            if isinstance(scene, str) and isinstance(states, dict)}
+
+
+def save_kept(state, kept):
+    _write(Path(state) / KEPT_FILE, kept)
+
+
+def _write(path, data):
     temporary = None
     try:
         with tempfile.NamedTemporaryFile("w", dir=path.parent, prefix="tmp_room_groups_",
                                          delete=False) as stream:
             temporary = Path(stream.name)
-            json.dump(owned, stream, sort_keys=True)
+            json.dump(data, stream, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
@@ -110,14 +139,17 @@ def _scene_group(scene):
     return reference() if callable(reference) else None
 
 
-def apply(config, group_class, namespace, groups, deleted, wanted, names):
+def apply(config, group_class, namespace, groups, deleted, wanted, names, scene_states=None):
     """Bring the bridge's groups and scenes in line with the rooms.
 
     ``config`` is the diyHue configuration; ``group_class`` creates a group;
     ``groups`` maps each room to its group id; ``deleted`` lists the groups of
     gone rooms; ``wanted`` maps each room to its slots; ``names`` maps each room to
-    its name.
+    its name. ``scene_states`` (see ``load_kept``) is updated in place: a light leaving a
+    scene's group leaves its state there, and a light back in the group gets it.
     """
+    if scene_states is None:
+        scene_states = {}
     for group_id in deleted:
         group = config["groups"].get(group_id)
         if group is None:
@@ -148,12 +180,23 @@ def apply(config, group_class, namespace, groups, deleted, wanted, names):
         for slot in wanted.get(room, ()):
             if slot not in present and slot in config["lights"]:
                 group.add_light(config["lights"][slot])
-        for scene in config["scenes"].values():
+        for scene_id, scene in config["scenes"].items():
             if _scene_group(scene) is not group:
                 continue
             for light in list(scene.lightstates.keys()):
                 if light.id_v1 in managed and light.id_v1 not in mine:
+                    scene_states.setdefault(scene_id, {})[light.id_v1] = copy.deepcopy(
+                        scene.lightstates[light])
                     del scene.lightstates[light]
+            back = scene_states.get(scene_id, {})
+            for slot in mine:
+                light = config["lights"].get(slot)
+                if slot in back and light is not None and light not in scene.lightstates:
+                    scene.lightstates[light] = back.pop(slot)
+    # A deleted scene, or a scene that got its lights back, keeps nothing.
+    for scene_id in list(scene_states):
+        if scene_id not in config["scenes"] or not scene_states[scene_id]:
+            del scene_states[scene_id]
 
 
 def rename(config, groups, names):

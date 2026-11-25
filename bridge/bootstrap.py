@@ -336,12 +336,14 @@ room_group_ids, room_deleted = room_groups.plan(room_index["rooms"], room_owned,
                                                 set(config["groups"]))
 room_slots = {slot: light for slot, light in
               {**govee_slots, **hue_slots, **migrated_hue}.items() if slot in selected_slots}
+room_scene_states = room_groups.load_kept(state)
 room_groups.apply(
     config, Group.Group, IDENTITY_NAMESPACE, room_group_ids, room_deleted,
     room_groups.members(room_index["rooms"],
                         lambda light: layout_store.room_of(light, room_index), room_slots),
-    room_groups.room_names(layout_store))
+    room_groups.room_names(layout_store), room_scene_states)
 room_groups.save_owned(state, room_group_ids)
+room_groups.save_kept(state, room_scene_states)
 rooms_at_start = room_groups.signature(layout_store)
 
 # A name set in Light Studio for a role lamp names its virtual light. Resource
