@@ -354,22 +354,20 @@ test('the Lamps panel pairs the Hue bridge after its button is pressed, without 
  assert.match(panel.textContent,/Press the button on the bridge/);assert.match(panel.textContent,/Hue <Bridge> · 192\.168\.10\.5/);
  const looked=app.requests.discovery.length;
  await app.advance(1000);await app.advance(1000);
- assert.match(panel.textContent,/Hue bridgeConnectedHue <Bridge>192\.168\.10\.5Change/);
+ // A connected bridge needs nothing from the owner, so the panel leaves it out.
+ assert.doesNotMatch(panel.textContent,/Hue bridge/);
  // The core restarts with the new bridge: discovery looks for its lamps again.
  assert.ok(app.requests.discovery.length>looked);
- // A paired bridge can be paired again, for another bridge or a new address.
- await app.click(panel.querySelector('[data-hue="find"]'));
- assert.match(panel.textContent,/Found on this network:/);
- await app.click(panel.querySelector('[data-hue="close"]'));
- assert.match(panel.textContent,/Hue <Bridge>192\.168\.10\.5Change/);
 });
 
-test('a Hue bridge from the service configuration shows as connected without Connect',async()=>{
- const app=await harness({hueBridge:()=>({state:'configured'})});
- await app.click(app.$('#list-toggle'));
- const panel=app.$('#lamp-panel');
- assert.match(panel.textContent,/Hue bridgeConnectedHue bridgeSet in the service configurationConnected/);
- assert.ok(!panel.querySelector('[data-hue]'));
+test('a connected Hue bridge is left out of the Lamps panel',async()=>{
+ for(const state of [{state:'configured'},{state:'paired',name:'Hue Bridge',ip:'192.168.10.5'}]){
+  const app=await harness({hueBridge:()=>state});
+  await app.click(app.$('#list-toggle'));
+  const panel=app.$('#lamp-panel');
+  assert.doesNotMatch(panel.textContent,/Hue bridge/i);
+  assert.ok(!panel.querySelector('[data-hue]'));
+ }
 });
 
 test('a Hue bridge address is typed when none is found, and errors stay readable',async()=>{
@@ -394,7 +392,7 @@ test('a Hue bridge address is typed when none is found, and errors stay readable
  assert.ok(panel.querySelector('[data-hue="find"]'));
 });
 
-test('Found shows unavailable lamps with their reason and hides placed ones',async()=>{
+test('Found shows unavailable lamps after the lamps that can be placed, with their reason, and hides placed ones',async()=>{
  const id=n=>'device-'+String(n).repeat(32);
  const devices=[discovered({id:id(1),name:'Gone',online:false}),discovered({id:id(2),name:'Odd',supported:false,shape:null,zones:null}),
   discovered({id:id(3),name:'Twin',ambiguous:true}),discovered({id:id(4),name:'Role',layout_id:'govee-left'}),discovered({id:id(5),name:'Placed'})];
@@ -402,7 +400,7 @@ test('Found shows unavailable lamps with their reason and hides placed ones',asy
  const app=await harness({layout:remote,discovery:{connected:true,devices,providers:{}}});
  await app.click(app.$('#list-toggle'));
  const rows=[...app.$('#lamp-panel').querySelectorAll('.lp-row.found')].map(r=>r.textContent);
- assert.deepEqual(rows,['GoneH6076 · 7 zonesOffline','OddH6076Unsupported','TwinH6076 · 7 zonesAmbiguous']);
+ assert.deepEqual(rows,['GoneH6076 · 7 zonesOffline','TwinH6076 · 7 zonesAmbiguous','OddH6076Unsupported'],'closest to usable first');
  assert.equal(app.$('#lamp-panel').querySelectorAll('[data-place]').length,0);
  const down=await harness({discovery:new Error('down')});await down.click(down.$('#list-toggle'));
  assert.match(down.$('#lamp-panel').textContent,/Lamp search is unavailable/);
@@ -1727,7 +1725,7 @@ test('the lens glow is blurred even for a straight-line lamp: the bloom region d
 const READY_BOX=()=>({state:'ready',name:'Sync Box',ip:'192.0.2.20',syncing:false});
 const placeBox=(action,body,server)=>{if(action!=='sync-box')return {status:404,body:{}};server.index.sync=body.room;return null};
 
-test('the Sync Box is listed with the desk and the monitor in its own room only',async()=>{
+test('the Lamps panel says the Sync Box is in this room, in its own room only',async()=>{
  const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
  await app.click(app.$('#list-toggle'));await app.advance(0);
  const panel=app.$('#lamp-panel');
@@ -1849,4 +1847,21 @@ test('the front light of the Sync Box follows Sync',async()=>{
  assert.equal(app.stage.querySelector('[data-select="box"]').dataset.led,'sync');
  state={state:'offline'};await app.advance(10000);
  assert.equal(app.stage.querySelector('[data-select="box"]').dataset.led,'off');
+});
+
+test('Found lists the lamps that can be placed above the unsupported ones',async()=>{
+ const id=n=>'device-'+String(n).repeat(32);
+ const devices=[discovered({id:id(1),name:'Plug',supported:false,shape:null,zones:null}),discovered({id:id(2),name:'Strip'})];
+ const app=await harness({discovery:{connected:true,devices,providers:{}}});
+ await app.click(app.$('#list-toggle'));
+ const rows=[...app.$('#lamp-panel').querySelectorAll('.lp-row.found')];
+ assert.ok(rows[0].querySelector('[data-place]'),'the supported lamp is first');
+ assert.match(rows[1].textContent,/Unsupported/);
+});
+
+test('the Lamps panel lists lamps only: no desk or monitor rows',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ assert.equal(panel.querySelector('[data-list-lamp="desk"],[data-list-lamp="monitor"]'),null);
 });

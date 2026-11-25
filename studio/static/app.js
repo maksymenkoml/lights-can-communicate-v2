@@ -1312,13 +1312,12 @@ function lampRowStatus(l){
  return corr(l)!==100?'<span class="lp-status">'+corr(l)+'%</span>':'';
 }
 function roomRows(){
+ // The Lamps panel lists lamps only: the desk, the monitor and the Sync Box are picked on the scene.
+ if(!activeLamps().length)return '<div class="lp-empty">No lamps yet. Place one from Found</div>';
  return activeLamps().map(l=>confirmRemove===l.id
   ?confirmHtml({text:'Remove '+esc(l.name)+'?',sub:'⌘Z brings it back',cancel:{'data-remove-cancel':true},ok:{'data-remove-ok':l.id},okLabel:'Remove',cls:'lp-row lamp-row',label:'Confirm removal'})
   :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+iconBtn(trashIcon,'Remove '+l.name,{'data-remove':l.id,'data-tooltip':'Remove from layout'},'danger lp-remove')+'</div>').join('')
-  +'<div class="lp-divider"></div>'
-  +'<button class="lp-row'+(selected==='desk'?' active':'')+'" data-list-lamp="desk"><span class="lp-glyph">'+glyph.desk+'</span><span><span class="lp-name">Desk</span><span class="lp-sub">'+environment.width+' × '+environment.height+' cm</span></span></button>'
-  +'<button class="lp-row'+(selected==='monitor'?' active':'')+'" data-list-lamp="monitor"><span class="lp-glyph">'+glyph.monitor+'</span><span><span class="lp-name">Monitor</span><span class="lp-sub">'+environment.inches+'″</span></span></button>'
-  +boxHereRow();
+;
 }
 function foundRows(){
  const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+btn(plusIcon,{'data-restore':l.id,'aria-label':'Return '+l.name,'data-tooltip':'Return to its place'},'sm square')+'</div>').join('');
@@ -1328,7 +1327,9 @@ function foundRows(){
   if(discovery.connected!==true)return '<div class="lp-empty">Lamp search is unavailable</div>';
   return '<div class="lp-empty">Every found lamp is in the room</div>';
  }
- return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
+ // Lamps that can be placed come first, then the others by how close they are to usable.
+ const rank=e=>['','Offline','Unavailable','Ambiguous','Unsupported'].indexOf(catalogReason(e));
+ return back+items.map((e,i)=>[e,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(([e])=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
 }
 // The physical Hue bridge: Light Studio pairs it after its link button is pressed.
 // The keys stay in the core's private state; the page only sees name and address.
@@ -1379,8 +1380,10 @@ function hueRows(){
  return '<div class="lp-empty">'+hint+'</div>'+rows
   +'<div class="lp-hue-address">'+ipField({'data-hue-input':true,placeholder:hueFound?.length?'Or an IP address':'IP address','aria-label':'Hue bridge IP address',value:hueAddress})+btn('Pair',{'data-hue':'address'},'primary')+btn('Cancel',{'data-hue':'close'})+'</div>'+error;
 }
+// The Hue bridge shows only while it needs the owner: not connected yet, or pairing.
+// A connected bridge has nothing to do here.
 function hueSection(){
- if(hueBridge.state==='unknown')return '';
+ if(hueBridge.state==='unknown'||['configured','paired'].includes(hueBridge.state)&&!hueFlow)return '';
  return '<div class="lp-section"><span>Hue bridge</span><span>'+(['paired','configured'].includes(hueBridge.state)?'Connected':hueBridge.state==='pairing'?'Pairing':'Not connected')+'</span></div>'+hueRows();
 }
 function hueClick(e){
@@ -1402,15 +1405,15 @@ function boxRow(sub,action,cls='lp-row found'){
  const name=box.state!=='none'?esc(box.name||'Sync Box'):'Sync Box';
  return '<div class="'+cls+'" data-box-row><span class="lp-glyph">'+boxSvg('box')+'</span><span><span class="lp-name">'+name+'</span><span class="lp-sub">'+sub+'</span></span>'+(action||'<span></span>')+'</div>';
 }
-// In its own room the box is listed with the desk and the monitor.
+// In its own room the section says so, and offers connecting a box that is not connected.
 function boxHereRow(){
- if(!roomsInfo||box.state==='unknown'||roomsInfo.sync!==currentRoom)return '';
  if(box.state==='none')return boxRow('Not connected',btn('Connect',{'data-box-room':'connect'},'sm'),'lp-row');
  if(box.state==='unauthorized')return boxRow('Needs connecting again',btn('Reconnect',{'data-box-room':'connect'},'sm'),'lp-row');
  return boxRow('Syncs this room with the screen','','lp-row');
 }
 function boxSection(){
- if(!roomsInfo||box.state==='unknown'||roomsInfo.sync===currentRoom)return '';
+ if(!roomsInfo||box.state==='unknown')return '';
+ if(roomsInfo.sync===currentRoom)return '<div class="lp-section"><span>Sync Box</span><span>In this room</span></div>'+boxHereRow();
  const paired=box.state!=='none',elsewhere=boxRoomName(),row=boxRow;
  let body;
  if(boxRoomAsk)body=confirmHtml({text:(elsewhere?'Move':'Add')+' the Sync Box here?',sub:elsewhere?'Sync leaves '+esc(elsewhere)+' and drives the lamps of this room':'Sync drives the lamps of this room',

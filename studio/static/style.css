@@ -512,8 +512,9 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .room-chevron{width:14px;height:14px;transition:transform .2s}
 .room-switch[aria-expanded=true] .room-chevron{transform:rotate(180deg)}
 .app.no-sync #sync-box,.app.no-sync #sync-tool,.app.no-sync .toolbar .tool-separator{display:none}
-.room-cards{position:absolute;z-index:9;width:min(640px,calc(100% - 24px));padding:12px;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);color:var(--text);font-size:var(--fs-ui)}
-.rc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.room-cards{position:absolute;z-index:9;width:max-content;max-width:min(640px,calc(100% - 24px));padding:12px;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);color:var(--text);font-size:var(--fs-ui)}
+.rc-grid{display:flex;flex-wrap:wrap;gap:10px}
+.rc-grid>*{flex:0 0 150px;min-width:0}
 .rc-card{position:relative;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);overflow:hidden}
 .rc-card:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
 .rc-card.current{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}

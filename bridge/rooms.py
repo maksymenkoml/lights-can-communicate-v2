@@ -59,7 +59,8 @@ def new_layout(name):
     """The layout of a new room: the default desk and screen of Light Studio, no rows."""
     return {"version": 7, "gridStepCm": 5, "room": name,
             "desk": {"width": 160, "height": 85},
-            "screen": {"positionCm": {"x": 80, "height": 110}, "inches": 32},
+            # The desk centre is x 100, as in Light Studio: the screen stands in the middle.
+            "screen": {"positionCm": {"x": 100, "height": 110}, "inches": 32},
             "devices": []}
 
 
