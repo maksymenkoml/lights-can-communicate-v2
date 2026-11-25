@@ -236,8 +236,13 @@ function globalHealth(){
  return {level:'unknown',short:'status unknown',label:'Sync status unknown',detail:'No reason reported yet'};
 }
 const levelColor={idle:'var(--unknown)',ok:'var(--ok)',wait:'var(--wait)',bad:'var(--bad)',unknown:'var(--unknown)'};
-function blockerLevel(b){return b.code==='color_fenced'?'wait':'bad'}
-function problemLamps(){return lamps.filter(l=>!l.unbound&&l.enabled!==false&&lampBlocker(l))}
+// A lamp that is off is in a normal state, not a fault: it is grey and never counts as a problem.
+const OFF_CODES=new Set(['native_off','owner_off']);
+const isOff=b=>OFF_CODES.has(b.code);
+function blockerLevel(b){return isOff(b)?'idle':b.code==='color_fenced'?'wait':'bad'}
+function problemLamps(){return lamps.filter(l=>!l.unbound&&l.enabled!==false&&lampBlocker(l)&&!isOff(lampBlocker(l)))}
+// The badge marks a fault with "!"; an off lamp gets a grey power mark only while Sync runs.
+function lampBadge(l){const b=lampBlocker(l);return !b?null:!isOff(b)?{b,off:false}:['active','waiting'].includes(liveState())?{b,off:true}:null}
 function syncStatus(){
  if(!activeLamps().some(l=>!l.unbound))return {level:'idle',label:'No lamps',detail:'Nothing to sync'};
  const g=globalHealth(),p=problemLamps();
@@ -469,13 +474,14 @@ function dragZone(kind,p){
 }
 function resetZone(){const c=view();if(!environment.zones[c])return;remember();environment.zones[c]=null;renderScene();renderHistory();tell('The zone is automatic again')}
 // A lamp that is drawn but not connected shows a broken link where a problem shows "!".
+const POWER_ICON='<path class="power" d="M0 -4.2V-0.8M2.5 -2.6A3.6 3.6 0 1 1 -2.5 -2.6"/>';
 const UNLINKED_ICON='<path d="M-1.3 1.3 -2.4 2.4A1.8 1.8 0 0 1 -4.9 -0.1L-3.8 -1.2M1.3 -1.3 2.4 -2.4A1.8 1.8 0 0 1 4.9 0.1L3.8 1.2M-0.6 -3.4V-4.6M3.4 0.6H4.6"/>';
 function healthMarkSvg(l){
  if(selected===l.id||l.enabled===false)return '';
  const f=lampFrame(l),cx=f.right-f.x-3,cy=f.top-f.y+3;
  if(l.unbound)return '<g class="health-badge unlinked" data-link-badge data-tooltip="Not connected"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><g transform="translate('+cx+' '+cy+')">'+UNLINKED_ICON+'</g></g>';
- const b=lampBlocker(l);
- return '<g class="health-badge" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+(f.right-f.x-3)+'" cy="'+(f.top-f.y+3)+'" r="7.5"/><text x="'+(f.right-f.x-3)+'" y="'+(f.top-f.y+6.6)+'">!</text></g>';
+ const m=lampBadge(l),b=m?.b;
+ return '<g class="health-badge'+(m?.off?' off':'')+'" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><text x="'+cx+'" y="'+(cy+3.6)+'">!</text><g transform="translate('+cx+' '+cy+')">'+POWER_ICON+'</g></g>';
 }
 // The monitor strip glows left to right like the screen picture: left side, three top zones, right side.
 function stripStops(colors){
@@ -549,7 +555,7 @@ function lampSvg(l){
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }
  const mark=healthMarkSvg(l);
- return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+';--wash-boost:'+washBoost(colors)+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient>'+washGradient(l,colors)+'</defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
+ return '<g class="lamp '+(selected===l.id?'chosen':'')+(colors?'':' unlit')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+';--wash-boost:'+washBoost(colors)+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient>'+washGradient(l,colors)+'</defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
 }
 const BEZEL=5;
 function environmentSvg({cx,cy,mw,mh,w,left,top}){
@@ -830,8 +836,9 @@ function paintLive(){
   if(l.form==='strip')stripStops(colors).forEach((c,i)=>{const z=zoneStop(c,level);setAttr(stops[i],'stop-color',z.color);setAttr(stops[i],'stop-opacity',z.opacity)});
   else if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
-  const badge=node.querySelector('[data-badge]'),b=lampBlocker(l);
-  if(badge){setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
+  node.classList.toggle('unlit',!colors);
+  const badge=node.querySelector('[data-badge]'),m=lampBadge(l),b=m?.b;
+  if(badge){badge.classList.toggle('off',!!m?.off);setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  setAttr(stage.querySelector('[data-scene-demo]'),'opacity',scenePreview()?1:0);

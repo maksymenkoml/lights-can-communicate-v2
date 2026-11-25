@@ -623,11 +623,13 @@ test('Sync states map to short labels and unknown reasons stay readable',async()
 });
 
 test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>{
- const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
- assert.equal(app.$('#sync-status span').textContent,'Govee Left off in HomeKit');
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'native_stale'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
+ assert.equal(app.$('#sync-status span').textContent,'Govee Left not responding');
  const badge=app.lamp('govee-left').querySelector('[data-badge]');
- assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Off in HomeKit');
+ assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Not responding');
+ assert.ok(!badge.classList.contains('off'),'a fault shows "!"');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
+ assert.ok(app.lamp('govee-left').classList.contains('unlit'));
  await app.click(app.$('#sync-status'));assert.equal(app.run('selected'),'govee-left');
  const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'play-left',code:'native_stale'},{role:'hue-monitor',code:'color_fenced'},{role:'nobody',code:'x'},{role:'govee-right',code:'future_code'}]}})});
  assert.equal(many.$('#sync-status span').textContent,'3 lamps not lit');
@@ -1306,10 +1308,28 @@ test('the corner follows the box and stops asking while the page is hidden',asyn
  assert.equal(app.requests.box.length,asked+1);
 });
 
+test('a lamp that is off is not a problem: a grey power mark only while Sync runs',async()=>{
+ const off=state=>liveOk({sync:{state,blockers:[{role:'govee-left',code:'owner_off'},{role:'play-left',code:'native_off'}]},lamps:{}});
+ let answer=off('off');
+ const app=await harness({live:()=>answer});
+ const badge=id=>app.lamp(id).querySelector('[data-badge]');
+ assert.equal(app.$('#sync-status span').textContent,'Not syncing');
+ for(const id of ['govee-left','play-left'])assert.equal(badge(id).getAttribute('visibility'),'hidden',id);
+ assert.ok(app.lamp('govee-left').classList.contains('unlit'),'an off lamp shows the frosted lens');
+ answer=off('active');await app.advance(200);
+ assert.equal(app.$('#sync-status span').textContent,'Syncing','an off lamp is not counted as a problem');
+ assert.equal(badge('govee-left').getAttribute('visibility'),'visible');
+ assert.ok(badge('govee-left').classList.contains('off'),'the power mark, not "!"');
+ assert.equal(badge('govee-left').dataset.tooltip,'Off in HomeKit');
+ assert.equal(badge('play-left').style.getPropertyValue('--h-color'),'var(--unknown)');
+ app.run('select("govee-left")');await app.settle();
+ assert.equal(app.$('#object-menu .card-alert')?.style.getPropertyValue('--h-color')??'var(--unknown)','var(--unknown)');
+});
+
 test('a lamp problem during Sync is the status, and clicking it shows the lamp',async()=>{
  const box=fakeBox({...BOX,syncing:true});
- const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
- assert.equal(status(app)+' | '+action(app),'Govee Left off in HomeKit | Stop Sync');
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'native_foreign'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
+ assert.equal(status(app)+' | '+action(app),'Govee Left another app in control | Stop Sync');
  await app.click(app.$('#sync-status'));
  assert.equal(app.run('selected'),'govee-left');
  assert.equal(app.$('#box-card').hidden,true,'a problem click shows the lamp, not the box details');
