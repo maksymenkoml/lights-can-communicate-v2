@@ -1375,7 +1375,9 @@ function boxRow(sub,action,cls='lp-row found'){
 // In its own room the box is listed with the desk and the monitor.
 function boxHereRow(){
  if(!roomsInfo||box.state==='unknown'||roomsInfo.sync!==currentRoom)return '';
- return box.state==='none'?boxRow('Not connected',btn('Connect',{'data-box-room':'connect'},'sm'),'lp-row'):boxRow('Syncs this room with the screen','','lp-row');
+ if(box.state==='none')return boxRow('Not connected',btn('Connect',{'data-box-room':'connect'},'sm'),'lp-row');
+ if(box.state==='unauthorized')return boxRow('Needs connecting again',btn('Reconnect',{'data-box-room':'connect'},'sm'),'lp-row');
+ return boxRow('Syncs this room with the screen','','lp-row');
 }
 function boxSection(){
  if(!roomsInfo||box.state==='unknown'||roomsInfo.sync===currentRoom)return '';

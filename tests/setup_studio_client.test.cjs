@@ -1793,3 +1793,13 @@ test('a refused Sync Box move keeps the room and says why',async()=>{
  assert.match(app.$('#toast').textContent,/Not while Sync is on/);
  assert.ok(panel.querySelector('[data-box-room="ask"]'),'the move can be asked again');
 });
+
+test('a Sync Box that must connect again offers Reconnect in its own room',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:url=>url.endsWith('/find')?{boxes:[]}:{state:'unauthorized',name:'Sync Box',ip:'192.0.2.20'}});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel'),row=panel.querySelector('[data-box-row]');
+ assert.match(row.textContent,/Needs connecting again/);
+ await app.click(row.querySelector('[data-box-room="connect"]'));await app.settle();
+ assert.ok(panel.hidden);assert.ok(!app.$('#box-card').hidden,'the connect card opens');
+});
