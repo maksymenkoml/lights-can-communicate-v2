@@ -130,6 +130,13 @@ class GoveeTransportTests(unittest.TestCase):
         self.assertEqual(options[socket.IP_ADD_MEMBERSHIP],
                          socket.inet_aton(lan.MULTICAST) + socket.inet_aton("0.0.0.0"))
 
+    def test_a_malformed_lan_address_still_polls_the_registered_lights(self):
+        for address in ("", "not-an-address"):
+            options = self.scan_socket_options(address)
+            self.assertNotIn(socket.IP_MULTICAST_IF, options, address)
+            self.assertEqual(options[socket.IP_ADD_MEMBERSHIP],
+                             socket.inet_aton(lan.MULTICAST) + socket.inet_aton("0.0.0.0"))
+
     def test_without_a_lan_address_the_scan_follows_the_default_route(self):
         options = self.scan_socket_options(None)
         self.assertNotIn(socket.IP_MULTICAST_IF, options)

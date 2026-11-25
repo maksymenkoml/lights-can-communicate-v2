@@ -138,29 +138,23 @@ class GoveeTransport:
         if changed and self.remember:
             self.remember()
 
-    def scan_interface(self, sock):
-        """Send multicast from the LAN address; return the interface to join on.
-
-        Only the scan for new lights needs that address. If it is not assigned here,
-        the scan follows the default route and the registered lights are still
-        polled by unicast.
-        """
-        if self.lan_address is not None:
-            interface = socket.inet_aton(self.lan_address)
-            try:
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, interface)
-                return interface
-            except OSError:
-                print(f"LAN address {self.lan_address} is not available; the scan for "
-                      "new Govee lights follows the default route.", flush=True)
-        return socket.inet_aton("0.0.0.0")
-
     def receive_loop(self, stop):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("", 4002))
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-            interface = self.scan_interface(sock)
+            # Only the scan for new lights needs the LAN address. If it cannot be the
+            # multicast interface, the scan follows the default route and the
+            # registered lights are still polled by unicast.
+            interface = socket.inet_aton("0.0.0.0")
+            if self.lan_address is not None:
+                try:
+                    lan_interface = socket.inet_aton(self.lan_address)
+                    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, lan_interface)
+                    interface = lan_interface
+                except OSError:
+                    print(f"LAN address {self.lan_address!r} is not available; the scan for "
+                          "new Govee lights follows the default route.", flush=True)
             sock.setsockopt(
                 socket.IPPROTO_IP,
                 socket.IP_ADD_MEMBERSHIP,
