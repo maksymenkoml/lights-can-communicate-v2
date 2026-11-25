@@ -1723,3 +1723,73 @@ test('the lens glow is blurred even for a straight-line lamp: the bloom region d
  for(const k of ['x','y'])assert.ok(+f.getAttribute(k)<=-400);
  for(const k of ['width','height'])assert.ok(+f.getAttribute(k)>=800);
 });
+
+const READY_BOX=()=>({state:'ready',name:'Sync Box',ip:'192.0.2.20',syncing:false});
+const placeBox=(action,body,server)=>{if(action!=='sync-box')return {status:404,body:{}};server.index.sync=body.room;return null};
+
+test('the Sync Box is listed with the desk and the monitor in its own room only',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.ok(panel.querySelector('[data-box-row]'),'the box is an object of its room');
+ assert.equal(panel.querySelector('[data-box-room="ask"]'),null,'nothing to move in its own room');
+ assert.match(panel.textContent,/Syncs this room with the screen/);
+});
+
+test('another room moves the Sync Box in after a calm confirm, and Sync follows it there',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX,roomPost:placeBox});
+ await app.advance(100);
+ assert.ok(app.$('#app').classList.contains('no-sync'),'no Sync settings without the box');
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/In Office/);
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ const confirm=panel.querySelector('.confirm');
+ assert.ok(confirm.classList.contains('calm'),'moving is not destructive');
+ assert.match(confirm.textContent,/Sync leaves Office/);
+ assert.ok(confirm.querySelector('[data-box-room="place"]').classList.contains('primary'));
+ assert.deepEqual(app.requests.roomPosts,[],'nothing moves before the confirm');
+ await app.click(confirm.querySelector('[data-box-room="place"]'));await app.settle();
+ assert.deepEqual(app.requests.roomPosts,[{url:'/api/rooms/sync-box',body:{room:BEDROOM}}]);
+ assert.ok(!app.$('#app').classList.contains('no-sync'),'Sync settings and Start/Stop appear in the new room');
+ assert.ok(panel.querySelector('[data-box-row]'),'the box is now listed with this room');
+ assert.equal(app.requests.box.filter(r=>r.url!=='/api/sync-box').length,0,'a paired box is not paired again');
+});
+
+test('cancelling the Sync Box confirm moves nothing',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX,roomPost:placeBox});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ await app.click(panel.querySelector('[data-box-room="cancel"]'));
+ assert.equal(panel.querySelector('.confirm'),null);
+ assert.deepEqual(app.requests.roomPosts,[]);
+});
+
+test('an unpaired Sync Box added to a room opens the connect card there',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),roomPost:placeBox,
+  syncBox:url=>url.endsWith('/find')?{boxes:[]}:{state:'none'}});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/not connected/);
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ await app.click(panel.querySelector('[data-box-room="place"]'));await app.settle();
+ assert.equal(app.server.index.sync,BEDROOM);
+ assert.ok(panel.hidden,'the lamp panel gives way to the connect card');
+ assert.ok(!app.$('#box-card').hidden,'the Sync Box connect card is open in this room');
+});
+
+test('a refused Sync Box move keeps the room and says why',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX,
+  roomPost:()=>({status:409,body:{accepted:false,reason:'sync_active'}})});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ await app.click(panel.querySelector('[data-box-room="place"]'));await app.settle();
+ assert.ok(app.$('#app').classList.contains('no-sync'));
+ assert.match(app.$('#toast').textContent,/Not while Sync is on/);
+ assert.ok(panel.querySelector('[data-box-room="ask"]'),'the move can be asked again');
+});

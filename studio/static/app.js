@@ -923,9 +923,10 @@ function attrs(a){return Object.entries(a).filter(([,v])=>v!==false&&v!=null).ma
 function btn(label,a={},kind=''){return '<button type="button" class="btn'+(kind?' '+kind:'')+'"'+attrs(a)+'>'+label+'</button>'}
 function iconBtn(icon,label,a={},kind=''){return '<button type="button" class="icon-btn'+(kind?' '+kind:'')+'" aria-label="'+esc(label)+'"'+attrs(a)+'>'+icon+'</button>'}
 // A destructive step asks once, in place: the question, then Cancel and the red action.
-function confirmHtml({text,sub='',cancel,ok,okLabel,cls='',a={},label='Confirm'}){
- return '<div class="confirm'+(cls?' '+cls:'')+'" role="group" aria-label="'+esc(label)+'"'+attrs(a)+'><span class="confirm-text"><b>'+text+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</span>'
-  +btn('Cancel',cancel,'sm')+btn(okLabel,ok,'sm danger')+'</div>';
+// A confirm is destructive (danger) unless it only moves something (primary).
+function confirmHtml({text,sub='',cancel,ok,okLabel,cls='',a={},label='Confirm',tone='danger'}){
+ return '<div class="confirm'+(tone==='primary'?' calm':'')+(cls?' '+cls:'')+'" role="group" aria-label="'+esc(label)+'"'+attrs(a)+'><span class="confirm-text"><b>'+text+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</span>'
+  +btn('Cancel',cancel,'sm')+btn(okLabel,ok,'sm '+tone)+'</div>';
 }
 function field(a,size=''){return '<input type="text" class="field'+(size?' '+size:'')+'"'+attrs(a)+'>'}
 function ipField(a){return field({inputmode:'decimal',maxlength:15,autocomplete:'off',spellcheck:'false',...a})}
@@ -1286,7 +1287,8 @@ function roomRows(){
   :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+iconBtn(trashIcon,'Remove '+l.name,{'data-remove':l.id,'data-tooltip':'Remove from layout'},'danger lp-remove')+'</div>').join('')
   +'<div class="lp-divider"></div>'
   +'<button class="lp-row'+(selected==='desk'?' active':'')+'" data-list-lamp="desk"><span class="lp-glyph">'+glyph.desk+'</span><span><span class="lp-name">Desk</span><span class="lp-sub">'+environment.width+' × '+environment.height+' cm</span></span></button>'
-  +'<button class="lp-row'+(selected==='monitor'?' active':'')+'" data-list-lamp="monitor"><span class="lp-glyph">'+glyph.monitor+'</span><span><span class="lp-name">Monitor</span><span class="lp-sub">'+environment.inches+'″</span></span></button>';
+  +'<button class="lp-row'+(selected==='monitor'?' active':'')+'" data-list-lamp="monitor"><span class="lp-glyph">'+glyph.monitor+'</span><span><span class="lp-name">Monitor</span><span class="lp-sub">'+environment.inches+'″</span></span></button>'
+  +boxHereRow();
 }
 function foundRows(){
  const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+btn(plusIcon,{'data-restore':l.id,'aria-label':'Return '+l.name,'data-tooltip':'Return to its place'},'sm square')+'</div>').join('');
@@ -1361,8 +1363,50 @@ function hueClick(e){
  else if(action==='cancel')hueCall('/api/hue-bridge/cancel',{}).then(r=>{if(r.status===200)hueBridge=r.body;hueError='';paintPanel()});
  return true;
 }
+// The Sync Box is a device of one room. Another room adds it, or moves it in after a
+// confirm; Sync, its settings and its Start/Stop then follow it. Moving it never asks for a
+// new pairing in the Hue app: the stream keeps its group, only the driven lamps change.
+let boxRoomAsk=false,boxRoomBusy=false;
+function boxRoomName(){return roomsInfo?.rooms.find(r=>r.id===roomsInfo.sync)?.name||''}
+function boxRow(sub,action,cls='lp-row found'){
+ const name=box.state!=='none'?esc(box.name||'Sync Box'):'Sync Box';
+ return '<div class="'+cls+'" data-box-row><span class="lp-glyph">'+boxSvg('box')+'</span><span><span class="lp-name">'+name+'</span><span class="lp-sub">'+sub+'</span></span>'+(action||'<span></span>')+'</div>';
+}
+// In its own room the box is listed with the desk and the monitor.
+function boxHereRow(){
+ if(!roomsInfo||box.state==='unknown'||roomsInfo.sync!==currentRoom)return '';
+ return box.state==='none'?boxRow('Not connected',btn('Connect',{'data-box-room':'connect'},'sm'),'lp-row'):boxRow('Syncs this room with the screen','','lp-row');
+}
+function boxSection(){
+ if(!roomsInfo||box.state==='unknown'||roomsInfo.sync===currentRoom)return '';
+ const paired=box.state!=='none',elsewhere=boxRoomName(),row=boxRow;
+ let body;
+ if(boxRoomAsk)body=confirmHtml({text:(elsewhere?'Move':'Add')+' the Sync Box here?',sub:elsewhere?'Sync leaves '+esc(elsewhere)+' and drives the lamps of this room':'Sync drives the lamps of this room',
+  cancel:{'data-box-room':'cancel'},ok:{'data-box-room':'place'},okLabel:elsewhere?'Move here':'Add here',cls:'lp-row',label:'Confirm the Sync Box room',tone:'primary'});
+ else if(elsewhere)body=row('In '+esc(elsewhere)+(paired?'':' · not connected'),btn('Move here',{'data-box-room':'ask'},'sm'));
+ else body=row(paired?'In no room':'Syncs a room with the screen',btn(paired?'Add here':'Add Sync Box',{'data-box-room':'ask'},'sm'));
+ return '<div class="lp-section"><span>Sync Box</span><span>'+(elsewhere?'In another room':'Not in a room')+'</span></div>'+body;
+}
+async function placeBoxHere(){
+ if(boxRoomBusy)return;boxRoomBusy=true;
+ const moved=!!roomsInfo?.sync;
+ const ok=await roomChange('sync-box',{room:currentRoom});
+ boxRoomBusy=false;boxRoomAsk=false;
+ if(!ok){paintPanel();return}
+ if(box.state==='none'||box.state==='unauthorized'){closePanel();openBoxCard('connect');return}
+ paintPanel();tell(moved?'Sync Box moved here':'Sync Box added here');
+}
+function boxRoomClick(e){
+ const b=e.target.closest('[data-box-room]');if(!b)return false;e.stopPropagation();
+ const action=b.dataset.boxRoom;
+ if(action==='ask'){boxRoomAsk=true;paintPanel();$('#lamp-panel [data-box-room="cancel"]')?.focus()}
+ else if(action==='cancel'){boxRoomAsk=false;paintPanel()}
+ else if(action==='place')placeBoxHere();
+ else if(action==='connect'){closePanel();openBoxCard('connect')}
+ return true;
+}
 function foundCount(){return catalogEntries().filter(e=>!catalogReason(e)).length+removedLamps().length}
-const PANEL_FOCUS=['data-hue-input','data-hue','data-hue-ip','data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
+const PANEL_FOCUS=['data-box-room','data-hue-input','data-hue','data-hue-ip','data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
 function paintPanel(){
  const p=$('#lamp-panel');if(!p||p.hidden)return;const top=p.scrollTop;
  const active=p.contains(document.activeElement)?document.activeElement:null;
@@ -1370,7 +1414,7 @@ function paintPanel(){
  p.innerHTML='<div class="lp-head"><h2>Lamps</h2>'+iconBtn(closeIcon,'Close',{'data-close':true,'data-tooltip':'Close · Esc'})+'</div>'
   +'<div class="lp-section"><span>In the room</span><span>'+activeLamps().length+'</span></div>'+roomRows()
   +'<div class="lp-section" id="lp-found"><span>Found</span><span>'+foundCount()+' available</span></div>'+foundRows()
-  +hueSection();
+  +boxSection()+hueSection();
  p.scrollTop=top;
  const caret=active?.selectionStart;
  if(focusAttr){const next=p.querySelector('['+focusAttr+(focusValue?'="'+focusValue+'"':'')+']');next?.focus({preventScroll:true});if(next&&Number.isInteger(caret))next.setSelectionRange(caret,caret)}
@@ -1386,7 +1430,7 @@ function openPanel(kind){
  startDiscovery();
 }
 function closePanel(){
- confirmRemove=null;$('#lamp-panel').hidden=true;panelKind=null;markLamp(null);stopDiscovery();
+ confirmRemove=null;boxRoomAsk=false;$('#lamp-panel').hidden=true;panelKind=null;markLamp(null);stopDiscovery();
  $('#list-toggle').setAttribute('aria-expanded','false');$('#list-toggle').classList.remove('active');
  if(document.activeElement?.id==='list-toggle')document.activeElement.blur();
 }
@@ -1762,7 +1806,7 @@ $('#object-menu').addEventListener('click',e=>{const b=e.target.closest('[data-m
 const panel=$('#lamp-panel');
 panel.addEventListener('click',e=>{
  if(e.target.closest('[data-close]')){e.stopPropagation();closePanel();return}
- if(hueClick(e))return;
+ if(hueClick(e)||boxRoomClick(e))return;
  const rm=e.target.closest('[data-remove]');if(rm){e.stopPropagation();confirmRemove=rm.dataset.remove;paintPanel();panel.querySelector('[data-remove-cancel]')?.focus();return}
  if(e.target.closest('[data-remove-cancel]')){e.stopPropagation();const id=confirmRemove;confirmRemove=null;paintPanel();panel.querySelector('[data-list-lamp="'+id+'"]')?.focus();return}
  const ok=e.target.closest('[data-remove-ok]');if(ok){e.stopPropagation();confirmRemove=null;removeLampById(ok.dataset.removeOk);return}
@@ -1833,7 +1877,7 @@ function setBox(next){
  if(wasSyncing&&box.state==='ready'&&box.syncing===false&&boxBusy===null&&box.changing==null&&!box.recovery&&!wasRecovery)boxSay('Sync stopped on the Sync Box','bad');
  if(box.recovery==='failed'&&wasRecovery!=='failed')boxSay('Sync did not come back. Stop and start it again','bad');
  if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
- paintBox();
+ paintBox();if(was!==box.state&&panelKind)paintPanel();
 }
 // A short line inside the corner block; it replaces the page toast for the box.
 function boxSay(text,kind='ok'){

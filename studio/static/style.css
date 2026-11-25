@@ -238,6 +238,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 .field.sm{height:var(--ctl-h-sm);padding:0 8px}
 .field:focus,.field:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--soft)}
 .confirm{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;padding:10px;border-radius:var(--r-ctl);background:color-mix(in srgb,var(--bad) 8%,var(--surface));font-size:var(--fs-ui);cursor:default}
+.confirm.calm{background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
 .confirm-text{min-width:0}
 .confirm-text b{display:block;font-weight:500;color:var(--text)}
 .confirm-text small{display:block;margin-top:2px;color:var(--muted);font-size:var(--fs-small)}
