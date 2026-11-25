@@ -61,6 +61,9 @@ const goveeLight=id=>/^govee-/.test(id)||enrolled.get(id)?.provider==='govee';
 const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
+// The lamp that wraps the monitor: the Monitor Strip, or in a room without it the first
+// light strip (a Hue gradient strip is made for a screen). Any other strip draws as a bar.
+const wrapOf=list=>list.find(l=>l.id===MONITOR)||list.find(l=>l.shape==='strip');
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
 const SYNC_ROLES=['sync','own','off'];
 function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
@@ -80,7 +83,7 @@ function defaults(){
  return {room:'Office',environment,lamps:[]};
 }
 function monitorWidthCm(inches){return inches*2.54*16/Math.hypot(16,9)}
-function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.id===MONITOR)return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
+function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.form==='strip')return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
 // Layout anchors must stay within x -200..400 cm and height 0..300 cm (desk_layout);
 // a floor lamp's anchor is its bottom + 60 cm.
 const X_LIMIT=300;
@@ -129,8 +132,8 @@ function fromLayout(data){
 function pack(m={room,environment,lamps}){
  const env=m.environment;
  const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
- // The monitor strip row, when there is one, carries the screen position.
- const monitor=m.lamps.find(l=>l.id===MONITOR)||env.screen;
+ // The strip that wraps the monitor, when there is one, carries the screen position.
+ const monitor=wrapOf(m.lamps)||env.screen;
  return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
@@ -143,7 +146,7 @@ let room,environment,lamps;
 ({room,environment,lamps}=fromLayout(readJson(KEY))||defaults());
 let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],future=[],drag=null,toastTimer;
 // The monitor: the strip lamp when the room has one, otherwise the screen alone.
-const strip=()=>lamps.find(l=>l.id===MONITOR)||environment.screen;
+const strip=()=>wrapOf(lamps)||environment.screen;
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
 const syncRole=l=>SYNC_ROLES.includes(l.syncRole)?l.syncRole:'sync';
 function movableFixture(){
@@ -335,7 +338,7 @@ function syncSegment(low,high,upper,fade){
 function syncProjection(l){
  if(l.unbound||l.enabled===false||syncRole(l)!=='sync')return [];
  if(l.form==='floor'){const b=syncBounds(l.x);return Array.from({length:7},(_,i)=>{const lo=l.h+6+i*128/7,hi=l.h+6+(i+1)*128/7,[gain,center]=b?syncSegment(lo,hi,b[1],b[1]-b[0]):[1,(lo+hi)/2];return {point:center===null?null:syncPoint(l.x,center),gain}})}
- if(l.id===MONITOR){const width=monitorWidthCm(environment.inches),height=width*9/16;return stripPoints.map(([u,v])=>({point:[u,v],gain:syncGain(l.x+(u-.5)*width,l.h+(v-.5)*height)}))}
+ if(l.form==='strip'){const width=monitorWidthCm(environment.inches),height=width*9/16;return stripPoints.map(([u,v])=>({point:[u,v],gain:syncGain(l.x+(u-.5)*width,l.h+(v-.5)*height)}))}
  return [{point:syncPoint(l.x,l.h),gain:syncGain(l.x,l.h)}];
 }
 function syncSummary(l){const rows=syncProjection(l);return {rows,active:rows.filter(r=>r.gain>1e-8).length}}
@@ -434,7 +437,7 @@ function handlesSvg(geo){
   diag={x:mx+mw+12,y:my+mh,text:environment.inches+'″',edit:'inches',value:environment.inches};
   chip=chipSvg(cx,my-30,'Monitor','',[]);
  }else if(l){
-  if(l.id!==MONITOR){
+  if(l.form!=='strip'){
    m.push({axis:'v',x:f.left-12,y1:740,y2:f.ref,text:l.h+' cm',edit:'h',value:l.h,leader:f.left});
    m.push({axis:'h',x1:cx,x2:f.x,y:758,text:signed(l.x-s.x),edit:'x',value:l.x-s.x});
   }
@@ -472,7 +475,8 @@ function healthMarkSvg(l){
 }
 // The monitor strip glows left to right like the screen picture: left side, three top zones, right side.
 function stripStops(colors){
- const cs=colors||Array.from({length:9},()=>[0,0,0]),avg=(...c)=>[0,1,2].map(i=>c.reduce((a,x)=>a+x[i],0)/c.length);
+ // Nine zones, sampled evenly from a strip of any zone count.
+ const raw=colors?.length?colors:[[0,0,0]],cs=Array.from({length:9},(_,i)=>raw[Math.round(i*(raw.length-1)/8)]),avg=(...c)=>[0,1,2].map(i=>c.reduce((a,x)=>a+x[i],0)/c.length);
  return [avg(cs[0],cs[1],cs[2]),cs[3],cs[4],cs[5],avg(cs[6],cs[7],cs[8])];
 }
 function lensStops(l,colors,beam){
@@ -557,7 +561,7 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const B=BEZEL;
  const monitor='<rect x="'+(mx-B)+'" y="'+(my-B)+'" width="'+(mw+2*B)+'" height="'+(mh+2*B)+'" rx="7" fill="#445367" stroke="#77879b" stroke-width="1"/><rect x="'+mx+'" y="'+my+'" width="'+mw+'" height="'+mh+'" rx="3" fill="url(#glass-face)"/><path d="M'+(mx+3)+' '+(my+1)+'H'+(mx+mw-3)+'" stroke="#eaf5ff" stroke-opacity=".4"/><path d="M'+cx+' '+(bottom+B)+'v'+Math.max(0,top-bottom-B-9)+'" stroke="var(--furniture-metal)" stroke-width="5"/><path d="M'+cx+' '+(top-10)+'l-31 7h62Z" fill="var(--furniture-metal)"/><circle cx="'+cx+'" cy="'+(my+mh+B/2)+'" r=".9" fill="#c8d7e9" opacity=".5"/>';
  const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
- return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
+ return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected&&selected===wrapOf(lamps)?.id?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
 }
 // The Sync Box on the desktop of its room. Its front light shows the box: dark when it is
 // not connected or not answering, dim when ready, lit while it syncs.
@@ -643,15 +647,15 @@ function syncLinksSvg(geo){
  let out='<g id="sync-links" pointer-events="none">';
  if(selected==='monitor'){
   for(const l of lamps){
-   if(l.id===MONITOR||l.unbound||l.enabled===false||lampDark(l))continue;
+   if(l.form==='strip'||l.unbound||l.enabled===false||lampDark(l))continue;
    syncZones(l,geo).forEach((z,i)=>{if(z.on)out+=rayMarkup(l,z,i)+sampleMarkup(l,z,i)});
   }
   return out+'</g>';
  }
  const l=lamps.find(l=>l.id===selected);if(!l||l.unbound)return '';
  syncZones(l,geo).forEach((z,i)=>{
-  if(!z.on){if(l.id!==MONITOR)out+='<circle class="zone-off" cx="'+z.x+'" cy="'+z.y+'" r="2.5"/>';return}
-  if(l.id!==MONITOR)out+=rayMarkup(l,z,i);
+  if(!z.on){if(l.form!=='strip')out+='<circle class="zone-off" cx="'+z.x+'" cy="'+z.y+'" r="2.5"/>';return}
+  if(l.form!=='strip')out+=rayMarkup(l,z,i);
   out+=sampleMarkup(l,z,i);
  });
  return out+'</g>';
@@ -679,7 +683,7 @@ function applyFocus(){
  // view, where every lamp that syncs from the screen stays bright.
  if(selected==='monitor'&&mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)});
  // The strip wraps the monitor, so a chosen strip keeps it.
- if(selected===MONITOR)keep.add('monitor');
+ if(selected&&selected===wrapOf(lamps)?.id)keep.add('monitor');
  const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group,.box-group');
  nodes.forEach(n=>{
   const key=focusKey(n),want=on&&!keep.has(key)?.22:1,was=focusState.has(key)?focusState.get(key):want;
@@ -731,9 +735,18 @@ function syncScreenAxis(){const g=sceneGeometry(),stage=$('#stage'),ax=stage.que
 function refreshHandles(washes=true){syncScreenAxis();const old=$('#stage').querySelector('.handles'),box=document.createElementNS('http://www.w3.org/2000/svg','g');box.innerHTML=handlesSvg(sceneGeometry());const fresh=box.firstElementChild;if(old&&fresh)old.replaceWith(fresh);else if(fresh)$('#stage').append(fresh);else old?.remove();if(washes)syncWashes()}
 function renderHistory(){$('#undo').disabled=!past.length;$('#redo').disabled=!future.length;persistIfChanged()}
 function renderList(){$('#count').textContent=activeLamps().length}
-// The monitor strip carries the screen position while the room has one; the screen
-// keeps it, so removing the strip later leaves the screen where it was.
-function syncScreen(){const m=lamps.find(l=>l.id===MONITOR);if(m)environment.screen={x:m.x,h:m.h}}
+// The strip that wraps the monitor carries the screen position while the room has one;
+// the screen keeps it, so removing the strip later leaves the screen where it was. A
+// strip that starts to wrap the monitor takes the screen's place.
+function syncScreen(){
+ const w=wrapOf(lamps);
+ for(const l of lamps){
+  if(l.form==='floor')continue;
+  if(l===w&&l.form!=='strip'){l.x=environment.screen.x;l.h=environment.screen.h}
+  l.form=l===w?'strip':'bar';
+ }
+ if(w)environment.screen={x:w.x,h:w.h};
+}
 function render(){syncScreen();renderScene();renderInspector();renderList();renderHistory()}
 function renderInspector(){if(menuOpen&&!lamps.some(l=>l.id===selected))closeObjectMenu()}
 function paintTitle(){
@@ -864,7 +877,7 @@ function changeField(key,value){
  }else if(selected==='monitor'){
   if(key==='inches')environment.inches=clamp(Math.round(value),19,55);else strip()[key]=value;
   clampFixture(strip());
- }else if(l){l[key]=key==='x'?value+(l.id===MONITOR?0:strip().x):value;clampFixture(l)}
+ }else if(l){l[key]=key==='x'?value+(l.form==='strip'?0:strip().x):value;clampFixture(l)}
  recordChange(before);renderScene();renderHistory();
 }
 function dragHandle(kind,p){

@@ -274,6 +274,20 @@ test('a light without a recorded room is in the default room, whatever the order
  assert.equal(app.run("takeRooms({rooms:"+rooms+",assigned:{}});roomOf('govee-left')"),'room-0a1b2c3d','an older server: the first room');
 });
 
+test('in a room without the Monitor Strip a light strip wraps the monitor',async()=>{
+ const strip='device-'+'a'.repeat(32),other='device-'+'b'.repeat(32);
+ const layout={version:7,gridStepCm:5,room:'Anna',desk:{width:160,height:85},screen:{positionCm:{x:100,height:110},inches:32},devices:[
+  {id:strip,scale:80,positionCm:{x:180,height:60},orientation:'horizontal',shape:'strip',name:'Lightstrip 27',model:'LCX005',zones:9},
+  {id:other,scale:80,positionCm:{x:40,height:60},orientation:'horizontal',shape:'strip',name:'Lightstrip 32',model:'LCX006',zones:9}]};
+ const app=await harness({layout});await app.advance(1000);
+ const lamp=id=>JSON.parse(app.run('JSON.stringify(lamps.find(l=>l.id==="'+id+'"))'));
+ assert.equal(lamp(strip).form,'strip','the first strip wraps the monitor');
+ assert.deepEqual([lamp(strip).x,lamp(strip).h],[0,110],'it takes the screen place');
+ assert.equal(lamp(other).form,'bar','a second strip draws as a bar');
+ assert.equal(app.lamp(strip).querySelectorAll('stop').length>0,true);
+ assert.equal(app.run('stripStops([[1,2,3]]).length'),5,'any zone count gives five stops');
+});
+
 test('a chosen monitor dims its strip like any lamp; a chosen strip keeps the monitor',async()=>{
  const app=await harness();
  const opacity=()=>({monitor:+app.stage.querySelector('[data-select="monitor"]').style.opacity,
