@@ -32,9 +32,11 @@ LEGACY_LAYOUT = "desk-layout.json"
 FIRST_ROOM = "room-00000001"
 MAX_ROOMS = 10
 # Before the first write: the single layout is the first room, with Sync.
-SINGLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": FIRST_ROOM}
+SINGLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": FIRST_ROOM,
+          "default": FIRST_ROOM}
 # A corrupt index without a good one: no permission to drive Sync.
-UNREADABLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": None}
+UNREADABLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": None,
+              "default": FIRST_ROOM}
 ROOM_ID = re.compile(r"room-[0-9a-f]{8}")
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}")
 MAX_ROWS = 12
@@ -70,7 +72,10 @@ def _light(value):
 
 def validate_index(value):
     """Return the canonical room index or raise ValueError."""
-    if not isinstance(value, dict) or set(value) != {"version", "rooms", "lights", "sync"}:
+    # ``default`` is the room of a light without a recorded room. An index written
+    # before it existed has none: its lights without a room were in its first room.
+    keys = {"version", "rooms", "lights", "sync"}
+    if not isinstance(value, dict) or set(value) not in (keys, keys | {"default"}):
         raise ValueError("Expected a room index")
     if value["version"] != ROOMS_VERSION or type(value["version"]) is not int:
         raise ValueError("Unknown room index version")
@@ -85,8 +90,11 @@ def validate_index(value):
         raise ValueError("Every light must be in a listed room")
     if value["sync"] is not None and value["sync"] not in rooms:
         raise ValueError("The Sync Box must be in a listed room")
+    default = value.get("default", rooms[0])
+    if default not in rooms:
+        raise ValueError("The default room must be listed")
     return {"version": ROOMS_VERSION, "rooms": list(rooms), "lights": dict(lights),
-            "sync": value["sync"]}
+            "sync": value["sync"], "default": default}
 
 
 def _write_json(path, data):
@@ -155,8 +163,9 @@ class Rooms:
 
     @staticmethod
     def default_room(index):
-        """The room of a light without a recorded room: the first room."""
-        return index["rooms"][0]
+        """The room of a light without a recorded room; the room order does not change
+        it."""
+        return index["default"]
 
     def room_of(self, light, index=None):
         """The light's room: its recorded room, otherwise the default room."""
@@ -393,24 +402,16 @@ class Rooms:
             data["room"] = name
             return self.save(room, data)
 
-    def reorder(self, order, lights=()):
-        """Put the rooms in ``order``; no light changes its room.
-
-        ``lights`` lists the connected lights. When the new order puts another room
-        first, each of them without a recorded room records the old first room.
-        """
+    def reorder(self, order):
+        """Put the rooms in ``order``; no light changes its room, since the default room
+        is kept apart from the order."""
         with self.lock:
             self._materialize()
             index = self.index()
             if (not isinstance(order, list) or len(order) != len(index["rooms"])
                     or set(order) != set(index["rooms"])):
                 raise RoomRefused("unknown_room")
-            before = self.default_room(index)
             index["rooms"] = list(order)
-            if self.default_room(index) != before:
-                for light in lights:
-                    if _light(light):
-                        index["lights"].setdefault(light, before)
             self.write_index(index)
 
     def delete(self, room, connected):
@@ -430,6 +431,9 @@ class Rooms:
             index["rooms"].remove(room)
             index["lights"] = {light: home for light, home in index["lights"].items()
                                if home != room}
+            if index["default"] == room:
+                # It held no connected light; a light without a room goes first now.
+                index["default"] = index["rooms"][0]
             self.write_index(index)
             (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
             self.stores.pop(self.state_dir / LAYOUTS_DIR / (room + ".json"), None)

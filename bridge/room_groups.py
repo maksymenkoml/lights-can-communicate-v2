@@ -230,5 +230,5 @@ def signature(rooms, lights):
     allowed during Sync)."""
     index = rooms.index()
     return json.dumps([sorted(index["rooms"]),
-                       {light: rooms.room_of(light, index) for light in sorted(set(lights))}],
+                       {light: rooms.room_of(light, index) for light in set(lights)}],
                       sort_keys=True)

@@ -193,14 +193,18 @@ class RoomStateTests(unittest.TestCase):
             self.assertEqual(room_groups.room_names(rooms),
                              {FIRST_ROOM: "Office", SECOND: "Bedroom"})
             self.assertNotEqual(room_groups.signature(rooms, lights), before)
-            # A new order keeps every light in its room, so it does not restart the bridge,
-            # although it records the old first room for govee-left.
+            # A new order keeps every light in its room, so it does not restart the bridge.
             moved = room_groups.signature(rooms, lights)
-            rooms.reorder([SECOND, FIRST_ROOM], lights)
-            self.assertEqual(rooms.index()["lights"], {THIRD: SECOND, "govee-left": FIRST_ROOM})
+            rooms.reorder([SECOND, FIRST_ROOM])
             self.assertEqual(room_groups.signature(rooms, lights), moved)
             # The signature follows where the bridge's lights are, not the stored record.
             index = rooms.index()
+            index["lights"]["govee-left"] = FIRST_ROOM
+            rooms.write_index(index)
+            self.assertEqual(room_groups.signature(rooms, lights), moved)
+            index["default"] = SECOND
+            rooms.write_index(index)
+            self.assertEqual(room_groups.signature(rooms, lights), moved)
             del index["lights"]["govee-left"]
             rooms.write_index(index)
             self.assertNotEqual(room_groups.signature(rooms, lights), moved)
