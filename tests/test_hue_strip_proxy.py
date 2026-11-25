@@ -560,3 +560,80 @@ class KeptAliveClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SceneScale:
+    """A layout store that only corrects the scene brightness."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def scale(self, light, fallback):
+        return self.value
+
+    scene_scale = scale
+
+    def layout_for(self, light):
+        return {}
+
+
+class CalibrationRestoreTests(unittest.TestCase):
+    def proxy(self, light="hue-monitor", store=None):
+        client = FakeHue()
+        if light != "hue-monitor":
+            client.resource_id = PLAY_IDS[light]
+            client.native["id"] = client.resource_id
+        proxy = HueStripProxy(client, light, layout_store=store, clock=lambda: 10,
+                              wall_clock=lambda: 1000)
+        return client, proxy
+
+    def calibrate(self, client, proxy):
+        """Read the light, remember it, then write test colours past the proxy."""
+        self.assertFalse(proxy.process_once())
+        proxy.remember_light()
+        client.native["dimming"]["brightness"] = 2
+        client.native["color"] = {"xy": {"x": 0.31, "y": 0.33}}
+        self.assertFalse(proxy.process_once(), "a session writes past the proxy")
+        proxy.restore_scene()
+        self.assertTrue(proxy.process_once())
+        return client.writes[-1]
+
+    def test_a_light_without_a_scene_of_its_own_gets_back_its_colour_and_brightness(self):
+        client, proxy = self.proxy("play-center", SceneScale(0.3))
+        client.native.update(dimming={"brightness": 60},
+                             color={"xy": {"x": 0.5, "y": 0.4}},
+                             color_temperature={"mirek": None, "mirek_valid": False},
+                             gradient={"points_capable": 0, "points": []})
+        body = self.calibrate(client, proxy)
+        self.assertEqual(body["color"], {"xy": {"x": 0.5, "y": 0.4}})
+        self.assertAlmostEqual(body["dimming"]["brightness"], 60)
+        self.assertNotIn("on", body, "a restore never switches the light")
+
+    def test_a_white_light_gets_back_its_temperature(self):
+        client, proxy = self.proxy()
+        client.native.update(dimming={"brightness": 80},
+                             color_temperature={"mirek": 250, "mirek_valid": True})
+        body = self.calibrate(client, proxy)
+        self.assertEqual(body["color_temperature"], {"mirek": 250})
+        self.assertNotIn("color", body)
+        self.assertEqual(body["dimming"], {"brightness": 80})
+
+    def test_a_gradient_light_gets_back_its_points(self):
+        client, proxy = self.proxy()
+        points = [{"color": {"xy": {"x": 0.2, "y": 0.3}}}, {"color": {"xy": {"x": 0.6, "y": 0.3}}}]
+        client.native.update(gradient={"points_capable": 5, "points": copy.deepcopy(points)})
+        body = self.calibrate(client, proxy)
+        self.assertEqual(body["gradient"]["points"], points)
+
+    def test_a_scene_that_came_through_the_proxy_wins_over_the_remembered_light(self):
+        client, proxy = self.proxy()
+        proxy.submit(command(state={"on": True, "bri": 127, "xy": [0.4, 0.4], "colormode": "xy",
+                                    "_changed": ["bri", "xy"]}))
+        self.assertTrue(proxy.process_once())
+        body = self.calibrate(client, proxy)
+        self.assertEqual(body["color"], {"xy": {"x": 0.4, "y": 0.4}})
+
+    def test_the_remembered_light_is_used_once(self):
+        client, proxy = self.proxy()
+        self.calibrate(client, proxy)
+        self.assertIsNone(proxy.remembered)

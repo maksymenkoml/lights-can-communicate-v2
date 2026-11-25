@@ -61,6 +61,9 @@ class FakeProxy:
     def restore_scene(self):
         self.restored += 1
 
+    def remember_light(self):
+        self.remembered = getattr(self, "remembered", 0) + 1
+
 
 class FakeVideo:
     running = False
@@ -322,3 +325,14 @@ class CalibrationRouteTests(SessionFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class RememberHueLightTests(SessionFixture):
+    def test_a_session_remembers_each_hue_light_once_when_it_starts(self):
+        self.session.update(dict(REQUEST))
+        self.session.update({**REQUEST, "correction": 90})
+        self.assertEqual({role: getattr(p, "remembered", 0) for role, p in self.proxies.items()},
+                         {role: 1 for role in self.proxies}, "renewals keep the first look")
+        self.assertTrue(self.session.end("saved"))
+        self.assertTrue(all(p.restored == 1 for p in self.proxies.values()))
