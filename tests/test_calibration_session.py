@@ -133,6 +133,49 @@ class CalibrationSessionTests(SessionFixture):
         self.assertTrue(all(proxy.restored == 1 for proxy in self.proxies.values()))
         self.assertEqual(self.session.snapshot()["last_end"], "saved")
 
+    def test_a_scene_write_under_the_controller_lock_never_waits_for_the_session(self):
+        # A render holds the controller lock while it sends; a calibration request holds
+        # the session lock while it reads the controller. Neither may wait for the other.
+        device = self.controller.by_light["govee-right"]
+        result = []
+
+        def render():
+            with self.controller.lock:
+                result.append(self.fenced(device, "brightness", {"value": 40}))
+
+        with self.session.lock:
+            worker = threading.Thread(target=render)
+            worker.start()
+            worker.join(2)
+            alive = worker.is_alive()
+        worker.join(2)
+        self.assertFalse(alive, "the scene write waited for the session lock")
+        self.assertEqual(result, [True])
+
+    def test_a_scene_write_that_races_a_starting_session_is_painted_over(self):
+        device = self.controller.by_light["govee-left"]
+        started = []
+
+        def transport(device_, command, data):
+            if not started:
+                # The session starts while this scene write is on its way, so the
+                # scene frame reaches the lamp after the test white.
+                started.append(True)
+                self.session.update(dict(REQUEST))
+            self.sent.append((device_["light"], command, data))
+            return True
+
+        fenced = self.session.wrap(transport)
+        self.session.sender = self.calibration.wrap(transport)
+        self.assertTrue(fenced(device, "brightness", {"value": 40}))
+        self.assertEqual(self.govee("govee-left")[-1], ("brightness", {"value": 40}))
+        self.session.tick()
+        self.assertEqual(self.govee("govee-left")[-1], ("brightness", {"value": 100}),
+                         "the next tick repaints the test white")
+        count = len(self.sent)
+        self.session.tick()
+        self.assertEqual(len(self.sent), count, "only once")
+
     def test_a_renewal_without_changes_sends_nothing_and_a_change_resends(self):
         self.session.update(dict(REQUEST))
         count = len(self.sent)

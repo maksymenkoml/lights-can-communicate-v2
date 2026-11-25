@@ -227,6 +227,34 @@ class OutputPreviewStore:
         if colors is not None or brightness is not None:
             self._update(role, "scene-output", colors, brightness)
 
+    def record_hue_read_back(self, role, native):
+        """Record what a Hue light shows, read back from its bridge in scene mode.
+
+        A scene set before the adapter started, or from another app, never passes
+        through record_hue(), so without the read-back the preview showed such a lamp
+        unlit. The light's v2 resource reports its color mode: a valid mirek is white,
+        gradient points are a gradient, and otherwise the xy color applies.
+        """
+        if role not in self.native_channels or not isinstance(native, dict):
+            return
+        temperature = native.get("color_temperature")
+        points = (native.get("gradient") or {}).get("points") or []
+        color = native.get("color")
+        if (isinstance(temperature, dict) and temperature.get("mirek_valid") is True
+                and _number(temperature.get("mirek"), 153, 500)):
+            colors = [_temperature(1_000_000 / temperature["mirek"])]
+        elif isinstance(points, list) and 2 <= len(points) <= 5:
+            colors = [_xy(point["color"]["xy"]) for point in points]
+        elif isinstance(color, dict) and isinstance(color.get("xy"), dict):
+            colors = [_xy(color["xy"])]
+        else:
+            colors = None
+        brightness = (native.get("dimming") or {}).get("brightness")
+        if not _number(brightness, 0, 100):
+            brightness = None
+        if colors is not None or brightness is not None:
+            self._update(role, "scene-output", colors, brightness)
+
     def record_native_channels(self, channels):
         # These channels already include layout calibration and video intensity.
         count = sum(len(indices) for indices in self.native_channels.values())

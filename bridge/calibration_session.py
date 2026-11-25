@@ -66,6 +66,8 @@ class CalibrationSession:
         self.lock = threading.RLock()
         self.active = None
         self.last_end = None
+        # A scene write that reached a lamp after the session's test white.
+        self.stale = False
 
     # -- fences -------------------------------------------------------------
     def wrap(self, sender):
@@ -76,10 +78,17 @@ class CalibrationSession:
             self.sender = sender
 
         def send(device, command, data):
-            with self.lock:
-                if self.active is not None and lights.get(lan.device_key(device)):
-                    return False
-            return sender(device, command, data)
+            # No session lock here: the controller sends under its own lock, and a
+            # session reads the controller while it holds the session lock, so taking
+            # both in opposite orders deadlocks the adapter. Reading ``active`` once is
+            # enough; a write that races a starting session is painted over by tick().
+            light = lights.get(lan.device_key(device))
+            if light and self.active is not None:
+                return False
+            result = sender(device, command, data)
+            if light and self.active is not None:
+                self.stale = True
+            return result
 
         return send
 
@@ -164,6 +173,8 @@ class CalibrationSession:
                     raise CalibrationRefused(reason)
             starting = self.active is None
             changed = starting or any(self.active[key] != wanted[key] for key in wanted)
+            if starting:
+                self.stale = False
             self.active = {**wanted, "expires": self.clock() + LEASE_SECONDS}
             if govee:
                 self.calibration.override(wanted["role"], values)
@@ -188,6 +199,9 @@ class CalibrationSession:
                 self._end("lamp off")
             elif not self._on(self.active["reference"]):
                 self._end("reference off")
+            elif self.stale:
+                self.stale = False
+                self._apply(False)
 
     def run(self, stop):
         while not stop.is_set():

@@ -347,12 +347,18 @@ function lampFrame(l){
  if(l.form==='strip'){const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;return {x,y,left:x-w-24,right:x+w+24,top:y-h-24,bottom:y+h+6,ref:y}}
  return l.vertical?{x,y,left:x-23,right:x+23,top:y-55,bottom:y+55,ref:y}:{x,y,left:x-55,right:x+55,top:y-23,bottom:y+23,ref:y};
 }
+// Labels in the scene (chips, dimension tags, the placement label) keep the UI's type size:
+// the scene scales with the window, so each label is drawn at one screen pixel per unit
+// around its anchor. labelUnit is the scene units per screen pixel at the last render.
+let labelUnit=1;
+function stageUnit(){const m=$('#stage').getScreenCTM?.(),a=m&&m.a;return a>0?1/a:1}
+function atScreenSize(x,y,inner){return '<g transform="translate('+x+' '+y+') scale('+(+labelUnit.toFixed(4))+') translate('+(-x)+' '+(-y)+')">'+inner+'</g>'}
 // Every object chip has one shape. A lamp chip is one button (name, status, chevron) that
 // opens the lamp card; other actions (rotate, fade) sit after a divider.
 function chipSvg(centerX,bottom,title,status,actions){
  const more=actions.some(a=>a.id==='more'),rest=actions.filter(a=>a.id!=='more'),bw=24;
- const main=title.length*6.6+(more?14:18)+(status?status.length*5.9+8:0)+(more?20:0),w=main+(rest.length?7+rest.length*bw:0),x=centerX-w/2;
- let out='<g class="obj-chip" transform="translate('+x+' '+(bottom-24)+')"><rect width="'+w+'" height="24" rx="5"/>';
+ const main=title.length*6.9+(more?14:18)+(status?status.length*6.2+8:0)+(more?20:0),w=main+(rest.length?7+rest.length*bw:0);
+ let out='<g class="obj-chip" transform="translate('+centerX+' '+bottom+') scale('+(+labelUnit.toFixed(4))+') translate('+(-w/2)+' -24)"><rect width="'+w+'" height="24" rx="5"/>';
  if(more)out+='<g class="chip-main'+(menuOpen?' open':'')+'" data-chip-action="more" role="button" aria-label="Lamp settings" aria-expanded="'+menuOpen+'"><rect class="chip-hit" x="1" y="1" width="'+(main-2)+'" height="22" rx="4"/>';
  out+='<text x="10" y="15.8">'+esc(title)+(status?'<tspan class="chip-status" dx="7">'+esc(status)+'</tspan>':'')+'</text>';
  if(more)out+='<g class="chev" transform="translate('+(main-13)+' 12)"><path d="M-3.2 -1.4 0 1.6 3.2 -1.4"/></g></g>';
@@ -362,8 +368,8 @@ function chipSvg(centerX,bottom,title,status,actions){
 }
 function editAttrs(edit,value){return edit?' data-edit="'+edit+'" data-value="'+value+'" data-tooltip="Type an exact value"':''}
 function tagSvg(x,y,text,edit,value,anchor='middle'){
- const w=text.length*6+8,x0=anchor==='end'?x-w:anchor==='start'?x:x-w/2;
- return '<g class="tag'+(edit?' editable':'')+'"'+editAttrs(edit,value)+'><rect class="tag-hit" x="'+(x0-3)+'" y="'+(y-10)+'" width="'+(w+6)+'" height="20" rx="6"/><text class="tag-text" x="'+(anchor==='end'?x-4:anchor==='start'?x+4:x)+'" y="'+(y+3.5)+'" text-anchor="'+anchor+'">'+esc(text)+'</text></g>';
+ const w=text.length*6.3+8,x0=anchor==='end'?x-w:anchor==='start'?x:x-w/2;
+ return atScreenSize(x,y,'<g class="tag'+(edit?' editable':'')+'"'+editAttrs(edit,value)+'><rect class="tag-hit" x="'+(x0-3)+'" y="'+(y-10)+'" width="'+(w+6)+'" height="20" rx="6"/><text class="tag-text" x="'+(anchor==='end'?x-4:anchor==='start'?x+4:x)+'" y="'+(y+4)+'" text-anchor="'+anchor+'">'+esc(text)+'</text></g>');
 }
 function vDim(x,y1,y2){return Math.abs(y2-y1)<2?'':'<path class="dim" d="M'+(x-4)+' '+y1+'h8M'+(x-4)+' '+y2+'h8M'+x+' '+y1+'V'+y2+'"/>'}
 function hDim(x1,x2,y){return Math.abs(x2-x1)<2?'':'<path class="dim" d="M'+x1+' '+(y-4)+'v8M'+x2+' '+(y-4)+'v8M'+x1+' '+y+'H'+x2+'"/>'}
@@ -453,9 +459,31 @@ function lensStops(l,colors,beam){
  if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse(),n=cs.length,level=lampLevel(colors);return cs.map((c,i)=>{const z=zoneStop(c,level),a='" stop-color="'+z.color+'" stop-opacity="'+z.opacity+'"/>';return '<stop offset="'+(i/n*100)+'%'+a+'<stop offset="'+((i+1)/n*100)+'%'+a}).join('')}
  return '<stop stop-color="#fff8ed"/><stop offset=".48" stop-color="'+beam+'"/><stop offset="1" stop-color="'+beam+'" stop-opacity=".65"/>';
 }
+// A segmented floor lamp's wall light: its zones from the foot (y 200) to the top (y -220),
+// each at the centre of its zone, so the blur blends neighbours as the wall does.
+function washStops(colors,zones){
+ const cs=colors||Array.from({length:zones},()=>[0,0,0]),n=cs.length,level=lampLevel(colors);
+ return cs.map((c,i)=>{const z=zoneStop(c,level);return {offset:(i+.5)/n,color:z.color,opacity:z.opacity}});
+}
+function washGradient(l,colors){
+ if(l.form!=='floor'||l.zones<=1)return '';
+ return '<linearGradient id="wash-'+l.id+'" gradientUnits="userSpaceOnUse" x1="0" y1="200" x2="0" y2="-220">'
+  +washStops(colors,l.zones).map(z=>'<stop offset="'+z.offset.toFixed(4)+'" stop-color="'+z.color+'" stop-opacity="'+z.opacity+'"/>').join('')+'</linearGradient>';
+}
 function lensAxis(l){
  if(l.form!=='strip')return 'x1="0" y1="0" x2="0" y2="1"';
  const w=monitorWidthCm(environment.inches)*3.3/2+11;return 'gradientUnits="userSpaceOnUse" x1="'+(-w)+'" y1="0" x2="'+w+'" y2="0"';
+}
+// Every lamp gives the wall the same amount of light at the same brightness. A Play's
+// spot is the reference; a larger wash spreads that light thinner (--wash-a is its opacity
+// on the light wall, the dark scene scales the same way). White light is drawn stronger
+// (--wash-boost): a pale wash barely shows on the light wall, while it brightens a real one.
+const WASH_SPOT=Math.PI*125*100,WASH_LIGHT=.7;
+function washShare(area){return +Math.min(1,WASH_LIGHT*WASH_SPOT/area).toFixed(3)}
+function washBoost(colors){
+ const lit=(colors||[]).filter(c=>Math.max(...c)>0);if(!lit.length)return 1;
+ const sat=lit.reduce((a,c)=>a+(Math.max(...c)-Math.min(...c))/Math.max(...c),0)/lit.length;
+ return +(1+.8*(1-sat)).toFixed(3);
 }
 function lampSvg(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
@@ -465,32 +493,41 @@ function lampSvg(l){
  if(l.form==='floor'){
   box='x="-25" y="-239" width="50" height="477"';
   body='<ellipse class="contact-shadow" cx="5" cy="225" rx="28" ry="5"/><ellipse fill="url(#body-metal)" stroke="#526075" stroke-width="1" cx="0" cy="220" rx="20" ry="5"/><path d="M0 218v-17" stroke="#49566c" stroke-width="5"/><rect x="-7.5" y="-225" width="15" height="432" rx="7.5" fill="url(#body-metal)" stroke="#718097" stroke-width=".8"/><path class="object-edge" d="M-5 -215V196"/>';
-  wash='<path class="render-wash" opacity="'+glowOpacity+'" d="M-3 208 Q-115 -2 -92 -250 Q0 -306 92 -250 Q115 -2 3 208Z"/><ellipse class="render-wash" opacity="'+glowOpacity+'" cx="0" cy="-70" rx="43" ry="180"/>';
+  // The wall light runs the length of the lamp, as wide at the foot as at the top; a
+  // segmented lamp lights the wall next to each zone in that zone's colour.
+  const a=washShare(200*482-(4-Math.PI)*100*100),style=' style="--wash-a:'+a+(l.zones>1?';fill:url(#wash-'+l.id+')':'')+'"',dark=+(glowOpacity*a/WASH_LIGHT).toFixed(3);
+  wash='<rect class="render-wash" opacity="'+dark+'"'+style+' x="-100" y="-262" width="200" height="482" rx="100"/><ellipse class="render-wash" opacity="'+dark+'"'+style+' cx="0" cy="-10" rx="44" ry="205"/>';
   off='<rect class="lens-off" x="-3.5" y="-220" width="7" height="420" rx="3.5"/>';
-  lens='<path class="render-bloom" stroke-width="35" opacity=".3" d="M0 198V-218"/><rect x="-3.5" y="-220" width="7" height="420" rx="3.5" fill="url(#lens-'+l.id+')"/>';
+  lens='<path class="render-bloom" stroke-width="35" opacity=".3" d="M0 198V-218"'+(l.zones>1?' style="stroke:url(#wash-'+l.id+')"':'')+'/><rect x="-3.5" y="-220" width="7" height="420" rx="3.5" fill="url(#lens-'+l.id+')"/>';
  }else if(l.form==='strip'){
   const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;
   box='x="'+(-w-24)+'" y="'+(-h-24)+'" width="'+(2*w+48)+'" height="'+(2*h+48)+'"';
   const path='M'+(-w-11)+' '+h+'V'+(-h-11)+'H'+(w+11)+'V'+h;
   hit='<path class="hit" d="'+path+'" style="fill:none;stroke:transparent;stroke-width:25;pointer-events:stroke"/>';
   body='<path d="'+path+'" fill="none" stroke="#58667a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>';
-  wash='<path class="render-bloom" stroke-width="94" opacity="'+(glowOpacity*1.6)+'" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/>';
+  const a=washShare((4*h+2*w+44)*94);
+  wash='<path class="render-bloom" stroke-width="94" opacity="'+(+(glowOpacity*1.6*a/WASH_LIGHT).toFixed(3))+'" d="'+path+'" style="--wash-a:'+a+';stroke:url(#lens-'+l.id+')"/>';
   off='<path class="lens-off" stroke-width="5" d="'+path+'"/>';
   lens='<path class="render-emission" stroke-width="5" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
  }else{
   box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';
   const rotation=l.vertical?-90:0;
   body='<g transform="rotate('+rotation+')"><ellipse class="contact-shadow" cx="3" cy="13" rx="43" ry="5"/><rect x="-41" y="-12" width="82" height="24" rx="10" fill="url(#body-metal)" stroke="#64738a" stroke-width="1"/><path class="object-edge" d="M-30 -9h60"/></g>';
-  wash='<g transform="rotate('+rotation+')"><path class="render-wash" opacity="'+(glowOpacity*1.4)+'" d="M-32 -2 -105 -105 Q0 -163 105 -105 L32 -2Z"/></g>';
+  // A Play faces the wall like every other lamp: its light spreads around it, above
+  // and below the desktop, longest along the bar.
+  wash='<g transform="rotate('+rotation+')"><ellipse class="render-wash" opacity="'+(glowOpacity*1.1)+'" style="--wash-a:'+WASH_LIGHT+'" cx="0" cy="0" rx="125" ry="100"/><ellipse class="render-wash" opacity="'+(glowOpacity*1.2)+'" style="--wash-a:'+WASH_LIGHT+'" cx="0" cy="0" rx="72" ry="48"/></g>';
   off='<g transform="rotate('+rotation+')"><rect class="lens-off" x="-35" y="-7" width="70" height="13" rx="6.5"/></g>';
   lens='<g transform="rotate('+rotation+')"><rect x="-35" y="-7" width="70" height="13" rx="6.5" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="29" opacity=".25" d="M-30 -2H30"/></g>';
  }
  const mark=healthMarkSvg(l);
- return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient></defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
+ return '<g class="lamp '+(selected===l.id?'chosen':'')+'" data-lamp="'+l.id+'" transform="translate('+x+' '+y+')" role="button" tabindex="0" aria-label="'+esc(l.name)+'"><g data-beam style="--beam:'+beam+';--wash-boost:'+washBoost(colors)+'" pointer-events="none"><defs><linearGradient id="lens-'+l.id+'" '+lensAxis(l)+'>'+lensStops(l,colors,beam)+'</linearGradient>'+washGradient(l,colors)+'</defs><g data-sync-power opacity="'+power+'">'+wash+'</g>'+body+off+'<g data-sync-power opacity="'+power+'">'+lens+'</g></g>'+(hit||'<rect class="hit" '+box+' rx="8"/>')+'<rect class="outline" '+box+' rx="8" pointer-events="none"/>'+mark+'</g>';
 }
 const BEZEL=5;
 function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const right=left+w,bottom=cy+mh/2,mx=cx-mw/2,my=cy-mh/2;
+ // The bloom region is in each lamp's own coordinates, not its bounding box: a floor lamp's
+ // glow is a vertical line and a Play's a horizontal one, whose zero-width box would switch the
+ // blur off and leave a hard coloured capsule around the lens.
  const defs='<defs><linearGradient id="wood-face" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--wood-top)"/><stop offset="1" stop-color="var(--wood-front)"/></linearGradient><linearGradient id="glass-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="var(--glass-top)"/><stop offset=".5" stop-color="var(--glass-bottom)"/><stop offset="1" stop-color="var(--glass-top)"/></linearGradient><filter id="furniture-shadow" x="-100%" y="-200%" width="300%" height="500%"><feGaussianBlur stdDeviation="5"/></filter></defs>';
  let desk='<ellipse cx="500" cy="741" rx="'+(w/2-3)+'" ry="5" fill="#243247" opacity=".08" filter="url(#furniture-shadow)"/>';
  for(const x of [left+15,right-27])desk+='<rect x="'+x+'" y="'+(top+13)+'" width="12" height="'+(740-top-15)+'" rx="2" fill="var(--furniture-metal)"/><path d="M'+(x+1)+' '+(top+22)+'V736" stroke="#ffffff" stroke-opacity=".18"/><rect x="'+(x-9)+'" y="736" width="30" height="4" rx="2" fill="var(--furniture-metal)"/>';
@@ -613,12 +650,13 @@ function applyFocus(){
  requestAnimationFrame(()=>{nodes.forEach(n=>n.style.transition='');requestAnimationFrame(()=>changed.forEach(([n,want])=>n.style.opacity=want))});
 }
 function renderBaseScene(){
+ updateStageViewport();labelUnit=stageUnit();
  const g=sceneGeometry(),{cx}=g;
- let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" x="-200%" y="-100%" width="500%" height="300%"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
+ let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" filterUnits="userSpaceOnUse" x="-600" y="-600" width="1200" height="1200"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
  out+=syncVisibilitySvg();
  out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
- $('#stage').innerHTML=out;applyFocus();updateStageViewport();
+ $('#stage').innerHTML=out;applyFocus();
 }
 const RAY_MS=280;
 let rayBorn=new Map(),rayGhosts=[];
@@ -676,7 +714,7 @@ function syncWashes(){
  maskWashes();
 }
 function paintWash(w,lamp){
- const lit=lamp.querySelector('[data-beam]');if(lit&&w.style.getPropertyValue('--beam')!==lit.style.getPropertyValue('--beam'))w.style.setProperty('--beam',lit.style.getPropertyValue('--beam'));
+ const lit=lamp.querySelector('[data-beam]');if(lit)for(const k of ['--beam','--wash-boost'])if(w.style.getPropertyValue(k)!==lit.style.getPropertyValue(k))w.style.setProperty(k,lit.style.getPropertyValue(k));
  const power=lamp.querySelector('[data-sync-power]');if(power)[...w.children].forEach(g=>{if(g.tagName.toLowerCase()==='g'&&g.getAttribute('opacity')!==power.getAttribute('opacity'))g.setAttribute('opacity',power.getAttribute('opacity'))});
 }
 function layerWashes(){
@@ -687,7 +725,7 @@ function layerWashes(){
  stage.querySelectorAll('.lamp[data-lamp]').forEach(n=>{
   const lit=n.querySelector('[data-beam]'),wash=lit?.querySelector(':scope > g[data-sync-power]');if(!wash)return;
   const w=document.createElementNS(NS,'g');w.setAttribute('class','lamp lamp-wash');w.dataset.washFor=n.dataset.lamp;
-  w.setAttribute('transform',n.getAttribute('transform')||'');w.style.setProperty('--beam',lit.style.getPropertyValue('--beam'));
+  w.setAttribute('transform',n.getAttribute('transform')||'');w.style.setProperty('--beam',lit.style.getPropertyValue('--beam'));w.style.setProperty('--wash-boost',lit.style.getPropertyValue('--wash-boost'));
   w.style.opacity=n.style.opacity;wash.removeAttribute('data-sync-power');w.append(wash);
   const lens=lit.querySelector(':scope > g[data-sync-power]'),blooms=lens?[...lens.querySelectorAll('.render-bloom')]:[];
   if(blooms.length){const glow=document.createElementNS(NS,'g');glow.setAttribute('opacity',lens.getAttribute('opacity'));
@@ -725,10 +763,12 @@ function paintLive(){
  for(const l of activeLamps()){
   const node=stage.querySelector('[data-lamp="'+l.id+'"]');if(!node)continue;
   const colors=liveColors(l),beam=beamColor(colors);
-  setVar(node.querySelector('[data-beam]'),'--beam',beam);
+  setVar(node.querySelector('[data-beam]'),'--beam',beam);setVar(node.querySelector('[data-beam]'),'--wash-boost',String(washBoost(colors)));
   const level=lampLevel(colors);
   node.querySelectorAll('[data-sync-power]').forEach(g=>setAttr(g,'opacity',opacityText(level)));
-  const stops=node.querySelectorAll('stop');
+  const stops=node.querySelectorAll('[id="lens-'+l.id+'"] stop');
+  const washStopNodes=node.querySelectorAll('[id="wash-'+l.id+'"] stop');
+  if(washStopNodes.length)washStops(colors,l.zones).forEach((z,i)=>{setAttr(washStopNodes[i],'stop-color',z.color);setAttr(washStopNodes[i],'stop-opacity',z.opacity)});
   if(l.form==='strip')stripStops(colors).forEach((c,i)=>{const z=zoneStop(c,level);setAttr(stops[i],'stop-color',z.color);setAttr(stops[i],'stop-opacity',z.opacity)});
   else if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
@@ -873,6 +913,23 @@ function setMode(m){
  animation.onfinish=()=>{if(modeFade===fade)modeFade=null;layer.remove()};
 }
 
+// ------------------------------------------------------ shared controls --
+// Every text button, icon button, confirmation and text field is built here and styled
+// once ("Shared controls" in style.css), so the same control looks the same everywhere.
+// Attribute values are escaped; labels and icons are HTML.
+function attrs(a){return Object.entries(a).filter(([,v])=>v!==false&&v!=null).map(([k,v])=>' '+k+(v===true?'':'="'+esc(String(v))+'"')).join('')}
+// kind: '' (secondary), 'primary', 'danger' or 'quiet', plus 'sm' in rows and confirmations
+// and 'square' for an icon-only button.
+function btn(label,a={},kind=''){return '<button type="button" class="btn'+(kind?' '+kind:'')+'"'+attrs(a)+'>'+label+'</button>'}
+function iconBtn(icon,label,a={},kind=''){return '<button type="button" class="icon-btn'+(kind?' '+kind:'')+'" aria-label="'+esc(label)+'"'+attrs(a)+'>'+icon+'</button>'}
+// A destructive step asks once, in place: the question, then Cancel and the red action.
+function confirmHtml({text,sub='',cancel,ok,okLabel,cls='',a={},label='Confirm'}){
+ return '<div class="confirm'+(cls?' '+cls:'')+'" role="group" aria-label="'+esc(label)+'"'+attrs(a)+'><span class="confirm-text"><b>'+text+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</span>'
+  +btn('Cancel',cancel,'sm')+btn(okLabel,ok,'sm danger')+'</div>';
+}
+function field(a,size=''){return '<input type="text" class="field'+(size?' '+size:'')+'"'+attrs(a)+'>'}
+function ipField(a){return field({inputmode:'decimal',maxlength:15,autocomplete:'off',spellcheck:'false',...a})}
+
 // ---------------------------------------------------------- lamp card --
 function zonesText(n){return n+' '+(n===1?'zone':'zones')}
 function lampInfo(l){return l.model+' · '+zonesText(l.zones)}
@@ -891,7 +948,7 @@ function seg(prefix,options,value,disabled){return '<div class="seg" role="group
 function calSummary(l){return corr(l)+'%'+(goveeLight(l.id)&&calibrated(l.calibration)?' · color':'')}
 function connectPromptHtml(l){
  return '<div class="card-head"><div class="card-prompt">Connect '+esc(l.name)+'?</div><div class="card-sub">Scenes and Sync will drive it</div></div>'
-  +'<div class="card-foot"><span class="card-gap"></span><button data-menu="connect-later">Not now</button><button class="primary" data-menu="connect-now">Connect</button></div>';
+  +'<div class="card-foot"><span class="card-gap"></span>'+btn('Not now',{'data-menu':'connect-later'})+btn('Connect',{'data-menu':'connect-now'},'primary')+'</div>';
 }
 function connectedField(l){
  if(!linkable(l.id))return '';
@@ -1007,8 +1064,8 @@ function setLamp(l,change,message){remember();change(l);render();if(message)tell
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
- if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML='<div class="card-confirm"><span>Remove '+esc(l.name)+'?</span><button data-menu="remove-cancel">Cancel</button><button class="danger" data-menu="remove-ok">Remove</button></div>';menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
- if(id==='remove-cancel'){const c=menu.querySelector('.card-confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
+ if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove '+esc(l.name)+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
+ if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
  if(id==='connect-now'){connectPrompt=null;refreshCard();changeLink(l,'connect');return true}
  if(id==='connect-later'){connectPrompt=null;closeObjectMenu();return true}
@@ -1017,7 +1074,7 @@ function menuAction(id){
   if(l.unbound){changeLink(l,'connect');return true}
   const f=menu.querySelector('[data-connected-field]');
   // A migrated lamp's HomeKit accessory and Hue app light stay, without a response.
-  if(f)f.outerHTML='<div class="card-confirm" data-connected-field><span>Disconnect '+esc(l.name)+'?'+(realDevice(l.id)?'':'<small>HomeKit will show it as not responding</small>')+'</span><button data-menu="disconnect-cancel">Cancel</button><button class="danger" data-menu="disconnect-ok">Disconnect</button></div>';
+  if(f)f.outerHTML=confirmHtml({text:'Disconnect '+esc(l.name)+'?',sub:realDevice(l.id)?'':'HomeKit will show it as not responding',cancel:{'data-menu':'disconnect-cancel'},ok:{'data-menu':'disconnect-ok'},okLabel:'Disconnect',a:{'data-connected-field':true}});
   menu.querySelector('[data-menu="disconnect-cancel"]')?.focus();return true;
  }
  if(id==='disconnect-cancel'){const f=menu.querySelector('[data-connected-field]');if(f)f.outerHTML=connectedField(l);return true}
@@ -1119,15 +1176,15 @@ function calSlider(key,label,min,max,value,text,sub,ends){
 }
 const calText=(k,v)=>k==='correction'?v+'%':k==='lowLight'?String(v):(v>0?'+':v<0?'−':'')+Math.abs(v);
 function calPageHtml(l){
- const c=cal;let html='<div class="card-back"><button data-menu="cal-back" aria-label="Back">'+iconSvg('back')+'</button><div><b>Calibrate</b><div class="card-sub">'+esc(l.name)+'</div></div></div>';
+ const c=cal;let html='<div class="card-back">'+iconBtn(iconSvg('back'),'Back',{'data-menu':'cal-back'})+'<div><b>Calibrate</b><div class="card-sub">'+esc(l.name)+'</div></div></div>';
  if(c.mode==='test'){
   const refs=calReferences(l.id).map(r=>'<option value="'+r.id+'"'+(r.id===c.reference?' selected':'')+(liveLampOff(r.id)?' disabled':'')+'>'+esc(r.name)+(liveLampOff(r.id)?' (off)':'')+'</option>').join('');
   html+='<label class="card-field"><span>Compare with</span><span class="card-select"><select class="cal-ref" aria-label="Compare with">'+refs+'</select>'+iconSvg('down')+'</span></label>'
    +'<div class="card-field"><span>Test light</span>'+seg('cal-level-',[['bright','Bright'],['dim','Dim']],c.level)+'</div>';
  }
  html+='<div class="card-sliders">'+calSlider('correction','Brightness',0,100,c.correction,calText('correction',c.correction),c.view==='sync'?'with Sync':'without Sync');
- if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="card-note">Turn Sync off to calibrate color</p>':'';
- return html+'</div><div class="card-foot"><button class="card-reset" data-menu="cal-reset"'+(calChanged(c)?'':' disabled')+'>'+iconSvg('reset')+'Reset</button><span class="card-gap"></span><button data-menu="cal-cancel">Cancel</button><button class="primary" data-menu="cal-save">Save</button></div>';
+ if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="note card-note">Turn Sync off to calibrate color</p>':'';
+ return html+'</div><div class="card-foot">'+btn(iconSvg('reset')+'Reset',{'data-menu':'cal-reset',disabled:!calChanged(c)},'quiet')+'<span class="card-gap"></span>'+btn('Cancel',{'data-menu':'cal-cancel'})+btn('Save',{'data-menu':'cal-save'},'primary')+'</div>';
 }
 function setSliderView(input,k,v){
  const [lo,hi]=k==='correction'?[0,100]:CALIBRATION[k];
@@ -1172,7 +1229,9 @@ window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cal){e.preventDefault
 window.addEventListener('pagehide',()=>{if(cal?.mode==='test')calPost('/api/calibration/end',{})});
 // A resized scene moves the object; the card follows it.
 window.addEventListener('resize',placeOpenMenu);
-if(typeof ResizeObserver==='function')new ResizeObserver(placeOpenMenu).observe($('#stage'));
+// A new window size changes the scene scale: labels are drawn again at their type size.
+function rescaleLabels(){if(!drag&&Math.abs(stageUnit()/labelUnit-1)>.01)renderScene()}
+if(typeof ResizeObserver==='function')new ResizeObserver(()=>{rescaleLabels();placeOpenMenu()}).observe($('#stage'));
 // A double click on a lamp opens its card.
 $('#stage').addEventListener('dblclick',e=>{
  const node=e.target.closest('[data-lamp]');if(!node||cal||menuOpen)return;
@@ -1214,7 +1273,7 @@ function paintSwatches(){
 }
 function lampRowStatus(l){
  const link=linkState(l);if(link)return '<span class="lp-status">'+(link==='connect'?'Connecting…':'Disconnecting…')+'</span>';
- if(l.unbound)return linkable(l.id)?'<button class="lp-connect" data-connect="'+l.id+'">Connect</button>':'<span class="lp-status">Not connected</span>';
+ if(l.unbound)return linkable(l.id)?btn('Connect',{'data-connect':l.id},'sm'):'<span class="lp-status">Not connected</span>';
  const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
  if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
@@ -1223,21 +1282,21 @@ function lampRowStatus(l){
 }
 function roomRows(){
  return activeLamps().map(l=>confirmRemove===l.id
-  ?'<div class="lp-row lamp-row confirm" role="group" aria-label="Confirm removal"><span><span class="lp-name">Remove '+esc(l.name)+'?</span><span class="lp-sub">⌘Z brings it back</span></span><button class="lp-confirm-btn" data-remove-cancel>Cancel</button><button class="lp-confirm-btn danger" data-remove-ok="'+l.id+'">Remove</button></div>'
-  :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+'<button class="lp-remove" data-remove="'+l.id+'" aria-label="Remove '+esc(l.name)+'" data-tooltip="Remove from layout">'+trashIcon+'</button></div>').join('')
+  ?confirmHtml({text:'Remove '+esc(l.name)+'?',sub:'⌘Z brings it back',cancel:{'data-remove-cancel':true},ok:{'data-remove-ok':l.id},okLabel:'Remove',cls:'lp-row lamp-row',label:'Confirm removal'})
+  :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+iconBtn(trashIcon,'Remove '+l.name,{'data-remove':l.id,'data-tooltip':'Remove from layout'},'danger lp-remove')+'</div>').join('')
   +'<div class="lp-divider"></div>'
   +'<button class="lp-row'+(selected==='desk'?' active':'')+'" data-list-lamp="desk"><span class="lp-glyph">'+glyph.desk+'</span><span><span class="lp-name">Desk</span><span class="lp-sub">'+environment.width+' × '+environment.height+' cm</span></span></button>'
   +'<button class="lp-row'+(selected==='monitor'?' active':'')+'" data-list-lamp="monitor"><span class="lp-glyph">'+glyph.monitor+'</span><span><span class="lp-name">Monitor</span><span class="lp-sub">'+environment.inches+'″</span></span></button>';
 }
 function foundRows(){
- const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span><button class="lp-add" data-restore="'+l.id+'" aria-label="Return '+esc(l.name)+'" data-tooltip="Return to its place">'+plusIcon+'</button></div>').join('');
+ const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+btn(plusIcon,{'data-restore':l.id,'aria-label':'Return '+l.name,'data-tooltip':'Return to its place'},'sm square')+'</div>').join('');
  const items=catalogEntries();
  if(!items.length&&!back){
   if(!discovery)return '<div class="lp-empty">Searching for lamps…</div>';
   if(discovery.connected!==true)return '<div class="lp-empty">Lamp search is unavailable</div>';
   return '<div class="lp-empty">Every found lamp is in the room</div>';
  }
- return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':'<button class="lp-add" data-place="'+e.id+'" aria-label="Place '+esc(e.name)+'" data-tooltip="Place in the room">'+plusIcon+'</button>')+'</div>'}).join('');
+ return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
 }
 // The physical Hue bridge: Light Studio pairs it after its link button is pressed.
 // The keys stay in the core's private state; the page only sees name and address.
@@ -1274,19 +1333,19 @@ async function pairHueBridge(ip){
 function hueRows(){
  const b=hueBridge;if(b.state==='unknown')return '';
  if(b.state==='configured')return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Set in the service configuration</span></span><span class="lp-status">Connected</span></div>';
- const error=hueError?'<p class="box-error lp-hue-error" role="alert">'+esc(hueError)+'</p>':'';
+ const error=hueError?'<p class="note bad lp-hue-error" role="alert">'+boxSvg('alert')+'<span>'+esc(hueError)+'</span></p>':'';
  if(b.state==='pairing'){
   const left=Math.max(0,Math.min(HUE_PAIR_S,b.left|0)),share=left/HUE_PAIR_S;
-  return '<div class="lp-row hue-pairing"><div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div><span><span class="lp-name">Press the button on the bridge</span><span class="lp-sub">'+esc(b.name)+' · '+esc(b.ip)+'</span></span><button class="lp-confirm-btn" data-hue="cancel">Cancel</button></div>';
+  return '<div class="lp-row hue-pairing"><div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div><span><span class="lp-name">Press the button on the bridge</span><span class="lp-sub">'+esc(b.name)+' · '+esc(b.ip)+'</span></span>'+btn('Cancel',{'data-hue':'cancel'},'sm')+'</div>';
  }
  // Another bridge, or the same one at a new address, is paired through the same steps;
  // the core refuses another bridge while its Hue lamps are connected.
- if(b.state==='paired'&&!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span><button class="lp-connect" data-hue="find" data-tooltip="Pair a bridge again">Change</button></div>'+error;
- if(!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Connect it to add Hue lamps</span></span><button class="lp-connect" data-hue="find">Connect</button></div>'+error;
+ if(b.state==='paired'&&!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(b.name)+'</span><span class="lp-sub">'+esc(b.ip)+'</span></span>'+btn('Change',{'data-hue':'find','data-tooltip':'Pair a bridge again'},'sm')+'</div>'+error;
+ if(!hueFlow)return '<div class="lp-row found"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">Hue bridge</span><span class="lp-sub">Connect it to add Hue lamps</span></span>'+btn('Connect',{'data-hue':'find'},'sm')+'</div>'+error;
  const rows=(hueFound||[]).map(f=>'<button class="lp-row found" data-hue-ip="'+esc(f.ip)+'"><span class="lp-glyph">'+hueGlyph+'</span><span><span class="lp-name">'+esc(f.name)+'</span><span class="lp-sub">'+esc(f.ip)+'</span></span><span class="lp-status">Pair</span></button>').join('');
  const hint=hueFound===null?'Looking on this network…':hueFound.length?'Found on this network:':'None found. Enter its IP address:';
  return '<div class="lp-empty">'+hint+'</div>'+rows
-  +'<div class="lp-hue-address"><input data-hue-input type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(hueFound?.length?'Or an IP address':'IP address')+'" aria-label="Hue bridge IP address" value="'+esc(hueAddress)+'"><button class="lp-connect" data-hue="address">Pair</button><button class="lp-confirm-btn" data-hue="close">Cancel</button></div>'+error;
+  +'<div class="lp-hue-address">'+ipField({'data-hue-input':true,placeholder:hueFound?.length?'Or an IP address':'IP address','aria-label':'Hue bridge IP address',value:hueAddress})+btn('Pair',{'data-hue':'address'},'primary')+btn('Cancel',{'data-hue':'close'})+'</div>'+error;
 }
 function hueSection(){
  if(hueBridge.state==='unknown')return '';
@@ -1308,7 +1367,7 @@ function paintPanel(){
  const p=$('#lamp-panel');if(!p||p.hidden)return;const top=p.scrollTop;
  const active=p.contains(document.activeElement)?document.activeElement:null;
  const focusAttr=active&&PANEL_FOCUS.find(a=>active.hasAttribute(a)),focusValue=focusAttr&&active.getAttribute(focusAttr);
- p.innerHTML='<div class="lp-head"><h2>Lamps</h2><button data-close aria-label="Close" data-tooltip="Close · Esc">'+closeIcon+'</button></div>'
+ p.innerHTML='<div class="lp-head"><h2>Lamps</h2>'+iconBtn(closeIcon,'Close',{'data-close':true,'data-tooltip':'Close · Esc'})+'</div>'
   +'<div class="lp-section"><span>In the room</span><span>'+activeLamps().length+'</span></div>'+roomRows()
   +'<div class="lp-section" id="lp-found"><span>Found</span><span>'+foundCount()+' available</span></div>'+foundRows()
   +hueSection();
@@ -1370,7 +1429,7 @@ function paintPlacementGhost(position){
  if(!ghost){ghost=document.createElementNS('http://www.w3.org/2000/svg','g');ghost.id='placement-ghost';ghost.classList.add('placement-ghost');ghost.setAttribute('aria-hidden','true');ghost.style.pointerEvents='none';$('#stage').append(ghost)}
  const lamp={id:'pending-placement',name:pendingDevice.name,model:pendingDevice.model,shape:pendingDevice.shape,form:pendingDevice.form,zones:pendingDevice.zones,x:position.x,h:position.h,scale:80,unbound:true,vertical:false};
  const f=lampFrame(lamp),off=position.x===0?'0 cm':(position.x>0?'+':'−')+Math.abs(position.x)+' cm';
- ghost.innerHTML=lampSvg(lamp)+'<text class="ghost-label" x="'+f.x+'" y="'+(f.top-10)+'">'+esc(pendingDevice.name)+'<tspan class="sub"> · '+off+'</tspan></text>';
+ ghost.innerHTML=lampSvg(lamp)+atScreenSize(f.x,f.top-10,'<text class="ghost-label" x="'+f.x+'" y="'+(f.top-10)+'">'+esc(pendingDevice.name)+'<tspan class="sub"> · '+off+'</tspan></text>');
 }
 function placeDevice(entry,position){
  if(lamps.length>=MAX_ROWS||lamps.some(l=>l.id===entry.id))return;
@@ -1627,7 +1686,6 @@ const stage=$('#stage');
 document.addEventListener('pointerdown',()=>{skipClick=false},true);
 document.addEventListener('click',e=>{
  if(skipClick){skipClick=false;return}
- if(menuOpen&&!e.target.closest('#object-menu'))closeObjectMenu();
  const b=e.target.closest('[data-select]');if(b&&b.closest('#stage')){select(b.dataset.select);return}
 });
 stage.addEventListener('pointerdown',event=>{
@@ -1639,8 +1697,10 @@ stage.addEventListener('pointerdown',e=>{
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
  if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}
- closeObjectMenu();
  const grip=e.target.closest('[data-handle]');
+ // The lamp card stays open until its chip or Esc closes it: a stray click must not lose
+ // a setting. Another lamp takes the card over, except during a calibration.
+ if(menuOpen&&!grip&&!keepsCard(e)){e.preventDefault();skipClick=true;return}
  if(grip){e.preventDefault();skipClick=true;drag={handle:grip.dataset.handle,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);return}
  const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"]');
  if(!node){if(e.target.closest('[data-select]'))return;deselect();return}
@@ -1649,13 +1709,19 @@ stage.addEventListener('pointerdown',e=>{
  drag={start:point(e),x:l.x,h:l.h,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);renderInspector();renderList();
  stage.querySelectorAll('[data-lamp],[data-select="monitor"]').forEach(n=>n.classList.toggle('chosen',n.dataset.lamp===selected||selected==='monitor'&&n.dataset.select==='monitor'));
 });
+function keepsCard(e){
+ const node=e.target.closest('[data-lamp]'),id=node?.dataset.lamp;
+ if(id===selected)return true;
+ if(!id||cal||!lamps.some(l=>l.id===id))return false;
+ selected=id;render();refreshCard();return false;
+}
 stage.addEventListener('pointermove',e=>{
- if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));return}
+ if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));placeOpenMenu();return}
  const l=movableFixture();if(!l)return;const p=point(e),oldX=l.x,oldH=l.h;
  l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampFixture(l);
  if(l.x===oldX&&l.h===oldH)return;
  drag.moved=l.x!==drag.x||l.h!==drag.h;
- renderScene();refreshHandles();renderInspector();
+ renderScene();refreshHandles();renderInspector();placeOpenMenu();
 });
 stage.addEventListener('pointerup',()=>{
  if(!drag)return;const before=drag.before;drag=null;recordChange(before);endDragView();renderScene();renderHistory();renderInspector();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
@@ -1804,24 +1870,24 @@ function boxCardHtml(){
  if(boxCard==='info'){
   return '<div class="box-info">'+boxSvg('box')+'<div><b>'+esc(box.name||'Sync Box')+'</b><span>'+esc(box.ip||'')+'</span></div></div>'
    +'<div class="card-list card-end">'+(boxForget
-    ?'<div class="card-confirm"><span>Forget this Sync Box?</span><button data-box="forget-cancel">Cancel</button><button class="danger" data-box="forget-yes">Forget</button></div>'
+    ?confirmHtml({text:'Forget this Sync Box?',cancel:{'data-box':'forget-cancel'},ok:{'data-box':'forget-yes'},okLabel:'Forget'})
     :'<button class="card-row danger" data-box="forget">'+iconSvg('remove')+'<span>Forget Sync Box</span></button>')+'</div>';
  }
- const error=boxError?'<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+esc(boxError)+'</span></p>':'';
+ const error=boxError?'<p class="note bad" role="alert">'+boxSvg('alert')+'<span>'+esc(boxError)+'</span></p>':'';
  let first,second;
  if(boxPairing()){
   first=boxStep(1,'done','Choose your Sync Box','<span>'+esc(box.name+' · '+box.ip)+'</span>');
   second=box.state==='connecting'
    ?boxStep(2,'active','Hold the button on the box','<div class="box-hold">'+boxRing(box.remaining??BOX_PAIR_S)+'<span>Press and hold it for about 3 seconds, until its light blinks green.</span></div>')
-   :boxStep(2,'active','Hold the button on the box','<p class="box-error" role="alert">'+boxSvg('alert')+'<span>'+(box.state==='failed'?'Light Studio could not save the connection.':'The button was not held in time.')+'</span></p><button class="box-retry" data-box="retry">Try again</button>');
+   :boxStep(2,'active','Hold the button on the box','<p class="note bad" role="alert">'+boxSvg('alert')+'<span>'+(box.state==='failed'?'Light Studio could not save the connection.':'The button was not held in time.')+'</span></p>'+btn('Try again',{'data-box':'retry'}));
  }else{
   const rows=(boxFound||[]).map(b=>'<button class="card-row" data-box-ip="'+esc(b.ip)+'">'+boxSvg('box')+'<span>'+esc(b.name)+'</span><em>'+esc(b.ip)+'</em>'+iconSvg('next')+'</button>').join('');
   const hint=boxFound===null?'Looking on this network…':boxFound.length?'Found on this network:':'None found. Enter its IP address:';
   first=boxStep(1,'active','Choose your Sync Box','<span>'+hint+'</span>'+(rows?'<div class="card-list">'+rows+'</div>':'')
-   +'<div class="box-address"><input id="box-ip" type="text" inputmode="decimal" maxlength="15" autocomplete="off" spellcheck="false" placeholder="'+(boxFound?.length?'Or an IP address':'IP address')+'" aria-label="Sync Box IP address" value="'+esc(boxAddress)+'"><button data-box="address">Connect</button></div>'+error);
+   +'<div class="box-address">'+ipField({id:'box-ip',placeholder:boxFound?.length?'Or an IP address':'IP address','aria-label':'Sync Box IP address',value:boxAddress})+btn('Connect',{'data-box':'address'},'primary')+'</div>'+error);
   second=boxStep(2,'todo','Hold the button on the box');
  }
- return '<ol class="box-steps">'+first+second+'</ol><div class="card-foot"><span class="card-gap"></span><button data-box="close">Cancel</button></div>';
+ return '<ol class="box-steps">'+first+second+'</ol><div class="card-foot"><span class="card-gap"></span>'+btn('Cancel',{'data-box':'close'})+'</div>';
 }
 function paintBoxCard(){
  const card=$('#box-card');if(!card)return;
@@ -1876,9 +1942,10 @@ function boxClick(e){
  else if(id==='forget-yes'){closeBoxCard(false);boxPost('forget').then(r=>{applyBox(r.body);if(r.status===200)boxSay('Sync Box forgotten','ok')})}
 }
 $('#sync-box').addEventListener('click',boxClick);
-$('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .box-error')?.remove()}}});
+$('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .note.bad')?.remove()}}});
 $('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
-document.addEventListener('pointerdown',e=>{if(boxCard&&!e.target.closest('#sync-box'))closeBoxCard()},true);
+// The connect card stays open while the owner pairs the box; Cancel or Esc closes it.
+document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box'))closeBoxCard()},true);
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
 document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
 
@@ -2005,22 +2072,22 @@ function roomCount(id){
  const n=layout?(layout.devices||[]).filter(d=>d.enabled!==false).length:null;
  return n===null?'':n?n+(n===1?' lamp':' lamps'):'No lamps';
 }
-function roomNoteHtml(where){return roomNote&&roomNote.room===where?'<p class="rc-note" role="alert">'+esc(roomNote.text)+'</p>':''}
+function roomNoteHtml(where){return roomNote&&roomNote.room===where?'<p class="note bad rc-note" role="alert">'+esc(roomNote.text)+'</p>':''}
 function roomCard(r){
  const here=r.id===currentRoom,box=roomsInfo?.sync===r.id;
- if(roomConfirm===r.id)return '<div class="rc-card confirm"><div class="rc-confirm"><span>Delete '+esc(r.name)+'?</span><button data-room-cancel>Cancel</button><button class="danger" data-room-delete-ok="'+r.id+'">Delete</button></div>'+roomNoteHtml(r.id)+'</div>';
- const name=roomEditing===r.id?'<input class="rc-input" data-room-name="'+r.id+'" maxlength="40" value="'+esc(r.name)+'" aria-label="Room name">':'<span class="rc-name">'+esc(r.name)+'</span>';
+ if(roomConfirm===r.id)return '<div class="rc-card confirm">'+confirmHtml({text:'Delete '+esc(r.name)+'?',cancel:{'data-room-cancel':true},ok:{'data-room-delete-ok':r.id},okLabel:'Delete',cls:'stacked'})+roomNoteHtml(r.id)+'</div>';
+ const name=roomEditing===r.id?field({'data-room-name':r.id,maxlength:40,value:r.name,'aria-label':'Room name'},'sm'):'<span class="rc-name">'+esc(r.name)+'</span>';
  return '<div class="rc-card'+(here?' current':'')+'" draggable="'+(roomEditing?'false':'true')+'" data-room-card="'+r.id+'">'
   +'<button class="rc-pick" data-room-go="'+r.id+'" aria-label="'+esc(r.name)+(here?' (this room)':'')+'"'+(here?' aria-current="true"':'')+'>'+roomThumb(here?pack():roomLayouts[r.id])+'</button>'
   +'<div class="rc-foot">'+(box?'<span class="rc-box" data-tooltip="Sync Box">'+boxIcon+'</span>':'')+'<div class="rc-text">'+name+'<span class="rc-sub">'+roomCount(r.id)+'</span></div></div>'
-  +'<span class="rc-acts"><button data-room-rename="'+r.id+'" aria-label="Rename '+esc(r.name)+'" data-tooltip="Rename">'+roomSvg('pen')+'</button><button data-room-delete="'+r.id+'" aria-label="Delete '+esc(r.name)+'" data-tooltip="Delete">'+roomSvg('trash')+'</button></span>'
+  +'<span class="rc-acts">'+iconBtn(roomSvg('pen'),'Rename '+r.name,{'data-room-rename':r.id,'data-tooltip':'Rename'})+iconBtn(roomSvg('trash'),'Delete '+r.name,{'data-room-delete':r.id,'data-tooltip':'Delete'},'danger')+'</span>'
   +roomNoteHtml(r.id)+'</div>';
 }
 function paintRooms(){
  const node=$('#room-cards');if(!roomsOpen){node.hidden=true;return}
  $('#room-switch').setAttribute('aria-expanded','true');
  const list=roomsInfo?roomsInfo.rooms:[{id:currentRoom||FIRST_ROOM,name:room}];
- const add=roomAdding?'<div class="rc-card rc-add editing"><input class="rc-input" data-room-new maxlength="40" placeholder="Room name" aria-label="New room name"><button class="lp-connect" data-room-create>Add</button>'+roomNoteHtml('new')+'</div>'
+ const add=roomAdding?'<div class="rc-card rc-add editing">'+field({'data-room-new':true,maxlength:40,placeholder:'Room name','aria-label':'New room name'},'sm')+btn('Add',{'data-room-create':true},'sm primary')+roomNoteHtml('new')+'</div>'
   :list.length<10?'<button class="rc-card rc-add" data-room-add>'+roomSvg('plus')+'<span>Add room</span></button>':'';
  node.innerHTML='<div class="rc-grid">'+list.map(roomCard).join('')+(roomsInfo?add:'')+'</div>'+roomNoteHtml('all')+(roomsInfo&&list.length>1?'<p class="rc-hint">Drag a card to change the order</p>':'');
  node.hidden=false;
@@ -2060,8 +2127,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&roomsOpen&&!e.targe
 function movable(l){return !!roomsInfo&&roomsInfo.rooms.length>1&&linkable(l.id)&&l.enabled!==false}
 function movePageHtml(l){
  const rows=roomsInfo.rooms.filter(r=>r.id!==currentRoom).map(r=>'<button class="card-row" data-menu="move-to-'+r.id+'">'+iconSvg('room')+'<span>'+esc(r.name)+'</span>'+(roomsInfo.sync===r.id?'<em>Sync Box</em>':'')+'</button>').join('');
- return '<div class="card-back"><button data-menu="move-back" aria-label="Back">'+iconSvg('back')+'</button><div><b>Move to room</b><div class="card-sub">'+esc(l.name)+'</div></div></div>'
-  +'<div class="card-list">'+rows+'</div><p class="card-refusal" data-move-note role="alert" hidden></p>';
+ return '<div class="card-back">'+iconBtn(iconSvg('back'),'Back',{'data-menu':'move-back'})+'<div><b>Move to room</b><div class="card-sub">'+esc(l.name)+'</div></div></div>'
+  +'<div class="card-list">'+rows+'</div><p class="note bad card-refusal" data-move-note role="alert" hidden></p>';
 }
 function openMovePage(l){
  const menu=$('#object-menu'),pages=menu.querySelector('.card-pages');if(!pages||!movable(l))return;

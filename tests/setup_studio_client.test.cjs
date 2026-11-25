@@ -493,7 +493,7 @@ test('the lamp card removes with a confirmation and sets Own light during Sync',
  await app.click(app.$('#object-menu').querySelector('[data-menu="role-sync"]'));await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices[5].syncRole,undefined);
  await app.click(app.$('#object-menu').querySelector('[data-menu="remove"]'));
- assert.match(app.$('#object-menu').querySelector('.card-confirm').textContent,/Remove Hue Play Right\?/);
+ assert.match(app.$('#object-menu').querySelector('.confirm').textContent,/Remove Hue Play Right\?/);
  await app.click(app.$('#object-menu').querySelector('[data-menu="remove-ok"]'));await app.advance(300);
  assert.equal(app.posts.at(-1).body.devices[5].enabled,false);
 });
@@ -586,8 +586,10 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  const writes=app.stage.writes,node=app.lamp('play-left');
  assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0000');
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'1');
- const floorStops=[...app.lamp('govee-left').querySelectorAll('stop')].map(s=>s.getAttribute('stop-color'));
+ const floorStops=[...app.lamp('govee-left').querySelectorAll('[id="lens-govee-left"] stop')].map(s=>s.getAttribute('stop-color'));
  assert.equal(floorStops[0],'#ffffff');assert.equal(floorStops.at(-1),'#0000ff','zones run bottom to top');
+ const washStops=[...app.lamp('govee-left').querySelectorAll('[id="wash-govee-left"] stop')].map(s=>s.getAttribute('stop-color'));
+ assert.deepEqual(washStops,['#0000ff','#0000ff','#0000ff','#00ff00','#00ff00','#00ff00','#ffffff'],'the wall next to each zone takes its colour, foot first');
  for(const id of ['play-center','play-right','govee-right'])assert.equal(app.lamp(id).querySelector('[data-sync-power]').getAttribute('opacity'),'0',id);
  assert.equal(app.stage.querySelector('[data-screen-demo]').getAttribute('opacity'),'0','the live picture carries no demo label');
  answer=liveOk({lamps:{'play-left':lit([[0,128,0]])}});
@@ -1174,11 +1176,11 @@ test('an address can be typed, and a wrong one is explained at its step',async()
  assert.match(card.textContent,/None found\. Enter its IP address/);
  const input=card.querySelector('#box-ip');input.value='8.8.8.8';app.dispatch(input,'input');
  await app.press(input,'Enter');
- assert.match(card.querySelector('.box-error').textContent,/Enter an address on this network/);
+ assert.match(card.querySelector('.note.bad').textContent,/Enter an address on this network/);
  assert.equal(app.$('#toast').textContent,'');
  const again=card.querySelector('#box-ip');assert.equal(again.value,'8.8.8.8','the typed address stays');
  again.value=' 192.168.10.101 ';app.dispatch(again,'input');
- assert.equal(card.querySelector('.box-error'),null,'typing clears the error');
+ assert.equal(card.querySelector('.note.bad'),null,'typing clears the error');
  await app.click(card.querySelector('[data-box="address"]'));
  assert.deepEqual(app.requests.box.at(-1).body,{ip:'192.168.10.101'});
  assert.match(card.textContent,/Hold the button/);
@@ -1339,9 +1341,9 @@ test('Connected off asks inline, then removes the lamp from the core',async()=>{
  const menu=app.$('#object-menu');
  assert.equal(menu.querySelector('[data-menu="connected"]').getAttribute('aria-checked'),'true');
  await app.click(menu.querySelector('[data-menu="connected"]'));
- assert.match(menu.querySelector('.card-confirm').textContent,/Disconnect Third <lamp>\?/);
+ assert.match(menu.querySelector('.confirm').textContent,/Disconnect Third <lamp>\?/);
  await app.click(menu.querySelector('[data-menu="disconnect-cancel"]'));
- assert.equal(calls.length,0);assert.equal(menu.querySelector('.card-confirm'),null);
+ assert.equal(calls.length,0);assert.equal(menu.querySelector('.confirm'),null);
  await app.click(menu.querySelector('[data-menu="connected"]'));
  await app.click(menu.querySelector('[data-menu="disconnect-ok"]'));
  assert.deepEqual(calls,[['/api/lights/remove',{id}]]);
@@ -1450,7 +1452,7 @@ test('a migrated lamp disconnects with a HomeKit note and reconnects through its
  await app.click(app.stage.querySelector('[data-chip-action="more"]'));await app.advance(40);
  const menu=app.$('#object-menu');
  await app.click(menu.querySelector('[data-menu="connected"]'));
- assert.match(menu.querySelector('.card-confirm').textContent,/Disconnect Hue Play Center\?HomeKit will show it as not responding/);
+ assert.match(menu.querySelector('.confirm').textContent,/Disconnect Hue Play Center\?HomeKit will show it as not responding/);
  await app.click(menu.querySelector('[data-menu="disconnect-ok"]'));
  assert.deepEqual(calls,[['/api/lights/remove',{id:'play-center'}]]);
  lights=lights.filter(r=>r.id!=='play-center');await app.advance(1500);
@@ -1606,4 +1608,118 @@ test('without a registered Sync Box no room shows the Sync settings',async()=>{
  const app=await harness({rooms:twoRooms({sync:null}),storage:new Map([['light-studio-view-v1','sync']])});await app.advance(100);
  assert.ok(app.$('#app').classList.contains('no-sync'));assert.equal(app.run('mode'),'placement');
  assert.equal(app.$('#room-box').hidden,true);
+});
+
+test('a click outside the lamp card keeps it open; its chip and Esc close it',async()=>{
+ const app=await harness();
+ app.run('select("govee-left")');await app.settle();await openCard(app);
+ const menu=app.$('#object-menu'),name=()=>menu.querySelector('.card-name').value;
+ assert.equal(name(),'Govee Left');
+ app.dispatch(app.stage,'pointerdown',{clientX:20,clientY:20});app.dispatch(app.stage,'pointerup');await app.click(app.stage);await app.advance(200);
+ assert.equal(menu.hidden,false,'a click on the empty scene keeps the card');
+ assert.equal(app.run('selected'),'govee-left','and the selection');
+ await app.click(app.$('#list-toggle'));await app.advance(200);
+ assert.equal(menu.hidden,false,'a click on the header keeps the card');
+ await app.click(app.$('#list-toggle'));await app.advance(200);
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.advance(200);
+ assert.equal(menu.hidden,false,'another lamp takes over the open card');
+ assert.equal(app.run('selected'),'play-right');assert.equal(name(),'Hue Play Right');
+ app.dispatch(app.stage.querySelector('[data-chip-action="more"]'),'pointerdown');await app.advance(200);
+ assert.equal(menu.hidden,true,'the chip closes the card');
+ await openCard(app);await app.press(menu,'Escape');await app.advance(200);
+ assert.equal(menu.hidden,true,'Esc closes the card');
+});
+
+test('while calibrating, a click on another lamp keeps the calibration',async()=>{
+ const calls=[];
+ const app=await harness({live:liveOk(SYNC_IDLE),calibrate:(url,body)=>{calls.push([url,body]);return {status:200,body:{active:true}}}});
+ app.run('select("play-center")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.advance(200);
+ assert.equal(app.run('selected'),'play-center');assert.ok(app.$('#object-menu [data-cal="correction"]'),'still on the Calibrate page');
+ assert.ok(!calls.some(([url])=>url==='/api/calibration/end'),'the session goes on');
+});
+
+test('a click outside the Sync Box connect card keeps it open; Cancel closes it',async()=>{
+ const box=fakeBox();
+ const app=await harness({syncBox:box.api});
+ await app.click(app.$('#sync-box [data-box="connect"]'));
+ await app.click(app.$('#box-card [data-box-ip]'));
+ app.dispatch(app.stage,'pointerdown',{clientX:20,clientY:20});await app.click(app.stage);
+ assert.equal(app.$('#box-card').hidden,false,'pairing goes on');
+ assert.ok(!app.requests.box.some(r=>r.url==='/api/sync-box/cancel'));
+ await app.click(app.$('#box-card [data-box="close"]'));
+ assert.equal(app.$('#box-card').hidden,true);
+});
+
+test('every text button, icon button, confirmation and field comes from the shared controls',()=>{
+ // Rows, segments, switches and cards are their own components; any other button goes
+ // through btn() or iconBtn(), so a new Cancel cannot get a style of its own again.
+ const own=new Set(['btn','icon-btn','card-row','lp-row','card-switch','box-action','rc-pick','rc-card']);
+ const raw=[...code.matchAll(/<button[^>]*/g)].map(m=>m[0]).filter(b=>!/data-menu="'\+prefix/.test(b)&&!b.startsWith("<button ','"));
+ for(const b of raw)assert.ok(own.has((/class="([a-z-]+)/.exec(b)||[])[1]),'a button outside the shared controls: '+b.slice(0,80));
+ assert.deepEqual([...code.matchAll(/<input(?![^>]*type="range")[^>]*/g)].map(m=>m[0]).filter(i=>!/class="field/.test(i)&&!/class="card-name"/.test(i)&&!/class="dim-input"/.test(i)),[],'text fields use field()');
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ for(const old of ['lp-confirm-btn','lp-connect','card-confirm','rc-confirm','rc-input','box-retry','card-reset','box-error'])
+  assert.equal(css.includes(old)||code.includes(old),false,old+' is replaced by the shared controls');
+});
+
+test('the page uses three type sizes and scene labels keep them at any window size',async()=>{
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ assert.match(css,/--fs-title:15px;--fs-ui:13px;--fs-small:12px/);
+ const raw=[...css.matchAll(/([^{}]+)\{[^{}]*font-size:(\d[\d.]*px)/g)].map(m=>m[1].trim()+' '+m[2]);
+ // Only the "!" glyphs of the draft status and the health badge keep a size of their own.
+ assert.deepEqual(raw.map(r=>r.split(' ').pop()).sort(),['10px','11px'],'font sizes outside the scale: '+raw.join(', '));
+ const app=await harness();
+ assert.match(app.run("labelUnit=.5,chipSvg(100,200,'Govee Left','',[])"),/translate\(100 200\) scale\(0\.5\)/,'a chip is drawn at screen size around its anchor');
+ assert.match(app.run("labelUnit=.5,tagSvg(40,60,'80 cm')"),/^<g transform="translate\(40 60\) scale\(0\.5\) translate\(-40 -60\)">/,'so is a dimension tag');
+});
+
+test('a Play lamp lights the wall around it, below the desktop as well as above',async()=>{
+ const app=await harness();
+ const washes=[...app.stage.querySelectorAll('[data-wash-for="play-left"] .render-wash')];
+ assert.ok(washes.length>0,'the Play has a wall wash');
+ for(const w of washes){
+  assert.equal(w.tagName.toLowerCase(),'ellipse');
+  assert.equal(+w.getAttribute('cy'),0,'centred on the lamp');
+  assert.ok(+w.getAttribute('ry')>0,'reaching below it as far as above it');
+ }
+});
+
+test('a segmented floor lamp lights the wall in its zone colours along its whole length',async()=>{
+ const app=await harness();
+ const washes=[...app.stage.querySelectorAll('[data-wash-for="govee-left"] .render-wash')];
+ assert.ok(washes.length>0);
+ for(const w of washes)assert.match(w.getAttribute('style')||'',/fill:url\(#wash-govee-left\)/,'not one averaged colour');
+ const column=washes.find(w=>w.tagName.toLowerCase()==='rect');
+ assert.ok(column,'an even column, not a shape that narrows to the foot');
+ assert.equal(+column.getAttribute('width'),200);
+});
+
+test('every lamp gives the wall the same light: a long lamp spreads it thinner, white shows as clearly as colour',async()=>{
+ const app=await harness();
+ const share=id=>+app.stage.querySelector('[data-wash-for="'+id+'"] .render-wash').style.getPropertyValue('--wash-a');
+ const play=share('play-left'),floor=share('govee-left');
+ assert.equal(play,.7);
+ assert.ok(floor<play/2,'the floor lamp wash covers more than twice the area of a Play spot');
+ assert.ok(app.run('washBoost([[255,235,207]])')>app.run('washBoost([[255,0,0]])'),'a white light is drawn stronger than a saturated one');
+ assert.equal(app.run('washBoost([[255,0,0]])'),1);
+});
+
+test('wall light adds up without burning out: washes blend with screen, so no lamp covers another whatever their order',async()=>{
+ const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
+ assert.match(css,/#wash-layer\{isolation:isolate\}/,'the blend stays inside the wash layer, over the wall');
+ assert.match(css,/#wash-layer>\.lamp-wash\{mix-blend-mode:screen\}/,'commutative and never clips to white');
+ assert.doesNotMatch(css,/mix-blend-mode:plus-lighter/);
+ const app=await harness();
+ const layer=app.stage.querySelector('#wash-layer');
+ assert.ok([...layer.children].every(w=>w.tagName.toLowerCase()==='defs'||w.classList.contains('lamp-wash')),'every lamp wash is a direct child of the layer');
+});
+
+test('the lens glow is blurred even for a straight-line lamp: the bloom region does not use the bounding box',async()=>{
+ const app=await harness();
+ const f=app.stage.querySelector('filter#bloom');
+ assert.equal(f.getAttribute('filterUnits'),'userSpaceOnUse','a vertical floor-lamp line has a zero-width box that disables an objectBoundingBox filter');
+ for(const k of ['x','y'])assert.ok(+f.getAttribute(k)<=-400);
+ for(const k of ['width','height'])assert.ok(+f.getAttribute(k)>=800);
 });

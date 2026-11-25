@@ -440,6 +440,43 @@ class ProducerTests(unittest.TestCase):
             [[64, 0, 0]],
         )
 
+    def test_proxy_shows_the_color_a_hue_light_has_without_a_write_of_its_own(self):
+        # After an adapter restart, or a scene set in another app, nothing passes through
+        # record_hue(); the proxy's read-back keeps the preview true to the lamp.
+        store = OutputPreviewStore()
+        client = FakeHue()
+        client.resource_id = PLAY_IDS["play-center"]
+        client.native.update(id=client.resource_id, color={"xy": {"x": 0.7, "y": 0.299}},
+                             color_temperature={"mirek": None, "mirek_valid": False},
+                             dimming={"brightness": 50})
+        proxy = HueStripProxy(client, "play-center", clock=lambda: 10, wall_clock=lambda: 1000,
+                              preview=store)
+        self.assertFalse(proxy.process_once())
+        self.assertEqual(client.writes, [], "a read-back writes nothing")
+        lamp = build_preview(metadata(), store.snapshot())["lamps"]["play-center"]
+        self.assertEqual(lamp["colors"], [[128, 0, 0]])
+        self.assertFalse(lamp["stale"])
+        client.native["color_temperature"] = {"mirek": 250, "mirek_valid": True}
+        proxy.process_once()
+        lamp = build_preview(metadata(), store.snapshot())["lamps"]["play-center"]
+        self.assertEqual(lamp["colors"], [[128, 103, 83]], "a white light shows its temperature")
+        client.native["mode"] = "streaming"
+        proxy.process_once()
+        self.assertEqual(store.snapshot()["play-center"]["colors"], [[255, 206, 166]],
+                         "a streaming light keeps the last read-back")
+
+    def test_a_gradient_read_back_shows_its_points(self):
+        store = OutputPreviewStore()
+        client = FakeHue()
+        client.native["gradient"]["points"] = [{"color": {"xy": {"x": 0.7, "y": 0.299}}},
+                                               {"color": {"xy": {"x": 0.17, "y": 0.7}}}]
+        client.native["color"] = {"xy": {"x": 0.4, "y": 0.4}}
+        proxy = HueStripProxy(client, "hue-monitor", clock=lambda: 10, wall_clock=lambda: 1000,
+                              preview=store)
+        proxy.process_once()
+        lamp = build_preview(metadata(), store.snapshot())["lamps"]["hue-monitor"]
+        self.assertEqual(len(lamp["colors"]), 2)
+
     def test_relay_records_actual_calibrated_mapping_after_send_and_observer_is_isolated(self):
         fixture = relay_tests.RelayTests()
         fixture.setUp()
