@@ -1012,10 +1012,12 @@ function connectedField(l){
  const label=link==='connect'?'Connecting…':link==='disconnect'?'Disconnecting…':'Connected';
  return '<div class="card-field" data-connected-field><span>'+label+'</span><button class="card-switch" role="switch" aria-label="Connected" aria-checked="'+on+'" data-menu="connected"'+(link?' disabled':'')+'><span class="switch"><i></i></span></button></div>';
 }
+// The card closes from its corner as well as from the lamp's chip.
+const cardClose=()=>iconBtn(closeIcon,'Close',{'data-menu':'close','data-tooltip':'Close · Esc'},'card-close');
 function cardMenu(l){
  if(connectPrompt===l.id)return connectPromptHtml(l);
  const b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
- return '<div class="card-head"><input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
+ return '<div class="card-head">'+cardClose()+'<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
   +connectedField(l)
@@ -1119,6 +1121,7 @@ function paintLink(){if(drag)return;render();paintPanel();if(menuOpen&&!cal)refr
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
+ if(id==='close'){closeObjectMenu();$('#stage').querySelector('[data-chip-action="more"]')?.focus();return true}
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove '+esc(l.name)+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}

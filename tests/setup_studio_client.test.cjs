@@ -517,6 +517,18 @@ test('removing a placed found lamp deletes its row so the slot is free again',as
  assert.equal(app.$('#lamp-panel').querySelector('[data-restore="'+discovered().id+'"]'),null);
 });
 
+test('the lamp card closes from its corner button',async()=>{
+ const app=await harness();
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.settle();
+ const more=app.stage.querySelector('[data-chip-action="more"]');
+ app.dispatch(more,'pointerdown');await app.settle();
+ const menu=app.$('#object-menu'),close=menu.querySelector('.card-head [data-menu="close"]');
+ assert.ok(close,'the card has a close button');assert.equal(close.getAttribute('aria-label'),'Close');
+ await app.click(close);await app.advance(300);
+ assert.equal(app.run('menuOpen'),false);assert.equal(menu.hidden,true);
+ assert.equal(app.run('selected'),'play-right','closing the card keeps the lamp selected');
+});
+
 test('the lamp card removes with a confirmation and sets Own light during Sync',async()=>{
  const app=await harness();
  app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.settle();

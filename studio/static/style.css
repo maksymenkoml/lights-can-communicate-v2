@@ -372,7 +372,8 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 #object-menu .card-pages{display:flex;width:200%;align-items:flex-start;transition:transform .28s ease}
 #object-menu .card-pages.at-cal{transform:translateX(-50%)}
 #object-menu .card-page{width:50%;flex:none;min-width:0}
-#object-menu .card-head{padding:12px 14px 4px}
+#object-menu .card-head{position:relative;padding:12px 40px 4px 14px}
+#object-menu .card-close{position:absolute;top:8px;right:8px}
 #object-menu .card-sub{margin-bottom:6px}
 #object-menu .card-alert{margin:4px 0 8px}
 #object-menu .card-field{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:40px;padding:0 14px;border-top:1px solid var(--line);font-size:var(--fs-ui);white-space:nowrap;color:var(--text)}
