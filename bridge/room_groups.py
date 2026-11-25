@@ -223,9 +223,12 @@ def room_names(rooms):
     return result
 
 
-def signature(rooms):
-    """The room set and the recorded rooms of the lights; a change restarts the bridge.
-    The order of the rooms does not matter to the bridge, so reordering them does not
-    restart it (it is allowed during Sync)."""
+def signature(rooms, lights):
+    """The room set and the room of each of the bridge's ``lights``; a change restarts
+    the bridge. The order of the rooms does not matter to the bridge, and a new order
+    keeps every light in its room, so reordering them does not restart it (it is
+    allowed during Sync)."""
     index = rooms.index()
-    return json.dumps([sorted(index["rooms"]), index["lights"]], sort_keys=True)
+    return json.dumps([sorted(index["rooms"]),
+                       {light: rooms.room_of(light, index) for light in sorted(set(lights))}],
+                      sort_keys=True)

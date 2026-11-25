@@ -286,6 +286,9 @@ test('in a room without the Monitor Strip a light strip wraps the monitor',async
  const lamp=id=>JSON.parse(app.run('JSON.stringify(lamps.find(l=>l.id==="'+id+'"))'));
  assert.equal(lamp(strip).form,'strip','the first strip wraps the monitor');
  assert.deepEqual([lamp(strip).x,lamp(strip).h],[0,110],'it takes the screen place');
+ const row=id=>app.run('JSON.stringify(pack().devices.find(d=>d.id==="'+id+'").positionCm)');
+ assert.equal(row(strip),JSON.stringify({x:180,height:60}),'its saved place is kept');
+ assert.equal(app.run('JSON.stringify(pack().screen.positionCm)'),JSON.stringify({x:100,height:110}));
  assert.equal(lamp(other).form,'bar','a second strip draws as a bar');
  assert.deepEqual([lamp(removed).x,lamp(removed).h],[-40,50],'a removed strip keeps its place');
  assert.equal(app.lamp(strip).querySelectorAll('stop').length>0,true);

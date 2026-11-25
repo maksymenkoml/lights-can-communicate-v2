@@ -431,7 +431,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 "sync": index["sync"],
                 "lights": {light: rooms.room_of(light, index)
                            for light in registry_lights() or ()},
-                # Every recorded room of a light; any other light is in the default room.
+                # Every recorded room of a light; any other light is in the first room.
                 "assigned": index["lights"],
                 "default": rooms.default_room(index),
                 "placed": placed}
@@ -645,8 +645,11 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             if busy:
                 return 409, {"accepted": False, "reason": "sync_active"}
         hue = registry_lights("hue") if action == "move" else ()
-        # A new order keeps every connected light in its room (see Rooms.reorder).
-        connected = registry_lights() if action == "order" else ()
+        # A new first room needs the connected lights, which keep their room (see
+        # Rooms.reorder); any other order does not read the registry.
+        new_first = (action == "order" and isinstance(data["rooms"], list)
+                     and data["rooms"][:1] != rooms.index()["rooms"][:1])
+        connected = registry_lights() if new_first else ()
         if hue is None or connected is None:
             # An unreadable registry cannot tell whether the area must follow, or
             # which lights must keep their room.

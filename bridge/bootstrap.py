@@ -345,7 +345,7 @@ room_groups.apply(
     room_groups.room_names(layout_store), room_scene_states)
 room_groups.save_owned(state, room_group_ids)
 room_groups.save_kept(state, room_scene_states)
-rooms_at_start = room_groups.signature(layout_store)
+rooms_at_start = room_groups.signature(layout_store, room_slots.values())
 
 # A name set in Light Studio for a role lamp names its virtual light. Resource
 # IDs stay; without an owner name the current name stays.
@@ -566,7 +566,8 @@ def watch_registry():
         time.sleep(2)
         try:
             changed = (registry_signature(state) != registry_at_start
-                       or room_groups.signature(layout_store) != rooms_at_start)
+                       or room_groups.signature(layout_store, room_slots.values())
+                       != rooms_at_start)
         except (OSError, ValueError):
             continue
         if changed:

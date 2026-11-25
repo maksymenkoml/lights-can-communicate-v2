@@ -155,10 +155,8 @@ class Rooms:
 
     @staticmethod
     def default_room(index):
-        """The room of a light without a recorded room: the original room while it is
-        listed, otherwise the first room. Reordering the rooms keeps it while the
-        original room is listed."""
-        return FIRST_ROOM if FIRST_ROOM in index["rooms"] else index["rooms"][0]
+        """The room of a light without a recorded room: the first room."""
+        return index["rooms"][0]
 
     def room_of(self, light, index=None):
         """The light's room: its recorded room, otherwise the default room."""
@@ -398,8 +396,8 @@ class Rooms:
     def reorder(self, order, lights=()):
         """Put the rooms in ``order``; no light changes its room.
 
-        ``lights`` lists the connected lights. When the new order changes the default
-        room, each of them without a recorded room keeps the old default room.
+        ``lights`` lists the connected lights. When the new order puts another room
+        first, each of them without a recorded room records the old first room.
         """
         with self.lock:
             self._materialize()

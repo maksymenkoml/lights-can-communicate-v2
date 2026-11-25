@@ -186,16 +186,24 @@ class RoomStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="tmp_room_groups_") as folder:
             state = Path(folder)
             rooms = Rooms(state)
-            before = room_groups.signature(rooms)
+            lights = [THIRD, "govee-left"]
+            before = room_groups.signature(rooms, lights)
             self.assertEqual(room_groups.room_names(rooms), {})
             write_rooms(state, {THIRD: SECOND})
             self.assertEqual(room_groups.room_names(rooms),
                              {FIRST_ROOM: "Office", SECOND: "Bedroom"})
-            self.assertNotEqual(room_groups.signature(rooms), before)
-            # The order of the rooms does not restart the bridge.
-            moved = room_groups.signature(rooms)
-            rooms.reorder([SECOND, FIRST_ROOM])
-            self.assertEqual(room_groups.signature(rooms), moved)
+            self.assertNotEqual(room_groups.signature(rooms, lights), before)
+            # A new order keeps every light in its room, so it does not restart the bridge,
+            # although it records the old first room for govee-left.
+            moved = room_groups.signature(rooms, lights)
+            rooms.reorder([SECOND, FIRST_ROOM], lights)
+            self.assertEqual(rooms.index()["lights"], {THIRD: SECOND, "govee-left": FIRST_ROOM})
+            self.assertEqual(room_groups.signature(rooms, lights), moved)
+            # The signature follows where the bridge's lights are, not the stored record.
+            index = rooms.index()
+            del index["lights"]["govee-left"]
+            rooms.write_index(index)
+            self.assertNotEqual(room_groups.signature(rooms, lights), moved)
 
 
 def write_rooms(state, lights):
