@@ -75,6 +75,52 @@ class GoveeTransportTests(unittest.TestCase):
         self.assertIn(("devStatus", ("192.168.10.80", 4003)), sent)
         self.assertEqual(self.targets[1]["ip"], "192.168.10.80")
 
+    def scan_socket_options(self, lan_address):
+        options, sent = [], []
+        stop = threading.Event()
+
+        class FakeSocket:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def setsockopt(self, level, name, value):
+                options.append((level, name, value))
+
+            def bind(self, *args):
+                pass
+
+            def settimeout(self, *args):
+                pass
+
+            def sendto(self, raw, dest):
+                sent.append(dest)
+
+            def recvfrom(self, *args):
+                stop.set()
+                raise socket.timeout()
+
+        transport = GoveeTransport([], lambda _: None, lan_address=lan_address)
+        with patch("govee_transport.socket.socket", return_value=FakeSocket()):
+            transport.receive_loop(stop)
+        self.assertIn((lan.MULTICAST, 4001), sent)
+        return {name: value for level, name, value in options if level == socket.IPPROTO_IP}
+
+    def test_the_scan_for_new_lights_leaves_from_the_lan_address(self):
+        options = self.scan_socket_options("192.168.10.41")
+        lan_address = socket.inet_aton("192.168.10.41")
+        self.assertEqual(options[socket.IP_MULTICAST_IF], lan_address)
+        self.assertEqual(options[socket.IP_ADD_MEMBERSHIP],
+                         socket.inet_aton(lan.MULTICAST) + lan_address)
+
+    def test_without_a_lan_address_the_scan_follows_the_default_route(self):
+        options = self.scan_socket_options(None)
+        self.assertNotIn(socket.IP_MULTICAST_IF, options)
+        self.assertEqual(options[socket.IP_ADD_MEMBERSHIP],
+                         socket.inet_aton(lan.MULTICAST) + socket.inet_aton("0.0.0.0"))
+
     def setUp(self):
         for name in ("GOVEE_ROUTES", "VERIFIED_GOVEE", "IDENTIFIED_GOVEE",
                      "GOVEE_ROUTE_REVISIONS"):

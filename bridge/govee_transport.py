@@ -16,9 +16,13 @@ class GoveeTransport:
     # Control needs a native status sample at most this old.
     STATUS_SECONDS = 0.75
 
-    def __init__(self, targets, publisher, remember=None, discovery=None):
+    def __init__(self, targets, publisher, remember=None, discovery=None, lan_address=None):
         self.targets, self.publisher, self.remember = targets, publisher, remember
         self.discovery = discovery
+        # The local LAN address to scan from. A container on several networks needs
+        # it: multicast follows the default route, which may lead to a network
+        # without lights, so the scan would never reach a new light.
+        self.lan_address = lan_address
         self.ids = {lan.device_key(device) for device in targets}
         self.observed, self.native, self.blocked = {}, {}, {}
 
@@ -139,10 +143,13 @@ class GoveeTransport:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("", 4002))
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            interface = socket.inet_aton(self.lan_address or "0.0.0.0")
+            if self.lan_address is not None:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, interface)
             sock.setsockopt(
                 socket.IPPROTO_IP,
                 socket.IP_ADD_MEMBERSHIP,
-                socket.inet_aton(lan.MULTICAST) + socket.inet_aton("0.0.0.0"),
+                socket.inet_aton(lan.MULTICAST) + interface,
             )
             next_poll = next_scan = 0
             while not stop.is_set():

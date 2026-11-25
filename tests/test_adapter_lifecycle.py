@@ -193,5 +193,35 @@ class AdapterLifecycleTests(unittest.TestCase):
                     captured["remember"]()
 
 
+    def test_govee_scans_leave_from_the_lan_address(self):
+        captured = {}
+
+        class Server:
+            def __init__(self, *args):
+                pass
+
+            def shutdown(self):
+                pass
+
+            def server_close(self):
+                pass
+
+        def interrupted_transport(*args, **kwargs):
+            captured.update(kwargs)
+            raise KeyboardInterrupt
+
+        with TemporaryDirectory(prefix="tmp_adapter_lan_") as directory:
+            root = Path(directory)
+            write_registry(root, targets())
+            (root / "token").write_text("a" * 48)
+            with (
+                patch.object(adapter, "ThreadingHTTPServer", Server),
+                patch.object(adapter, "GoveeTransport", interrupted_transport),
+            ):
+                adapter.main(["--registry", str(root / "lights.json"),
+                              "--token-file", str(root / "token"),
+                              "--lan-address", "192.168.10.41"])
+        self.assertEqual(captured["lan_address"], "192.168.10.41")
+
 if __name__ == "__main__":
     unittest.main()

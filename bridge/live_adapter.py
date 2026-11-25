@@ -1286,6 +1286,7 @@ def main(argv=None, service_info=None):
             publish_statuses,
             remember=remember_targets,
             discovery=catalog,
+            lan_address=args.lan_address,
         )
         threading.Thread(
             target=transport.run, args=(stop,), daemon=True, name="adapter-status"
