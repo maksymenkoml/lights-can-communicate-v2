@@ -287,17 +287,17 @@ def project_status(data, source_active=None):
             row.get("source") if row.get("source") in ("scene-output", "sync-output") else "unknown"
         )
         stale = (row.get("stale") is not False or not lamp["online"]
-                 or row.get("online") is not True or row.get("on") is not True
-                 or identifier not in included)
+                 or row.get("online") is not True or row.get("on") is not True)
         colors = _rgb_colors(row.get("colors"))
         if (
             lamp["on"] is not True
             or stale
             or source == "unknown"
             or source == "sync-output"
-            and not emitted
+            and (not emitted or identifier not in included)
             or mode == "foreign"
             and identifier in names.values()
+            and identifier in included
         ):
             colors = []
         # A segmented Govee lamp shows seven zones; a basic-tier lamp is one color. A

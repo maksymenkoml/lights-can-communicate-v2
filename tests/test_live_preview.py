@@ -465,6 +465,39 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(store.snapshot()["play-center"]["colors"], [[255, 206, 166]],
                          "a streaming light keeps the last read-back")
 
+    def test_a_light_outside_sync_shows_its_scene_in_every_mode(self):
+        # A Hue light for scenes only (another room) is outside the Entertainment
+        # area: the read-back is recorded for it, and its scene shows whatever Sync does.
+        strip = "device-" + "a" * 32
+        store = OutputPreviewStore(native_channels={"play-left": (0,)}, scene_lights=[strip])
+        native = {"color": {"xy": {"x": 0.7, "y": 0.299}}, "dimming": {"brightness": 50},
+                  "color_temperature": {"mirek": None, "mirek_valid": False}}
+        store.record_hue_read_back(strip, native)
+        store.record_hue_read_back("device-" + "b" * 32, native)
+        self.assertEqual(set(store.snapshot()), {strip}, "only a known Hue light is recorded")
+        status = metadata()
+        status["lights"] = [{"id": "play-left", "provider": "hue"},
+                            {"id": strip, "provider": "hue"}]
+        status["hue"][strip] = copy.deepcopy(status["hue"]["play-left"])
+        status["composition"] = {"enabled_roles": ["play-left"], "lights": ["play-left"]}
+        for video in ({}, {"active": True, "ready": True, "frame_age": 0},
+                      {"active": True, "ready": False}):
+            with self.subTest(video=video):
+                lamps = build_preview({**status, "video": video}, store.snapshot())["lamps"]
+                self.assertEqual(lamps[strip]["colors"], [[128, 0, 0]])
+                self.assertEqual((lamps[strip]["stale"], lamps[strip]["included"]),
+                                 (False, False))
+        # Another app streaming to it hides the last read-back.
+        status["hue"][strip]["native_mode"] = "streaming"
+        lamps = build_preview(status, store.snapshot())["lamps"]
+        self.assertEqual((lamps[strip]["colors"], lamps[strip]["stale"]), ([], True))
+        # Sync output left from when the light was in Sync is not shown.
+        status["hue"][strip]["native_mode"] = "normal"
+        store.native_channels[strip] = (1,)
+        store.record_native_channels({0: (65535, 0, 0), 1: (0, 65535, 0)})
+        lamps = build_preview(status, store.snapshot())["lamps"]
+        self.assertEqual((lamps[strip]["colors"], lamps[strip]["stale"]), ([], True))
+
     def test_a_gradient_read_back_shows_its_points(self):
         store = OutputPreviewStore()
         client = FakeHue()

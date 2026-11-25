@@ -183,7 +183,9 @@ function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
 function emittedColors(l){
  if(l.unbound||l.enabled===false||!connected(l)||!liveFresh()||lampBlocker(l))return null;
  const row=liveSnapshot.lamps&&typeof liveSnapshot.lamps==='object'?liveSnapshot.lamps[l.id]:null;
- if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
+ if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false)return null;
+ // A lamp outside Sync (another room) shows its own scene, never Sync output.
+ if(row.included===false&&row.source!=='scene-output')return null;
  // The view without Sync shows the lamps' own light; a lamp that runs Sync shows the demo scene.
  if(row.source==='sync-output'&&mode!=='sync')return sceneDemoColors(l);
  if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;

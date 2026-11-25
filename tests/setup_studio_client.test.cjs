@@ -667,6 +667,16 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  await app.advance(2000);assert.equal(app.posts.length,0);
 });
 
+test('a lamp outside Sync shows its own scene, never Sync output',async()=>{
+ const outside=source=>liveOk({sync:{state:'active'},lamps:{'govee-right':lit(Array(7).fill([0,0,255]),{included:false,source})}});
+ let answer=outside('scene-output');
+ const app=await harness({live:()=>answer});
+ const power=()=>app.lamp('govee-right').querySelector('[data-sync-power]').getAttribute('opacity');
+ assert.equal(power(),'1','another room keeps its live scene colours');
+ answer=outside('sync-output');await app.advance(200);
+ assert.equal(power(),'0','Sync output is not shown for a lamp outside Sync');
+});
+
 test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  const hues=['#ff0000','#00ff00','#0000ff','#ffff00','#00ffff','#ff00ff','#ffffff'];
  const app=await harness({live:liveOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]]),'hue-monitor':lit(Array(9).fill([9,9,9]))}})});

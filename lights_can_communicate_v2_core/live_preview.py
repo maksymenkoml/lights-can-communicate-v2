@@ -128,12 +128,15 @@ def _xy(value):
 class OutputPreviewStore:
     """Share only successful emitted color/brightness state across output paths."""
 
-    def __init__(self, clock=time.monotonic, native_channels=None):
+    def __init__(self, clock=time.monotonic, native_channels=None, scene_lights=()):
         self.clock = clock
         # Native light id -> its canonical channels; the adapter passes its profile's,
         # empty without Hue lights.
         self.native_channels = dict(MIGRATED_NATIVE_CHANNELS if native_channels is None
                                     else native_channels)
+        # Every Hue light whose scene output is previewed: the Sync lights and the
+        # lights outside the Entertainment area, which show their scene in any room.
+        self.hue_lights = frozenset(self.native_channels) | frozenset(scene_lights)
         self.lock = threading.RLock()
         self.outputs = {}
 
@@ -205,7 +208,7 @@ class OutputPreviewStore:
         self._update(light, source, colors, brightness)
 
     def record_hue(self, role, body):
-        if role not in self.native_channels or not isinstance(body, dict):
+        if role not in self.hue_lights or not isinstance(body, dict):
             return
         colors = brightness = None
         if "gradient" in body:
@@ -235,7 +238,7 @@ class OutputPreviewStore:
         unlit. The light's v2 resource reports its color mode: a valid mirek is white,
         gradient points are a gradient, and otherwise the xy color applies.
         """
-        if role not in self.native_channels or not isinstance(native, dict):
+        if role not in self.hue_lights or not isinstance(native, dict):
             return
         temperature = native.get("color_temperature")
         points = (native.get("gradient") or {}).get("points") or []
@@ -379,6 +382,12 @@ def build_preview(adapter_status, output_snapshot):
         brightness = round(emitted_brightness) if emitted_brightness is not None else None
         source = sample.get("source") if sample.get("source") in SOURCES else None
         expected = {"scene": "scene-output", "sync": "sync-output"}.get(mode)
+        if lamp not in included:
+            # A light outside Sync (another room, or one for scenes only) shows its
+            # scene whatever Sync does, unless another app streams to it.
+            streamed = isinstance(hue.get(lamp), dict) and hue[lamp].get(
+                "native_mode") == "streaming"
+            expected = None if streamed else "scene-output"
         colors = []
         valid = False
         try:
@@ -401,9 +410,9 @@ def build_preview(adapter_status, output_snapshot):
             "online": True if fresh else None,
             "on": on,
             "brightness": brightness,
-            "colors": colors if fresh and on and lamp in included else [],
+            "colors": colors if fresh and on else [],
             "source": source,
-            "stale": not fresh or not valid or lamp not in included,
+            "stale": not fresh or not valid,
             "included": lamp in included,
         }
     return {"version": 1, "mode": mode, "lamps": lamps}

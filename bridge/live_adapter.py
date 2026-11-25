@@ -1062,7 +1062,8 @@ def main(argv=None, service_info=None):
     power_owner = power_token = homekit = None
     power_requests = None
     preview = OutputPreviewStore(
-        native_channels=native_profile.channels if native_profile else {})
+        native_channels=native_profile.channels if native_profile else {},
+        scene_lights=hue_lights.light_ids if hue_lights else ())
     # Per-lamp calibration converts commands to device values on the way out and
     # statuses back to logical values; an invalid profile refuses to start.
     calibration = GoveeCalibration(config["targets"], layout_store)
