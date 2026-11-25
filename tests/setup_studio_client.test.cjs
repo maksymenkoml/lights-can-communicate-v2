@@ -267,6 +267,16 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
+test('a chosen monitor dims its strip like any lamp; a chosen strip keeps the monitor',async()=>{
+ const app=await harness();
+ await app.click(app.stage.querySelector('[data-select="monitor"]'));
+ assert.equal(app.run('selected'),'monitor');
+ assert.equal(app.run('JSON.stringify([...focusKeep()])'),'["monitor"]','the strip is not kept');
+ await app.click(app.lamp('hue-monitor'));
+ assert.equal(app.run('selected'),'hue-monitor');
+ assert.equal(app.run('JSON.stringify([...focusKeep()].sort())'),'["hue-monitor","monitor"]');
+});
+
 test('edits autosave once after 300 ms with If-Match and version 7, undo saves too',async()=>{
  const app=await harness();
  app.lamp('play-left').focus();await app.press(app.lamp('play-left'),'ArrowRight');

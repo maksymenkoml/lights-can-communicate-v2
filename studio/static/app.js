@@ -672,9 +672,17 @@ function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monito
 // ------------------------------------------------------------ render --
 let focusState=new Map(),skipClick=false,menuOpen=false;
 function focusKey(n){return n.dataset.lamp||n.dataset.washFor||n.dataset.select}
+// What stays bright while something is selected. The monitor is furniture: its strip
+// dims like any other lamp, except in the Sync view, where every lamp that syncs from
+// the screen stays bright. The strip wraps the monitor, so a chosen strip keeps it.
+function focusKeep(){
+ const keep=new Set([selected]);if(cal?.mode==='test')keep.add(cal.reference);
+ if(selected==='monitor'&&mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)});
+ if(selected===MONITOR)keep.add('monitor');
+ return keep;
+}
 function applyFocus(){
- const on=!!selected;
- const keep=new Set([selected]);if(cal?.mode==='test')keep.add(cal.reference);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
+ const on=!!selected,keep=focusKeep();
  const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group,.box-group');
  nodes.forEach(n=>{
   const key=focusKey(n),want=on&&!keep.has(key)?.22:1,was=focusState.has(key)?focusState.get(key):want;
