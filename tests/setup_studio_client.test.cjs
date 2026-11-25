@@ -1715,3 +1715,11 @@ test('wall light adds up without burning out: washes blend with screen, so no la
  const layer=app.stage.querySelector('#wash-layer');
  assert.ok([...layer.children].every(w=>w.tagName.toLowerCase()==='defs'||w.classList.contains('lamp-wash')),'every lamp wash is a direct child of the layer');
 });
+
+test('the lens glow is blurred even for a straight-line lamp: the bloom region does not use the bounding box',async()=>{
+ const app=await harness();
+ const f=app.stage.querySelector('filter#bloom');
+ assert.equal(f.getAttribute('filterUnits'),'userSpaceOnUse','a vertical floor-lamp line has a zero-width box that disables an objectBoundingBox filter');
+ for(const k of ['x','y'])assert.ok(+f.getAttribute(k)<=-400);
+ for(const k of ['width','height'])assert.ok(+f.getAttribute(k)>=800);
+});
