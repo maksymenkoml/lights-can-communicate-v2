@@ -622,14 +622,13 @@ test('Sync states map to short labels and unknown reasons stay readable',async()
  assert.equal(disconnected.$('#sync-status span').textContent,'Sync status unknown');
 });
 
-test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>{
+test('blockers name the lamp, badge it, and the pill selects it',async()=>{
  const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'native_stale'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
  assert.equal(app.$('#sync-status span').textContent,'Govee Left not responding');
  const badge=app.lamp('govee-left').querySelector('[data-badge]');
  assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Not responding');
  assert.ok(!badge.classList.contains('off'),'a fault shows "!"');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
- assert.ok(app.lamp('govee-left').classList.contains('unlit'));
  await app.click(app.$('#sync-status'));assert.equal(app.run('selected'),'govee-left');
  const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'play-left',code:'native_stale'},{role:'hue-monitor',code:'color_fenced'},{role:'nobody',code:'x'},{role:'govee-right',code:'future_code'}]}})});
  assert.equal(many.$('#sync-status span').textContent,'3 lamps not lit');
@@ -1315,7 +1314,6 @@ test('a lamp that is off is not a problem: a grey power mark only while Sync run
  const badge=id=>app.lamp(id).querySelector('[data-badge]');
  assert.equal(app.$('#sync-status span').textContent,'Not syncing');
  for(const id of ['govee-left','play-left'])assert.equal(badge(id).getAttribute('visibility'),'hidden',id);
- assert.ok(app.lamp('govee-left').classList.contains('unlit'),'an off lamp shows the frosted lens');
  answer=off('active');await app.advance(200);
  assert.equal(app.$('#sync-status span').textContent,'Syncing','an off lamp is not counted as a problem');
  assert.equal(badge('govee-left').getAttribute('visibility'),'visible');

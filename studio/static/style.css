@@ -164,12 +164,9 @@ h1,h2,p{margin:0}
 .health-badge.off text{display:none}
 .screen-off{fill:#1d222b}
 #screen-image,#screen-demo-image{transition:opacity .28s ease}
-/* A lit lens fades over a dark base by brightness, so its colour stays deep; an unlit
-   lamp shows a matte frosted diffuser, as a real switched-off lamp does. */
-.lens-off{fill:#05080c;transition:fill .28s ease,stroke .28s ease}
+/* An unlit lens or zone reads as black: the lit lens fades over it by brightness. */
+.lens-off{fill:#05080c}
 path.lens-off{fill:none;stroke:#05080c;stroke-linecap:round;stroke-linejoin:round}
-.lamp.unlit .lens-off{fill:var(--lens-frost)}
-.lamp.unlit path.lens-off{fill:none;stroke:var(--lens-frost)}
 /* A watermark printed into the picture, like a shop display's demo mode, not a label over it. */
 .screen-demo{font-weight:600;letter-spacing:.3em;text-transform:uppercase;fill:#fff;fill-opacity:.42;pointer-events:none;transition:opacity .28s ease}
 
@@ -264,7 +261,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 
 /* Night scene in navy */
 .app.dark-scene>.scene-background,.app .scene-snapshot.snapshot-dark .scene-background{background-color:#0f1c2a}
-.app.dark-scene #stage,.app .scene-snapshot.snapshot-dark .stage{--line:#24394d;--muted:#a3b5c7;--halo:#0f1c2a;--tag-text:#d3dee8;--accent:#5cc6cd;--soft:#5cc6cd22;--zone-off:#2c4256;--edge:#7f97ae;--lens-frost:#3a4a5b}
+.app.dark-scene #stage,.app .scene-snapshot.snapshot-dark .stage{--line:#24394d;--muted:#a3b5c7;--halo:#0f1c2a;--tag-text:#d3dee8;--accent:#5cc6cd;--soft:#5cc6cd22;--zone-off:#2c4256;--edge:#7f97ae}
 .app.dark-scene #stage .obj-chip>rect,.app .scene-snapshot.snapshot-dark .obj-chip>rect{fill:#1a2a3c;stroke:#2f465c}
 .app.dark-scene #stage .obj-chip text,.app .scene-snapshot.snapshot-dark .obj-chip text{fill:#e6eef5}
 .app.dark-scene #stage .obj-chip .chip-status,.app .scene-snapshot.snapshot-dark .obj-chip .chip-status{fill:#a3b5c7}
@@ -272,7 +269,7 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 
 /* Light scene in half-tone: glow reads as light */
 .app:not(.dark-scene)>.scene-background,.app .scene-snapshot.snapshot-light .scene-background{background-color:#c9d3db}
-.app:not(.dark-scene) #stage,.app .scene-snapshot.snapshot-light .stage{--halo:#c9d3db;--canvas:#c9d3db;--zone-off:#8e9cab;--lens-frost:#e6ebef}
+.app:not(.dark-scene) #stage,.app .scene-snapshot.snapshot-light .stage{--halo:#c9d3db;--canvas:#c9d3db;--zone-off:#8e9cab}
 .app:not(.dark-scene) #stage .lamp .render-wash,.app .scene-snapshot.snapshot-light .lamp .render-wash{opacity:calc(var(--wash-a,.7)*var(--wash-boost,1));filter:url(#wall-wash) saturate(1.5) brightness(1.15)}
 .app:not(.dark-scene) #stage .lamp .render-bloom,.app .scene-snapshot.snapshot-light .lamp .render-bloom{opacity:calc(var(--wash-a,.38)*var(--wash-boost,1));filter:url(#bloom) saturate(1.5) brightness(1.15)}
 
