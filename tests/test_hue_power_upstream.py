@@ -117,12 +117,20 @@ def fixture_request(g):
                      'action': {'on': {'on': False}}}]})
     assert response.status_code == 200, response.get_json()
     assert calls[before:] == [{'govee-right': False}], calls[before:]
-    # An edit waiting for its scene takes the power snapshot after the wait: the
-    # lamp went Off meanwhile, so its On recall still switches it On.
+    # A recall waiting for another takes its power snapshot after the wait: the
+    # lamp went Off meanwhile, so the waiting On recall still switches it On.
     import threading
+    class SignalLock:
+        def __init__(self):
+            self.inner, self.waiting = threading.Lock(), threading.Event()
+        def acquire(self, timeout=-1):
+            self.waiting.set()
+            return self.inner.acquire(timeout=timeout)
+        def release(self):
+            self.inner.release()
     client.put(light_path, json={'on': {'on': True}}, headers=headers)
-    lock = g['scene_edit_locks'].setdefault(scene_id, threading.Lock())
-    lock.acquire()
+    lock = g['scene_power_lock'] = SignalLock()
+    lock.inner.acquire()
     done = []
     def edit_on():
         done.append(g['app'].test_client().put('/clip/v2/resource/scene/' + scene_id,
@@ -131,24 +139,26 @@ def fixture_request(g):
                  'action': {'on': {'on': True}}}]}).status_code)
     waiting = threading.Thread(target=edit_on)
     waiting.start()
-    import time
-    time.sleep(0.3)
+    assert lock.waiting.wait(10)
     # Meanwhile the lamp goes Off (an explicit switch takes no scene lock).
     response = client.put(light_path, json={'on': {'on': False}}, headers=headers)
     assert response.status_code == 200, response.get_json()
     before = len(calls)
-    lock.release()
+    lock.inner.release()
     waiting.join(10)
     assert done == [200], done
     assert calls[before:] == [{'govee-right': True}], calls[before:]
-    # A scene that stays busy answers 503 instead of waiting for ever.
-    g['SCENE_EDIT_WAIT'] = 0.1
-    lock.acquire()
+    # A recall of another scene waits as well; a lock held too long answers 503.
+    g['SCENE_POWER_WAIT'] = 0.1
+    lock.inner.acquire()
+    response = client.put('/api/' + g['api_key'] + '/groups/0/action', json={'scene': '1'})
+    assert response.status_code == 503, response.status_code
     response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
         'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
                      'action': {'on': {'on': False}}}]})
-    lock.release()
     assert response.status_code == 503, response.status_code
+    lock.inner.release()
+    g['SCENE_POWER_WAIT'] = 5
     client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
         'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
                      'action': {'on': {'on': False}}}]})
