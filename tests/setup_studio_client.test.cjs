@@ -267,6 +267,52 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
+test('a light without a recorded room is in the default room, whatever the order',async()=>{
+ const app=await harness();
+ const rooms="[{id:'room-0a1b2c3d',name:'Bedroom'},{id:'room-00000001',name:'Office'}]";
+ assert.equal(app.run("takeRooms({rooms:"+rooms+",default:'room-00000001',assigned:{}});roomOf('govee-left')"),'room-00000001');
+ assert.equal(app.run("takeRooms({rooms:"+rooms+",assigned:{}});roomOf('govee-left')"),'room-0a1b2c3d','an older server: the first room');
+});
+
+test('in a room without the Monitor Strip a light strip wraps the monitor',async()=>{
+ const strip='device-'+'a'.repeat(32),other='device-'+'b'.repeat(32);
+ const layout={version:7,gridStepCm:5,room:'Anna',desk:{width:160,height:85},screen:{positionCm:{x:100,height:110},inches:32},devices:[
+  {id:strip,scale:80,positionCm:{x:180,height:60},orientation:'horizontal',shape:'strip',name:'Lightstrip 27',model:'LCX005',zones:9},
+  {id:other,scale:80,positionCm:{x:40,height:60},orientation:'horizontal',shape:'strip',name:'Lightstrip 32',model:'LCX006',zones:9}]};
+ const removed='device-'+'c'.repeat(32);
+ // A removed strip listed first does not wrap the monitor.
+ layout.devices.unshift({id:removed,scale:80,positionCm:{x:60,height:50},orientation:'horizontal',enabled:false,shape:'strip',name:'Old strip',model:'LCX005',zones:9});
+ const app=await harness({layout});await app.advance(1000);
+ const lamp=id=>JSON.parse(app.run('JSON.stringify(lamps.find(l=>l.id==="'+id+'"))'));
+ assert.equal(lamp(strip).form,'strip','the first strip wraps the monitor');
+ assert.deepEqual([lamp(strip).x,lamp(strip).h],[0,110],'it takes the screen place');
+ const row=id=>app.run('JSON.stringify(pack().devices.find(d=>d.id==="'+id+'").positionCm)');
+ assert.equal(row(strip),JSON.stringify({x:180,height:60}),'its saved place is kept');
+ assert.equal(app.run('JSON.stringify(pack().screen.positionCm)'),JSON.stringify({x:100,height:110}));
+ assert.equal(lamp(other).form,'bar','a second strip draws as a bar');
+ assert.deepEqual([lamp(removed).x,lamp(removed).h],[-40,50],'a removed strip keeps its place');
+ assert.equal(app.lamp(strip).querySelectorAll('stop').length>0,true);
+ assert.equal(app.run('stripStops([[1,2,3]]).length'),5,'any zone count gives five stops');
+ // While the first strip is disconnected the second wraps the monitor, then takes its place back.
+ app.run('lamps.find(l=>l.id==="'+strip+'").enabled=false;render()');
+ assert.deepEqual([lamp(other).form,lamp(other).x,lamp(other).h],['strip',0,110]);
+ app.run('lamps.find(l=>l.id==="'+strip+'").enabled=true;render()');
+ assert.deepEqual([lamp(other).form,lamp(other).x,lamp(other).h],['bar',-60,60]);
+ assert.equal(lamp(strip).form,'strip');
+});
+
+test('a chosen monitor dims its strip like any lamp; a chosen strip keeps the monitor',async()=>{
+ const app=await harness();
+ const opacity=()=>({monitor:+app.stage.querySelector('[data-select="monitor"]').style.opacity,
+  strip:+app.lamp('hue-monitor').style.opacity,play:+app.lamp('play-left').style.opacity});
+ await app.click(app.stage.querySelector('[data-select="monitor"]'));await app.advance(100);
+ assert.equal(app.run('selected'),'monitor');
+ assert.deepEqual({...opacity()},{monitor:1,strip:0.22,play:0.22},'the strip dims');
+ await app.click(app.lamp('hue-monitor'));await app.advance(100);
+ assert.equal(app.run('selected'),'hue-monitor');
+ assert.deepEqual({...opacity()},{monitor:1,strip:1,play:0.22});
+});
+
 test('edits autosave once after 300 ms with If-Match and version 7, undo saves too',async()=>{
  const app=await harness();
  app.lamp('play-left').focus();await app.press(app.lamp('play-left'),'ArrowRight');
@@ -354,21 +400,20 @@ test('the Lamps panel pairs the Hue bridge after its button is pressed, without 
  assert.match(panel.textContent,/Press the button on the bridge/);assert.match(panel.textContent,/Hue <Bridge> · 192\.168\.10\.5/);
  const looked=app.requests.discovery.length;
  await app.advance(1000);await app.advance(1000);
- assert.match(panel.textContent,/Hue bridgeConnectedHue <Bridge>192\.168\.10\.5Change/);
+ // A connected bridge needs nothing from the owner: one quiet line keeps Change.
+ assert.equal(panel.querySelector('.lp-section')?.textContent.includes('Hue bridge'),false);
+ assert.match(panel.querySelector('.lp-foot').textContent,/Hue bridge connectedChange/);
+ await app.click(panel.querySelector('.lp-foot [data-hue="find"]'));
+ assert.match(panel.textContent,/Found on this network:/,'a paired bridge can be paired again');
  // The core restarts with the new bridge: discovery looks for its lamps again.
  assert.ok(app.requests.discovery.length>looked);
- // A paired bridge can be paired again, for another bridge or a new address.
- await app.click(panel.querySelector('[data-hue="find"]'));
- assert.match(panel.textContent,/Found on this network:/);
- await app.click(panel.querySelector('[data-hue="close"]'));
- assert.match(panel.textContent,/Hue <Bridge>192\.168\.10\.5Change/);
 });
 
-test('a Hue bridge from the service configuration shows as connected without Connect',async()=>{
+test('a Hue bridge from the service configuration is left out of the Lamps panel',async()=>{
  const app=await harness({hueBridge:()=>({state:'configured'})});
  await app.click(app.$('#list-toggle'));
  const panel=app.$('#lamp-panel');
- assert.match(panel.textContent,/Hue bridgeConnectedHue bridgeSet in the service configurationConnected/);
+ assert.doesNotMatch(panel.textContent,/Hue bridge/i);
  assert.ok(!panel.querySelector('[data-hue]'));
 });
 
@@ -394,7 +439,7 @@ test('a Hue bridge address is typed when none is found, and errors stay readable
  assert.ok(panel.querySelector('[data-hue="find"]'));
 });
 
-test('Found shows unavailable lamps with their reason and hides placed ones',async()=>{
+test('Found shows unavailable lamps after the lamps that can be placed, with their reason, and hides placed ones',async()=>{
  const id=n=>'device-'+String(n).repeat(32);
  const devices=[discovered({id:id(1),name:'Gone',online:false}),discovered({id:id(2),name:'Odd',supported:false,shape:null,zones:null}),
   discovered({id:id(3),name:'Twin',ambiguous:true}),discovered({id:id(4),name:'Role',layout_id:'govee-left'}),discovered({id:id(5),name:'Placed'})];
@@ -402,7 +447,7 @@ test('Found shows unavailable lamps with their reason and hides placed ones',asy
  const app=await harness({layout:remote,discovery:{connected:true,devices,providers:{}}});
  await app.click(app.$('#list-toggle'));
  const rows=[...app.$('#lamp-panel').querySelectorAll('.lp-row.found')].map(r=>r.textContent);
- assert.deepEqual(rows,['GoneH6076 · 7 zonesOffline','OddH6076Unsupported','TwinH6076 · 7 zonesAmbiguous']);
+ assert.deepEqual(rows,['GoneH6076 · 7 zonesOffline','TwinH6076 · 7 zonesAmbiguous','OddH6076Unsupported'],'closest to usable first');
  assert.equal(app.$('#lamp-panel').querySelectorAll('[data-place]').length,0);
  const down=await harness({discovery:new Error('down')});await down.click(down.$('#list-toggle'));
  assert.match(down.$('#lamp-panel').textContent,/Lamp search is unavailable/);
@@ -473,6 +518,18 @@ test('removing a placed found lamp deletes its row so the slot is free again',as
  await app.click(app.$('#list-toggle'));
  assert.ok(app.$('#lamp-panel').querySelector('[data-place="'+discovered().id+'"]'),'the lamp is back in Found');
  assert.equal(app.$('#lamp-panel').querySelector('[data-restore="'+discovered().id+'"]'),null);
+});
+
+test('the lamp card closes from its corner button',async()=>{
+ const app=await harness();
+ app.dispatch(app.lamp('play-right').querySelector('.hit'),'pointerdown',{clientX:599,clientY:608});app.dispatch(app.stage,'pointerup');await app.settle();
+ const more=app.stage.querySelector('[data-chip-action="more"]');
+ app.dispatch(more,'pointerdown');await app.settle();
+ const menu=app.$('#object-menu'),close=menu.querySelector('.card-head [data-menu="close"]');
+ assert.ok(close,'the card has a close button');assert.equal(close.getAttribute('aria-label'),'Close');
+ await app.click(close);await app.advance(300);
+ assert.equal(app.run('menuOpen'),false);assert.equal(menu.hidden,true);
+ assert.equal(app.run('selected'),'play-right','closing the card keeps the lamp selected');
 });
 
 test('the lamp card removes with a confirmation and sets Own light during Sync',async()=>{
@@ -565,11 +622,12 @@ test('Sync states map to short labels and unknown reasons stay readable',async()
  assert.equal(disconnected.$('#sync-status span').textContent,'Sync status unknown');
 });
 
-test('blockers name the lamp, badge it unlit, and the pill selects it',async()=>{
- const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
- assert.equal(app.$('#sync-status span').textContent,'Govee Left off in HomeKit');
+test('blockers name the lamp, badge it, and the pill selects it',async()=>{
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'native_stale'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}})});
+ assert.equal(app.$('#sync-status span').textContent,'Govee Left not responding');
  const badge=app.lamp('govee-left').querySelector('[data-badge]');
- assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Off in HomeKit');
+ assert.equal(badge.getAttribute('visibility'),'visible');assert.equal(badge.dataset.tooltip,'Not responding');
+ assert.ok(!badge.classList.contains('off'),'a fault shows "!"');
  assert.equal(app.lamp('govee-left').querySelector('[data-sync-power]').getAttribute('opacity'),'0');
  await app.click(app.$('#sync-status'));assert.equal(app.run('selected'),'govee-left');
  const many=await harness({live:liveOk({sync:{state:'active',blockers:[{role:'play-left',code:'native_stale'},{role:'hue-monitor',code:'color_fenced'},{role:'nobody',code:'x'},{role:'govee-right',code:'future_code'}]}})});
@@ -608,6 +666,16 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  answer=unverified;await app.advance(200);
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'0','colours without a verified output source are not light');
  await app.advance(2000);assert.equal(app.posts.length,0);
+});
+
+test('a lamp outside Sync shows its own scene, never Sync output',async()=>{
+ const outside=source=>liveOk({sync:{state:'active'},lamps:{'govee-right':lit(Array(7).fill([0,0,255]),{included:false,source})}});
+ let answer=outside('scene-output');
+ const app=await harness({live:()=>answer});
+ const power=()=>app.lamp('govee-right').querySelector('[data-sync-power]').getAttribute('opacity');
+ assert.equal(power(),'1','another room keeps its live scene colours');
+ answer=outside('sync-output');await app.advance(200);
+ assert.equal(power(),'0','Sync output is not shown for a lamp outside Sync');
 });
 
 test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
@@ -1239,10 +1307,27 @@ test('the corner follows the box and stops asking while the page is hidden',asyn
  assert.equal(app.requests.box.length,asked+1);
 });
 
+test('a lamp that is off is not a problem: a grey power mark only while Sync runs',async()=>{
+ const off=state=>liveOk({sync:{state,blockers:[{role:'govee-left',code:'owner_off'},{role:'play-left',code:'native_off'}]},lamps:{}});
+ let answer=off('off');
+ const app=await harness({live:()=>answer});
+ const badge=id=>app.lamp(id).querySelector('[data-badge]');
+ assert.equal(app.$('#sync-status span').textContent,'Not syncing');
+ for(const id of ['govee-left','play-left'])assert.equal(badge(id).getAttribute('visibility'),'hidden',id);
+ answer=off('active');await app.advance(200);
+ assert.equal(app.$('#sync-status span').textContent,'Syncing','an off lamp is not counted as a problem');
+ assert.equal(badge('govee-left').getAttribute('visibility'),'visible');
+ assert.ok(badge('govee-left').classList.contains('off'),'the power mark, not "!"');
+ assert.equal(badge('govee-left').dataset.tooltip,'Off in HomeKit');
+ assert.equal(badge('play-left').style.getPropertyValue('--h-color'),'var(--unknown)');
+ app.run('select("govee-left")');await app.settle();
+ assert.equal(app.$('#object-menu .card-alert')?.style.getPropertyValue('--h-color')??'var(--unknown)','var(--unknown)');
+});
+
 test('a lamp problem during Sync is the status, and clicking it shows the lamp',async()=>{
  const box=fakeBox({...BOX,syncing:true});
- const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'owner_off'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
- assert.equal(status(app)+' | '+action(app),'Govee Left off in HomeKit | Stop Sync');
+ const app=await harness({live:liveOk({sync:{state:'active',reason:'frames_received',blockers:[{role:'govee-left',code:'native_foreign'}]},lamps:{'govee-left':lit(Array(7).fill([255,0,0]))}}),syncBox:box.api});
+ assert.equal(status(app)+' | '+action(app),'Govee Left another app in control | Stop Sync');
  await app.click(app.$('#sync-status'));
  assert.equal(app.run('selected'),'govee-left');
  assert.equal(app.$('#box-card').hidden,true,'a problem click shows the lamp, not the box details');
@@ -1722,4 +1807,155 @@ test('the lens glow is blurred even for a straight-line lamp: the bloom region d
  assert.equal(f.getAttribute('filterUnits'),'userSpaceOnUse','a vertical floor-lamp line has a zero-width box that disables an objectBoundingBox filter');
  for(const k of ['x','y'])assert.ok(+f.getAttribute(k)<=-400);
  for(const k of ['width','height'])assert.ok(+f.getAttribute(k)>=800);
+});
+
+const READY_BOX=()=>({state:'ready',name:'Sync Box',ip:'192.0.2.20',syncing:false});
+const placeBox=(action,body,server)=>{if(action!=='sync-box')return {status:404,body:{}};server.index.sync=body.room;return null};
+
+test('the Lamps panel says the Sync Box is in this room, in its own room only',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.ok(panel.querySelector('[data-box-row]'),'the box is an object of its room');
+ assert.equal(panel.querySelector('[data-box-room="ask"]'),null,'nothing to move in its own room');
+ assert.match(panel.textContent,/Syncs this room with the screen/);
+});
+
+test('another room moves the Sync Box in after a calm confirm, and Sync follows it there',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX,roomPost:placeBox});
+ await app.advance(100);
+ assert.ok(app.$('#app').classList.contains('no-sync'),'no Sync settings without the box');
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/In Office/);
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ const confirm=panel.querySelector('.confirm');
+ assert.ok(confirm.classList.contains('calm'),'moving is not destructive');
+ assert.match(confirm.textContent,/Sync leaves Office/);
+ assert.ok(confirm.querySelector('[data-box-room="place"]').classList.contains('primary'));
+ assert.deepEqual(app.requests.roomPosts,[],'nothing moves before the confirm');
+ await app.click(confirm.querySelector('[data-box-room="place"]'));await app.settle();
+ assert.deepEqual(app.requests.roomPosts,[{url:'/api/rooms/sync-box',body:{room:BEDROOM}}]);
+ assert.ok(!app.$('#app').classList.contains('no-sync'),'Sync settings and Start/Stop appear in the new room');
+ assert.ok(panel.querySelector('[data-box-row]'),'the box is now listed with this room');
+ assert.equal(app.requests.box.filter(r=>r.url!=='/api/sync-box').length,0,'a paired box is not paired again');
+});
+
+test('cancelling the Sync Box confirm moves nothing',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX,roomPost:placeBox});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ await app.click(panel.querySelector('[data-box-room="cancel"]'));
+ assert.equal(panel.querySelector('.confirm'),null);
+ assert.deepEqual(app.requests.roomPosts,[]);
+});
+
+test('an unpaired Sync Box added to a room opens the connect card there',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),roomPost:placeBox,
+  syncBox:url=>url.endsWith('/find')?{boxes:[]}:{state:'none'}});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ assert.match(panel.textContent,/not connected/);
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ await app.click(panel.querySelector('[data-box-room="place"]'));await app.settle();
+ assert.equal(app.server.index.sync,BEDROOM);
+ assert.ok(panel.hidden,'the lamp panel gives way to the connect card');
+ assert.ok(!app.$('#box-card').hidden,'the Sync Box connect card is open in this room');
+});
+
+test('a refused Sync Box move keeps the room and says why',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX,
+  roomPost:()=>({status:409,body:{accepted:false,reason:'sync_active'}})});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel');
+ await app.click(panel.querySelector('[data-box-room="ask"]'));
+ await app.click(panel.querySelector('[data-box-room="place"]'));await app.settle();
+ assert.ok(app.$('#app').classList.contains('no-sync'));
+ assert.match(app.$('#toast').textContent,/Not while Sync is on/);
+ assert.ok(panel.querySelector('[data-box-room="ask"]'),'the move can be asked again');
+});
+
+test('a Sync Box that must connect again offers Reconnect in its own room',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:url=>url.endsWith('/find')?{boxes:[]}:{state:'unauthorized',name:'Sync Box',ip:'192.0.2.20'}});
+ await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel'),row=panel.querySelector('[data-box-row]');
+ assert.match(row.textContent,/Needs connecting again/);
+ await app.click(row.querySelector('[data-box-room="connect"]'));await app.settle();
+ assert.ok(panel.hidden);assert.ok(!app.$('#box-card').hidden,'the connect card opens');
+});
+
+test('the Sync Box lies on the desk of its room only, beside the monitor stand until it is dragged',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const node=app.stage.querySelector('[data-select="box"]');
+ assert.ok(node,'drawn in the Sync Box room');
+ assert.equal(node.dataset.led,'ready','the front light shows a ready box');
+ assert.equal(app.run('boxX()'),app.run('clampBoxX(environment.screen.x+BOX_GAP)'),'right of the stand');
+ assert.equal(app.run('environment.box'),undefined,'no own place until dragged');
+ assert.ok(!('syncBox' in app.run('pack()')),'nothing stored for the default place');
+ const other=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:READY_BOX});await other.advance(100);
+ assert.equal(other.stage.querySelector('[data-select="box"]'),null,'not drawn in a room without it');
+});
+
+test('dragging the Sync Box moves it along the desktop and stores its place',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const start=app.run('boxX()'),x=500+start*3.3,y=740-app.run('environment.height')*3.3-5;
+ app.dispatch(app.stage.querySelector('[data-select="box"] .box-body'),'pointerdown',{clientX:x,clientY:y});
+ app.dispatch(app.stage,'pointermove',{clientX:x-10*3.3,clientY:y-200});
+ app.dispatch(app.stage,'pointerup');await app.settle();await app.advance(2000);
+ assert.equal(app.run('boxX()'),start-10,'it follows the pointer in 5 cm steps and stays on the desktop');
+ assert.equal(app.posts.at(-1).body.syncBox.x,start-10+100,'the place is saved with the layout');
+ assert.ok(app.$('#box-card').hidden,'a drag does not open the card');
+ app.run('undo()');assert.equal(app.run('boxX()'),start,'undo puts it back');
+ app.dispatch(app.stage.querySelector('[data-select="box"] .box-body'),'pointerdown',{clientX:x,clientY:y});
+ app.dispatch(app.stage,'pointermove',{clientX:x+2000,clientY:y});app.dispatch(app.stage,'pointerup');await app.settle();
+ const edge=app.run('environment.width')/2-9;
+ assert.ok(app.run('boxX()')<=edge,'it cannot leave the desktop');
+});
+
+test('a click on the Sync Box opens its card, and another click closes it',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const body=()=>app.stage.querySelector('[data-select="box"] .box-body');
+ await app.click(body());
+ assert.ok(!app.$('#box-card').hidden,'the Sync Box card opens');
+ assert.match(app.$('#box-card').textContent,/192\.0\.2\.20/);
+ await app.click(body());
+ assert.ok(app.$('#box-card').hidden,'a second click closes it');
+});
+
+test('the front light of the Sync Box follows Sync',async()=>{
+ let state=READY_BOX();
+ const app=await harness({rooms:twoRooms(),syncBox:url=>url==='/api/sync-box'?state:state});await app.advance(100);
+ state={...state,syncing:true};await app.advance(10000);
+ assert.equal(app.stage.querySelector('[data-select="box"]').dataset.led,'sync');
+ state={state:'offline'};await app.advance(10000);
+ assert.equal(app.stage.querySelector('[data-select="box"]').dataset.led,'off');
+});
+
+test('Found lists the lamps that can be placed above the unsupported ones',async()=>{
+ const id=n=>'device-'+String(n).repeat(32);
+ const devices=[discovered({id:id(1),name:'Plug',supported:false,shape:null,zones:null}),discovered({id:id(2),name:'Strip'})];
+ const app=await harness({discovery:{connected:true,devices,providers:{}}});
+ await app.click(app.$('#list-toggle'));
+ const rows=[...app.$('#lamp-panel').querySelectorAll('.lp-row.found')];
+ assert.ok(rows[0].querySelector('[data-place]'),'the supported lamp is first');
+ assert.match(rows[1].textContent,/Unsupported/);
+});
+
+test('the Lamps panel lists lamps only: no desk or monitor rows',async()=>{
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ assert.equal(panel.querySelector('[data-list-lamp="desk"],[data-list-lamp="monitor"]'),null);
+});
+
+test('an undragged Sync Box follows the monitor strip when the monitor moves',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const before=app.run('boxX()');
+ app.run("strip().x-=20");
+ assert.equal(app.run('boxX()'),before-20,'it stays beside the stand');
 });

@@ -1,5 +1,6 @@
 """Versioned release, supervisor rendering and packaged Setup Studio, offline only."""
 
+import ast
 import contextlib
 import hashlib
 import io
@@ -181,6 +182,26 @@ class ManagedServiceTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             build_release(existing)
         self.assertEqual((existing / "keep").read_text(), "peer")
+
+    def test_the_gateway_ships_every_bridge_module_its_bootstrap_imports(self):
+        # A module missing here passes every test from the source tree, but the
+        # released gateway fails to start (seen with scene_edits).
+        def local_imports(name):
+            tree = ast.parse((ROOT / "bridge" / (name + ".py")).read_text())
+            found = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    found |= {alias.name.split(".")[0] for alias in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    found.add(node.module.split(".")[0])
+            return {item for item in found if (ROOT / "bridge" / (item + ".py")).exists()}
+
+        needed, pending = set(), ["bootstrap"]
+        while pending:
+            for item in local_imports(pending.pop()) - needed:
+                needed.add(item)
+                pending.append(item)
+        self.assertEqual(sorted(needed - set(services.GATEWAY_MODULES)), [])
 
     def test_development_compose_mounts_the_same_gateway_modules(self):
         text = (ROOT / "bridge/compose.yaml").read_text()

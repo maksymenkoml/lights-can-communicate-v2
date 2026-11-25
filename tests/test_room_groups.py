@@ -126,6 +126,40 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(slots_of(bedroom), ["6"])
         self.assertEqual(slots_of(config["groups"]["1"]), ["1", "2", "3", "4", "5", "7"])
 
+    def test_a_light_that_comes_back_gets_its_scene_states_back(self):
+        config = bridge()
+        scene = config["scenes"]["1"]
+        four = config["lights"]["4"]
+        scene.lightstates[four] = {"on": True, "bri": 137, "xy": [0.2, 0.3]}
+        both = {FIRST_ROOM: "1", SECOND: "2"}
+        kept = {}
+        room_groups.apply(config, Group, NAMESPACE, both, [],
+                          {FIRST_ROOM: ["1", "2", "3", "5", "6"], SECOND: ["4"]}, {}, kept)
+        self.assertNotIn(four, scene.lightstates)
+        self.assertEqual(kept, {"1": {"4": {"on": True, "bri": 137, "xy": [0.2, 0.3]}}})
+        # The kept states survive a restart of the bridge.
+        with tempfile.TemporaryDirectory(prefix="tmp_room_groups_") as folder:
+            room_groups.save_kept(folder, kept)
+            kept = room_groups.load_kept(folder)
+        room_groups.apply(config, Group, NAMESPACE, both, [],
+                          {FIRST_ROOM: ["1", "2", "3", "4", "5", "6"], SECOND: []}, {}, kept)
+        self.assertEqual(scene.lightstates[four], {"on": True, "bri": 137, "xy": [0.2, 0.3]},
+                         "not off, as the Hue app would add it")
+        self.assertEqual(kept, {})
+
+    def test_kept_scene_states_go_with_their_scene_and_a_bad_record_keeps_nothing(self):
+        config = bridge()
+        kept = {"1": {"6": {"on": True}}, "9": {"6": {"on": True}}}
+        room_groups.apply(config, Group, NAMESPACE, {FIRST_ROOM: "1", SECOND: "2"}, [],
+                          {FIRST_ROOM: ["1", "2", "3", "4", "5"], SECOND: ["6"]}, {}, kept)
+        self.assertEqual(list(kept), ["1"], "a deleted scene keeps nothing")
+        with tempfile.TemporaryDirectory(prefix="tmp_room_groups_") as folder:
+            (Path(folder) / room_groups.KEPT_FILE).write_text("[1]")
+            self.assertEqual(room_groups.load_kept(folder), {})
+            (Path(folder) / room_groups.KEPT_FILE).write_text(
+                json.dumps({"1": {"4": {"on": True}, "x": {}, "5": 3}}))
+            self.assertEqual(room_groups.load_kept(folder), {"1": {"4": {"on": True}}})
+
     def test_a_deleted_room_takes_its_group_and_its_scenes(self):
         config = bridge()
         room_groups.apply(config, Group, NAMESPACE, {FIRST_ROOM: "1", SECOND: "2"}, [],
@@ -152,16 +186,28 @@ class RoomStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="tmp_room_groups_") as folder:
             state = Path(folder)
             rooms = Rooms(state)
-            before = room_groups.signature(rooms)
+            lights = [THIRD, "govee-left"]
+            before = room_groups.signature(rooms, lights)
             self.assertEqual(room_groups.room_names(rooms), {})
             write_rooms(state, {THIRD: SECOND})
             self.assertEqual(room_groups.room_names(rooms),
                              {FIRST_ROOM: "Office", SECOND: "Bedroom"})
-            self.assertNotEqual(room_groups.signature(rooms), before)
-            # The order of the rooms does not restart the bridge.
-            moved = room_groups.signature(rooms)
+            self.assertNotEqual(room_groups.signature(rooms, lights), before)
+            # A new order keeps every light in its room, so it does not restart the bridge.
+            moved = room_groups.signature(rooms, lights)
             rooms.reorder([SECOND, FIRST_ROOM])
-            self.assertEqual(room_groups.signature(rooms), moved)
+            self.assertEqual(room_groups.signature(rooms, lights), moved)
+            # The signature follows where the bridge's lights are, not the stored record.
+            index = rooms.index()
+            index["lights"]["govee-left"] = FIRST_ROOM
+            rooms.write_index(index)
+            self.assertEqual(room_groups.signature(rooms, lights), moved)
+            index["default"] = SECOND
+            rooms.write_index(index)
+            self.assertEqual(room_groups.signature(rooms, lights), moved)
+            del index["lights"]["govee-left"]
+            rooms.write_index(index)
+            self.assertNotEqual(room_groups.signature(rooms, lights), moved)
 
 
 def write_rooms(state, lights):

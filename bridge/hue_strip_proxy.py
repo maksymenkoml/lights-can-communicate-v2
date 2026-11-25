@@ -212,6 +212,26 @@ class PinnedHueClient:
             raise ValueError("Native identify not confirmed")
 
 
+def native_body(native):
+    """A write body that shows a light's read-back colour and brightness again."""
+    body = {"dynamics": {"duration": 400}}
+    brightness = (native.get("dimming") or {}).get("brightness")
+    if type(brightness) in (int, float) and math.isfinite(brightness):
+        body["dimming"] = {"brightness": float(brightness)}
+    temperature = native.get("color_temperature") or {}
+    points = (native.get("gradient") or {}).get("points") or []
+    xy = (native.get("color") or {}).get("xy")
+    if temperature.get("mirek_valid") is True and type(temperature.get("mirek")) is int:
+        body["color_temperature"] = {"mirek": temperature["mirek"]}
+    elif 2 <= len(points) <= 5:
+        body["gradient"] = {"points": [{"color": {"xy": {"x": p["color"]["xy"]["x"],
+                                                          "y": p["color"]["xy"]["y"]}}}
+                                       for p in points]}
+    elif isinstance(xy, dict):
+        body["color"] = {"xy": {"x": xy["x"], "y": xy["y"]}}
+    return body
+
+
 def merge_hue_body(previous, update):
     result = copy.deepcopy(previous or {})
     colors = {"gradient", "color", "color_temperature"}
@@ -260,6 +280,8 @@ class HueStripProxy:
         self.restore = False
         self.native = None
         self.native_seen = float("-inf")
+        # What the light showed before a calibration took it over (see remember_light).
+        self.remembered = None
         self.healthy = False
         self.writes = 0
         self.last_result = "waiting"
@@ -352,8 +374,30 @@ class HueStripProxy:
                 and 0 <= self.clock() - self.native_seen <= 2
             )
 
+    def remember_light(self):
+        """Keep what the light shows now, so restore_scene can put it back.
+
+        A calibration writes test colours straight to the light. Its scene comes
+        back through this proxy only when a scene command came through it since the
+        adapter started; a scene set in the Hue app, or none since a restart, would
+        otherwise leave the light at the calibration's dark level.
+        """
+        with self.state_lock:
+            native = copy.deepcopy(self.native)
+        with self.command_lock:
+            self.remembered = native_body(native) if native else None
+
     def restore_scene(self):
         with self.command_lock:
+            remembered, self.remembered = self.remembered, None
+            if self.desired is None and remembered is not None:
+                if "dimming" in remembered and self.layout_store is not None:
+                    # process_once scales a scene brightness by the correction; undo it
+                    # so the light gets back exactly the brightness it had.
+                    remembered["dimming"]["brightness"] = (
+                        remembered["dimming"]["brightness"] * self.brightness_scale
+                        / max(self.layout_factor(), 1e-6))
+                self.desired = (remembered, self.wall_clock())
             self.restore = True
             self.wake.set()
 

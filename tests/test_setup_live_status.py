@@ -112,6 +112,14 @@ class SetupLiveStatusTests(unittest.TestCase):
         result = studio.project_status(data, source_active=False)
         self.assertEqual((result["lamps"][govee]["included"], result["lamps"][hue]["included"]),
                          (True, False))
+        # A light outside Sync (another room) still shows its scene, never Sync output.
+        self.assertEqual(len(result["lamps"][hue]["colors"]), 7)
+        data["preview"]["lamps"][hue]["source"] = "sync-output"
+        data["video"] = {"active": True, "ready": True, "frame_age": 0}
+        data["preview"]["mode"] = "sync"
+        self.assertEqual(studio.project_status(data)["lamps"][hue]["colors"], [])
+        data["preview"]["lamps"][hue]["source"] = "scene-output"
+        self.assertEqual(len(studio.project_status(data)["lamps"][hue]["colors"]), 7)
         # A Hue light for scenes only says why it is outside the area (#78); an unknown
         # reason, or one on a Govee light, is dropped.
         data["lights"][1]["outside"] = "channels_shared"

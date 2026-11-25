@@ -175,6 +175,9 @@ class CalibrationSession:
             changed = starting or any(self.active[key] != wanted[key] for key in wanted)
             if starting:
                 self.stale = False
+                for proxy in self.hue_proxies.values():
+                    # A Hue light gets back what it shows now when the session ends.
+                    proxy.remember_light()
             self.active = {**wanted, "expires": self.clock() + LEASE_SECONDS}
             if govee:
                 self.calibration.override(wanted["role"], values)

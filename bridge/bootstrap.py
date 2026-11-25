@@ -24,6 +24,7 @@ event_journal = install_event_journal()
 
 import configManager  # noqa: E402
 import room_groups  # noqa: E402
+import scene_edits  # noqa: E402
 from entertainment_stream import (  # noqa: E402
     CAPTURE_POSITIONS,
     GRADIENT_MODE,
@@ -336,13 +337,15 @@ room_group_ids, room_deleted = room_groups.plan(room_index["rooms"], room_owned,
                                                 set(config["groups"]))
 room_slots = {slot: light for slot, light in
               {**govee_slots, **hue_slots, **migrated_hue}.items() if slot in selected_slots}
+room_scene_states = room_groups.load_kept(state)
 room_groups.apply(
     config, Group.Group, IDENTITY_NAMESPACE, room_group_ids, room_deleted,
     room_groups.members(room_index["rooms"],
                         lambda light: layout_store.room_of(light, room_index), room_slots),
-    room_groups.room_names(layout_store))
+    room_groups.room_names(layout_store), room_scene_states)
 room_groups.save_owned(state, room_group_ids)
-rooms_at_start = room_groups.signature(layout_store)
+room_groups.save_kept(state, room_scene_states)
+rooms_at_start = room_groups.signature(layout_store, room_slots.values())
 
 # A name set in Light Studio for a role lamp names its virtual light. Resource
 # IDs stay; without an owner name the current name stays.
@@ -563,7 +566,8 @@ def watch_registry():
         time.sleep(2)
         try:
             changed = (registry_signature(state) != registry_at_start
-                       or room_groups.signature(layout_store) != rooms_at_start)
+                       or room_groups.signature(layout_store, room_slots.values())
+                       != rooms_at_start)
         except (OSError, ValueError):
             continue
         if changed:
@@ -623,7 +627,7 @@ if live_output is not None:
     power_requests = HuePowerRequests(
         live_output.url, live_output.token, config["lights"], config["groups"], power_feedback,
         enabled=lambda: not (state / "live-output-hold").exists(),
-        native_slots=native_power_slots, slots=govee_slots,
+        native_slots=native_power_slots, slots=govee_slots, scenes=config["scenes"],
     )
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()
@@ -659,10 +663,95 @@ install_event_route(app, event_journal, current_event_snapshot,
                     authorize=lambda headers: "user" in v2restapi.authorizeV2(headers))
 
 
+# A scene recall or edit holds this from before its power snapshot until its
+# request ends: diyHue's recall, then the power the recall switches. Two recalls,
+# of one scene or of two scenes that share a lamp, then never compare against a
+# power state that the other changed meanwhile. A busy bridge answers 503.
+scene_power_lock = threading.Lock()
+SCENE_POWER_WAIT = 5
+
+
+def scene_power_request():
+    """Whether this is an authorized request that recalls or edits a scene.
+
+    The key is checked as diyHue checks it, before the lock: a request that diyHue
+    will refuse never waits for the lock, nor holds it.
+    """
+    if request.method != "PUT" or request.url_rule is None:
+        return False
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return False
+    arguments = request.view_args or {}
+    if request.url_rule.rule.startswith("/clip/v2/resource/"):
+        return (arguments.get("resource") == "scene"
+                and ("recall" in payload or "actions" in payload)
+                and "user" in v2restapi.authorizeV2(request.headers))
+    return (request.url_rule.rule.startswith("/api/") and "scene" in payload
+            and arguments.get("resource") == "groups" and arguments.get("param") == "action"
+            and (arguments.get("username") in config["apiUsers"]
+                 or request.remote_addr == "127.0.0.1"))
+
+
+# Registered before remember_power_state, so that the snapshot follows the wait.
+@app.before_request
+def hold_scene_power():
+    if not scene_power_request():
+        return None
+    if not scene_power_lock.acquire(timeout=SCENE_POWER_WAIT):
+        description = "Scenes are busy; try again"
+        response = (jsonify([{"error": {"type": 901, "description": description}}])
+                    if request.path.startswith("/api/")
+                    else jsonify({"errors": [{"description": description}], "data": []}))
+        response.status_code = 503
+        return response
+    g.scene_power_lock = scene_power_lock
+    return None
+
+
+@app.teardown_request
+def release_scene_power(error=None):
+    lock = g.pop("scene_power_lock", None)
+    if lock is not None:
+        lock.release()
+
+
 @app.before_request
 def remember_power_state():
     if power_requests is not None:
         g.power_request_before = power_requests.snapshot()
+
+
+@app.before_request
+def keep_scene_edit():
+    """Store the light actions of an edited scene before diyHue handles the edit.
+
+    diyHue drops them (see scene_edits). A refused edit ends here with 400, so
+    diyHue neither renames nor recalls the scene; a recall in the same request
+    then uses the edited states.
+    """
+    # hold_scene_power took the lock only for an authorized scene PUT on
+    # diyHue's own routes, so no other recall or edit runs until this one ends.
+    if "scene_power_lock" not in g:
+        return None
+    arguments = request.view_args or {}
+    payload = request.get_json(silent=True)
+    if (arguments.get("resource") != "scene" or not isinstance(arguments.get("resourceid"), str)
+            or "actions" not in payload):
+        return None
+    rid = arguments["resourceid"]
+    scene = next((item for item in list(config["scenes"].values())
+                  if getattr(item, "id_v2", None) == rid), None)
+    if scene is None:
+        return None
+    try:
+        states = scene_edits.edited_states(scene, payload["actions"], config["lights"])
+    except scene_edits.InvalidEdit as error:
+        response = jsonify({"errors": [{"description": str(error)}], "data": []})
+        response.status_code = 400
+        return response
+    g.scene_edited = scene_edits.replace(scene, states)
+    return None
 
 
 @app.after_request
@@ -677,6 +766,8 @@ def record_request(response):
     if len(parts) > 2 and parts[1] == "api" and parts[2] not in ("", "config"):
         parts[2] = "<key>"
     payload = request.get_json(silent=True)
+    if getattr(g, "scene_edited", False) and response.status_code == 200:
+        configManager.bridgeConfig.save_config(backup=False, resource="scenes")
     if power_requests is not None:
         try:
             power_requests.after_request(request.method, request.path, response.status_code,

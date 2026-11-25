@@ -51,7 +51,7 @@ class RoomsTests(unittest.TestCase):
         (self.state / "desk-layout.json").write_text(json.dumps(data))
         rooms, single = Rooms(self.state), LayoutStore(self.state / "desk-layout.json")
         self.assertEqual(rooms.index(), {"version": 1, "rooms": [FIRST_ROOM], "lights": {},
-                                         "sync": FIRST_ROOM})
+                                         "sync": FIRST_ROOM, "default": FIRST_ROOM})
         for role in ROLES:
             self.assertEqual(rooms.scale(role, 1), single.scale(role, 1))
             self.assertEqual(rooms.scene_scale(role, 1), single.scene_scale(role, 1))
@@ -84,7 +84,7 @@ class RoomsTests(unittest.TestCase):
                          result["layout"])
         self.assertEqual(json.loads((self.state / "rooms.json").read_text()),
                          {"version": 1, "rooms": [FIRST_ROOM], "lights": {},
-                          "sync": FIRST_ROOM})
+                          "sync": FIRST_ROOM, "default": FIRST_ROOM})
         self.assertEqual(rooms.scale("play-left", 1), 0.55)
         self.assertEqual(before["enabled_roles"], rooms.sync_profile()["enabled_roles"])
         with self.assertRaises(ValueError):
@@ -147,13 +147,18 @@ class RoomsTests(unittest.TestCase):
 
     def test_the_index_rejects_unlisted_or_duplicate_rooms(self):
         good = {"version": 1, "rooms": [FIRST_ROOM, SECOND], "lights": {"play-right": SECOND},
-                "sync": FIRST_ROOM}
+                "sync": FIRST_ROOM, "default": SECOND}
         self.assertEqual(validate_index(good), good)
+        # An index from before the default room: its lights without a room were first.
+        older = {key: value for key, value in good.items() if key != "default"}
+        self.assertEqual(validate_index(older), {**older, "default": FIRST_ROOM})
+        self.assertEqual(validate_index({**older, "rooms": [SECOND, FIRST_ROOM]})["default"],
+                         FIRST_ROOM)
         for change in ({"rooms": [FIRST_ROOM, FIRST_ROOM]}, {"rooms": []},
                        {"rooms": ["room-%08x" % n for n in range(11)]},
                        {"rooms": ["office"]}, {"lights": {"play-right": "room-ffffffff"}},
                        {"lights": {"lamp": SECOND}}, {"sync": "room-ffffffff"},
-                       {"version": 2}, {"extra": 1}):
+                       {"version": 2}, {"extra": 1}, {"default": "room-ffffffff"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate_index({**good, **change})
 
@@ -199,6 +204,38 @@ class RoomManagementTests(unittest.TestCase):
         self.refused("unknown_room", self.rooms.reorder, [room])
         self.refused("unknown_room", self.rooms.rename, "room-ffffffff", "X")
 
+    def test_a_new_order_keeps_every_light_in_its_room(self):
+        room = self.rooms.create("Bedroom")
+        self.rooms.move("play-right", room)
+        later = "device-" + "0" * 32
+        self.rooms.reorder([room, FIRST_ROOM])
+        # The default room does not follow the order, so nothing is recorded.
+        self.assertEqual(self.rooms.index()["lights"], {"play-right": room})
+        self.assertEqual({light: self.rooms.room_of(light) for light in ROLES + (later,)},
+                         {light: room if light == "play-right" else FIRST_ROOM
+                          for light in ROLES + (later,)})
+        self.assertIn("left", self.rooms.sync_profile()["enabled_roles"])
+
+    def test_an_older_index_with_another_room_first_keeps_lights_in_the_original_room(self):
+        room = self.rooms.create("Bedroom")
+        (self.state / "rooms.json").write_text(json.dumps({
+            "version": 1, "rooms": [room, FIRST_ROOM], "lights": {}, "sync": FIRST_ROOM}))
+        self.assertEqual(self.rooms.room_of("govee-left"), FIRST_ROOM)
+        self.assertIn("left", self.rooms.sync_profile()["enabled_roles"])
+        # Without the original room, the first room holds them.
+        self.assertEqual(validate_index({"version": 1, "rooms": [room], "lights": {},
+                                         "sync": None})["default"], room)
+
+    def test_deleting_the_default_room_makes_the_first_room_the_default(self):
+        bedroom, hall = self.rooms.create("Bedroom"), self.rooms.create("Hall")
+        for role in ROLES:
+            self.rooms.move(role, hall)
+        self.rooms.place_sync_box(hall)
+        self.rooms.delete(FIRST_ROOM, ROLES)
+        self.assertEqual(self.rooms.index()["default"], bedroom)
+        self.rooms.reorder([hall, bedroom])
+        self.assertEqual(self.rooms.room_of("device-" + "0" * 32), bedroom)
+
     def test_a_light_moves_with_its_row_and_corrections(self):
         room = self.rooms.create("Bedroom")
         before = next(row for row in self.rooms.store(FIRST_ROOM).snapshot()["devices"]
@@ -225,7 +262,8 @@ class RoomManagementTests(unittest.TestCase):
         # A disconnected light's row goes with the room.
         self.rooms.delete(room, ["govee-left"])
         self.assertEqual(self.rooms.index(), {"version": 1, "rooms": [FIRST_ROOM],
-                                              "lights": {}, "sync": FIRST_ROOM})
+                                              "lights": {}, "sync": FIRST_ROOM,
+                                              "default": FIRST_ROOM})
         self.assertFalse((self.state / "rooms" / (room + ".json")).exists())
         self.refused("last_room", self.rooms.delete, FIRST_ROOM, [])
 

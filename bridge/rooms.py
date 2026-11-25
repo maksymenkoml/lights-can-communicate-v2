@@ -32,9 +32,11 @@ LEGACY_LAYOUT = "desk-layout.json"
 FIRST_ROOM = "room-00000001"
 MAX_ROOMS = 10
 # Before the first write: the single layout is the first room, with Sync.
-SINGLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": FIRST_ROOM}
+SINGLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": FIRST_ROOM,
+          "default": FIRST_ROOM}
 # A corrupt index without a good one: no permission to drive Sync.
-UNREADABLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": None}
+UNREADABLE = {"version": ROOMS_VERSION, "rooms": [FIRST_ROOM], "lights": {}, "sync": None,
+              "default": FIRST_ROOM}
 ROOM_ID = re.compile(r"room-[0-9a-f]{8}")
 DEVICE_ID = re.compile(r"device-[a-f0-9]{32}")
 MAX_ROWS = 12
@@ -59,7 +61,8 @@ def new_layout(name):
     """The layout of a new room: the default desk and screen of Light Studio, no rows."""
     return {"version": 7, "gridStepCm": 5, "room": name,
             "desk": {"width": 160, "height": 85},
-            "screen": {"positionCm": {"x": 80, "height": 110}, "inches": 32},
+            # The desk centre is x 100, as in Light Studio: the screen stands in the middle.
+            "screen": {"positionCm": {"x": 100, "height": 110}, "inches": 32},
             "devices": []}
 
 
@@ -69,7 +72,11 @@ def _light(value):
 
 def validate_index(value):
     """Return the canonical room index or raise ValueError."""
-    if not isinstance(value, dict) or set(value) != {"version", "rooms", "lights", "sync"}:
+    # ``default`` is the room of a light without a recorded room. An index written
+    # before it existed has none: such lights belong to the original room while it is
+    # listed (only the room-order bug put another room first), otherwise to the first.
+    keys = {"version", "rooms", "lights", "sync"}
+    if not isinstance(value, dict) or set(value) not in (keys, keys | {"default"}):
         raise ValueError("Expected a room index")
     if value["version"] != ROOMS_VERSION or type(value["version"]) is not int:
         raise ValueError("Unknown room index version")
@@ -84,8 +91,11 @@ def validate_index(value):
         raise ValueError("Every light must be in a listed room")
     if value["sync"] is not None and value["sync"] not in rooms:
         raise ValueError("The Sync Box must be in a listed room")
+    default = value.get("default", FIRST_ROOM if FIRST_ROOM in rooms else rooms[0])
+    if default not in rooms:
+        raise ValueError("The default room must be listed")
     return {"version": ROOMS_VERSION, "rooms": list(rooms), "lights": dict(lights),
-            "sync": value["sync"]}
+            "sync": value["sync"], "default": default}
 
 
 def _write_json(path, data):
@@ -153,9 +163,9 @@ class Rooms:
         return self.index_path.exists()
 
     def room_of(self, light, index=None):
-        """The light's room: its recorded room, otherwise the first room."""
+        """The light's room: its recorded room, otherwise the default room."""
         index = index or self._index()
-        return index["lights"].get(light, index["rooms"][0])
+        return index["lights"].get(light, index["default"])
 
     def sync_room(self):
         return self._index()["sync"]
@@ -388,6 +398,8 @@ class Rooms:
             return self.save(room, data)
 
     def reorder(self, order):
+        """Put the rooms in ``order``; no light changes its room, since the default room
+        is kept apart from the order."""
         with self.lock:
             self._materialize()
             index = self.index()
@@ -414,6 +426,9 @@ class Rooms:
             index["rooms"].remove(room)
             index["lights"] = {light: home for light, home in index["lights"].items()
                                if home != room}
+            if index["default"] == room:
+                # It held no connected light; a light without a room goes first now.
+                index["default"] = index["rooms"][0]
             self.write_index(index)
             (self.state_dir / LAYOUTS_DIR / (room + ".json")).unlink(missing_ok=True)
             self.stores.pop(self.state_dir / LAYOUTS_DIR / (room + ".json"), None)

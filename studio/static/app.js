@@ -61,16 +61,30 @@ const goveeLight=id=>/^govee-/.test(id)||enrolled.get(id)?.provider==='govee';
 const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
 const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
+// The lamp that wraps the monitor: the Monitor Strip, or in a room without it the first
+// connected light strip (a Hue gradient strip is made for a screen). Any other strip
+// draws as a bar.
+const wrapOf=list=>list.find(l=>l.id===MONITOR)||list.find(l=>l.shape==='strip'&&l.enabled!==false);
 // During Sync a lamp takes screen colour, keeps its own light, or (role lamps only) is switched off.
 const SYNC_ROLES=['sync','own','off'];
 function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id,s.shape),vertical:false,enabled:true,syncRole:'sync',unbound:false}}
+// The Sync Box lies on the desktop of its room, 18 cm wide and 3.5 cm high from the front.
+// Until it is dragged it sits right of the monitor stand and follows the monitor; a dragged
+// box keeps its own place (desk-centred cm, like the lamps), stored as the layout's syncBox.
+const BOX_W=18,BOX_H=3.5,BOX_GAP=30;
+function clampBoxX(x,env=environment){const edge=Math.floor((env.width/2-BOX_W/2-2)/STEP)*STEP;return clamp(Math.round(x/STEP)*STEP,-edge,edge)}
+function boxX(env=environment){
+ // The monitor: the strip lamp that carries it when there is one, else the screen.
+ const monitor=env===environment?strip():env.screen;
+ return clampBoxX(env.box?env.box.x:(monitor?.x??0)+BOX_GAP,env);
+}
 function defaults(){
  // A new room is empty: lamps are placed from the Found list.
  const environment={width:160,height:85,inches:32,screen:{x:0,h:110},zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
  return {room:'Office',environment,lamps:[]};
 }
 function monitorWidthCm(inches){return inches*2.54*16/Math.hypot(16,9)}
-function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.id===MONITOR)return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
+function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.form==='strip')return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
 // Layout anchors must stay within x -200..400 cm and height 0..300 cm (desk_layout);
 // a floor lamp's anchor is its bottom + 60 cm.
 const X_LIMIT=300;
@@ -91,6 +105,7 @@ function fromLayout(data){
  const screenAt=data.screen?.positionCm??rows.get(MONITOR)?.positionCm;
  if(!screenAt||typeof screenAt!=='object')return null;
  environment.screen={x:finite(screenAt.x,-400,600,DESK_CENTER)-DESK_CENTER,h:finite(screenAt.height,-400,600,110)};
+ if(typeof data.syncBox?.x==='number'&&Number.isFinite(data.syncBox.x))environment.box={kind:'box',x:clampBoxX(data.syncBox.x-DESK_CENTER,environment),h:0};
  const place=(lamp,row)=>{
   lamp.x=finite(row.positionCm.x,-400,600,DESK_CENTER)-DESK_CENTER;
   const height=finite(row.positionCm.height,-400,600,0);
@@ -118,11 +133,13 @@ function fromLayout(data){
 function pack(m={room,environment,lamps}){
  const env=m.environment;
  const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
- // The monitor strip row, when there is one, carries the screen position.
- const monitor=m.lamps.find(l=>l.id===MONITOR)||env.screen;
+ // The strip that wraps the monitor, when there is one, carries the screen position.
+ const monitor=wrapOf(m.lamps)||env.screen;
  return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
-  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
+  ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
+  // A strip that wraps the monitor in place of the Monitor Strip keeps its own saved place.
+  devices:m.lamps.map(l=>({id:l.id,scale:l.scale,sceneScale:l.sceneScale,positionCm:l.barAt?{x:l.barAt.x+DESK_CENTER,height:l.barAt.h}:{x:l.x+DESK_CENTER,height:l.form==='floor'?l.h+FLOOR_ANCHOR:l.h},orientation:l.vertical?'vertical':'horizontal',
    ...(l.enabled===false?{enabled:false}:{}),...((/^govee-/.test(l.id)||realDevice(l.id))&&calibrated(l.calibration)?{calibration:{...l.calibration}}:{}),...(syncRole(l)!=='sync'?{syncRole:syncRole(l)}:{}),...(isRole(l.id)&&l.named?{name:l.name}:{}),
    ...(realDevice(l.id)?{shape:l.shape,name:l.name,model:l.model,zones:l.zones}:virtualDevice(l.id)?{shape:l.shape,name:l.name}:{})}))};
 }
@@ -131,11 +148,20 @@ let room,environment,lamps;
 ({room,environment,lamps}=fromLayout(readJson(KEY))||defaults());
 let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],future=[],drag=null,toastTimer;
 // The monitor: the strip lamp when the room has one, otherwise the screen alone.
-const strip=()=>lamps.find(l=>l.id===MONITOR)||environment.screen;
+const strip=()=>wrapOf(lamps)||environment.screen;
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
 const syncRole=l=>SYNC_ROLES.includes(l.syncRole)?l.syncRole:'sync';
-function movableFixture(){return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false)}
-function selectionFocus(){return selected==='monitor'?'[data-select="monitor"]':'[data-lamp="'+selected+'"]'}
+function movableFixture(){
+ if(selected==='box')return environment.box||{kind:'box',x:boxX(),h:0};
+ return selected==='monitor'?strip():lamps.find(l=>l.id===selected&&l.enabled!==false);
+}
+// The Sync Box moves along the desktop only; it keeps a place of its own once it has moved.
+function clampMovable(l){
+ if(l.kind!=='box'){clampFixture(l);return}
+ l.x=clampBoxX(l.x);l.h=0;
+ if(!environment.box&&l.x!==boxX())environment.box=l;
+}
+function selectionFocus(){return ['monitor','box'].includes(selected)?'[data-select="'+selected+'"]':'[data-lamp="'+selected+'"]'}
 function snapshot(){return JSON.stringify({lamps,environment})}
 function remember(){past.push(snapshot());future=[];if(past.length>40)past.shift()}
 function recordChange(before){if(snapshot()===before)return;past.push(before);if(past.length>40)past.shift();future=[]}
@@ -157,7 +183,9 @@ function liveColors(l){return syncPreview()?demoColors(l):emittedColors(l)}
 function emittedColors(l){
  if(l.unbound||l.enabled===false||!connected(l)||!liveFresh()||lampBlocker(l))return null;
  const row=liveSnapshot.lamps&&typeof liveSnapshot.lamps==='object'?liveSnapshot.lamps[l.id]:null;
- if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false||row.included===false)return null;
+ if(!row||typeof row!=='object'||row.online!==true||row.on!==true||row.stale!==false)return null;
+ // A lamp outside Sync (another room) shows its own scene, never Sync output.
+ if(row.included===false&&row.source!=='scene-output')return null;
  // The view without Sync shows the lamps' own light; a lamp that runs Sync shows the demo scene.
  if(row.source==='sync-output'&&mode!=='sync')return sceneDemoColors(l);
  if(row.source!=='scene-output'&&!(row.source==='sync-output'&&mode==='sync'))return null;
@@ -208,8 +236,13 @@ function globalHealth(){
  return {level:'unknown',short:'status unknown',label:'Sync status unknown',detail:'No reason reported yet'};
 }
 const levelColor={idle:'var(--unknown)',ok:'var(--ok)',wait:'var(--wait)',bad:'var(--bad)',unknown:'var(--unknown)'};
-function blockerLevel(b){return b.code==='color_fenced'?'wait':'bad'}
-function problemLamps(){return lamps.filter(l=>!l.unbound&&l.enabled!==false&&lampBlocker(l))}
+// A lamp that is off is in a normal state, not a fault: it is grey and never counts as a problem.
+const OFF_CODES=new Set(['native_off','owner_off']);
+const isOff=b=>OFF_CODES.has(b.code);
+function blockerLevel(b){return isOff(b)?'idle':b.code==='color_fenced'?'wait':'bad'}
+function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)return false;const b=lampBlocker(l);return b&&!isOff(b)})}
+// The badge marks a fault with "!"; an off lamp gets a grey power mark only while Sync runs.
+function lampBadge(l){const b=lampBlocker(l);return !b?null:!isOff(b)?{b,off:false}:['active','waiting'].includes(liveState())?{b,off:true}:null}
 function syncStatus(){
  if(!activeLamps().some(l=>!l.unbound))return {level:'idle',label:'No lamps',detail:'Nothing to sync'};
  const g=globalHealth(),p=problemLamps();
@@ -314,7 +347,7 @@ function syncSegment(low,high,upper,fade){
 function syncProjection(l){
  if(l.unbound||l.enabled===false||syncRole(l)!=='sync')return [];
  if(l.form==='floor'){const b=syncBounds(l.x);return Array.from({length:7},(_,i)=>{const lo=l.h+6+i*128/7,hi=l.h+6+(i+1)*128/7,[gain,center]=b?syncSegment(lo,hi,b[1],b[1]-b[0]):[1,(lo+hi)/2];return {point:center===null?null:syncPoint(l.x,center),gain}})}
- if(l.id===MONITOR){const width=monitorWidthCm(environment.inches),height=width*9/16;return stripPoints.map(([u,v])=>({point:[u,v],gain:syncGain(l.x+(u-.5)*width,l.h+(v-.5)*height)}))}
+ if(l.form==='strip'){const width=monitorWidthCm(environment.inches),height=width*9/16;return stripPoints.map(([u,v])=>({point:[u,v],gain:syncGain(l.x+(u-.5)*width,l.h+(v-.5)*height)}))}
  return [{point:syncPoint(l.x,l.h),gain:syncGain(l.x,l.h)}];
 }
 function syncSummary(l){const rows=syncProjection(l);return {rows,active:rows.filter(r=>r.gain>1e-8).length}}
@@ -413,7 +446,7 @@ function handlesSvg(geo){
   diag={x:mx+mw+12,y:my+mh,text:environment.inches+'″',edit:'inches',value:environment.inches};
   chip=chipSvg(cx,my-30,'Monitor','',[]);
  }else if(l){
-  if(l.id!==MONITOR){
+  if(l.form!=='strip'){
    m.push({axis:'v',x:f.left-12,y1:740,y2:f.ref,text:l.h+' cm',edit:'h',value:l.h,leader:f.left});
    m.push({axis:'h',x1:cx,x2:f.x,y:758,text:signed(l.x-s.x),edit:'x',value:l.x-s.x});
   }
@@ -441,17 +474,19 @@ function dragZone(kind,p){
 }
 function resetZone(){const c=view();if(!environment.zones[c])return;remember();environment.zones[c]=null;renderScene();renderHistory();tell('The zone is automatic again')}
 // A lamp that is drawn but not connected shows a broken link where a problem shows "!".
+const POWER_ICON='<path class="power" d="M0 -4.2V-0.8M2.5 -2.6A3.6 3.6 0 1 1 -2.5 -2.6"/>';
 const UNLINKED_ICON='<path d="M-1.3 1.3 -2.4 2.4A1.8 1.8 0 0 1 -4.9 -0.1L-3.8 -1.2M1.3 -1.3 2.4 -2.4A1.8 1.8 0 0 1 4.9 0.1L3.8 1.2M-0.6 -3.4V-4.6M3.4 0.6H4.6"/>';
 function healthMarkSvg(l){
  if(selected===l.id||l.enabled===false)return '';
  const f=lampFrame(l),cx=f.right-f.x-3,cy=f.top-f.y+3;
  if(l.unbound)return '<g class="health-badge unlinked" data-link-badge data-tooltip="Not connected"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><g transform="translate('+cx+' '+cy+')">'+UNLINKED_ICON+'</g></g>';
- const b=lampBlocker(l);
- return '<g class="health-badge" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+(f.right-f.x-3)+'" cy="'+(f.top-f.y+3)+'" r="7.5"/><text x="'+(f.right-f.x-3)+'" y="'+(f.top-f.y+6.6)+'">!</text></g>';
+ const m=lampBadge(l),b=m?.b;
+ return '<g class="health-badge'+(m?.off?' off':'')+'" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><text x="'+cx+'" y="'+(cy+3.6)+'">!</text><g transform="translate('+cx+' '+cy+')">'+POWER_ICON+'</g></g>';
 }
 // The monitor strip glows left to right like the screen picture: left side, three top zones, right side.
 function stripStops(colors){
- const cs=colors||Array.from({length:9},()=>[0,0,0]),avg=(...c)=>[0,1,2].map(i=>c.reduce((a,x)=>a+x[i],0)/c.length);
+ // Nine zones, sampled evenly from a strip of any zone count.
+ const raw=colors?.length?colors:[[0,0,0]],cs=Array.from({length:9},(_,i)=>raw[Math.round(i*(raw.length-1)/8)]),avg=(...c)=>[0,1,2].map(i=>c.reduce((a,x)=>a+x[i],0)/c.length);
  return [avg(cs[0],cs[1],cs[2]),cs[3],cs[4],cs[5],avg(cs[6],cs[7],cs[8])];
 }
 function lensStops(l,colors,beam){
@@ -536,7 +571,20 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  const B=BEZEL;
  const monitor='<rect x="'+(mx-B)+'" y="'+(my-B)+'" width="'+(mw+2*B)+'" height="'+(mh+2*B)+'" rx="7" fill="#445367" stroke="#77879b" stroke-width="1"/><rect x="'+mx+'" y="'+my+'" width="'+mw+'" height="'+mh+'" rx="3" fill="url(#glass-face)"/><path d="M'+(mx+3)+' '+(my+1)+'H'+(mx+mw-3)+'" stroke="#eaf5ff" stroke-opacity=".4"/><path d="M'+cx+' '+(bottom+B)+'v'+Math.max(0,top-bottom-B-9)+'" stroke="var(--furniture-metal)" stroke-width="5"/><path d="M'+cx+' '+(top-10)+'l-31 7h62Z" fill="var(--furniture-metal)"/><circle cx="'+cx+'" cy="'+(my+mh+B/2)+'" r=".9" fill="#c8d7e9" opacity=".5"/>';
  const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
- return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected===MONITOR?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
+ return defs+'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g><g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected&&selected===wrapOf(lamps)?.id?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Monitor">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
+}
+// The Sync Box on the desktop of its room. Its front light shows the box: dark when it is
+// not connected or not answering, dim when ready, lit while it syncs.
+function boxLed(){return box.syncing===true?'sync':box.state==='ready'?'ready':'off'}
+function syncBoxSvg({top}){
+ if(!syncHere())return '';
+ const bx=500+boxX()*3.3,w=BOX_W*3.3,h=BOX_H*3.3,x=bx-w/2,y=top-h;
+ return '<g class="box-group'+(selected==='box'?' chosen':'')+'" data-select="box" data-led="'+boxLed()+'" tabindex="0" role="button" aria-label="Sync Box">'
+  +'<rect x="'+(x-5)+'" y="'+(y-10)+'" width="'+(w+10)+'" height="'+(h+12)+'" fill="transparent"/>'
+  +'<rect class="box-body" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="3"/>'
+  +'<path d="M'+(x+3)+' '+(y+1)+'H'+(x+w-3)+'" stroke="#ffffff" stroke-opacity=".2"/>'
+  +'<rect class="box-led" x="'+(bx-10)+'" y="'+(y+h-3.6)+'" width="20" height="1.6" rx=".8"/>'
+  +'<rect class="furniture-select" x="'+(x-4)+'" y="'+(y-4)+'" width="'+(w+8)+'" height="'+(h+8)+'" rx="5"/></g>';
 }
 // The monitor picture in the Sync view: a soft gradient of the strip's emitted colours
 // while Sync runs; otherwise a fixed radial demo picture that the lamps preview.
@@ -609,15 +657,15 @@ function syncLinksSvg(geo){
  let out='<g id="sync-links" pointer-events="none">';
  if(selected==='monitor'){
   for(const l of lamps){
-   if(l.id===MONITOR||l.unbound||l.enabled===false||lampDark(l))continue;
+   if(l.form==='strip'||l.unbound||l.enabled===false||lampDark(l))continue;
    syncZones(l,geo).forEach((z,i)=>{if(z.on)out+=rayMarkup(l,z,i)+sampleMarkup(l,z,i)});
   }
   return out+'</g>';
  }
  const l=lamps.find(l=>l.id===selected);if(!l||l.unbound)return '';
  syncZones(l,geo).forEach((z,i)=>{
-  if(!z.on){if(l.id!==MONITOR)out+='<circle class="zone-off" cx="'+z.x+'" cy="'+z.y+'" r="2.5"/>';return}
-  if(l.id!==MONITOR)out+=rayMarkup(l,z,i);
+  if(!z.on){if(l.form!=='strip')out+='<circle class="zone-off" cx="'+z.x+'" cy="'+z.y+'" r="2.5"/>';return}
+  if(l.form!=='strip')out+=rayMarkup(l,z,i);
   out+=sampleMarkup(l,z,i);
  });
  return out+'</g>';
@@ -639,9 +687,14 @@ function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monito
 let focusState=new Map(),skipClick=false,menuOpen=false;
 function focusKey(n){return n.dataset.lamp||n.dataset.washFor||n.dataset.select}
 function applyFocus(){
- const on=!!selected;
- const keep=new Set([selected]);if(cal?.mode==='test')keep.add(cal.reference);if(selected==='monitor'){keep.add(MONITOR);if(mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)})}if(selected===MONITOR)keep.add('monitor');
- const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group');
+ const on=!!selected,keep=new Set([selected]);
+ if(cal?.mode==='test')keep.add(cal.reference);
+ // The monitor is furniture: its strip dims like any other lamp, except in the Sync
+ // view, where every lamp that syncs from the screen stays bright.
+ if(selected==='monitor'&&mode==='sync')lamps.forEach(l=>{if(!l.unbound&&l.enabled!==false&&!lampDark(l)&&syncSummary(l).active)keep.add(l.id)});
+ // The strip wraps the monitor, so a chosen strip keeps it.
+ if(selected&&selected===wrapOf(lamps)?.id)keep.add('monitor');
+ const next=new Map(),changed=[],nodes=$('#stage').querySelectorAll('.lamp,.desk-group,.monitor-group,.box-group');
  nodes.forEach(n=>{
   const key=focusKey(n),want=on&&!keep.has(key)?.22:1,was=focusState.has(key)?focusState.get(key):want;
   next.set(key,want);n.style.transition='none';n.style.opacity=was;if(was!==want)changed.push([n,want]);
@@ -655,7 +708,7 @@ function renderBaseScene(){
  let out='<defs><linearGradient id="body-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#344257"/><stop offset=".22" stop-color="#73829a"/><stop offset=".48" stop-color="#a6b2c3"/><stop offset=".62" stop-color="#738198"/><stop offset="1" stop-color="#344257"/></linearGradient><filter id="wall-wash" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="35"/></filter><filter id="bloom" filterUnits="userSpaceOnUse" x="-600" y="-600" width="1200" height="1200"><feGaussianBlur stdDeviation="23"/></filter></defs><path class="floor" d="M70 744H930"/>';
  out+='<path class="desk-axis" d="M500 120V744"/>';if(selected&&Math.abs(cx-500)>1)out+='<path class="axis" d="M'+cx+' 170V744"/>';
  out+=syncVisibilitySvg();
- out+=environmentSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
+ out+=environmentSvg(g)+syncBoxSvg(g)+(mode==='sync'?syncScreenSvg(g):sceneScreenSvg(g))+activeLamps().map(lampSvg).join('')+(mode==='sync'?syncLinksSvg(g):'')+handlesSvg(g);
  $('#stage').innerHTML=out;applyFocus();
 }
 const RAY_MS=280;
@@ -692,9 +745,20 @@ function syncScreenAxis(){const g=sceneGeometry(),stage=$('#stage'),ax=stage.que
 function refreshHandles(washes=true){syncScreenAxis();const old=$('#stage').querySelector('.handles'),box=document.createElementNS('http://www.w3.org/2000/svg','g');box.innerHTML=handlesSvg(sceneGeometry());const fresh=box.firstElementChild;if(old&&fresh)old.replaceWith(fresh);else if(fresh)$('#stage').append(fresh);else old?.remove();if(washes)syncWashes()}
 function renderHistory(){$('#undo').disabled=!past.length;$('#redo').disabled=!future.length;persistIfChanged()}
 function renderList(){$('#count').textContent=activeLamps().length}
-// The monitor strip carries the screen position while the room has one; the screen
-// keeps it, so removing the strip later leaves the screen where it was.
-function syncScreen(){const m=lamps.find(l=>l.id===MONITOR);if(m)environment.screen={x:m.x,h:m.h}}
+// The strip that wraps the monitor carries the screen position while the room has one;
+// the screen keeps it, so removing the strip later leaves the screen where it was. A
+// strip that starts to wrap the monitor takes the screen's place and remembers its own,
+// which it takes back when another strip wraps the monitor again.
+function syncScreen(){
+ const w=wrapOf(lamps);
+ for(const l of lamps){
+  if(l.form==='floor')continue;
+  if(l===w&&l.form!=='strip'){l.barAt={x:l.x,h:l.h};l.x=environment.screen.x;l.h=environment.screen.h}
+  else if(l!==w&&l.form==='strip'&&l.barAt){l.x=l.barAt.x;l.h=l.barAt.h;delete l.barAt}
+  l.form=l===w?'strip':'bar';
+ }
+ if(w)environment.screen={x:w.x,h:w.h};
+}
 function render(){syncScreen();renderScene();renderInspector();renderList();renderHistory()}
 function renderInspector(){if(menuOpen&&!lamps.some(l=>l.id===selected))closeObjectMenu()}
 function paintTitle(){
@@ -772,8 +836,8 @@ function paintLive(){
   if(l.form==='strip')stripStops(colors).forEach((c,i)=>{const z=zoneStop(c,level);setAttr(stops[i],'stop-color',z.color);setAttr(stops[i],'stop-opacity',z.opacity)});
   else if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
-  const badge=node.querySelector('[data-badge]'),b=lampBlocker(l);
-  if(badge){setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
+  const badge=node.querySelector('[data-badge]');
+  if(badge){const m=lampBadge(l),b=m?.b;badge.classList.toggle('off',!!m?.off);setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  setAttr(stage.querySelector('[data-scene-demo]'),'opacity',scenePreview()?1:0);
@@ -825,7 +889,7 @@ function changeField(key,value){
  }else if(selected==='monitor'){
   if(key==='inches')environment.inches=clamp(Math.round(value),19,55);else strip()[key]=value;
   clampFixture(strip());
- }else if(l){l[key]=key==='x'?value+(l.id===MONITOR?0:strip().x):value;clampFixture(l)}
+ }else if(l){l[key]=key==='x'?value+(l.form==='strip'?0:strip().x):value;clampFixture(l)}
  recordChange(before);renderScene();renderHistory();
 }
 function dragHandle(kind,p){
@@ -923,9 +987,10 @@ function attrs(a){return Object.entries(a).filter(([,v])=>v!==false&&v!=null).ma
 function btn(label,a={},kind=''){return '<button type="button" class="btn'+(kind?' '+kind:'')+'"'+attrs(a)+'>'+label+'</button>'}
 function iconBtn(icon,label,a={},kind=''){return '<button type="button" class="icon-btn'+(kind?' '+kind:'')+'" aria-label="'+esc(label)+'"'+attrs(a)+'>'+icon+'</button>'}
 // A destructive step asks once, in place: the question, then Cancel and the red action.
-function confirmHtml({text,sub='',cancel,ok,okLabel,cls='',a={},label='Confirm'}){
- return '<div class="confirm'+(cls?' '+cls:'')+'" role="group" aria-label="'+esc(label)+'"'+attrs(a)+'><span class="confirm-text"><b>'+text+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</span>'
-  +btn('Cancel',cancel,'sm')+btn(okLabel,ok,'sm danger')+'</div>';
+// A confirm is destructive (danger) unless it only moves something (primary).
+function confirmHtml({text,sub='',cancel,ok,okLabel,cls='',a={},label='Confirm',tone='danger'}){
+ return '<div class="confirm'+(tone==='primary'?' calm':'')+(cls?' '+cls:'')+'" role="group" aria-label="'+esc(label)+'"'+attrs(a)+'><span class="confirm-text"><b>'+text+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</span>'
+  +btn('Cancel',cancel,'sm')+btn(okLabel,ok,'sm '+tone)+'</div>';
 }
 function field(a,size=''){return '<input type="text" class="field'+(size?' '+size:'')+'"'+attrs(a)+'>'}
 function ipField(a){return field({inputmode:'decimal',maxlength:15,autocomplete:'off',spellcheck:'false',...a})}
@@ -959,7 +1024,8 @@ function connectedField(l){
 function cardMenu(l){
  if(connectPrompt===l.id)return connectPromptHtml(l);
  const b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
- return '<div class="card-head"><input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
+ // The card closes from its corner as well as from the lamp's chip.
+ return '<div class="card-head">'+iconBtn(closeIcon,'Close',{'data-menu':'close','data-tooltip':'Close · Esc'},'card-close')+'<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
   +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
   +connectedField(l)
@@ -1063,6 +1129,7 @@ function paintLink(){if(drag)return;render();paintPanel();if(menuOpen&&!cal)refr
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);if(!l)return false;
+ if(id==='close'){closeObjectMenu();$('#stage').querySelector('[data-chip-action="more"]')?.focus();return true}
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove '+esc(l.name)+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
@@ -1281,12 +1348,12 @@ function lampRowStatus(l){
  return corr(l)!==100?'<span class="lp-status">'+corr(l)+'%</span>':'';
 }
 function roomRows(){
+ // The Lamps panel lists lamps only: the desk, the monitor and the Sync Box are picked on the scene.
+ if(!activeLamps().length)return '<div class="lp-empty">No lamps yet. Place one from Found</div>';
  return activeLamps().map(l=>confirmRemove===l.id
   ?confirmHtml({text:'Remove '+esc(l.name)+'?',sub:'⌘Z brings it back',cancel:{'data-remove-cancel':true},ok:{'data-remove-ok':l.id},okLabel:'Remove',cls:'lp-row lamp-row',label:'Confirm removal'})
   :'<div class="lp-row lamp-row'+(selected===l.id?' active':'')+'" role="button" tabindex="0" data-list-lamp="'+l.id+'">'+lampSwatch(l)+'<span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+(lampRowStatus(l)||'<span></span>')+iconBtn(trashIcon,'Remove '+l.name,{'data-remove':l.id,'data-tooltip':'Remove from layout'},'danger lp-remove')+'</div>').join('')
-  +'<div class="lp-divider"></div>'
-  +'<button class="lp-row'+(selected==='desk'?' active':'')+'" data-list-lamp="desk"><span class="lp-glyph">'+glyph.desk+'</span><span><span class="lp-name">Desk</span><span class="lp-sub">'+environment.width+' × '+environment.height+' cm</span></span></button>'
-  +'<button class="lp-row'+(selected==='monitor'?' active':'')+'" data-list-lamp="monitor"><span class="lp-glyph">'+glyph.monitor+'</span><span><span class="lp-name">Monitor</span><span class="lp-sub">'+environment.inches+'″</span></span></button>';
+;
 }
 function foundRows(){
  const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+btn(plusIcon,{'data-restore':l.id,'aria-label':'Return '+l.name,'data-tooltip':'Return to its place'},'sm square')+'</div>').join('');
@@ -1296,7 +1363,9 @@ function foundRows(){
   if(discovery.connected!==true)return '<div class="lp-empty">Lamp search is unavailable</div>';
   return '<div class="lp-empty">Every found lamp is in the room</div>';
  }
- return back+items.map(e=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
+ // Lamps that can be placed come first, then the others by how close they are to usable.
+ const rank=e=>['','Offline','Unavailable','Ambiguous','Unsupported'].indexOf(catalogReason(e));
+ return back+items.map((e,i)=>[e,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(([e])=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
 }
 // The physical Hue bridge: Light Studio pairs it after its link button is pressed.
 // The keys stay in the core's private state; the page only sees name and address.
@@ -1347,8 +1416,12 @@ function hueRows(){
  return '<div class="lp-empty">'+hint+'</div>'+rows
   +'<div class="lp-hue-address">'+ipField({'data-hue-input':true,placeholder:hueFound?.length?'Or an IP address':'IP address','aria-label':'Hue bridge IP address',value:hueAddress})+btn('Pair',{'data-hue':'address'},'primary')+btn('Cancel',{'data-hue':'close'})+'</div>'+error;
 }
+// The Hue bridge shows only while it needs the owner: not connected yet, or pairing.
+// A paired bridge keeps one quiet line to pair another one; one from the service
+// configuration cannot be changed here.
 function hueSection(){
- if(hueBridge.state==='unknown')return '';
+ if(hueBridge.state==='unknown'||hueBridge.state==='configured')return '';
+ if(hueBridge.state==='paired'&&!hueFlow)return '<div class="lp-foot"><span>Hue bridge connected</span>'+btn('Change',{'data-hue':'find','data-tooltip':'Pair another bridge or a new address'},'sm quiet')+'</div>';
  return '<div class="lp-section"><span>Hue bridge</span><span>'+(['paired','configured'].includes(hueBridge.state)?'Connected':hueBridge.state==='pairing'?'Pairing':'Not connected')+'</span></div>'+hueRows();
 }
 function hueClick(e){
@@ -1361,8 +1434,52 @@ function hueClick(e){
  else if(action==='cancel')hueCall('/api/hue-bridge/cancel',{}).then(r=>{if(r.status===200)hueBridge=r.body;hueError='';paintPanel()});
  return true;
 }
+// The Sync Box is a device of one room. Another room adds it, or moves it in after a
+// confirm; Sync, its settings and its Start/Stop then follow it. Moving it never asks for a
+// new pairing in the Hue app: the stream keeps its group, only the driven lamps change.
+let boxRoomAsk=false,boxRoomBusy=false;
+function boxRoomName(){return roomsInfo?.rooms.find(r=>r.id===roomsInfo.sync)?.name||''}
+function boxRow(sub,action,cls='lp-row found'){
+ const name=box.state!=='none'?esc(box.name||'Sync Box'):'Sync Box';
+ return '<div class="'+cls+'" data-box-row><span class="lp-glyph">'+boxSvg('box')+'</span><span><span class="lp-name">'+name+'</span><span class="lp-sub">'+sub+'</span></span>'+(action||'<span></span>')+'</div>';
+}
+// In its own room the section says so, and offers connecting a box that is not connected.
+function boxHereRow(){
+ if(box.state==='none')return boxRow('Not connected',btn('Connect',{'data-box-room':'connect'},'sm'),'lp-row');
+ if(box.state==='unauthorized')return boxRow('Needs connecting again',btn('Reconnect',{'data-box-room':'connect'},'sm'),'lp-row');
+ return boxRow('Syncs this room with the screen','','lp-row');
+}
+function boxSection(){
+ if(!roomsInfo||box.state==='unknown')return '';
+ if(roomsInfo.sync===currentRoom)return '<div class="lp-section"><span>Sync Box</span><span>In this room</span></div>'+boxHereRow();
+ const paired=box.state!=='none',elsewhere=boxRoomName(),row=boxRow;
+ let body;
+ if(boxRoomAsk)body=confirmHtml({text:(elsewhere?'Move':'Add')+' the Sync Box here?',sub:elsewhere?'Sync leaves '+esc(elsewhere)+' and drives the lamps of this room':'Sync drives the lamps of this room',
+  cancel:{'data-box-room':'cancel'},ok:{'data-box-room':'place'},okLabel:elsewhere?'Move here':'Add here',cls:'lp-row',label:'Confirm the Sync Box room',tone:'primary'});
+ else if(elsewhere)body=row('In '+esc(elsewhere)+(paired?'':' · not connected'),btn('Move here',{'data-box-room':'ask'},'sm'));
+ else body=row(paired?'In no room':'Syncs a room with the screen',btn(paired?'Add here':'Add Sync Box',{'data-box-room':'ask'},'sm'));
+ return '<div class="lp-section"><span>Sync Box</span><span>'+(elsewhere?'In another room':'Not in a room')+'</span></div>'+body;
+}
+async function placeBoxHere(){
+ if(boxRoomBusy)return;boxRoomBusy=true;
+ const moved=!!roomsInfo?.sync;
+ const ok=await roomChange('sync-box',{room:currentRoom});
+ boxRoomBusy=false;boxRoomAsk=false;
+ if(!ok){paintPanel();return}
+ if(box.state==='none'||box.state==='unauthorized'){closePanel();openBoxCard('connect');return}
+ paintPanel();tell(moved?'Sync Box moved here':'Sync Box added here');
+}
+function boxRoomClick(e){
+ const b=e.target.closest('[data-box-room]');if(!b)return false;e.stopPropagation();
+ const action=b.dataset.boxRoom;
+ if(action==='ask'){boxRoomAsk=true;paintPanel();$('#lamp-panel [data-box-room="cancel"]')?.focus()}
+ else if(action==='cancel'){boxRoomAsk=false;paintPanel()}
+ else if(action==='place')placeBoxHere();
+ else if(action==='connect'){closePanel();openBoxCard('connect')}
+ return true;
+}
 function foundCount(){return catalogEntries().filter(e=>!catalogReason(e)).length+removedLamps().length}
-const PANEL_FOCUS=['data-hue-input','data-hue','data-hue-ip','data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
+const PANEL_FOCUS=['data-box-room','data-hue-input','data-hue','data-hue-ip','data-connect','data-list-lamp','data-remove','data-remove-cancel','data-remove-ok','data-restore','data-place','data-close'];
 function paintPanel(){
  const p=$('#lamp-panel');if(!p||p.hidden)return;const top=p.scrollTop;
  const active=p.contains(document.activeElement)?document.activeElement:null;
@@ -1370,7 +1487,7 @@ function paintPanel(){
  p.innerHTML='<div class="lp-head"><h2>Lamps</h2>'+iconBtn(closeIcon,'Close',{'data-close':true,'data-tooltip':'Close · Esc'})+'</div>'
   +'<div class="lp-section"><span>In the room</span><span>'+activeLamps().length+'</span></div>'+roomRows()
   +'<div class="lp-section" id="lp-found"><span>Found</span><span>'+foundCount()+' available</span></div>'+foundRows()
-  +hueSection();
+  +boxSection()+hueSection();
  p.scrollTop=top;
  const caret=active?.selectionStart;
  if(focusAttr){const next=p.querySelector('['+focusAttr+(focusValue?'="'+focusValue+'"':'')+']');next?.focus({preventScroll:true});if(next&&Number.isInteger(caret))next.setSelectionRange(caret,caret)}
@@ -1386,7 +1503,7 @@ function openPanel(kind){
  startDiscovery();
 }
 function closePanel(){
- confirmRemove=null;$('#lamp-panel').hidden=true;panelKind=null;markLamp(null);stopDiscovery();
+ confirmRemove=null;boxRoomAsk=false;$('#lamp-panel').hidden=true;panelKind=null;markLamp(null);stopDiscovery();
  $('#list-toggle').setAttribute('aria-expanded','false');$('#list-toggle').classList.remove('active');
  if(document.activeElement?.id==='list-toggle')document.activeElement.blur();
 }
@@ -1613,6 +1730,7 @@ document.addEventListener('visibilitychange',()=>{
 // ----------------------------------------------------------------- hover --
 let hoverKey=null;
 function hoverAnchor(key){
+ if(key==='box'){const top=740-environment.height*3.3;return {x:500+boxX()*3.3,y:top-BOX_H*3.3-17,name:'Sync Box'}}
  if(key==='desk'){const top=740-environment.height*3.3;return {x:500,y:top-23,name:'Desk'}}
  if(key==='monitor'){const m=strip(),mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16;return {x:500+m.x*3.3,y:740-m.h*3.3-mh/2-41,name:'Monitor'}}
  if(key==='zone'){const P=zonePoints();return {x:(500+P[0].x*3.3+500-environment.width/2*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
@@ -1647,7 +1765,7 @@ function tooltipLabelText(node){
  if(node.id==='redo')return node.disabled?'Nothing to redo':'Redo · ⇧⌘Z';
  if(node.id==='list-toggle')return 'All lamps';
  if(node.dataset.lamp)return '';
- if(node.closest('#stage')&&['zone','desk','monitor'].includes(node.dataset.select))return '';
+ if(node.closest('#stage')&&['zone','desk','monitor','box'].includes(node.dataset.select))return '';
  return node.dataset.originalTitle||node.getAttribute('aria-label')||node.textContent.trim().replace(/\s+/g,' ');
 }
 function tooltipLabel(node){const label=tooltipLabelText(node);return repeatsText(node,label)?'':label}
@@ -1702,12 +1820,13 @@ stage.addEventListener('pointerdown',e=>{
  // a setting. Another lamp takes the card over, except during a calibration.
  if(menuOpen&&!grip&&!keepsCard(e)){e.preventDefault();skipClick=true;return}
  if(grip){e.preventDefault();skipClick=true;drag={handle:grip.dataset.handle,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);return}
- const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"]');
+ const node=e.target.closest('[data-lamp]')||e.target.closest('[data-select="monitor"],[data-select="box"]');
  if(!node){if(e.target.closest('[data-select]'))return;deselect();return}
- selected=node.dataset.select==='monitor'?'monitor':node.dataset.lamp;
+ const card=boxCard==='info';
+ selected=node.dataset.select||node.dataset.lamp;
  const l=movableFixture();if(!l)return;
- drag={start:point(e),x:l.x,h:l.h,before:snapshot(),moved:false};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);renderInspector();renderList();
- stage.querySelectorAll('[data-lamp],[data-select="monitor"]').forEach(n=>n.classList.toggle('chosen',n.dataset.lamp===selected||selected==='monitor'&&n.dataset.select==='monitor'));
+ drag={start:point(e),x:l.x,h:l.h,before:snapshot(),moved:false,card};$('#app').classList.add('is-dragging');stage.setPointerCapture(e.pointerId);renderInspector();renderList();
+ stage.querySelectorAll('[data-lamp],[data-select="monitor"],[data-select="box"]').forEach(n=>n.classList.toggle('chosen',n.dataset.lamp===selected||n.dataset.select===selected));
 });
 function keepsCard(e){
  const node=e.target.closest('[data-lamp]'),id=node?.dataset.lamp;
@@ -1718,22 +1837,23 @@ function keepsCard(e){
 stage.addEventListener('pointermove',e=>{
  if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));placeOpenMenu();return}
  const l=movableFixture();if(!l)return;const p=point(e),oldX=l.x,oldH=l.h;
- l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampFixture(l);
+ l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampMovable(l);
  if(l.x===oldX&&l.h===oldH)return;
  drag.moved=l.x!==drag.x||l.h!==drag.h;
  renderScene();refreshHandles();renderInspector();placeOpenMenu();
 });
 stage.addEventListener('pointerup',()=>{
- if(!drag)return;const before=drag.before;drag=null;recordChange(before);endDragView();renderScene();renderHistory();renderInspector();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
+ if(!drag)return;const before=drag.before,clicked=!drag.moved&&selected==='box',card=drag.card;drag=null;
+ if(clicked){if(card)closeBoxCard();else openBoxCard(['ready','offline'].includes(box.state)?'info':'connect')}recordChange(before);endDragView();renderScene();renderHistory();renderInspector();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
 });
 stage.addEventListener('pointercancel',()=>{if(drag){const before=drag.before;drag=null;restore(before)}endDragView()});
 stage.addEventListener('keydown',e=>{
  const id=e.target.dataset.lamp||(e.target.dataset.select==='monitor'?'monitor':e.target.dataset.select);
- if(e.key==='Enter'||e.key===' '){e.preventDefault();if(id)select(id);return}
+ if(e.key==='Enter'||e.key===' '){e.preventDefault();if(id)select(id);if(id==='box')openBoxCard(['ready','offline'].includes(box.state)?'info':'connect');return}
  if(!e.key.startsWith('Arrow')||!id||id==='desk'||id==='zone')return;
  e.preventDefault();selected=id;const l=movableFixture();if(!l)return;const before=snapshot();
  if(e.key==='ArrowLeft')l.x-=5;if(e.key==='ArrowRight')l.x+=5;if(e.key==='ArrowUp')l.h+=5;if(e.key==='ArrowDown')l.h-=5;
- clampFixture(l);recordChange(before);render();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
+ clampMovable(l);recordChange(before);render();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
 });
 stage.addEventListener('pointermove',event=>{if(pendingDevice)paintPlacementGhost(placementPosition(event))});
 stage.addEventListener('pointermove',e=>{
@@ -1762,7 +1882,7 @@ $('#object-menu').addEventListener('click',e=>{const b=e.target.closest('[data-m
 const panel=$('#lamp-panel');
 panel.addEventListener('click',e=>{
  if(e.target.closest('[data-close]')){e.stopPropagation();closePanel();return}
- if(hueClick(e))return;
+ if(hueClick(e)||boxRoomClick(e))return;
  const rm=e.target.closest('[data-remove]');if(rm){e.stopPropagation();confirmRemove=rm.dataset.remove;paintPanel();panel.querySelector('[data-remove-cancel]')?.focus();return}
  if(e.target.closest('[data-remove-cancel]')){e.stopPropagation();const id=confirmRemove;confirmRemove=null;paintPanel();panel.querySelector('[data-list-lamp="'+id+'"]')?.focus();return}
  const ok=e.target.closest('[data-remove-ok]');if(ok){e.stopPropagation();confirmRemove=null;removeLampById(ok.dataset.removeOk);return}
@@ -1833,7 +1953,8 @@ function setBox(next){
  if(wasSyncing&&box.state==='ready'&&box.syncing===false&&boxBusy===null&&box.changing==null&&!box.recovery&&!wasRecovery)boxSay('Sync stopped on the Sync Box','bad');
  if(box.recovery==='failed'&&wasRecovery!=='failed')boxSay('Sync did not come back. Stop and start it again','bad');
  if(was==='connecting'&&box.state==='ready'){closeBoxCard(false);boxSay('Connected','ok')}
- paintBox();
+ paintBox();if(was!==box.state&&panelKind)paintPanel();
+ $('#stage [data-select="box"]')?.setAttribute('data-led',boxLed());
 }
 // A short line inside the corner block; it replaces the page toast for the box.
 function boxSay(text,kind='ok'){
@@ -1945,7 +2066,7 @@ $('#sync-box').addEventListener('click',boxClick);
 $('#sync-box').addEventListener('input',e=>{if(e.target.id==='box-ip'){boxAddress=e.target.value;if(boxError){boxError='';$('#box-card .note.bad')?.remove()}}});
 $('#sync-box').addEventListener('keydown',e=>{if(e.target.id==='box-ip'&&e.key==='Enter'){e.preventDefault();submitAddress()}});
 // The connect card stays open while the owner pairs the box; Cancel or Esc closes it.
-document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box'))closeBoxCard()},true);
+document.addEventListener('pointerdown',e=>{if(boxCard==='info'&&!e.target.closest('#sync-box,#stage [data-select="box"]'))closeBoxCard()},true);
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&boxCard){e.preventDefault();e.stopImmediatePropagation();closeBoxCard();$('#sync-box .box-bar button')?.focus()}},true);
 document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(boxTimer);if(!document.hidden)refreshBox()});
 
@@ -1962,7 +2083,8 @@ const roomSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" st
 function layoutUrl(){return '/api/layout'+(currentRoom?'?room='+encodeURIComponent(currentRoom):'')}
 const roomName=id=>roomsInfo?.rooms.find(r=>r.id===id)?.name||'Room';
 // A light's room: its recorded room, otherwise the first room (as the core decides).
-function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.rooms[0]?.id}
+// A light without a recorded room is in the default room, whatever the room order.
+function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.default||roomsInfo?.rooms[0]?.id}
 // A light that another room holds: its row is there, or the core put it there.
 function elsewhere(id){
  if(!roomsInfo)return false;const placed=roomsInfo.placed?.[id],assigned=roomsInfo.assigned?.[id];
@@ -1971,7 +2093,7 @@ function elsewhere(id){
 // Sync settings belong to the Sync Box's room; until the rooms are known the page shows them.
 function syncHere(){return !roomsInfo||roomsInfo.sync===currentRoom}
 function validRooms(b){return !!b&&Array.isArray(b.rooms)&&b.rooms.length>0&&b.rooms.every(r=>r&&ROOM_ID.test(r.id)&&typeof r.name==='string')}
-function takeRooms(b){roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,assigned:b.assigned||{},placed:b.placed||{}}}
+function takeRooms(b){roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,assigned:b.assigned||{},placed:b.placed||{},default:b.rooms.some(r=>r.id===b.default)?b.default:null}}
 // connectLayout handles a missing room itself; any other refresh leaves a room deleted
 // elsewhere for the first room (its unsent draft stays under the deleted room's key).
 async function refreshRooms(follow=true){

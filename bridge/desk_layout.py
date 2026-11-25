@@ -130,6 +130,20 @@ def validate_screen(value):
     return {"positionCm": position, "inches": inches}
 
 
+def validate_sync_box(value):
+    """Validate where the Sync Box lies along the desktop: ``{"x"}`` on the five-cm grid.
+
+    Light Studio stores it once the owner drags the box; without it the box sits beside
+    the monitor stand.
+    """
+    if not isinstance(value, dict) or set(value) != {"x"}:
+        raise ValueError("Expected the Sync Box position")
+    x = number(value["x"], -200, 400)
+    if not math.isclose(x / 5, round(x / 5), abs_tol=1e-7):
+        raise ValueError("Position must be on the five-centimeter grid")
+    return {"x": x}
+
+
 def screen_size(layout):
     """Return the (width, height) in cm of the 16:9 screen of a validated layout."""
     width = layout["screen"]["inches"] * 2.54 * 16 / math.hypot(16, 9)
@@ -138,7 +152,7 @@ def screen_size(layout):
 
 def validate_layout(value):
     allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "screen", "devices",
-               "syncZone", "sceneZone", *FALLOFF_DEFAULTS}
+               "syncZone", "sceneZone", "syncBox", *FALLOFF_DEFAULTS}
     version = value.get("version") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) - allowed or type(version) is not int
             or version not in LAYOUT_VERSIONS):
@@ -251,6 +265,8 @@ def validate_layout(value):
         # Before version seven the monitor row carried the screen position.
         raise ValueError("An older layout needs its monitor row")
     result["screen"] = {"positionCm": screen["positionCm"], "inches": screen["inches"]}
+    if value.get("syncBox") is not None:
+        result["syncBox"] = validate_sync_box(value["syncBox"])
     if value.get('syncZone') is not None:
         from sync_zone import validate_zone
 

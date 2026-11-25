@@ -35,7 +35,8 @@ def fixture_request(g):
     g['power_requests'] = HuePowerRequests('http://unused', 'test', lights,
         g['config']['groups'], feedback, sender=sender,
         native_sender=lambda roles: native_calls.append(roles),
-        enabled=lambda: not (state / 'live-output-hold').exists())
+        enabled=lambda: not (state / 'live-output-hold').exists(),
+        scenes=g['config']['scenes'])
     client = g['app'].test_client()
     headers = {'hue-application-key': g['api_key']}
     light_path = '/clip/v2/resource/light/' + lights['2'].id_v2
@@ -62,7 +63,7 @@ def fixture_request(g):
     assert response.status_code == 200, response.get_json()
     assert calls[-1] == {'govee-left': False, 'govee-right': False}
 
-    # A real gallery-style scene recall retains external Off and sends no power.
+    # A real scene recall switches its lights as the scene stores them, as on Hue.
     room = client.get('/clip/v2/resource/room', headers=headers).get_json()['data'][0]
     scene = client.post('/clip/v2/resource/scene', headers=headers, json={
         'metadata': {'name': 'Power fixture'},
@@ -76,8 +77,110 @@ def fixture_request(g):
     response = client.put('/clip/v2/resource/scene/' + scene_id,
                            json={'recall': {'action': 'active'}}, headers=headers)
     assert response.status_code == 200, response.get_json()
-    assert len(calls) == before
-    assert lights['2'].getV2Api()['on']['on'] is False
+    assert calls[before:] == [{'govee-right': True}], calls[before:]
+    assert lights['2'].getV2Api()['on']['on'] is True
+    # Recalled again, the light is already On: no second power request.
+    response = client.put('/clip/v2/resource/scene/' + scene_id,
+                           json={'recall': {'action': 'active'}}, headers=headers)
+    assert response.status_code == 200, response.get_json()
+    assert calls[before:] == [{'govee-right': True}], calls[before:]
+
+    # An edit in the Hue app replaces the stored light state; pinned diyHue drops it.
+    scene_object = next(item for item in g['config']['scenes'].values() if item.id_v2 == scene_id)
+    scene_object.lightstates[lights['2']] = {'on': True, 'bri': 198, 'ct': 346}
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': True}, 'dimming': {'brightness': 50.0},
+                                'color': {'xy': {'x': .6, 'y': .3}}}}]})
+    assert response.status_code == 200, response.get_json()
+    assert scene_object.lightstates[lights['2']] == {'on': True, 'bri': 127, 'xy': [.6, .3]}, \
+        scene_object.lightstates[lights['2']]
+    actions = client.get('/clip/v2/resource/scene/' + scene_id,
+                         headers=headers).get_json()['data'][0]['actions']
+    action = next(item['action'] for item in actions
+                  if item['target']['rid'] == lights['2'].id_v2)
+    assert action['color']['xy'] == {'x': .6, 'y': .3} and 'color_temperature' not in action, action
+    # A bad action refuses the whole edit: no stored state, name or recall changes.
+    name = scene_object.name
+    before = len(calls)
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'metadata': {'name': 'Renamed'}, 'recall': {'action': 'active'},
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': False}, 'color': {'xy': {'x': .6}}}}]})
+    assert response.status_code == 400, response.get_json()
+    assert scene_object.lightstates[lights['2']] == {'on': True, 'bri': 127, 'xy': [.6, .3]}
+    assert scene_object.name == name and len(calls) == before
+    # An edit and a recall together recall the edited scene: Off, as just stored.
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'recall': {'action': 'active'},
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': False}}}]})
+    assert response.status_code == 200, response.get_json()
+    assert calls[before:] == [{'govee-right': False}], calls[before:]
+    # A recall waiting for another takes its power snapshot after the wait: the
+    # lamp went Off meanwhile, so the waiting On recall still switches it On.
+    import threading
+    class SignalLock:
+        def __init__(self):
+            self.inner, self.waiting = threading.Lock(), threading.Event()
+        def acquire(self, timeout=-1):
+            self.waiting.set()
+            return self.inner.acquire(timeout=timeout)
+        def release(self):
+            self.inner.release()
+    client.put(light_path, json={'on': {'on': True}}, headers=headers)
+    lock = g['scene_power_lock'] = SignalLock()
+    lock.inner.acquire()
+    done = []
+    def edit_on():
+        done.append(g['app'].test_client().put('/clip/v2/resource/scene/' + scene_id,
+            headers=headers, json={'recall': {'action': 'active'}, 'actions': [
+                {'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                 'action': {'on': {'on': True}}}]}).status_code)
+    waiting = threading.Thread(target=edit_on)
+    waiting.start()
+    assert lock.waiting.wait(10)
+    # Meanwhile the lamp goes Off (an explicit switch takes no scene lock).
+    response = client.put(light_path, json={'on': {'on': False}}, headers=headers)
+    assert response.status_code == 200, response.get_json()
+    before = len(calls)
+    lock.inner.release()
+    waiting.join(10)
+    assert done == [200], done
+    assert calls[before:] == [{'govee-right': True}], calls[before:]
+    # A recall of another scene waits as well; a lock held too long answers 503.
+    g['SCENE_POWER_WAIT'] = 0.1
+    lock.inner.acquire()
+    response = client.put('/api/' + g['api_key'] + '/groups/0/action', json={'scene': '1'})
+    assert response.status_code == 503, response.status_code
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': False}}}]})
+    assert response.status_code == 503, response.status_code
+    # A request without a valid key never waits for the lock: diyHue refuses it.
+    g['SCENE_POWER_WAIT'] = 5
+    lock.waiting.clear()
+    response = client.put('/clip/v2/resource/scene/' + scene_id,
+                          headers={'hue-application-key': 'not-a-key'},
+                          json={'recall': {'action': 'active'}})
+    assert response.status_code == 403, response.status_code
+    assert not lock.waiting.is_set()
+    lock.inner.release()
+    client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': False}}}]})
+    # A path that matches no route changes nothing, even if it ends in a scene id.
+    response = client.put('/clip/v2/resource/scene/extra/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': True}}}]})
+    assert response.status_code == 404, response.status_code
+    assert scene_object.lightstates[lights['2']] == {'on': False}
+    # Without a key the edit changes nothing.
+    response = client.put('/clip/v2/resource/scene/' + scene_id, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': True}}}]})
+    assert response.status_code == 403
+    assert scene_object.lightstates[lights['2']] == {'on': False}
 
     # Rejected physical Off must not leave the virtual lamp falsely Off.
     response = client.put(light_path, json={'on': {'on': True}}, headers=headers)
