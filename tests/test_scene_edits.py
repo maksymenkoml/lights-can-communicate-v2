@@ -71,6 +71,12 @@ class SceneEditTests(unittest.TestCase):
                          {"gradient": {"points": [clean, clean], "mode": "random_pixelated"}})
         self.assertEqual(scene.lightstates[self.lights["2"]],
                          {"gradient": {"points": [clean, clean]}})
+        for mode in (["random_pixelated"], {"x": 1}, 5, None):
+            with self.subTest(mode=mode):
+                self.edit(scene, [action("light-1", gradient={"points": [point, point],
+                                                              "mode": mode})])
+                self.assertEqual(scene.lightstates[self.lights["1"]],
+                                 {"gradient": {"points": [clean, clean]}})
 
     def test_a_replacement_is_published_whole(self):
         scene = Scene({self.lights["1"]: {"on": True}}, self.room)

@@ -668,6 +668,11 @@ def remember_power_state():
         g.power_request_before = power_requests.snapshot()
 
 
+# Edits hold it until their request ends, so an edit that also recalls the scene
+# recalls (and switches power for) the states it stored, not another edit's.
+scene_edit_lock = threading.Lock()
+
+
 @app.before_request
 def keep_scene_edit():
     """Store the light actions of an edited scene before diyHue handles the edit.
@@ -676,18 +681,26 @@ def keep_scene_edit():
     diyHue neither renames nor recalls the scene; a recall in the same request
     then uses the edited states.
     """
-    if request.method != "PUT" or not request.path.startswith("/clip/v2/resource/scene/"):
+    # Only diyHue's own scene PUT route: before_request also runs for paths that
+    # match no route.
+    arguments = request.view_args or {}
+    if (request.method != "PUT" or request.url_rule is None
+            or not request.url_rule.rule.startswith("/clip/v2/resource/")
+            or arguments.get("resource") != "scene"
+            or not isinstance(arguments.get("resourceid"), str)):
         return None
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or "actions" not in payload:
         return None
     if "user" not in v2restapi.authorizeV2(request.headers):
         return None  # diyHue answers 403.
-    rid = request.path.rstrip("/").rsplit("/", 1)[-1]
+    rid = arguments["resourceid"]
     scene = next((item for item in list(config["scenes"].values())
                   if getattr(item, "id_v2", None) == rid), None)
     if scene is None:
         return None
+    scene_edit_lock.acquire()
+    g.scene_edit_locked = True
     try:
         states = scene_edits.edited_states(scene, payload["actions"], config["lights"])
     except scene_edits.InvalidEdit as error:
@@ -696,6 +709,12 @@ def keep_scene_edit():
         return response
     g.scene_edited = scene_edits.replace(scene, states)
     return None
+
+
+@app.teardown_request
+def release_scene_edit(error=None):
+    if g.pop("scene_edit_locked", False):
+        scene_edit_lock.release()
 
 
 @app.after_request

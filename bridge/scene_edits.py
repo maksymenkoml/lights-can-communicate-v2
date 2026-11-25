@@ -48,8 +48,9 @@ def _gradient(value):
         x, y = _xy(color.get("xy") if isinstance(color, dict) else None)
         stored.append({"color": {"xy": {"x": x, "y": y}}})
     gradient = {"points": stored}
-    if value.get("mode") in GRADIENT_MODES:
-        gradient["mode"] = value["mode"]
+    mode = value.get("mode")
+    if isinstance(mode, str) and mode in GRADIENT_MODES:
+        gradient["mode"] = mode
     return gradient
 
 

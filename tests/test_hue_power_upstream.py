@@ -117,6 +117,12 @@ def fixture_request(g):
                      'action': {'on': {'on': False}}}]})
     assert response.status_code == 200, response.get_json()
     assert calls[before:] == [{'govee-right': False}], calls[before:]
+    # A path that matches no route changes nothing, even if it ends in a scene id.
+    response = client.put('/clip/v2/resource/scene/extra/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'on': {'on': True}}}]})
+    assert response.status_code == 404, response.status_code
+    assert scene_object.lightstates[lights['2']] == {'on': False}
     # Without a key the edit changes nothing.
     response = client.put('/clip/v2/resource/scene/' + scene_id, json={
         'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
