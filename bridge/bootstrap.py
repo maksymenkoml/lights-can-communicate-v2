@@ -625,7 +625,7 @@ if live_output is not None:
     power_requests = HuePowerRequests(
         live_output.url, live_output.token, config["lights"], config["groups"], power_feedback,
         enabled=lambda: not (state / "live-output-hold").exists(),
-        native_slots=native_power_slots, slots=govee_slots,
+        native_slots=native_power_slots, slots=govee_slots, scenes=config["scenes"],
     )
     power_feedback.start(enabled=lambda: not (state / "live-output-hold").exists())
     live_output.start()

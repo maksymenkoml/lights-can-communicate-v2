@@ -35,7 +35,8 @@ def fixture_request(g):
     g['power_requests'] = HuePowerRequests('http://unused', 'test', lights,
         g['config']['groups'], feedback, sender=sender,
         native_sender=lambda roles: native_calls.append(roles),
-        enabled=lambda: not (state / 'live-output-hold').exists())
+        enabled=lambda: not (state / 'live-output-hold').exists(),
+        scenes=g['config']['scenes'])
     client = g['app'].test_client()
     headers = {'hue-application-key': g['api_key']}
     light_path = '/clip/v2/resource/light/' + lights['2'].id_v2
@@ -62,7 +63,7 @@ def fixture_request(g):
     assert response.status_code == 200, response.get_json()
     assert calls[-1] == {'govee-left': False, 'govee-right': False}
 
-    # A real gallery-style scene recall retains external Off and sends no power.
+    # A real scene recall switches its lights as the scene stores them, as on Hue.
     room = client.get('/clip/v2/resource/room', headers=headers).get_json()['data'][0]
     scene = client.post('/clip/v2/resource/scene', headers=headers, json={
         'metadata': {'name': 'Power fixture'},
@@ -76,8 +77,13 @@ def fixture_request(g):
     response = client.put('/clip/v2/resource/scene/' + scene_id,
                            json={'recall': {'action': 'active'}}, headers=headers)
     assert response.status_code == 200, response.get_json()
-    assert len(calls) == before
-    assert lights['2'].getV2Api()['on']['on'] is False
+    assert calls[before:] == [{'govee-right': True}], calls[before:]
+    assert lights['2'].getV2Api()['on']['on'] is True
+    # Recalled again, the light is already On: no second power request.
+    response = client.put('/clip/v2/resource/scene/' + scene_id,
+                           json={'recall': {'action': 'active'}}, headers=headers)
+    assert response.status_code == 200, response.get_json()
+    assert calls[before:] == [{'govee-right': True}], calls[before:]
 
     # Rejected physical Off must not leave the virtual lamp falsely Off.
     response = client.put(light_path, json={'on': {'on': True}}, headers=headers)

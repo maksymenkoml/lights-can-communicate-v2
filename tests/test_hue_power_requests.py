@@ -11,11 +11,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from hue_power_requests import HuePowerRequests, HuePowerUnavailable  # noqa: E402
 
 
+class Lamp:
+    """A virtual light: scenes key their states by the light object, as diyHue does."""
+
+    def __init__(self, id_v1, id_v2):
+        self.id_v1, self.id_v2 = id_v1, id_v2
+
+
 class HuePowerRequestTests(unittest.TestCase):
     def setUp(self):
         self.calls, self.refreshed, self.native, self.feedback_calls = [], [], [], []
-        self.lights = {slot: SimpleNamespace(id_v1=slot, id_v2="light-" + slot)
-                       for slot in ("1", "2", "3", "4", "7")}
+        self.lights = {slot: Lamp(slot, "light-" + slot) for slot in ("1", "2", "3", "4", "7")}
         group = SimpleNamespace(id_v1="0", type="LightGroup",
                                 getV2GroupedLight=lambda: {"id": "group-all"},
                                 lights=[lambda lamp=lamp: lamp for lamp in self.lights.values()])
@@ -107,12 +113,47 @@ class HuePowerRequestTests(unittest.TestCase):
         self.assertEqual(self.calls, [{"govee-right": True},
                                       {"govee-left": True, "govee-right": True}])
 
-    def test_scenes_colors_internal_or_unselected_resources_never_send_power(self):
-        self.v2("scene", "scene-id", {"recall": {"action": "active"}, "on": {"on": True}})
+    def scene(self, states, id_v1="5", id_v2="scene-id"):
+        scene = SimpleNamespace(id_v2=id_v2, lightstates={self.lights[slot]: state
+                                                          for slot, state in states.items()})
+        self.gateway.scenes[id_v1] = scene
+        return scene
+
+    def test_a_scene_recall_switches_its_lights_as_the_scene_stores_them(self):
+        self.scene({"1": {"on": True, "bri": 100}, "2": {"on": False}, "3": {"on": False},
+                    "4": {"on": True, "xy": [0.2, 0.3]}, "7": {"on": False}})
+        previous = {"1": False, "2": True, "3": True, "4": False}
+        self.gateway.after_request("PUT", "/clip/v2/resource/scene/scene-id", 200,
+                                   {"recall": {"action": "active"}},
+                                   {"data": [{"rid": "scene-id", "rtype": "scene"}]},
+                                   previous=previous)
+        # Off first, then On; slot 7 is not a selected light.
+        self.assertEqual(self.native, [{"hue-monitor": False}, {"play-left": True}])
+        self.assertEqual(self.calls, [{"govee-right": False}, {"govee-left": True}])
+
+    def test_a_v1_scene_recall_switches_only_lights_whose_power_differs(self):
+        self.scene({"2": {"on": False}, "3": {"on": True}, "4": {"on": False}})
+        self.gateway.after_request("PUT", "/api/key/groups/0/action", 200, {"scene": "5"},
+                                   [{"success": {"/groups/0/action/scene": "5"}}],
+                                   previous={"2": True, "3": True, "4": False})
+        self.assertEqual(self.calls, [{"govee-right": False}])
+        self.assertEqual(self.native, [])
+
+    def test_a_failed_or_unknown_scene_recall_sends_no_power(self):
+        self.scene({"2": {"on": False}})
+        self.v2("scene", "scene-id", {"recall": {"action": "active"}}, status=404)
+        self.gateway.after_request("PUT", "/clip/v2/resource/scene/scene-id", 200,
+                                   {"recall": {"action": "active"}}, {"errors": [{}], "data": []})
+        self.v2("scene", "other-scene", {"recall": {"action": "active"}})
+        self.gateway.after_request("PUT", "/api/key/groups/0/action", 200, {"scene": "9"},
+                                   [{"success": {}}])
+        self.gateway.after_request("PUT", "/api/key/groups/0/action", 200, {"scene": "5"},
+                                   [{"error": {"type": 3}}])
+        self.assertEqual((self.calls, self.native), ([], []))
+
+    def test_colors_internal_or_unselected_resources_never_send_power(self):
         self.v2("light", "light-2", {"dimming": {"brightness": 50}})
         self.v2("light", "light-7", {"on": {"on": True}})
-        self.gateway.after_request("PUT", "/api/key/groups/0/action", 200,
-                                   {"scene": "scene-id", "on": True}, [])
         self.gateway.after_request("POST", "/clip/v2/resource/light/light-2", 200,
                                    {"on": {"on": True}}, {})
         self.assertEqual(self.calls, [])
