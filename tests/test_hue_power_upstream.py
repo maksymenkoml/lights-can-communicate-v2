@@ -100,6 +100,12 @@ def fixture_request(g):
     action = next(item['action'] for item in actions
                   if item['target']['rid'] == lights['2'].id_v2)
     assert action['color']['xy'] == {'x': .6, 'y': .3} and 'color_temperature' not in action, action
+    # A bad action refuses the whole edit and keeps the stored state.
+    response = client.put('/clip/v2/resource/scene/' + scene_id, headers=headers, json={
+        'actions': [{'target': {'rid': lights['2'].id_v2, 'rtype': 'light'},
+                     'action': {'color': {'xy': {'x': .6}}}}]})
+    assert response.status_code == 400, response.get_json()
+    assert scene_object.lightstates[lights['2']] == {'on': True, 'bri': 127, 'xy': [.6, .3]}
 
     # Rejected physical Off must not leave the virtual lamp falsely Off.
     response = client.put(light_path, json={'on': {'on': True}}, headers=headers)

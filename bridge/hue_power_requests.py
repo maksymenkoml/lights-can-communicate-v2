@@ -100,9 +100,16 @@ class HuePowerRequests:
     def _recall(self, scene, previous):
         """Switch the scene's lights to the power it stores; only those that differ."""
         wanted = {}
+        reference = getattr(scene, "group", None)
+        group = reference() if callable(reference) else None
+        # A room scene switches only lights of its room, whatever it stores.
+        members = (None if group is None else
+                   {light for item in list(group.lights) if (light := item()) is not None})
         # A WeakKeyDictionary that other threads change (scene edits, a light's
         # removal); iterating it directly can raise "changed size during iteration".
         for lamp, state in list(scene.lightstates.items()):
+            if members is not None and lamp not in members:
+                continue
             slot = getattr(lamp, "id_v1", None)
             if (type(state) is dict and type(state.get("on")) is bool
                     and self.lights.get(slot) is lamp

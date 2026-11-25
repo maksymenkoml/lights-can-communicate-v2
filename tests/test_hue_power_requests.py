@@ -139,6 +139,16 @@ class HuePowerRequestTests(unittest.TestCase):
         self.assertEqual(self.calls, [{"govee-right": False}])
         self.assertEqual(self.native, [])
 
+    def test_a_room_scene_recall_switches_only_lights_of_its_room(self):
+        scene = self.scene({"2": {"on": False}, "3": {"on": False}})
+        room = SimpleNamespace(lights=[lambda: self.lights["3"]])
+        scene.group = lambda: room
+        self.gateway.after_request("PUT", "/clip/v2/resource/scene/scene-id", 200,
+                                   {"recall": {"action": "active"}},
+                                   {"data": [{"rid": "scene-id", "rtype": "scene"}]},
+                                   previous={"2": True, "3": True})
+        self.assertEqual((self.calls, self.native), ([], [{"hue-monitor": False}]))
+
     def test_a_failed_or_unknown_scene_recall_sends_no_power(self):
         self.scene({"2": {"on": False}})
         self.v2("scene", "scene-id", {"recall": {"action": "active"}}, status=404)
