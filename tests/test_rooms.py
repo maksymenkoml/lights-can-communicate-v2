@@ -152,6 +152,8 @@ class RoomsTests(unittest.TestCase):
         # An index from before the default room: its lights without a room were first.
         older = {key: value for key, value in good.items() if key != "default"}
         self.assertEqual(validate_index(older), {**older, "default": FIRST_ROOM})
+        self.assertEqual(validate_index({**older, "rooms": [SECOND, FIRST_ROOM]})["default"],
+                         FIRST_ROOM)
         for change in ({"rooms": [FIRST_ROOM, FIRST_ROOM]}, {"rooms": []},
                        {"rooms": ["room-%08x" % n for n in range(11)]},
                        {"rooms": ["office"]}, {"lights": {"play-right": "room-ffffffff"}},
@@ -214,13 +216,15 @@ class RoomManagementTests(unittest.TestCase):
                           for light in ROLES + (later,)})
         self.assertIn("left", self.rooms.sync_profile()["enabled_roles"])
 
-    def test_an_index_saved_with_another_room_first_keeps_its_lights(self):
+    def test_an_older_index_with_another_room_first_keeps_lights_in_the_original_room(self):
         room = self.rooms.create("Bedroom")
         (self.state / "rooms.json").write_text(json.dumps({
             "version": 1, "rooms": [room, FIRST_ROOM], "lights": {}, "sync": FIRST_ROOM}))
-        self.assertEqual(self.rooms.room_of("govee-left"), room)
-        self.rooms.reorder([FIRST_ROOM, room])
-        self.assertEqual(self.rooms.room_of("govee-left"), room)
+        self.assertEqual(self.rooms.room_of("govee-left"), FIRST_ROOM)
+        self.assertIn("left", self.rooms.sync_profile()["enabled_roles"])
+        # Without the original room, the first room holds them.
+        self.assertEqual(validate_index({"version": 1, "rooms": [room], "lights": {},
+                                         "sync": None})["default"], room)
 
     def test_deleting_the_default_room_makes_the_first_room_the_default(self):
         bedroom, hall = self.rooms.create("Bedroom"), self.rooms.create("Hall")

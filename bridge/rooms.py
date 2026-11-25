@@ -73,7 +73,8 @@ def _light(value):
 def validate_index(value):
     """Return the canonical room index or raise ValueError."""
     # ``default`` is the room of a light without a recorded room. An index written
-    # before it existed has none: its lights without a room were in its first room.
+    # before it existed has none: such lights belong to the original room while it is
+    # listed (only the room-order bug put another room first), otherwise to the first.
     keys = {"version", "rooms", "lights", "sync"}
     if not isinstance(value, dict) or set(value) not in (keys, keys | {"default"}):
         raise ValueError("Expected a room index")
@@ -90,7 +91,7 @@ def validate_index(value):
         raise ValueError("Every light must be in a listed room")
     if value["sync"] is not None and value["sync"] not in rooms:
         raise ValueError("The Sync Box must be in a listed room")
-    default = value.get("default", rooms[0])
+    default = value.get("default", FIRST_ROOM if FIRST_ROOM in rooms else rooms[0])
     if default not in rooms:
         raise ValueError("The default room must be listed")
     return {"version": ROOMS_VERSION, "rooms": list(rooms), "lights": dict(lights),
@@ -161,16 +162,10 @@ class Rooms:
     def materialized(self):
         return self.index_path.exists()
 
-    @staticmethod
-    def default_room(index):
-        """The room of a light without a recorded room; the room order does not change
-        it."""
-        return index["default"]
-
     def room_of(self, light, index=None):
         """The light's room: its recorded room, otherwise the default room."""
         index = index or self._index()
-        return index["lights"].get(light, self.default_room(index))
+        return index["lights"].get(light, index["default"])
 
     def sync_room(self):
         return self._index()["sync"]
