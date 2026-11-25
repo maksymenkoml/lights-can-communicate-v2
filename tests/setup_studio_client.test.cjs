@@ -267,6 +267,13 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
  assert.equal(app.run('syncProjection(lamps[5]).length'),1);
 });
 
+test('a light without a recorded room is in the default room, whatever the order',async()=>{
+ const app=await harness();
+ const rooms="[{id:'room-0a1b2c3d',name:'Bedroom'},{id:'room-00000001',name:'Office'}]";
+ assert.equal(app.run("takeRooms({rooms:"+rooms+",default:'room-00000001',assigned:{}});roomOf('govee-left')"),'room-00000001');
+ assert.equal(app.run("takeRooms({rooms:"+rooms+",assigned:{}});roomOf('govee-left')"),'room-0a1b2c3d','an older server: the first room');
+});
+
 test('a chosen monitor dims its strip like any lamp; a chosen strip keeps the monitor',async()=>{
  const app=await harness();
  const opacity=()=>({monitor:+app.stage.querySelector('[data-select="monitor"]').style.opacity,

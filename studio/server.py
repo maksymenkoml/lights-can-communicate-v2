@@ -431,8 +431,9 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 "sync": index["sync"],
                 "lights": {light: rooms.room_of(light, index)
                            for light in registry_lights() or ()},
-                # Every recorded room of a light; any other light is in the first room.
+                # Every recorded room of a light; any other light is in the default room.
                 "assigned": index["lights"],
+                "default": rooms.default_room(index),
                 "placed": placed}
 
     # The Sync Box token lives with the other private state, never in the layout.
@@ -644,8 +645,11 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             if busy:
                 return 409, {"accepted": False, "reason": "sync_active"}
         hue = registry_lights("hue") if action == "move" else ()
-        if hue is None:
-            # An unreadable registry cannot tell whether the area must follow.
+        # A new order keeps every connected light in its room (see Rooms.reorder).
+        connected = registry_lights() if action == "order" else ()
+        if hue is None or connected is None:
+            # An unreadable registry cannot tell whether the area must follow, or
+            # which lights must keep their room.
             return 503, {"accepted": False, "reason": "unavailable"}
         with rooms.lock:
             before = rooms.state()
@@ -655,7 +659,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 elif action == "rename":
                     rooms.rename(data["room"], data["name"])
                 elif action == "order":
-                    rooms.reorder(data["rooms"])
+                    rooms.reorder(data["rooms"], connected)
                 elif action == "delete":
                     connected = registry_lights()
                     if connected is None:

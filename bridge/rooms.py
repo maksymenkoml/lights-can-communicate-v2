@@ -153,10 +153,17 @@ class Rooms:
     def materialized(self):
         return self.index_path.exists()
 
+    @staticmethod
+    def default_room(index):
+        """The room of a light without a recorded room: the original room while it is
+        listed, otherwise the first room. Reordering the rooms keeps it while the
+        original room is listed."""
+        return FIRST_ROOM if FIRST_ROOM in index["rooms"] else index["rooms"][0]
+
     def room_of(self, light, index=None):
-        """The light's room: its recorded room, otherwise the first room."""
+        """The light's room: its recorded room, otherwise the default room."""
         index = index or self._index()
-        return index["lights"].get(light, index["rooms"][0])
+        return index["lights"].get(light, self.default_room(index))
 
     def sync_room(self):
         return self._index()["sync"]
@@ -388,14 +395,24 @@ class Rooms:
             data["room"] = name
             return self.save(room, data)
 
-    def reorder(self, order):
+    def reorder(self, order, lights=()):
+        """Put the rooms in ``order``; no light changes its room.
+
+        ``lights`` lists the connected lights. When the new order changes the default
+        room, each of them without a recorded room keeps the old default room.
+        """
         with self.lock:
             self._materialize()
             index = self.index()
             if (not isinstance(order, list) or len(order) != len(index["rooms"])
                     or set(order) != set(index["rooms"])):
                 raise RoomRefused("unknown_room")
+            before = self.default_room(index)
             index["rooms"] = list(order)
+            if self.default_room(index) != before:
+                for light in lights:
+                    if _light(light):
+                        index["lights"].setdefault(light, before)
             self.write_index(index)
 
     def delete(self, room, connected):

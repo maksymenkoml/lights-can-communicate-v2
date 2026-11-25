@@ -199,6 +199,31 @@ class RoomManagementTests(unittest.TestCase):
         self.refused("unknown_room", self.rooms.reorder, [room])
         self.refused("unknown_room", self.rooms.rename, "room-ffffffff", "X")
 
+    def test_a_new_order_keeps_every_light_in_its_room(self):
+        room = self.rooms.create("Bedroom")
+        self.rooms.move("play-right", room)
+        self.rooms.reorder([room, FIRST_ROOM], ROLES)
+        # The original room stays the default room, so nothing more is recorded.
+        self.assertEqual(self.rooms.index()["lights"], {"play-right": room})
+        self.assertEqual({role: self.rooms.room_of(role) for role in ROLES},
+                         {role: room if role == "play-right" else FIRST_ROOM
+                          for role in ROLES})
+        self.assertIn("left", self.rooms.sync_profile()["enabled_roles"])
+
+    def test_without_the_original_room_a_new_order_records_the_old_default(self):
+        bedroom, hall = self.rooms.create("Bedroom"), self.rooms.create("Hall")
+        for role in ROLES:
+            self.rooms.move(role, hall)
+        self.rooms.place_sync_box(hall)
+        self.rooms.delete(FIRST_ROOM, ROLES)
+        later = "device-" + "0" * 32
+        self.assertEqual(self.rooms.default_room(self.rooms.index()), bedroom)
+        self.assertEqual(self.rooms.room_of(later), bedroom)
+        self.rooms.reorder([hall, bedroom], ROLES + (later,))
+        # A light without a recorded room keeps the old default room.
+        self.assertEqual(self.rooms.room_of(later), bedroom)
+        self.assertEqual(self.rooms.room_of("govee-left"), hall)
+
     def test_a_light_moves_with_its_row_and_corrections(self):
         room = self.rooms.create("Bedroom")
         before = next(row for row in self.rooms.store(FIRST_ROOM).snapshot()["devices"]

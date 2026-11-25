@@ -2056,7 +2056,8 @@ const roomSvg=id=>'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" st
 function layoutUrl(){return '/api/layout'+(currentRoom?'?room='+encodeURIComponent(currentRoom):'')}
 const roomName=id=>roomsInfo?.rooms.find(r=>r.id===id)?.name||'Room';
 // A light's room: its recorded room, otherwise the first room (as the core decides).
-function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.rooms[0]?.id}
+// A light without a recorded room is in the default room, whatever the room order.
+function roomOf(id){return roomsInfo?.assigned?.[id]||roomsInfo?.default||roomsInfo?.rooms[0]?.id}
 // A light that another room holds: its row is there, or the core put it there.
 function elsewhere(id){
  if(!roomsInfo)return false;const placed=roomsInfo.placed?.[id],assigned=roomsInfo.assigned?.[id];
@@ -2065,7 +2066,7 @@ function elsewhere(id){
 // Sync settings belong to the Sync Box's room; until the rooms are known the page shows them.
 function syncHere(){return !roomsInfo||roomsInfo.sync===currentRoom}
 function validRooms(b){return !!b&&Array.isArray(b.rooms)&&b.rooms.length>0&&b.rooms.every(r=>r&&ROOM_ID.test(r.id)&&typeof r.name==='string')}
-function takeRooms(b){roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,assigned:b.assigned||{},placed:b.placed||{}}}
+function takeRooms(b){roomsInfo={rooms:b.rooms,sync:typeof b.sync==='string'?b.sync:null,assigned:b.assigned||{},placed:b.placed||{},default:b.rooms.some(r=>r.id===b.default)?b.default:null}}
 // connectLayout handles a missing room itself; any other refresh leaves a room deleted
 // elsewhere for the first room (its unsent draft stays under the deleted room's key).
 async function refreshRooms(follow=true){

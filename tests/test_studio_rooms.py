@@ -115,6 +115,9 @@ class StudioRoomTests(unittest.TestCase):
                          200)
         status_, body = self.request("/api/rooms/order", {"rooms": [room, FIRST_ROOM]})
         self.assertEqual([item["name"] for item in body["rooms"]], ["Den", "Office"])
+        # Every light stays in its room: the default room does not follow the order.
+        self.assertEqual((set(body["lights"].values()), body["default"], body["assigned"]),
+                         ({FIRST_ROOM}, FIRST_ROOM, {}))
         self.assertEqual(self.request("/api/rooms/create", {"name": "Hall"}),
                          (409, {"accepted": False, "reason": "sync_active"}))
         self.assertEqual(self.calls, [])
@@ -182,6 +185,8 @@ class StudioRoomTests(unittest.TestCase):
             self.assertEqual(self.request("/api/rooms/delete", {"room": room}), unavailable)
         self.assertEqual(self.request("/api/rooms/move", {"light": "play-left",
                                                           "room": room}), unavailable)
+        self.assertEqual(self.request("/api/rooms/order", {"rooms": [room, FIRST_ROOM]}),
+                         unavailable)
         self.assertEqual(len(self.request("/api/rooms")[1]["rooms"]), 2)
         (self.state / "lights.json").unlink()
         self.assertEqual(self.request("/api/rooms/delete", {"room": room})[0], 200)
