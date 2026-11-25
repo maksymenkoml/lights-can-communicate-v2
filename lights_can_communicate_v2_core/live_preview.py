@@ -136,7 +136,7 @@ class OutputPreviewStore:
                                     else native_channels)
         # Every Hue light whose scene output is previewed: the Sync lights and the
         # lights outside the Entertainment area, which show their scene in any room.
-        self.hue_lights = frozenset(self.native_channels) | frozenset(scene_lights)
+        self.hue_lights = frozenset(self.native_channels).union(scene_lights)
         self.lock = threading.RLock()
         self.outputs = {}
 
