@@ -86,6 +86,7 @@ class HuePowerRequests:
                     or response.get("errors")
                     or response.get("data") != [{"rid": parts[4], "rtype": "scene"}]):
                 return None
+            # Other request threads may add or delete scenes meanwhile; iterate a copy.
             return next((scene for scene in list(self.scenes.values())
                          if getattr(scene, "id_v2", None) == parts[4]), None)
         if (len(parts) == 5 and parts[0] == "api" and parts[2] == "groups"
@@ -99,6 +100,8 @@ class HuePowerRequests:
     def _recall(self, scene, previous):
         """Switch the scene's lights to the power it stores; only those that differ."""
         wanted = {}
+        # A WeakKeyDictionary that other threads change (scene edits, a light's
+        # removal); iterating it directly can raise "changed size during iteration".
         for lamp, state in list(scene.lightstates.items()):
             slot = getattr(lamp, "id_v1", None)
             if (type(state) is dict and type(state.get("on")) is bool
