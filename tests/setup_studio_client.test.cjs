@@ -354,20 +354,21 @@ test('the Lamps panel pairs the Hue bridge after its button is pressed, without 
  assert.match(panel.textContent,/Press the button on the bridge/);assert.match(panel.textContent,/Hue <Bridge> · 192\.168\.10\.5/);
  const looked=app.requests.discovery.length;
  await app.advance(1000);await app.advance(1000);
- // A connected bridge needs nothing from the owner, so the panel leaves it out.
- assert.doesNotMatch(panel.textContent,/Hue bridge/);
+ // A connected bridge needs nothing from the owner: one quiet line keeps Change.
+ assert.equal(panel.querySelector('.lp-section')?.textContent.includes('Hue bridge'),false);
+ assert.match(panel.querySelector('.lp-foot').textContent,/Hue bridge connectedChange/);
+ await app.click(panel.querySelector('.lp-foot [data-hue="find"]'));
+ assert.match(panel.textContent,/Found on this network:/,'a paired bridge can be paired again');
  // The core restarts with the new bridge: discovery looks for its lamps again.
  assert.ok(app.requests.discovery.length>looked);
 });
 
-test('a connected Hue bridge is left out of the Lamps panel',async()=>{
- for(const state of [{state:'configured'},{state:'paired',name:'Hue Bridge',ip:'192.168.10.5'}]){
-  const app=await harness({hueBridge:()=>state});
-  await app.click(app.$('#list-toggle'));
-  const panel=app.$('#lamp-panel');
-  assert.doesNotMatch(panel.textContent,/Hue bridge/i);
-  assert.ok(!panel.querySelector('[data-hue]'));
- }
+test('a Hue bridge from the service configuration is left out of the Lamps panel',async()=>{
+ const app=await harness({hueBridge:()=>({state:'configured'})});
+ await app.click(app.$('#list-toggle'));
+ const panel=app.$('#lamp-panel');
+ assert.doesNotMatch(panel.textContent,/Hue bridge/i);
+ assert.ok(!panel.querySelector('[data-hue]'));
 });
 
 test('a Hue bridge address is typed when none is found, and errors stay readable',async()=>{
@@ -1864,4 +1865,11 @@ test('the Lamps panel lists lamps only: no desk or monitor rows',async()=>{
  await app.click(app.$('#list-toggle'));
  const panel=app.$('#lamp-panel');
  assert.equal(panel.querySelector('[data-list-lamp="desk"],[data-list-lamp="monitor"]'),null);
+});
+
+test('an undragged Sync Box follows the monitor strip when the monitor moves',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ const before=app.run('boxX()');
+ app.run("strip().x-=20");
+ assert.equal(app.run('boxX()'),before-20,'it stays beside the stand');
 });

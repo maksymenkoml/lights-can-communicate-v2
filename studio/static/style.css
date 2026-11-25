@@ -512,6 +512,7 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .room-chevron{width:14px;height:14px;transition:transform .2s}
 .room-switch[aria-expanded=true] .room-chevron{transform:rotate(180deg)}
 .app.no-sync #sync-box,.app.no-sync #sync-tool,.app.no-sync .toolbar .tool-separator{display:none}
+.lp-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:6px 0 0;border-top:1px solid var(--line);font-size:var(--fs-small);color:var(--muted)}
 .room-cards{position:absolute;z-index:9;width:max-content;max-width:min(640px,calc(100% - 24px));padding:12px;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);color:var(--text);font-size:var(--fs-ui)}
 .rc-grid{display:flex;flex-wrap:wrap;gap:10px}
 .rc-grid>*{flex:0 0 150px;min-width:0}

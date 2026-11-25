@@ -69,7 +69,11 @@ function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id
 // box keeps its own place (desk-centred cm, like the lamps), stored as the layout's syncBox.
 const BOX_W=18,BOX_H=3.5,BOX_GAP=30;
 function clampBoxX(x,env=environment){const edge=Math.floor((env.width/2-BOX_W/2-2)/STEP)*STEP;return clamp(Math.round(x/STEP)*STEP,-edge,edge)}
-function boxX(env=environment){return clampBoxX(env.box?env.box.x:(env.screen?.x??0)+BOX_GAP,env)}
+function boxX(env=environment){
+ // The monitor: the strip lamp that carries it when there is one, else the screen.
+ const monitor=env===environment?strip():env.screen;
+ return clampBoxX(env.box?env.box.x:(monitor?.x??0)+BOX_GAP,env);
+}
 function defaults(){
  // A new room is empty: lamps are placed from the Found list.
  const environment={width:160,height:85,inches:32,screen:{x:0,h:110},zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
@@ -1381,9 +1385,11 @@ function hueRows(){
   +'<div class="lp-hue-address">'+ipField({'data-hue-input':true,placeholder:hueFound?.length?'Or an IP address':'IP address','aria-label':'Hue bridge IP address',value:hueAddress})+btn('Pair',{'data-hue':'address'},'primary')+btn('Cancel',{'data-hue':'close'})+'</div>'+error;
 }
 // The Hue bridge shows only while it needs the owner: not connected yet, or pairing.
-// A connected bridge has nothing to do here.
+// A paired bridge keeps one quiet line to pair another one; one from the service
+// configuration cannot be changed here.
 function hueSection(){
- if(hueBridge.state==='unknown'||['configured','paired'].includes(hueBridge.state)&&!hueFlow)return '';
+ if(hueBridge.state==='unknown'||hueBridge.state==='configured')return '';
+ if(hueBridge.state==='paired'&&!hueFlow)return '<div class="lp-foot"><span>Hue bridge connected</span>'+btn('Change',{'data-hue':'find','data-tooltip':'Pair another bridge or a new address'},'sm quiet')+'</div>';
  return '<div class="lp-section"><span>Hue bridge</span><span>'+(['paired','configured'].includes(hueBridge.state)?'Connected':hueBridge.state==='pairing'?'Pairing':'Not connected')+'</span></div>'+hueRows();
 }
 function hueClick(e){
