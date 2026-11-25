@@ -269,12 +269,14 @@ test('version 4 rows keep own light, removal, device bindings and a custom zone 
 
 test('a chosen monitor dims its strip like any lamp; a chosen strip keeps the monitor',async()=>{
  const app=await harness();
- await app.click(app.stage.querySelector('[data-select="monitor"]'));
+ const opacity=()=>({monitor:+app.stage.querySelector('[data-select="monitor"]').style.opacity,
+  strip:+app.lamp('hue-monitor').style.opacity,play:+app.lamp('play-left').style.opacity});
+ await app.click(app.stage.querySelector('[data-select="monitor"]'));await app.advance(100);
  assert.equal(app.run('selected'),'monitor');
- assert.equal(app.run('JSON.stringify([...focusKeep()])'),'["monitor"]','the strip is not kept');
- await app.click(app.lamp('hue-monitor'));
+ assert.deepEqual({...opacity()},{monitor:1,strip:0.22,play:0.22},'the strip dims');
+ await app.click(app.lamp('hue-monitor'));await app.advance(100);
  assert.equal(app.run('selected'),'hue-monitor');
- assert.equal(app.run('JSON.stringify([...focusKeep()].sort())'),'["hue-monitor","monitor"]');
+ assert.deepEqual({...opacity()},{monitor:1,strip:1,play:0.22});
 });
 
 test('edits autosave once after 300 ms with If-Match and version 7, undo saves too',async()=>{
