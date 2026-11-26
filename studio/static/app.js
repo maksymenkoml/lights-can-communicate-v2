@@ -46,7 +46,9 @@ const MIGRATED=[
  {id:'play-center',name:'Hue Play Center',model:'Hue Play',shape:'bar',zones:1,scale:50},
  {id:'play-right',name:'Hue Play Right',model:'Hue Play',shape:'bar',zones:1,scale:100}
 ];
-const SHAPES=['floor','strip','bar'];
+const SHAPES=['floor','strip','bar','table'];
+// A table lamp stands on its foot; the middle of its glowing shade is this high above it.
+const TABLE_LENS_CM=17;
 const realDevice=id=>/^device-[a-f0-9]{32}$/.test(id||'');
 // A lamp the core can drive: a discovered device or one of the six migrated lamps.
 const linkable=id=>realDevice(id)||MIGRATED.some(s=>s.id===id);
@@ -60,7 +62,7 @@ const goveeLight=id=>/^govee-/.test(id)||enrolled.get(id)?.provider==='govee';
 // Hue lights take names of up to 32 characters; Govee and layout-only names up to 35.
 const nameLimit=id=>isRole(id)&&!id.startsWith('govee-')?32:35;
 // The drawing form: the monitor strip wraps the monitor; other strips draw as bars.
-const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'?'floor':'bar';
+const formOf=(id,shape)=>id===MONITOR?'strip':shape==='floor'||shape==='table'?shape:'bar';
 // The lamp that wraps the monitor: the Monitor Strip, or in a room without it the first
 // connected light strip (a Hue gradient strip is made for a screen). Any other strip
 // draws as a bar.
@@ -84,7 +86,7 @@ function defaults(){
  return {room:'Office',environment,lamps:[]};
 }
 function monitorWidthCm(inches){return inches*2.54*16/Math.hypot(16,9)}
-function minimumHeight(l,env=environment){if(l.form==='floor')return 0;if(l.form==='strip')return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
+function minimumHeight(l,env=environment){if(l.form==='floor'||l.form==='table')return 0;if(l.form==='strip')return Math.ceil((env.inches*2.54*9/Math.hypot(16,9)/2+4.8)/5)*5;return l.vertical?15:5}
 // Layout anchors must stay within x -200..400 cm and height 0..300 cm (desk_layout);
 // a floor lamp's anchor is its bottom + 60 cm.
 const X_LIMIT=300;
@@ -372,15 +374,17 @@ function syncProjection(l){
  if(l.unbound||l.enabled===false||syncRole(l)!=='sync')return [];
  if(l.form==='floor'){const b=syncBounds(l.x);return Array.from({length:7},(_,i)=>{const lo=l.h+6+i*128/7,hi=l.h+6+(i+1)*128/7,[gain,center]=b?syncSegment(lo,hi,b[1],b[1]-b[0]):[1,(lo+hi)/2];return {point:center===null?null:syncPoint(l.x,center),gain}})}
  if(l.form==='strip'){const width=monitorWidthCm(environment.inches),height=width*9/16;return stripPoints.map(([u,v])=>({point:[u,v],gain:syncGain(l.x+(u-.5)*width,l.h+(v-.5)*height)}))}
- return [{point:syncPoint(l.x,l.h),gain:syncGain(l.x,l.h)}];
+ const h=sampleHeight(l);return [{point:syncPoint(l.x,h),gain:syncGain(l.x,h)}];
 }
+// Where Sync samples a one-zone lamp: a table lamp's shade, else the lamp's position.
+function sampleHeight(l){return l.form==='table'?l.h+TABLE_LENS_CM:l.h}
 function syncSummary(l){const rows=syncProjection(l);return {rows,active:rows.filter(r=>r.gain>1e-8).length}}
 function zoneColor(l,i){
  const colors=liveColors(l),c=colors?.[Math.min(i,colors.length-1)];return c&&c.some(v=>v>0)?rgbHex(light(c).rgb):NEUTRAL_RAY;
 }
 
 // ------------------------------------------------------------- drawing --
-const glyph={floor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 3v17M6 22h10"/><path d="M11 3v13" stroke-width="3" stroke-linecap="round"/></svg>',bar:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="9" width="18" height="6" rx="3"/></svg>',strip:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 20V5h16v15"/></svg>',desk:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 9h20M4 9v12M18 9v12"/></svg>',monitor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="20" height="14" rx="2"/><path d="M11 18v4M6 22h10"/></svg>'};
+const glyph={floor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 3v17M6 22h10"/><path d="M11 3v13" stroke-width="3" stroke-linecap="round"/></svg>',bar:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="9" width="18" height="6" rx="3"/></svg>',strip:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 20V5h16v15"/></svg>',table:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 14V7a5 5 0 0 1 10 0v7Z"/><path d="M6 14h10M7 20h8M9 14.5c1 2 1 3.5-1 5.5M13 14.5c-1 2-1 3.5 1 5.5"/></svg>',desk:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 9h20M4 9v12M18 9v12"/></svg>',monitor:'<svg viewBox="0 0 22 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="20" height="14" rx="2"/><path d="M11 18v4M6 22h10"/></svg>'};
 const closeIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="m5 5 10 10M15 5 5 15"/></svg>';
 const trashIcon='<svg viewBox="-7 -7 14 14" aria-hidden="true"><path d="M-4.4 -3H4.4M-2.2 -3V-4.6H2.2V-3M-3.3 -3l.6 7.4H2.7l.6-7.4"/></svg>';
 const plusIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4v12M4 10h12"/></svg>';
@@ -402,6 +406,7 @@ function lampFrame(l){
  const x=500+l.x*3.3,y=740-l.h*3.3-(l.form==='floor'?224:0);
  if(l.form==='floor')return {x,y,left:x-25,right:x+25,top:y-239,bottom:y+238,ref:740-l.h*3.3};
  if(l.form==='strip'){const w=monitorWidthCm(environment.inches)*3.3/2,h=w*9/16;return {x,y,left:x-w-24,right:x+w+24,top:y-h-24,bottom:y+h+6,ref:y}}
+ if(l.form==='table')return {x,y,left:x-32,right:x+32,top:y-94,bottom:y+6,ref:y};
  return l.vertical?{x,y,left:x-23,right:x+23,top:y-55,bottom:y+55,ref:y}:{x,y,left:x-55,right:x+55,top:y-23,bottom:y+23,ref:y};
 }
 // Labels in the scene (chips, dimension tags, the placement label) keep the UI's type size:
@@ -568,6 +573,15 @@ function lampSvg(l){
   wash='<path class="render-bloom" stroke-width="94" opacity="'+(+(glowOpacity*1.6*a/WASH_LIGHT).toFixed(3))+'" d="'+path+'" style="--wash-a:'+a+';stroke:url(#lens-'+l.id+')"/>';
   off='<path class="lens-off" stroke-width="5" d="'+path+'"/>';
   lens='<path class="render-emission" stroke-width="5" d="'+path+'" style="stroke:url(#lens-'+l.id+')"/><path d="'+path+'" fill="none" stroke="#fff3df" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
+ }else if(l.form==='table'){
+  // Govee Table Lamp 2: a glowing shade with a rounded top over a light ring, a clear
+  // glass foot round a dark waisted core, and a dark base. The origin is the foot.
+  const shade='M-26 -29V-72A14 14 0 0 1 -12 -86H12A14 14 0 0 1 26 -72V-29Z';
+  box='x="-32" y="-94" width="64" height="100"';
+  body='<ellipse class="contact-shadow" cx="3" cy="0" rx="30" ry="4"/><rect x="-24" y="-6" width="48" height="6" rx="2" fill="#2b3442"/><rect class="table-glass" x="-25" y="-26" width="50" height="21" rx="3"/><path d="M-16 -7C-6 -12 -6 -20 -18 -25H18C6 -20 6 -12 16 -7Z" fill="url(#body-metal)" stroke="#526075" stroke-width=".6"/><rect x="-26" y="-29.5" width="52" height="3.5" rx="1.5" fill="#e6ebef" stroke="#9aa6b5" stroke-width=".6"/>';
+  wash='<ellipse class="render-wash" opacity="'+(glowOpacity*1.1)+'" style="--wash-a:'+WASH_LIGHT+'" cx="0" cy="-57" rx="110" ry="100"/><ellipse class="render-wash" opacity="'+(glowOpacity*1.2)+'" style="--wash-a:'+WASH_LIGHT+'" cx="0" cy="-57" rx="60" ry="55"/>';
+  off='<path class="lens-off solid" d="'+shade+'"/>';
+  lens='<path d="'+shade+'" fill="url(#lens-'+l.id+')"/><path class="render-bloom" stroke-width="40" opacity=".25" d="M0 -40V-74"/><path class="object-edge" d="M-21 -36V-70"/>';
  }else{
   box=l.vertical?'x="-23" y="-55" width="46" height="110"':'x="-55" y="-23" width="110" height="46"';
   const rotation=l.vertical?-90:0;
@@ -669,7 +683,7 @@ function syncScreenSvg({cx,cy,mw,mh}){
 function syncZones(l,{cx,cy,mw,mh}){
  const x=500+l.x*3.3;
  return syncProjection(l).map((row,i)=>{
-  const y=740-(l.form==='floor'?l.h+6+(i+.5)*128/7:l.h)*3.3;
+  const y=740-(l.form==='floor'?l.h+6+(i+.5)*128/7:sampleHeight(l))*3.3;
   if(!row.point||row.gain<=0)return {x,y,on:false};
   const [u,v]=row.point;
   return {x,y,on:true,u,v,sx:cx+(u-.5)*mw,sy:cy+(.5-v)*mh,c:zoneColor(l,i)};
@@ -760,7 +774,7 @@ function animateRays(prev){
 function updateStageViewport(){
  if(drag)return;
  const m=strip(),half=environment.inches*2.54*9/Math.hypot(16,9)*3.3/2;
- const top=Math.min(90,740-m.h*3.3-half-28,...activeLamps().map(l=>740-l.h*3.3-(l.form==='floor'?470:l.vertical?65:35)));
+ const top=Math.min(90,740-m.h*3.3-half-28,...activeLamps().map(l=>740-l.h*3.3-(l.form==='floor'?470:l.form==='table'?110:l.vertical?65:35)));
  // Widen the room symmetrically so a lamp placed far from the desk stays visible.
  const reach=Math.max(500,...activeLamps().map(l=>Math.abs(l.x)*3.3+90));
  $('#stage').setAttribute('viewBox',(500-reach)+' '+top+' '+(2*reach)+' '+(830-top));
@@ -776,7 +790,7 @@ function renderList(){$('#count').textContent=activeLamps().length}
 function syncScreen(){
  const w=wrapOf(lamps);
  for(const l of lamps){
-  if(l.form==='floor')continue;
+  if(l.form==='floor'||l.form==='table')continue;
   if(l===w&&l.form!=='strip'){l.barAt={x:l.x,h:l.h};l.x=environment.screen.x;l.h=environment.screen.h}
   else if(l!==w&&l.form==='strip'&&l.barAt){l.x=l.barAt.x;l.h=l.barAt.h;delete l.barAt}
   l.form=l===w?'strip':'bar';
@@ -1562,9 +1576,9 @@ function beginPlacement(id){
  closePanel();cancelPlacement();
  pendingDevice={...entry,form:formOf(entry.id,entry.shape)};$('#app').classList.add('placing');
  const hint=$('#placement-hint');hint.textContent='Click in the room to place '+entry.name+' · Esc to cancel';hint.hidden=false;
- paintPlacementGhost({x:entry.shape==='floor'?105:45,h:entry.shape==='floor'?0:65});
+ paintPlacementGhost({x:entry.shape==='floor'?105:45,h:entry.shape==='floor'?0:entry.shape==='table'?environment.height:65});
 }
-function placementPosition(event){const p=point(event);return {x:clamp(Math.round((p.x-500)/3.3/5)*5,-115,115),h:pendingDevice.form==='floor'?0:clamp(Math.round((740-p.y)/3.3/5)*5,5,160)}}
+function placementPosition(event){const p=point(event);return {x:clamp(Math.round((p.x-500)/3.3/5)*5,-115,115),h:pendingDevice.form==='floor'?0:clamp(Math.round((740-p.y)/3.3/5)*5,pendingDevice.form==='table'?0:5,160)}}
 function paintPlacementGhost(position){
  if(!pendingDevice)return;let ghost=$('#placement-ghost');
  if(!ghost){ghost=document.createElementNS('http://www.w3.org/2000/svg','g');ghost.id='placement-ghost';ghost.classList.add('placement-ghost');ghost.setAttribute('aria-hidden','true');ghost.style.pointerEvents='none';$('#stage').append(ghost)}

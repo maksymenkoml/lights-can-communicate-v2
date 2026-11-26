@@ -377,6 +377,18 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_layout(data)
 
+    def test_a_table_lamp_row_keeps_its_shape_and_may_stand_on_the_floor(self):
+        data = layout()
+        data["devices"].append({"id": "device-" + "d" * 32, "name": "Bedroom Lamp",
+                                "model": "H6022", "shape": "table", "zones": 1, "scale": 80,
+                                "positionCm": {"x": 40, "height": 0}})
+        rows = {row["id"]: row for row in validate_layout(data)["devices"]}
+        table = rows["device-" + "d" * 32]
+        self.assertEqual((table["shape"], table["positionCm"]["height"]), ("table", 0))
+        data["devices"][-1]["shape"] = "lamp"
+        with self.assertRaises(ValueError):
+            validate_layout(data)
+
     def test_any_set_of_rows_is_valid_without_the_six_migrated_lamps(self):
         data = layout()
         data["version"] = 7

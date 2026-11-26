@@ -14,6 +14,8 @@ _BRIDGE = re.compile(r"[0-9a-fA-F]{16}")
 _ROLE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 _PROFILES = {
     ("govee", "H6076"): ("floor", 7, 136, None),
+    # Table Lamp 2: one color through colorwc until its segments are tested live.
+    ("govee", "H6022"): ("table", 1, 26, 16),
     ("hue", "440400982841"): ("bar", 1, None, 25),
     ("hue", "440400982842"): ("bar", 1, None, 25),
     ("hue", "LCX005"): ("strip", 9, None, None),

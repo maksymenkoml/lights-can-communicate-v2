@@ -20,6 +20,9 @@ _ROLE_GEOMETRY = {
     "play-center": POINT,
     "play-right": POINT,
 }
+# A table lamp's position is its foot; Sync samples the screen for the middle of
+# its glowing shade, this high above the foot (Light Studio draws it the same way).
+TABLE_LENS_CM = 17
 # A native light with several channels and no known geometry spreads them evenly
 # along its orientation around its position, this far apart.
 CHANNEL_SPACING_CM = 10
@@ -66,6 +69,8 @@ def zone_points(row, screen, zones=1):
         return [(center["x"] + u * width, center["height"] + v * height)
                 for u, v in SCREEN_ANCHORS]
     x, height = row["positionCm"]["x"], row["positionCm"]["height"]
+    if row.get("shape") == "table":
+        height += TABLE_LENS_CM
     offsets = [(index - (zones - 1) / 2) * CHANNEL_SPACING_CM for index in range(zones)]
     if row.get("orientation") == "vertical":
         return [(x, height + offset) for offset in offsets]
