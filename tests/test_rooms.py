@@ -297,6 +297,9 @@ class RoomManagementTests(unittest.TestCase):
         self.rooms.place_sync_box(None)
         self.rooms.save(FIRST_ROOM, screenless)
         self.assertNotIn("screen", self.rooms.store(FIRST_ROOM).snapshot())
+        # A room without a saved layout has no screen either.
+        (self.state / "rooms" / (room + ".json")).unlink()
+        self.refused("no_screen", self.rooms.place_sync_box, room)
 
     def test_restore_puts_back_the_rooms_and_their_layouts(self):
         room = self.rooms.create("Bedroom")

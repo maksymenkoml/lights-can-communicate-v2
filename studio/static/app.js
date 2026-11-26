@@ -97,7 +97,8 @@ function calibrationOf(v){const c={};for(const [k,[lo,hi]] of Object.entries(CAL
 const calibrated=c=>!!c&&Object.keys(CALIBRATION).some(k=>c[k]);
 // Layout version 8 lists the room's furniture and the screen stands on one piece. Older
 // files had one desk at the room axis and a monitor on it; they read as that version 8.
-const LAYOUT_VERSION=8,MIGRATED_DESK='piece-00000001';
+const LAYOUT_VERSION=8,MIGRATED_DESK='piece-00000001',SCREEN_INCHES={monitor:[19,55],tv:[32,100]};
+const FOREIGN_ROOM='Light Studio cannot edit the furniture of this room yet';
 function currentLayout(data){
  if(!data||typeof data!=='object'||![3,4,5,6,7,LAYOUT_VERSION].includes(data.version)||!Array.isArray(data.devices))return null;
  const result=clone(data);
@@ -116,9 +117,10 @@ const supportOf=layout=>layout?.screen?layout.furniture?.find(p=>p?.id===layout.
 function fromLayout(source){
  const data=currentLayout(source),desk=supportOf(data);
  // Light Studio draws one desk under a monitor: the screen's support is that desk.
- if(!data||!desk||desk.kind!=='desk')return null;
- const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,19,55,32),
-  furniture:clone(data.furniture),support:desk.id,
+ if(!data||!desk||desk.kind!=='desk'||!SCREEN_INCHES[data.screen.kind])return null;
+ const [low,high]=SCREEN_INCHES[data.screen.kind];
+ const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,low,high,clamp(32,low,high)),
+  furniture:data.furniture,support:desk.id,screenKind:data.screen.kind,
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
@@ -158,7 +160,7 @@ function pack(m={room,environment,lamps}){
  // The desk keeps its id and place; other pieces pass through unchanged.
  const support=env.support??MIGRATED_DESK,pieces=env.furniture??[{id:support,kind:'desk',x:DESK_CENTER}];
  return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:pieces.map(p=>p.id===support?{...clone(p),width:env.width,height:env.height}:clone(p)),
-  screen:{kind:'monitor',positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:support},
+  screen:{kind:env.screenKind??'monitor',positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:support},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
   // A strip that wraps the monitor in place of the Monitor Strip keeps its own saved place.
@@ -910,7 +912,7 @@ function changeField(key,value){
   environment[key]=clamp(Math.round(value/5)*5,key==='width'?80:50,key==='width'?240:120);
   if(key==='height'){strip().h+=environment.height-previous;clampFixture(strip())}
  }else if(selected==='monitor'){
-  if(key==='inches')environment.inches=clamp(Math.round(value),19,55);else strip()[key]=value;
+  if(key==='inches')environment.inches=clamp(Math.round(value),...SCREEN_INCHES[environment.screenKind??'monitor']);else strip()[key]=value;
   clampFixture(strip());
  }else if(l){l[key]=key==='x'?value+(l.form==='strip'?0:strip().x):value;clampFixture(l)}
  recordChange(before);renderScene();renderHistory();
@@ -1620,11 +1622,13 @@ function applyModel(m){
 }
 function mergeLayouts(base,local,remote){
  // Older files read as version 8, so an older baseline is no local change by itself.
- [base,local,remote]=[base,local,remote].map(currentLayout);
- const result=clone(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+ const result=currentLayout(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+ [base,local]=[base,local].map(currentLayout);
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
  field(result,'room',base.room,local.room);
- field(result,'screen',base.screen,local.screen);
+ // Screen fields merge one by one, so a local resize keeps a remote change of support.
+ if(result.screen&&base.screen&&local.screen)for(const key of ['kind','positionCm','inches','on'])field(result.screen,key,base.screen[key],local.screen[key]);
+ else field(result,'screen',base.screen,local.screen);
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
  for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
  // Canonical responses also omit fade switches at their defaults.
@@ -1667,7 +1671,9 @@ async function flushLayout(){
    const response=await fetch(layoutUrl(),{method:'POST',headers:{'Content-Type':'application/json','If-Match':'"'+(revision||'')+'"'},body:JSON.stringify(payload)});
    if(response.status===409&&conflicts++<2){
     const current=await fetch(layoutUrl(),{cache:'no-store'});if(!current.ok)throw new Error('offline');
-    reconcile(await current.json(),base);pendingLayout=pack(committedModel());continue;
+    const fresh=await current.json();
+    if(fresh.layout&&!fromLayout(fresh.layout)){serverReady=false;setDraftState('error');tell(FOREIGN_ROOM);return}
+    reconcile(fresh,base);pendingLayout=pack(committedModel());continue;
    }
    if(!response.ok){pendingLayout=pendingLayout||payload;throw new Error('save');}
    acceptBaseline(await response.json());if(!pendingLayout)store.remove(KEY+'-pending');offlineNotice=false;
@@ -1693,6 +1699,8 @@ async function connectLayout(retried=false){
   if(!response.ok)throw new Error('offline');
   const saved=await response.json(),hasLocalEdits=editGeneration>0||!!store.get(KEY+'-pending');
   if(generation!==roomGeneration)return;
+  // A room this page cannot draw yet (no desk under its screen) is never overwritten.
+  if(saved.layout&&!fromLayout(saved.layout)){serverReady=false;setDraftState('error');tell(FOREIGN_ROOM);return}
   revision=saved.revision;
   if(saved.layout){
    if(hasLocalEdits)reconcile(saved);
@@ -2210,10 +2218,11 @@ function roomThumb(layout){
  if(!desk)return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true"></svg>';
  layout=current;
  const X=x=>20+(x+40)*160/320,Y=h=>100-h*80/220,len=v=>v*80/220;
- const dw=desk.width,dh=desk.height,sw=layout.screen.inches*2.54*16/Math.hypot(16,9),sh=sw*9/16,sx=layout.screen.positionCm.x,sy=layout.screen.positionCm.height;
+ // The desk is drawn around its own centre, like the screen on it.
+ const dl=desk.x-desk.width/2,dr=desk.x+desk.width/2,dh=desk.height,sw=layout.screen.inches*2.54*16/Math.hypot(16,9),sh=sw*9/16,sx=layout.screen.positionCm.x,sy=layout.screen.positionCm.height;
  let out='<line class="rc-floor" x1="8" y1="100" x2="192" y2="100"/>'
-  +'<rect class="rc-desk" x="'+X(0)+'" y="'+Y(dh)+'" width="'+(X(dw)-X(0))+'" height="3"/>'
-  +'<path class="rc-leg" d="M'+X(6)+' '+Y(dh)+'V100M'+X(dw-6)+' '+Y(dh)+'V100"/>'
+  +'<rect class="rc-desk" x="'+X(dl)+'" y="'+Y(dh)+'" width="'+(X(dr)-X(dl))+'" height="3"/>'
+  +'<path class="rc-leg" d="M'+X(dl+6)+' '+Y(dh)+'V100M'+X(dr-6)+' '+Y(dh)+'V100"/>'
   +'<rect class="rc-screen" x="'+X(sx-sw/2)+'" y="'+Y(sy+sh/2)+'" width="'+(X(sx+sw/2)-X(sx-sw/2))+'" height="'+len(sh)+'" rx="1"/>';
  for(const d of layout.devices||[])if(d.enabled!==false&&d.positionCm)out+='<circle class="rc-lamp" cx="'+X(d.positionCm.x)+'" cy="'+Y(d.positionCm.height)+'" r="4"/>';
  return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true">'+out+'</svg>';

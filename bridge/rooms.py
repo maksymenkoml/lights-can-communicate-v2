@@ -491,8 +491,9 @@ class Rooms:
             index = self.index()
             if room is not None:
                 self._known(room, index)
+                # A room without a saved layout has no screen either.
                 layout = self.store(room).snapshot()
-                if layout is not None and "screen" not in layout:
+                if layout is None or "screen" not in layout:
                     raise RoomRefused("no_screen")
             index["sync"] = room
             self.write_index(index)

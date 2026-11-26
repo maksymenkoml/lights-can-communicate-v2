@@ -1068,6 +1068,47 @@ test('version 8 keeps the desk id and place and passes other furniture through',
  assert.equal(app.run('fromLayout('+JSON.stringify(bare)+')'),null);
 });
 
+test('a TV on the desk keeps its kind and size through an edit',async()=>{
+ const app=await harness();
+ const layout=canonical(saved());layout.screen={...layout.screen,kind:'tv',inches:65};
+ app.run('applyModel(fromLayout('+JSON.stringify(layout)+'))');
+ assert.equal(app.run('environment.inches'),65);
+ app.run('lamps[0].scale=40');
+ const packed=json(app,'pack()');
+ assert.deepEqual([packed.screen.kind,packed.screen.inches],['tv',65]);
+ app.run('select("monitor");changeField("inches",120)');
+ assert.equal(app.run('environment.inches'),100,'a TV is sized in its own range');
+});
+
+test('a local resize keeps a remote change of the screen support',async()=>{
+ const app=await harness();
+ const merge=(base,local,remote)=>JSON.parse(app.run('JSON.stringify(mergeLayouts('+JSON.stringify(base)+','+JSON.stringify(local)+','+JSON.stringify(remote)+'))'));
+ const base=canonical(saved()),local=json(app,'pack()'),remote=canonical(saved());
+ local.screen.inches=40;
+ remote.furniture=[{id:'piece-0000beef',kind:'desk',x:100,width:160,height:85}];remote.screen.on='piece-0000beef';
+ const merged=merge(base,local,remote);
+ assert.deepEqual([merged.screen.on,merged.screen.inches],['piece-0000beef',40]);
+ assert.deepEqual(merged.furniture.map(p=>p.id),['piece-0000beef']);
+});
+
+test('a room thumbnail draws the desk around its own centre',async()=>{
+ const app=await harness();
+ const layout=canonical(saved());layout.furniture[0]={...layout.furniture[0],x:250,width:80};layout.screen.positionCm.x=250;
+ const svg=app.run('roomThumb('+JSON.stringify(layout)+')');
+ const desk=/class="rc-desk" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(svg),screen=/class="rc-screen" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(svg);
+ const centre=m=>+m[1]+ +m[2]/2;
+ assert.ok(Math.abs(centre(desk)-centre(screen))<0.01,'the screen stands in the middle of its desk');
+});
+
+test('a room this page cannot draw yet is never overwritten',async()=>{
+ const layout=canonical(saved());layout.furniture[0]={...layout.furniture[0],kind:'cabinet'};
+ const app=await harness({layout});
+ assert.equal(app.$('#toast').textContent,'Light Studio cannot edit the furniture of this room yet');
+ // An edit is kept in this browser only.
+ app.run('environment.width=200;save()');await app.advance(300);
+ assert.equal(app.posts.length,0);
+});
+
 test('a stale save merges a remote screen change like one field',async()=>{
  const app=await harness();
  const merge=(base,local,remote)=>JSON.parse(app.run('JSON.stringify(mergeLayouts('+JSON.stringify(base)+','+JSON.stringify(local)+','+JSON.stringify(remote)+'))'));

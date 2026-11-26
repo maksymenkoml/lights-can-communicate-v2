@@ -104,13 +104,6 @@ def validate_zone(value):
 FLOOR_REFERENCE = {"x": 100, "width": 200, "height": 0}
 
 
-def _reference(layout):
-    """The piece a zone is relative to: the screen's support, else the floor."""
-    from desk_layout import screen_support
-
-    return screen_support(layout) or FLOOR_REFERENCE
-
-
 def default_zone(layout):
     """Build the automatic world polygon with the existing 15 cm side fade below the
     top of the screen's support, or None when the screen stands on nothing."""
@@ -145,10 +138,12 @@ def zone_points(layout, key="syncZone"):
     """Resolve a saved zone (``syncZone`` or ``sceneZone``) into world points, or None
     without a saved zone and a piece under the screen. A saved zone is relative to
     the screen's support (``u`` a fraction of its half width, ``h`` from its top)."""
+    from desk_layout import screen_support
+
     zone = validate_zone(layout.get(key))
     if zone is None:
         return default_zone(layout)
-    reference = _reference(layout)
+    reference = screen_support(layout) or FLOOR_REFERENCE
     return [{"x": reference["x"] + point["u"] * reference["width"] / 2,
              "height": reference["height"] + point["h"]}
             for point in zone["points"]]
