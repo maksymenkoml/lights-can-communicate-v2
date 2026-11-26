@@ -69,6 +69,14 @@ class EventJournalTests(unittest.TestCase):
         self.assertEqual(data(next(stream)), [{"value": "b"}])
         self.assertEqual(data(next(stream)), [{"value": "c"}])
 
+    def test_the_id_just_before_the_oldest_kept_event_misses_nothing_and_replays(self):
+        for value in range(5):
+            self.journal.publish({"value": value})
+        # The journal keeps events 3-5: a client that last got 2 missed only those.
+        stream = self.connect("123:2")
+        self.assertEqual([data(next(stream)) for _ in range(3)],
+                         [[{"value": 2}], [{"value": 3}], [{"value": 4}]])
+
     def test_old_future_malformed_and_previous_boot_ids_carry_on_from_now(self):
         for value in range(5):
             self.journal.publish({"value": value})

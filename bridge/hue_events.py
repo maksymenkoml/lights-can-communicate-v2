@@ -30,21 +30,18 @@ class EventJournal:
         return (cursor is not None and 0 <= cursor <= self.sequence
                 and (not self.rows or cursor >= self.rows[0][0] - 1))
 
-    def _after(self, cursor):
-        """The retained events after ``cursor``; a reader too slow for the journal
-        skips the events it lost and gets the oldest ones still kept."""
-        return [row for row in self.rows if row[0] > cursor]
-
     def frame(self, sequence, encoded):
         return f"id: {self.epoch}:{sequence}\ndata: {encoded}\n\n"
 
     def stream(self, last_id=None):
         """Yield the events after ``last_id``, then each new one, like a Hue bridge.
 
-        A subscriber reads the state over REST and then follows the events. One that
-        resumes with an ``id`` still in the journal gets the events it missed; any
-        other (new, older than the journal, from a previous boot) carries on from
-        now. It never gets a full state snapshot: tens of kilobytes on each
+        A client subscribes first and then reads the state over REST, applying the
+        events that arrive meanwhile. One that resumes with the ``id`` of the last
+        event it got gets the events it missed while all of them are still in the
+        journal; any other (new, missed events already dropped, from a previous
+        boot) carries on from now, and a reader too slow for the journal skips the
+        events it lost. It never gets a full state snapshot: tens of kilobytes on each
         reconnect make the Hue Sync Box drop the stream, treat the bridge as lost
         and restart its Entertainment session, which ends Sync (#70).
         """
@@ -59,10 +56,9 @@ class EventJournal:
         yield ": hi\n\n"
         while True:
             with self.condition:
-                batch = self._after(cursor)
-                if not batch:
+                if not self.rows or self.rows[-1][0] <= cursor:
                     self.condition.wait(timeout=self.heartbeat)
-                    batch = self._after(cursor)
+                batch = [row for row in self.rows if row[0] > cursor]
             if batch:
                 for sequence, encoded in batch:
                     cursor = sequence
