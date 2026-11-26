@@ -1089,6 +1089,9 @@ test('a local resize keeps a remote change of the screen support',async()=>{
  const merged=merge(base,local,remote);
  assert.deepEqual([merged.screen.on,merged.screen.inches],['piece-0000beef',40]);
  assert.deepEqual(merged.furniture.map(p=>p.id),['piece-0000beef']);
+ // A local resize does not carry over to a TV set elsewhere: the TV keeps its size.
+ const tv=canonical(saved());tv.screen={...tv.screen,kind:'tv',inches:65};
+ assert.deepEqual([merge(base,local,tv).screen.kind,merge(base,local,tv).screen.inches],['tv',65]);
 });
 
 test('a room thumbnail draws the desk around its own centre',async()=>{
@@ -1098,6 +1101,10 @@ test('a room thumbnail draws the desk around its own centre',async()=>{
  const desk=/class="rc-desk" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(svg),screen=/class="rc-screen" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(svg);
  const centre=m=>+m[1]+ +m[2]/2;
  assert.ok(Math.abs(centre(desk)-centre(screen))<0.01,'the screen stands in the middle of its desk');
+ // A desk far right still fits the card.
+ layout.furniture[0].x=400;layout.screen.positionCm.x=400;
+ const far=app.run('roomThumb('+JSON.stringify(layout)+')'),edge=/class="rc-desk" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(far);
+ assert.ok(+edge[1]>=0&&+edge[1]+ +edge[2]<=200,'the desk is inside the 200-wide card');
 });
 
 test('a room this page cannot draw yet is never overwritten',async()=>{

@@ -119,7 +119,7 @@ function fromLayout(source){
  // Light Studio draws one desk under a monitor: the screen's support is that desk.
  if(!data||!desk||desk.kind!=='desk'||!SCREEN_INCHES[data.screen.kind])return null;
  const [low,high]=SCREEN_INCHES[data.screen.kind];
- const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,low,high,clamp(32,low,high)),
+ const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,low,high,32),
   furniture:data.furniture,support:desk.id,screenKind:data.screen.kind,
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
@@ -1627,8 +1627,11 @@ function mergeLayouts(base,local,remote){
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
  field(result,'room',base.room,local.room);
  // Screen fields merge one by one, so a local resize keeps a remote change of support.
- if(result.screen&&base.screen&&local.screen)for(const key of ['kind','positionCm','inches','on'])field(result.screen,key,base.screen[key],local.screen[key]);
- else field(result,'screen',base.screen,local.screen);
+ // A size belongs to its kind: after a remote change of kind the remote size stays.
+ if(result.screen&&base.screen&&local.screen){
+  for(const key of ['kind','positionCm','on'])field(result.screen,key,base.screen[key],local.screen[key]);
+  if(result.screen.kind===local.screen.kind)field(result.screen,'inches',base.screen.inches,local.screen.inches);
+ }else field(result,'screen',base.screen,local.screen);
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
  for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
  // Canonical responses also omit fade switches at their defaults.
@@ -2217,9 +2220,12 @@ function roomThumb(layout){
  const current=currentLayout(layout),desk=supportOf(current);
  if(!desk)return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true"></svg>';
  layout=current;
- const X=x=>20+(x+40)*160/320,Y=h=>100-h*80/220,len=v=>v*80/220;
  // The desk is drawn around its own centre, like the screen on it.
  const dl=desk.x-desk.width/2,dr=desk.x+desk.width/2,dh=desk.height,sw=layout.screen.inches*2.54*16/Math.hypot(16,9),sh=sw*9/16,sx=layout.screen.positionCm.x,sy=layout.screen.positionCm.height;
+ // The card shows at least -40..280 cm and widens to fit the desk, the screen and every lamp.
+ const xs=(layout.devices||[]).filter(d=>d.enabled!==false&&d.positionCm).map(d=>d.positionCm.x);
+ const lo=Math.min(-40,dl,sx-sw/2,...xs.map(x=>x-10)),hi=Math.max(280,dr,sx+sw/2,...xs.map(x=>x+10));
+ const X=x=>20+(x-lo)*160/(hi-lo),Y=h=>100-h*80/220,len=v=>v*80/220;
  let out='<line class="rc-floor" x1="8" y1="100" x2="192" y2="100"/>'
   +'<rect class="rc-desk" x="'+X(dl)+'" y="'+Y(dh)+'" width="'+(X(dr)-X(dl))+'" height="3"/>'
   +'<path class="rc-leg" d="M'+X(dl+6)+' '+Y(dh)+'V100M'+X(dr-6)+' '+Y(dh)+'V100"/>'
