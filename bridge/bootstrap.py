@@ -640,26 +640,7 @@ if not (state / "live-output-hold").exists():
     scene_play_intent.replay()
 
 
-def current_event_snapshot():
-    with play_guard.lock:
-        # Capture before reading: layout metadata has an independent writer.
-        # Its concurrent updates are replayed after this snapshot, never skipped.
-        cursor = event_journal.position()
-        created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        resources = [lamp.getV2Api() for lamp in config["lights"].values()]
-        for group in config["groups"].values():
-            if group.id_v1 == "0" or group.type in {"Room", "Zone"}:
-                resources.append(group.getV2GroupedLight())
-            elif group.type == "Entertainment":
-                resources.append(group.getV2Api())
-        resources.extend(scene.getV2Api() for scene in config["scenes"].values())
-        return cursor, {
-            "creationtime": created,
-            "id": str(uuid.uuid4()), "type": "update", "data": resources,
-        }
-
-
-install_event_route(app, event_journal, current_event_snapshot,
+install_event_route(app, event_journal,
                     authorize=lambda headers: "user" in v2restapi.authorizeV2(headers))
 
 

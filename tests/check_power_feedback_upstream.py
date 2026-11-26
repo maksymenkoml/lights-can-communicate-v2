@@ -31,7 +31,7 @@ ORIGINAL_GROUP_API = Group.Group.getV2GroupedLight
 ORIGINAL_SLEEP = Light.sleep
 ORIGINAL_PUBLICATION = Light.StreamEvent
 FUNCTIONS = {"forward_selected_state", "resume_power_color", "publish_power_groups",
-             "advertise_selected_power", "power_aware_light_api", "current_event_snapshot"}
+             "advertise_selected_power", "power_aware_light_api"}
 
 
 class UpstreamFeedbackTests(unittest.TestCase):
@@ -158,12 +158,9 @@ class UpstreamFeedbackTests(unittest.TestCase):
         self.assertEqual(self.guard.generations.get("2"), generation)
 
     def test_actual_light_alias_delivers_to_both_readers_after_legacy_queue_clear(self):
-        first = JOURNAL.stream(self.ns["current_event_snapshot"])
-        second = JOURNAL.stream(self.ns["current_event_snapshot"])
+        first, second = JOURNAL.stream(), JOURNAL.stream()
         for stream in (first, second):
-            next(stream)
-            snapshot = next(stream)
-            self.assertIn('"entertainment_configuration"', snapshot)
+            self.assertEqual(next(stream), ": hi\n\n")
         self.feedback.refresh_once()
         HueObjects.eventstream.clear()
         for stream in (first, second):
@@ -172,10 +169,10 @@ class UpstreamFeedbackTests(unittest.TestCase):
             self.assertEqual(payload[0]["data"][0]["id"], "light-2")
             self.assertFalse(payload[0]["data"][0]["on"]["on"])
 
-    def test_flask_stream_route_emits_snapshot_and_live_events_with_resume_cursor(self):
+    def test_flask_stream_route_emits_live_events_and_replays_after_a_resume_cursor(self):
         app = Flask(__name__)
         app.add_url_rule("/eventstream/clip/v2", "stream.streamV2Events", lambda: "legacy")
-        install_event_route(app, JOURNAL, self.ns["current_event_snapshot"],
+        install_event_route(app, JOURNAL,
                             authorize=lambda headers: headers.get("hue-application-key") == "test")
         with app.test_client() as client:
             self.assertEqual(client.get("/eventstream/clip/v2").status_code, 403)
@@ -184,11 +181,13 @@ class UpstreamFeedbackTests(unittest.TestCase):
             try:
                 self.assertEqual(response.mimetype, "text/event-stream")
                 frames = iter(response.response)
+                # Like a Hue bridge: no state snapshot, only the events from now (#70).
                 self.assertEqual(next(frames), b": hi\n\n")
-                snapshot = next(frames).decode()
-                cursor = snapshot.splitlines()[0][4:]
                 self.feedback.refresh_once()
-                self.assertIn('"on":{"on":false}', next(frames).decode())
+                event = next(frames).decode()
+                self.assertIn('"on":{"on":false}', event)
+                epoch, sequence = event.splitlines()[0][4:].split(":")
+                cursor = epoch + ":" + str(int(sequence) - 1)
             finally:
                 response.close()
             response = client.get("/eventstream/clip/v2",
@@ -201,29 +200,16 @@ class UpstreamFeedbackTests(unittest.TestCase):
             finally:
                 response.close()
 
-    def test_area_update_during_snapshot_is_replayed_after_the_snapshot(self):
-        area = self.groups["90"]
-        original = area.getV2Api
-        published = []
-
-        def racing_area():
-            old = original()
-            if not published:
-                published.append(True)
-                ORIGINAL_PUBLICATION({"type": "update", "data": [{
-                    "id": old["id"], "type": "entertainment_configuration",
-                    "metadata": {"name": "new geometry"},
-                }]})
-            return old
-
-        area.getV2Api = racing_area
-        stream = JOURNAL.stream(self.ns["current_event_snapshot"])
-        next(stream)
-        snapshot = next(stream)
-        cursor = int(snapshot.splitlines()[0].rsplit(":", 1)[1])
-        self.assertLess(cursor, JOURNAL.position())
-        self.assertIn('"name":"new geometry"', next(stream))
-
+    def test_a_new_reader_gets_no_state_snapshot_only_later_area_updates(self):
+        stream = JOURNAL.stream()
+        self.assertEqual(next(stream), ": hi\n\n")
+        ORIGINAL_PUBLICATION({"type": "update", "data": [{
+            "id": "test-entertainment", "type": "entertainment_configuration",
+            "metadata": {"name": "new geometry"},
+        }]})
+        frame = next(stream)
+        self.assertIn('"name":"new geometry"', frame)
+        self.assertNotIn('"type":"light"', frame)
 
 if __name__ == "__main__":
     unittest.main()
