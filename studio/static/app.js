@@ -97,7 +97,7 @@ function calibrationOf(v){const c={};for(const [k,[lo,hi]] of Object.entries(CAL
 const calibrated=c=>!!c&&Object.keys(CALIBRATION).some(k=>c[k]);
 // Layout version 8 lists the room's furniture and the screen stands on one piece. Older
 // files had one desk at the room axis and a monitor on it; they read as that version 8.
-const LAYOUT_VERSION=8,MIGRATED_DESK='piece-00000001',SCREEN_INCHES={monitor:[19,55],tv:[32,100]};
+const LAYOUT_VERSION=8,MIGRATED_DESK='piece-00000001',DISPLAY_INCHES=[19,100];
 const FOREIGN_ROOM='Light Studio cannot edit the furniture of this room yet';
 function currentLayout(data){
  if(!data||typeof data!=='object'||![3,4,5,6,7,LAYOUT_VERSION].includes(data.version)||!Array.isArray(data.devices))return null;
@@ -109,7 +109,7 @@ function currentLayout(data){
  delete result.desk;delete result.monitorInches;
  result.version=LAYOUT_VERSION;
  result.furniture=[{id:MIGRATED_DESK,kind:'desk',x:DESK_CENTER,width:data.desk.width,height:data.desk.height}];
- result.screen={kind:'monitor',positionCm:clone(position),inches:data.screen?.inches??data.monitorInches,on:MIGRATED_DESK};
+ result.screen={positionCm:clone(position),inches:data.screen?.inches??data.monitorInches,on:MIGRATED_DESK};
  return result;
 }
 // The piece the screen stands on.
@@ -117,10 +117,9 @@ const supportOf=layout=>layout?.screen?layout.furniture?.find(p=>p?.id===layout.
 function fromLayout(source){
  const data=currentLayout(source),desk=supportOf(data);
  // Light Studio draws one desk under a monitor: the screen's support is that desk.
- if(!data||!desk||desk.kind!=='desk'||!SCREEN_INCHES[data.screen.kind])return null;
- const [low,high]=SCREEN_INCHES[data.screen.kind];
- const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,low,high,32),
-  furniture:data.furniture,support:desk.id,screenKind:data.screen.kind,
+ if(!data||!desk||desk.kind!=='desk')return null;
+ const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,...DISPLAY_INCHES,32),
+  furniture:data.furniture,support:desk.id,
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
@@ -160,7 +159,7 @@ function pack(m={room,environment,lamps}){
  // The desk keeps its id and place; other pieces pass through unchanged.
  const support=env.support??MIGRATED_DESK,pieces=env.furniture??[{id:support,kind:'desk',x:DESK_CENTER}];
  return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:pieces.map(p=>p.id===support?{...clone(p),width:env.width,height:env.height}:clone(p)),
-  screen:{kind:env.screenKind??'monitor',positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:support},
+  screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:support},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
   // A strip that wraps the monitor in place of the Monitor Strip keeps its own saved place.
@@ -912,7 +911,7 @@ function changeField(key,value){
   environment[key]=clamp(Math.round(value/5)*5,key==='width'?80:50,key==='width'?240:120);
   if(key==='height'){strip().h+=environment.height-previous;clampFixture(strip())}
  }else if(selected==='monitor'){
-  if(key==='inches')environment.inches=clamp(Math.round(value),...SCREEN_INCHES[environment.screenKind??'monitor']);else strip()[key]=value;
+  if(key==='inches')environment.inches=clamp(Math.round(value),...DISPLAY_INCHES);else strip()[key]=value;
   clampFixture(strip());
  }else if(l){l[key]=key==='x'?value+(l.form==='strip'?0:strip().x):value;clampFixture(l)}
  recordChange(before);renderScene();renderHistory();
@@ -1627,11 +1626,8 @@ function mergeLayouts(base,local,remote){
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
  field(result,'room',base.room,local.room);
  // Screen fields merge one by one, so a local resize keeps a remote change of support.
- // A size belongs to its kind: after a remote change of kind the remote size stays.
- if(result.screen&&base.screen&&local.screen){
-  for(const key of ['kind','positionCm','on'])field(result.screen,key,base.screen[key],local.screen[key]);
-  if(result.screen.kind===local.screen.kind)field(result.screen,'inches',base.screen.inches,local.screen.inches);
- }else field(result,'screen',base.screen,local.screen);
+ if(result.screen&&base.screen&&local.screen)for(const key of ['positionCm','inches','on'])field(result.screen,key,base.screen[key],local.screen[key]);
+ else field(result,'screen',base.screen,local.screen);
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
  for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
  // Canonical responses also omit fade switches at their defaults.

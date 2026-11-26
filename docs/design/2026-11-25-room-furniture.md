@@ -22,14 +22,15 @@ takes colors from the screen.
 ## Goals
 
 - A room holds any number of desks and cabinets (a nightstand or a TV stand),
-  each with its own width and height, and at most one screen: a monitor or a TV.
+  each with its own width and height, and at most one screen: a display. A
+  monitor and a TV are the same object; only the size differs (owner's note).
 - A new room starts empty: lamps only. Existing rooms keep their desk and
   monitor.
 - The owner adds a piece from the panel, places it in the room like a found
   lamp, moves and resizes it with the handles a desk has today, and removes it
   with an inline confirmation.
 - A table lamp or a Play released over a piece of furniture stands on its top.
-- Sync works with a TV on a cabinet exactly as with a monitor on a desk.
+- Sync works with a display on a cabinet exactly as with one on a desk.
 - The Sync Box can be registered only in a room with a screen.
 
 ## Non-goals
@@ -85,7 +86,7 @@ The owner approved approach 1 as part of this design.
     {"id": "piece-1a2b3c4d", "kind": "desk", "x": 100, "width": 160, "height": 85},
     {"id": "piece-5e6f7a8b", "kind": "cabinet", "x": 230, "width": 45, "height": 55}
   ],
-  "screen": {"kind": "monitor", "positionCm": {"x": 100, "height": 110}, "inches": 32,
+  "screen": {"positionCm": {"x": 100, "height": 110}, "inches": 32,
              "on": "piece-1a2b3c4d"},
   "devices": [...]
 }
@@ -95,8 +96,8 @@ The owner approved approach 1 as part of this design.
   in centimeters on the five-cm grid. Ranges: desk width 80–240 and height
   50–120 (as today); cabinet width 20–300 and height 20–150. Ids are
   `piece-` plus eight hex digits, unique in the layout. At most 12 pieces.
-- `screen` is optional. `kind` is `monitor` (19–55″) or `tv` (32–100″).
-  `positionCm` is the screen center, as today.
+- `screen` is optional: one display, 19–100″, with no kind. `positionCm` is the
+  screen center, as today.
 - **The support of the screen** is stored in `screen.on`: a piece id, or null
   for a screen that hangs on the wall. Light Studio sets it whenever the screen
   is placed or released: the highest piece whose top is at or below the screen
@@ -125,8 +126,8 @@ The owner approved approach 1 as part of this design.
 - The Sync Box lies on the screen's support (on the floor under a hanging
   screen). `syncBox.x` keeps its meaning.
 - Registering the Sync Box in a room without a screen is refused
-  (`RoomRefused("no_screen")`). Light Studio shows "Add a monitor or TV to this
-  room first" and does not offer "Move here". Removing the screen of the Sync
+  (`RoomRefused("no_screen")`). Light Studio shows "Add a display to this room
+  first" and does not offer "Move here". Removing the screen of the Sync
   Box room is refused the same way ("The Sync Box needs a screen").
 - The Monitor Strip wraps the screen when there is one. Without a screen every
   strip, the `hue-monitor` row included, is an ordinary row with its own
@@ -157,9 +158,9 @@ moving or resizing a piece later does not move lamps. *(Builder's call.)*
     Govee H6022 · …   80%
   Furniture        2
     Nightstand  45×55 cm   🗑
-    TV 55″                 🗑
+    Display 55″            🗑
   Add furniture
-    + Desk  + Nightstand  + Monitor  + TV
+    + Desk  + Nightstand  + Display
   Found  …
   Sync Box …
   ```
@@ -169,16 +170,16 @@ moving or resizing a piece later does not move lamps. *(Builder's call.)*
 - **Adding:** a "+" starts placement like a found lamp: a ghost follows the
   pointer on the five-cm grid, and a click places it. A desk or cabinet stands on
   the floor at the clicked x. A screen is placed at the clicked point. With a
-  screen already in the room, "+ Monitor" and "+ TV" are disabled ("One screen
-  per room").
+  display already in the room, "+ Display" is disabled ("One display per
+  room").
 - **Editing:** a selected desk or cabinet has the desk's handles today (width
-  and height knobs, dimension labels you can type into, x drag). A TV has the
-  monitor's (diagonal knob, height above its support).
+  and height knobs, dimension labels you can type into, x drag). The display has
+  the monitor's handles today (diagonal knob, height above its support).
 - **Removing:** the trash on the row or the Delete key, always with the inline
   Cancel/Remove confirmation.
-- **Drawings:** desk and monitor stay. New drawings for the cabinet and the TV
-  (a thin bezel and a slim stand or feet) in the "drafting" style; the owner
-  picks among variants first.
+- **Drawings:** desk and the display (today's monitor drawing, labelled
+  Display) stay. A new drawing for the cabinet in the "drafting" style; the
+  owner picks among variants first.
 - The stage viewport fits every piece, lamp and the screen, as it fits lamps
   today.
 
@@ -191,13 +192,13 @@ Each stage is one PR, verified live on the NAS before it is offered.
    `no_screen` refusal. Light Studio reads and writes version 8 with the same
    look (the migrated desk and monitor); new rooms still get a desk and a
    monitor until stage 2 can draw a room without them.
-2. **Light Studio furniture:** variants of the cabinet and TV drawings first,
+2. **Light Studio furniture:** variants of the cabinet drawing first,
    then the Objects panel, adding, editing and removing pieces, empty new rooms,
    snapping lamps onto tops, and the Sync Box and screen rules in the panel.
 
 ## Verification
 
-- Offline: migration of every older version (pieces, screen kind, zones
+- Offline: migration of every older version (pieces, the display, zones
   unchanged in world coordinates); support derivation (stacked and side-by-side
   pieces, hanging screen); zones and box on a cabinet; `no_screen` on register
   and on screen removal; Sync composition of a migrated layout equals the
@@ -205,12 +206,12 @@ Each stage is one PR, verified live on the NAS before it is offered.
   one-screen rule.
 - Live on the NAS: the owner's office and Anna's office unchanged after
   migration, PS5 Sync unchanged; Bedroom without a desk and monitor, with a
-  nightstand and the table lamp standing on it; a test room with a TV on a
+  nightstand and the table lamp standing on it; a test room with a display on a
   cabinet takes the Sync Box and Sync follows it, then the box goes back.
 
 ## Left to the builder
 
-- The exact snap distance and the cabinet and TV size ranges above.
+- The exact snap distance and the cabinet size range above.
 - The zone reference of a room without a screen support (proposed above).
 - How dimension labels name a cabinet's size.
 - Ids for migrated desks (`piece-` plus a stable hash of the room id is fine).

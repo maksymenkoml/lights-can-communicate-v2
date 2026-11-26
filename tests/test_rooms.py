@@ -187,10 +187,9 @@ class RoomManagementTests(unittest.TestCase):
         layout = self.rooms.store(room).snapshot()
         self.assertEqual((layout["room"], layout["devices"], layout["screen"]["inches"]),
                          ("Bedroom", [], 32))
-        self.assertEqual((layout["version"], layout["furniture"], layout["screen"]["kind"],
-                          layout["screen"]["on"]),
+        self.assertEqual((layout["version"], layout["furniture"], layout["screen"]["on"]),
                          (8, [{"id": "piece-00000001", "kind": "desk", "x": 100,
-                               "width": 160, "height": 85}], "monitor", "piece-00000001"))
+                               "width": 160, "height": 85}], "piece-00000001"))
         self.assertEqual(self.rooms.index()["sync"], FIRST_ROOM)
         for name in ("", "   ", "x" * 41, 5):
             self.refused("invalid_name", self.rooms.create, name)

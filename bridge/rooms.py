@@ -70,7 +70,7 @@ def new_layout(name):
             # The desk centre is x 100, as in Light Studio: the screen stands in the middle.
             "furniture": [{"id": MIGRATED_DESK, "kind": "desk", "x": 100,
                            "width": 160, "height": 85}],
-            "screen": {"kind": "monitor", "positionCm": {"x": 100, "height": 110},
+            "screen": {"positionCm": {"x": 100, "height": 110},
                        "inches": 32, "on": MIGRATED_DESK},
             "devices": []}
 

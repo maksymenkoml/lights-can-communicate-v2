@@ -860,8 +860,8 @@ Not every room has a desk and a monitor (design:
 `furniture`, a list of up to 12 pieces `{"id": "piece-<8 hex>", "kind", "x",
 "width", "height"}` in centimeters on the 5 cm grid (x -200..400). A `desk` is
 80-240 wide and 50-120 high, a `cabinet` 20-300 wide and 20-150 high. The
-`screen` is optional and adds `kind` (`monitor` 19-55", `tv` 32-100") and `on`, the
-id of the piece it stands on or null. Files of version 3-7 load as version 8: the
+`screen` is optional: one display (a monitor or a TV alike, 19-100") that adds `on`,
+the id of the piece it stands on or null. Files of version 3-7 load as version 8: the
 desk becomes the piece `piece-00000001` at the room axis (x 100) and the screen a
 monitor on it, so saved zones resolve to the same world points.
 
@@ -871,7 +871,7 @@ width 100, top 0) and the automatic zone is absent: every gain is 1 and a light
 whose geometry needs the screen is projected as a point. The Sync Box needs a
 screen: `Rooms.place_sync_box` and a layout write to the Sync room without one are
 refused with `no_screen` (HTTP 409 in Light Studio). Light Studio still draws one
-desk under a monitor; it keeps the desk's id and place and passes other pieces
+desk under a display; it keeps the desk's id and place and passes other pieces
 through. `STATE_SCHEMAS["desk_layout"]` is 8, so a rollback restores the
 pre-upgrade layout.
 

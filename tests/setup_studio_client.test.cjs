@@ -161,7 +161,7 @@ function canonical(layout){
  const screen=result.screen??{positionCm:structuredClone(result.devices.find(row=>row.id==='hue-monitor').positionCm),inches:result.monitorInches};
  if(result.desk){
   result.furniture=[{id:'piece-00000001',kind:'desk',x:100,width:result.desk.width,height:result.desk.height}];
-  result.screen={kind:'monitor',positionCm:screen.positionCm,inches:screen.inches,on:'piece-00000001'};
+  result.screen={positionCm:screen.positionCm,inches:screen.inches,on:'piece-00000001'};
  }
  delete result.monitorInches;delete result.desk;
  result.syncZone??=null;result.sceneZone??=null;result.syncFalloff??=true;result.sceneFalloff??=false;
@@ -326,7 +326,7 @@ test('edits autosave once after 300 ms with If-Match and version 8, undo saves t
  await app.advance(1);assert.equal(app.posts.length,1);
  assert.equal(app.posts[0].ifMatch,'"r1"');assert.equal(app.posts[0].body.version,8);
  assert.equal(app.posts[0].body.monitorInches,undefined);
- assert.deepEqual(app.posts[0].body.screen,{kind:'monitor',positionCm:{x:100,height:110},inches:32,on:'piece-00000001'});
+ assert.deepEqual(app.posts[0].body.screen,{positionCm:{x:100,height:110},inches:32,on:'piece-00000001'});
  assert.deepEqual(app.posts[0].body.devices[3].positionCm,{x:75,height:40});
  assert.equal(app.$('#draft-status').dataset.state,'saved');
  // Rapid edits coalesce into one request.
@@ -1061,23 +1061,24 @@ test('version 8 keeps the desk id and place and passes other furniture through',
  app.run('applyModel(fromLayout('+JSON.stringify(layout)+'));environment.width=150');
  const packed=json(app,'pack()');
  assert.deepEqual(packed.furniture,[layout.furniture[0],{id:'piece-12345678',kind:'desk',x:100,width:150,height:75}]);
- assert.deepEqual([packed.version,packed.screen.kind,packed.screen.on],[8,'monitor','piece-12345678']);
+ assert.deepEqual([packed.version,packed.screen.on],[8,'piece-12345678']);
  // A screen without a desk under it is not this page's model yet.
  assert.equal(app.run('fromLayout('+JSON.stringify({...layout,screen:{...layout.screen,on:'piece-0000abcd'}})+')'),null);
  const bare=structuredClone(layout);delete bare.screen;
  assert.equal(app.run('fromLayout('+JSON.stringify(bare)+')'),null);
 });
 
-test('a TV on the desk keeps its kind and size through an edit',async()=>{
+test('a 65-inch display (a TV) keeps its size through an edit',async()=>{
  const app=await harness();
- const layout=canonical(saved());layout.screen={...layout.screen,kind:'tv',inches:65};
+ const layout=canonical(saved());layout.screen={...layout.screen,inches:65};
  app.run('applyModel(fromLayout('+JSON.stringify(layout)+'))');
  assert.equal(app.run('environment.inches'),65);
  app.run('lamps[0].scale=40');
  const packed=json(app,'pack()');
- assert.deepEqual([packed.screen.kind,packed.screen.inches],['tv',65]);
+ assert.equal(packed.screen.inches,65);
+ assert.equal('kind' in packed.screen,false,'one display kind');
  app.run('select("monitor");changeField("inches",120)');
- assert.equal(app.run('environment.inches'),100,'a TV is sized in its own range');
+ assert.equal(app.run('environment.inches'),100,'a display is 19-100 inches');
 });
 
 test('a local resize keeps a remote change of the screen support',async()=>{
@@ -1089,9 +1090,6 @@ test('a local resize keeps a remote change of the screen support',async()=>{
  const merged=merge(base,local,remote);
  assert.deepEqual([merged.screen.on,merged.screen.inches],['piece-0000beef',40]);
  assert.deepEqual(merged.furniture.map(p=>p.id),['piece-0000beef']);
- // A local resize does not carry over to a TV set elsewhere: the TV keeps its size.
- const tv=canonical(saved());tv.screen={...tv.screen,kind:'tv',inches:65};
- assert.deepEqual([merge(base,local,tv).screen.kind,merge(base,local,tv).screen.inches],['tv',65]);
 });
 
 test('a room thumbnail draws the desk around its own centre',async()=>{
@@ -1106,7 +1104,7 @@ test('a room thumbnail draws the desk around its own centre',async()=>{
  const far=app.run('roomThumb('+JSON.stringify(layout)+')'),edge=/class="rc-desk" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(far);
  assert.ok(+edge[1]>=0&&+edge[1]+ +edge[2]<=200,'the desk is inside the 200-wide card');
  // A tall TV fits too.
- layout.screen={...layout.screen,kind:'tv',inches:100,positionCm:{x:400,height:235}};
+ layout.screen={...layout.screen,inches:100,positionCm:{x:400,height:235}};
  const tall=/class="rc-screen" x="[\d.]+" y="(-?[\d.]+)"/.exec(app.run('roomThumb('+JSON.stringify(layout)+')'));
  assert.ok(+tall[1]>=0,'the top of the TV is inside the card');
 });

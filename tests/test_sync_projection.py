@@ -29,7 +29,7 @@ def current(data):
     monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
     result["furniture"] = [{"id": MIGRATED_DESK, "kind": "desk", "x": 100,
                             **result.pop("desk")}]
-    result["screen"] = {"kind": "monitor", "positionCm": copy.deepcopy(monitor["positionCm"]),
+    result["screen"] = {"positionCm": copy.deepcopy(monitor["positionCm"]),
                         "inches": result.pop("monitorInches"), "on": MIGRATED_DESK}
     result["version"] = 8
     return result

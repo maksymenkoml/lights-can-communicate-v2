@@ -143,8 +143,7 @@ class LayoutTests(unittest.TestCase):
         data["monitorInches"] = 43
         data["devices"][2]["positionCm"] = {"x": 60, "height": 130}
         result = validate_layout(data)
-        self.assertEqual(result["screen"], {"kind": "monitor",
-                                            "positionCm": {"x": 60, "height": 130},
+        self.assertEqual(result["screen"], {"positionCm": {"x": 60, "height": 130},
                                             "inches": 43, "on": MIGRATED_DESK})
         self.assertNotIn("monitorInches", result)
         monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
@@ -185,8 +184,8 @@ class LayoutTests(unittest.TestCase):
                 result = validate_layout(data)
                 self.assertEqual(result["furniture"], [{"id": MIGRATED_DESK, "kind": "desk",
                                                         "x": 100, "width": 140, "height": 75}])
-                self.assertEqual((result["screen"]["kind"], result["screen"]["on"]),
-                                 ("monitor", MIGRATED_DESK))
+                self.assertEqual(set(result["screen"]), {"positionCm", "inches", "on"})
+                self.assertEqual(result["screen"]["on"], MIGRATED_DESK)
                 self.assertNotIn("desk", result)
                 self.assertNotIn("monitorInches", result)
                 self.assertEqual(screen_support(result)["id"], MIGRATED_DESK)
@@ -226,10 +225,11 @@ class LayoutTests(unittest.TestCase):
                          "without a screen the strip keeps its own place")
         hanging = validate_layout({**base, "screen": {**base["screen"], "on": None}})
         self.assertIsNone(screen_support(hanging))
-        tv = {**base["screen"], "kind": "tv", "inches": 100}
+        # One display kind: a monitor and a TV are both 19-100 inches.
+        tv = {**base["screen"], "inches": 100}
         self.assertEqual(validate_layout({**base, "screen": tv})["screen"]["inches"], 100)
-        for bad in ({**base["screen"], "on": "piece-0000000f"}, {**base["screen"], "inches": 56},
-                    {**base["screen"], "kind": "projector"}, {**tv, "inches": 31}):
+        for bad in ({**base["screen"], "on": "piece-0000000f"}, {**base["screen"], "inches": 101},
+                    {**base["screen"], "inches": 18}, {**base["screen"], "kind": "tv"}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 validate_layout({**base, "screen": bad})
 
@@ -239,7 +239,7 @@ class LayoutTests(unittest.TestCase):
             lambda s: s.pop("inches"),
             lambda s: s.pop("positionCm"),
             lambda s: s.update(inches=18),
-            lambda s: s.update(inches=56),
+            lambda s: s.update(inches=101),
             lambda s: s.update(inches=True),
             lambda s: s.update(inches=float("nan")),
             lambda s: s["positionCm"].update(x=102),

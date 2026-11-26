@@ -14,7 +14,7 @@ def layout():
     return {
         "furniture": [{"id": "piece-00000001", "kind": "desk", "x": 100,
                        "width": 160, "height": 85}],
-        "screen": {"kind": "monitor", "positionCm": {"x": 100, "height": 110},
+        "screen": {"positionCm": {"x": 100, "height": 110},
                    "inches": math.hypot(80, 45) / 2.54, "on": "piece-00000001"},
         "devices": [
             {"id": key, "positionCm": {"x": x, "height": height}}
@@ -210,7 +210,7 @@ class SyncZoneTests(unittest.TestCase):
         data = layout()
         data["furniture"].append({"id": "piece-0000000a", "kind": "cabinet", "x": 230,
                                   "width": 60, "height": 50})
-        data["screen"].update(kind="tv", on="piece-0000000a",
+        data["screen"].update(on="piece-0000000a",
                               positionCm={"x": 230, "height": 90})
         points = default_zone(data)
         self.assertEqual({point["height"] for point in points[:2]}, {50})
