@@ -82,7 +82,17 @@ def _govee_colors(native):
     return None
 
 
+# How much of a white's blackbody tint the preview keeps. The eye adapts to white
+# light, so 2700 K reads as warm white, not as the orange its RGB is.
+WHITE_TINT = 0.4
+
+
 def _temperature(kelvin):
+    """The preview color of white light at ``kelvin``: white with its warm or cool tint."""
+    return [round(255 - (255 - channel) * WHITE_TINT) for channel in _blackbody(kelvin)]
+
+
+def _blackbody(kelvin):
     temperature = kelvin / 100
     red = 255 if temperature <= 66 else 329.698727446 * (temperature - 60) ** -0.1332047592
     green = (

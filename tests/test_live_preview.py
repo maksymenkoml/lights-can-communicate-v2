@@ -181,7 +181,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(self.lamp(key="hue-monitor")["colors"][0], [51, 0, 0])
         self.store.record_hue("hue-monitor", {"color_temperature": {"mirek": 250}})
         self.assertEqual(len(self.lamp(key="hue-monitor")["colors"]), 1)
-        self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 41, 33]])
+        self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 47, 44]])
         self.store.record_hue("hue-monitor", {"color": {"xy": {"x": 0.7, "y": 0.299}}})
         self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 0, 0]])
 
@@ -191,7 +191,7 @@ class PreviewTests(unittest.TestCase):
         self.send(
             self.device, "colorwc", {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 4000}
         )
-        self.assertEqual(self.lamp()["colors"], [[51, 41, 33]])
+        self.assertEqual(self.lamp()["colors"], [[51, 47, 44]])
 
     def test_a_govee_scene_shows_the_white_or_color_the_lamp_reports(self):
         # The core's last command (2150 K) is outside what the lamp shows now: it
@@ -205,10 +205,10 @@ class PreviewTests(unittest.TestCase):
                 brightness=63, color=dict(zip("rgb", color)), colorTemInKelvin=kelvin)
             return status
 
-        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 105, 55]])
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 139, 118]])
         self.assertEqual(self.lamp(reported((255, 0, 0), 0))["colors"], [[161, 0, 0]])
         # Without a reading (an effect mode reports neither) the command stays.
-        self.assertEqual(self.lamp(reported((0, 0, 0), 0))["colors"], [[161, 91, 21]])
+        self.assertEqual(self.lamp(reported((0, 0, 0), 0))["colors"], [[161, 133, 105]])
         # Segment colors of a scene are not replaced by the lamp's single color.
         self.send(self.device, "ptReal", segment_data([(255, 0, 0)] * 7))
         self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 0, 0]] * 7)
@@ -485,10 +485,10 @@ class ProducerTests(unittest.TestCase):
         client.native["color_temperature"] = {"mirek": 250, "mirek_valid": True}
         proxy.process_once()
         lamp = build_preview(metadata(), store.snapshot())["lamps"]["play-center"]
-        self.assertEqual(lamp["colors"], [[128, 103, 83]], "a white light shows its temperature")
+        self.assertEqual(lamp["colors"], [[128, 118, 110]], "a white light shows its temperature")
         client.native["mode"] = "streaming"
         proxy.process_once()
-        self.assertEqual(store.snapshot()["play-center"]["colors"], [[255, 206, 166]],
+        self.assertEqual(store.snapshot()["play-center"]["colors"], [[255, 235, 219]],
                          "a streaming light keeps the last read-back")
 
     def test_a_light_outside_sync_shows_its_scene_in_every_mode(self):
