@@ -8,7 +8,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import ROLES  # noqa: E402
 from govee_models import MODELS  # noqa: E402
-from light_geometry import GEOMETRIES, geometry_for, segment_spans, zone_points  # noqa: E402
+from light_geometry import (  # noqa: E402
+    GEOMETRIES,
+    TABLE_LENS_CM,
+    geometry_for,
+    segment_spans,
+    zone_points,
+)
 
 SCREEN = {"positionCm": {"x": 100, "height": 110}, "inches": math.hypot(80, 45) / 2.54}
 
@@ -83,6 +89,11 @@ class LightGeometryTests(unittest.TestCase):
                                      SCREEN), [(5, 15)])
         self.assertEqual(segment_spans(row("play-left")), [])
 
+
+    def test_a_table_lamp_is_sampled_at_its_shade_above_the_foot(self):
+        table = row("device-" + "c" * 32, model="H6022", x=30, height=75)
+        table["shape"] = "table"
+        self.assertEqual(zone_points(table, SCREEN), [(30, 75 + TABLE_LENS_CM)])
 
 if __name__ == "__main__":
     unittest.main()

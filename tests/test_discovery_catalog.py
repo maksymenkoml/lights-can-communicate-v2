@@ -164,6 +164,14 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(item["supported"])
                 self.assertNotIn("output", item)
 
+    def test_the_table_lamp_two_is_a_one_zone_table_lamp(self):
+        self.scan(sku="H6022")
+        item = self.one()
+        self.assertEqual((item["shape"], item["zones"], item["height_cm"], item["width_cm"]),
+                         ("table", 1, 26, 16))
+        self.assertTrue(item["supported"])
+        self.assertTrue(item["selectable"])
+
     def test_unknown_models_and_plugs_remain_visible_without_color_capability(self):
         self.scan(sku="H5080")
         item = self.one()

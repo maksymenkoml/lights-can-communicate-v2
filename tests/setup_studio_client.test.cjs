@@ -486,6 +486,27 @@ test('placing a found lamp adds a configuration-only device row with its canonic
  assert.equal(app.$('#lamp-panel').querySelector('[data-place]'),null);
 });
 
+test('a table lamp stands on the desk by default, keeps its shape and draws a shade',async()=>{
+ const table=discovered({model:'H6022',shape:'table',zones:1,height_cm:26,width_cm:16,name:'Bedroom Lamp'});
+ const app=await harness({discovery:{connected:true,devices:[table],providers:{govee:'ready',hue:'ready'}}});
+ await app.click(app.$('#list-toggle'));
+ const found=app.$('#lamp-panel').querySelector('[data-place]');
+ assert.ok(found,'a table lamp can be placed');
+ assert.ok(!found.closest('.lp-row').classList.contains('unavailable'));
+ await app.click(found);
+ const ghost=app.$('#placement-ghost');
+ assert.equal(json(app,"lampFrame({form:'table',x:0,h:0}).bottom-lampFrame({form:'table',x:0,h:0}).ref"),6);
+ assert.ok(ghost.querySelector('.table-glass'),'the ghost is a table lamp');
+ // The foot stands on the surface clicked, down to the floor.
+ app.dispatch(app.stage,'pointerdown',{clientX:500+40*3.3,clientY:740});await app.settle();
+ await app.advance(300);
+ const row=app.posts.at(-1).body.devices.at(-1);
+ assert.deepEqual([row.shape,row.zones,row.positionCm],['table',1,{x:140,height:0}]);
+ const lamp=app.lamp(table.id);
+ assert.ok(lamp.querySelector('path.lens-off.solid'),'an unlit shade is black');
+ assert.equal(json(app,"lamps.find(l=>l.id==='"+table.id+"').form"),'table','a table lamp never wraps the monitor');
+ assert.equal(json(app,"sampleHeight(lamps.find(l=>l.id==='"+table.id+"'))"),17,'Sync samples its shade');
+});
 test('removing asks inline, keeps the place, and Found returns the lamp',async()=>{
  const app=await harness();
  await app.click(app.$('#list-toggle'));

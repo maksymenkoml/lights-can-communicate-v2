@@ -152,6 +152,13 @@ class StudioTests(unittest.TestCase):
                              {"govee": "discovering", "hue": "not_configured"})
             self.assertNotIn("private-token", json.dumps(result))
 
+    def test_discovery_projection_keeps_a_table_lamp(self):
+        table = catalog_device(model="H6022", shape="table", zones=1, height_cm=26,
+                               width_cm=16)
+        with discovery_server(lambda: {"connected": True, "devices": [table],
+                                       "providers": {"govee": "ready"}}) as request:
+            self.assertEqual(request()["devices"][0]["shape"], "table")
+
     def test_malformed_layout_posts_return_validation_errors_without_losing_saved_geometry(self):
         with discovery_server(lambda: {}) as request:
             saved = request("/api/layout", layout())

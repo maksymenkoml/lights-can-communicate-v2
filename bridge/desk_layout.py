@@ -56,6 +56,8 @@ LAYOUT_VERSIONS = (3, 4, 5, 6, LAYOUT_VERSION)
 CALIBRATION_RANGES = {"warmth": (-100, 100), "tint": (-100, 100), "lowLight": (0, 100)}
 CALIBRATION_ROWS = ("govee-left", "govee-right")
 DEVICE_ROW = re.compile(r"device-[a-f0-9]{32}\Z")
+# Drawing shapes of a lamp: floor lamp, light strip, bar (a Play) and table lamp.
+SHAPES = ("floor", "strip", "bar", "table")
 # Fade switches are stored only when they differ from these defaults.
 FALLOFF_DEFAULTS = {"syncFalloff": True, "sceneFalloff": False}
 # "off" switches a role lamp off for each Sync session (see sync_off.py); only the
@@ -237,7 +239,7 @@ def validate_layout(value):
         if key.startswith("virtual-"):
             shape, name = row.get("shape"), row.get("name", "Нова лампа")
             if (
-                shape not in ("floor", "strip", "bar")
+                shape not in SHAPES
                 or not isinstance(name, str)
                 or len(name) > 35
             ):
@@ -248,7 +250,7 @@ def validate_layout(value):
                                         ("name", "model", "shape", "zones"))
             if (not isinstance(name, str) or not 1 <= len(name) <= 80
                     or not isinstance(model, str) or not 1 <= len(model) <= 64
-                    or shape not in ("floor", "strip", "bar")
+                    or shape not in SHAPES
                     or type(zones) is not int or not 1 <= zones <= 32):
                 raise ValueError("Invalid identity-bound layout metadata")
             device.update(name=name, model=model, shape=shape, zones=zones)
@@ -300,6 +302,9 @@ def minimum_anchor_height(device, monitor_inches):
              else device.get('shape'))
     if shape == 'floor':
         return 60
+    if shape == 'table':
+        # A table lamp stands on its foot: the anchor is the surface it stands on.
+        return 0
     return 15 if shape == 'bar' and device.get('orientation') == 'vertical' else 5
 
 

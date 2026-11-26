@@ -167,6 +167,9 @@ h1,h2,p{margin:0}
 /* An unlit lens or zone reads as black: the lit lens fades over it by brightness. */
 .lens-off{fill:#05080c}
 path.lens-off{fill:none;stroke:#05080c;stroke-linecap:round;stroke-linejoin:round}
+path.lens-off.solid{fill:#05080c;stroke:none}
+/* The clear glass foot of a table lamp. */
+.table-glass{fill:#e8eef4;fill-opacity:.35;stroke:#9aa6b5;stroke-width:.8}
 /* A watermark printed into the picture, like a shop display's demo mode, not a label over it. */
 .screen-demo{font-weight:600;letter-spacing:.3em;text-transform:uppercase;fill:#fff;fill-opacity:.42;pointer-events:none;transition:opacity .28s ease}
 

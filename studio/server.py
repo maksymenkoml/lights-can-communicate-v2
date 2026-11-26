@@ -83,7 +83,7 @@ def public_catalog(data):
         if any(not isinstance(row.get(key), str) or not 1 <= len(row[key]) <= bound
                for key, bound in (("name", 80), ("model", 64))):
             continue
-        if row.get("shape") not in ("floor", "strip", "bar", None):
+        if row.get("shape") not in ("floor", "strip", "bar", "table", None):
             continue
         zones = row.get("zones")
         if zones is not None and (type(zones) is not int or not 1 <= zones <= 32):
