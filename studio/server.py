@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
-from desk_layout import LAYOUT_VERSION, ROLES  # noqa: E402
+from desk_layout import LAYOUT_VERSION, ROLES, SHAPES  # noqa: E402
 from hue_bridge_pairing import (  # noqa: E402
     BridgeError,
     Configured,
@@ -83,7 +83,7 @@ def public_catalog(data):
         if any(not isinstance(row.get(key), str) or not 1 <= len(row[key]) <= bound
                for key, bound in (("name", 80), ("model", 64))):
             continue
-        if row.get("shape") not in ("floor", "strip", "bar", "table", None):
+        if row.get("shape") is not None and row["shape"] not in SHAPES:
             continue
         zones = row.get("zones")
         if zones is not None and (type(zones) is not int or not 1 <= zones <= 32):
