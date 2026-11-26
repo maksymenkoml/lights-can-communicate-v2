@@ -2227,11 +2227,11 @@ function roomThumb(layout){
  const placed=layout.devices.filter(d=>d.enabled!==false&&d.positionCm),xs=placed.map(d=>d.positionCm.x);
  const lo=Math.min(-40,dl,sx-sw/2,...xs.map(x=>x-10)),hi=Math.max(280,dr,sx+sw/2,...xs.map(x=>x+10));
  const top=Math.max(220,sy+sh/2,...placed.map(d=>d.positionCm.height+10));
- const X=x=>20+(x-lo)*160/(hi-lo),Y=h=>100-h*80/top,len=v=>v*80/top;
+ const scaleY=80/top,X=x=>20+(x-lo)*160/(hi-lo),Y=h=>100-h*scaleY;
  let out='<line class="rc-floor" x1="8" y1="100" x2="192" y2="100"/>'
   +'<rect class="rc-desk" x="'+X(dl)+'" y="'+Y(dh)+'" width="'+(X(dr)-X(dl))+'" height="3"/>'
   +'<path class="rc-leg" d="M'+X(dl+6)+' '+Y(dh)+'V100M'+X(dr-6)+' '+Y(dh)+'V100"/>'
-  +'<rect class="rc-screen" x="'+X(sx-sw/2)+'" y="'+Y(sy+sh/2)+'" width="'+(X(sx+sw/2)-X(sx-sw/2))+'" height="'+len(sh)+'" rx="1"/>';
+  +'<rect class="rc-screen" x="'+X(sx-sw/2)+'" y="'+Y(sy+sh/2)+'" width="'+(X(sx+sw/2)-X(sx-sw/2))+'" height="'+sh*scaleY+'" rx="1"/>';
  for(const d of placed)out+='<circle class="rc-lamp" cx="'+X(d.positionCm.x)+'" cy="'+Y(d.positionCm.height)+'" r="4"/>';
  return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true">'+out+'</svg>';
 }
