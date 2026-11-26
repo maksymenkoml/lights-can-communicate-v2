@@ -339,7 +339,8 @@ function reportedPower(l){
 }
 function livePower(l){
  const live=reportedPower(l),p=powerPending.get(l.id);
- if(p&&liveAt>p.started){if(live.on!==p.on)p.left=true;else if(p.base!==p.on||p.left)p.seen=true}
+ // Only a reading of the opposite state counts as leaving; an unknown one does not.
+ if(p&&liveAt>p.started){if(live.on===!p.on)p.left=true;else if(live.on===p.on&&(p.base!==p.on||p.left))p.seen=true}
  if(p&&p.sent&&(p.seen||performance.now()>p.until))powerPending.delete(l.id);
  else if(p)return {on:p.on,can:live.can,held:live.held,busy:!p.sent,pending:true};
  return live;
@@ -373,7 +374,7 @@ async function switchPower(l,on){
   const body=await response.json().catch(()=>({}));ok=response.ok&&body.accepted===true;reason=body.reason||'';
  }catch{}
  if(ok){entry.sent=true;entry.until=performance.now()+POWER_SETTLE_MS}
- else{if(powerPending.get(l.id)===entry)powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
+ else{powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
  paintPower();
  if(ok)setTimeout(paintPower,POWER_SETTLE_MS+50);
 }

@@ -1108,6 +1108,9 @@ test('the power mark is a button: only a primary click switches, it stays dimmed
  app.run('switchPower(lamps.find(l=>l.id==="play-left"),false)');await app.settle();release();await app.settle();
  await app.advance(200);
  assert.equal(json(app,'powerPending.size'),1,'not settled by the old Off');
+ // An unknown reading is not a transition: the old Off after it still does not settle.
+ state.on=null;await app.advance(200);state.on=false;await app.advance(200);
+ assert.equal(json(app,'powerPending.size'),1,'not settled after unknown, then the old Off');
  state.on=true;await app.advance(200);state.on=false;await app.advance(200);
  assert.equal(json(app,'powerPending.size'),0,'settled after On, then Off');
 });
