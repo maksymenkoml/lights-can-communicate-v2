@@ -1105,6 +1105,10 @@ test('a room thumbnail draws the desk around its own centre',async()=>{
  layout.furniture[0].x=400;layout.screen.positionCm.x=400;
  const far=app.run('roomThumb('+JSON.stringify(layout)+')'),edge=/class="rc-desk" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(far);
  assert.ok(+edge[1]>=0&&+edge[1]+ +edge[2]<=200,'the desk is inside the 200-wide card');
+ // A tall TV fits too.
+ layout.screen={...layout.screen,kind:'tv',inches:100,positionCm:{x:400,height:235}};
+ const tall=/class="rc-screen" x="[\d.]+" y="(-?[\d.]+)"/.exec(app.run('roomThumb('+JSON.stringify(layout)+')'));
+ assert.ok(+tall[1]>=0,'the top of the TV is inside the card');
 });
 
 test('a room this page cannot draw yet is never overwritten',async()=>{
