@@ -209,17 +209,29 @@ function movableFixture(){
 }
 // The Sync Box moves along the desktop only; it keeps a place of its own once it has moved.
 function clampMovable(l){
- if(l.kind==='cabinet'){l.x=clamp(Math.round(l.x/STEP)*STEP,-X_LIMIT,X_LIMIT);delete l.h;return}
+ if(l.kind==='cabinet'){l.x=clamp(Math.round(l.x/STEP)*STEP,-X_LIMIT,X_LIMIT);return}
  if(l.kind!=='box'){clampFixture(l);if(l.form==='table')l.h=surfaceNear(l.x,l.h);return}
  l.x=clampBoxX(l.x);l.h=0;
  if(!environment.box&&l.x!==boxX())environment.box=l;
 }
 // An edit of a piece keeps the table lamps standing on it there: moved with it and at its
-// new top or, once off it (narrowed or removed), on the nearest top under them.
+// new top or, once off it (narrowed or removed), on the highest top below where they stood.
+// A drag resolves every step from the riders and the piece as they were when it began, so
+// narrowing and widening back within one drag leaves a lamp where it was.
+const covers=(p,x)=>!!p&&Math.abs(x-p.x)<=p.width/2;
+function surfaceBelow(x,h){return Math.max(0,...[deskPiece(),...(environment.cabinets??[])].filter(p=>covers(p,x)&&p.height<=h).map(p=>p.height))}
+function ridersOf(get){
+ const p0=get();
+ return {x0:p0?.x,list:p0?lamps.filter(l=>l.form==='table'&&covers(p0,l.x)&&l.h===p0.height).map(l=>({id:l.id,x:l.x,h:l.h})):[]};
+}
+function seatRiders(get,start){
+ const p=get();
+ for(const r of start.list){const l=lamps.find(l=>l.id===r.id);if(!l)continue;l.x=p?p.x+r.x-start.x0:r.x;clampFixture(l);l.h=covers(p,l.x)?p.height:surfaceBelow(l.x,r.h)}
+}
 function keepRiders(get,edit){
- const p0=get(),list=p0?lamps.filter(l=>l.form==='table'&&Math.abs(l.x-p0.x)<=p0.width/2&&l.h===p0.height).map(l=>({l,dx:l.x-p0.x})):[];
- edit();const p=get();
- for(const r of list){if(p)r.l.x=p.x+r.dx;clampFixture(r.l);r.l.h=p&&Math.abs(r.l.x-p.x)<=p.width/2?p.height:surfaceNear(r.l.x,r.l.h)}
+ // During a drag the riders are taken once, at its first step.
+ const start=drag?drag.riders??=ridersOf(get):ridersOf(get);
+ edit();seatRiders(get,start);
 }
 function selectionFocus(){return ['monitor','box'].includes(selected)||isCabinet(selected)?'[data-select="'+selected+'"]':'[data-lamp="'+selected+'"]'}
 function snapshot(){return JSON.stringify({lamps,environment})}
@@ -467,10 +479,10 @@ function atScreenSize(x,y,inner){return '<g transform="translate('+x+' '+y+') sc
 // Every object chip has one shape. A lamp chip is one button (name, status, chevron) that
 // opens the lamp card; other actions (rotate, fade) sit after a divider.
 function chipSvg(centerX,bottom,title,status,actions){
- const more=actions.some(a=>a.id==='more'),moreLabel=actions.find(a=>a.id==='more')?.label||'',rest=actions.filter(a=>a.id!=='more'),bw=24;
+ const more=actions.find(a=>a.id==='more'),rest=actions.filter(a=>a.id!=='more'),bw=24;
  const main=title.length*6.9+(more?14:18)+(status?status.length*6.2+8:0)+(more?20:0),w=main+(rest.length?7+rest.length*bw:0);
  let out='<g class="obj-chip" transform="translate('+centerX+' '+bottom+') scale('+(+labelUnit.toFixed(4))+') translate('+(-w/2)+' -24)"><rect width="'+w+'" height="24" rx="5"/>';
- if(more)out+='<g class="chip-main'+(menuOpen?' open':'')+'" data-chip-action="more" role="button" aria-label="'+esc(moreLabel)+'" aria-expanded="'+menuOpen+'"><rect class="chip-hit" x="1" y="1" width="'+(main-2)+'" height="22" rx="4"/>';
+ if(more)out+='<g class="chip-main'+(menuOpen?' open':'')+'" data-chip-action="more" role="button" aria-label="'+esc(more.label)+'" aria-expanded="'+menuOpen+'"><rect class="chip-hit" x="1" y="1" width="'+(main-2)+'" height="22" rx="4"/>';
  out+='<text x="10" y="15.8">'+esc(title)+(status?'<tspan class="chip-status" dx="7">'+esc(status)+'</tspan>':'')+'</text>';
  if(more)out+='<g class="chev" transform="translate('+(main-13)+' 12)"><path d="M-3.2 -1.4 0 1.6 3.2 -1.4"/></g></g>';
  if(rest.length)out+='<line class="chip-sep" x1="'+(main+3)+'" x2="'+(main+3)+'" y1="5" y2="19"/>';
@@ -1163,7 +1175,7 @@ function cardMenu(l){
 // A piece of furniture has a card too: its name, its size and Remove from layout.
 const furnitureId=id=>id==='desk'||id==='monitor'||isCabinet(id);
 function furnitureCard(id){
- const name=isCabinet(id)?CABINET.name:FURNITURE[id].name,c=cabinetOf(id),info=c?c.width+' × '+c.height+' cm':furnitureInfo(id);
+ const c=cabinetOf(id),name=c?CABINET.name:FURNITURE[id].name,info=c?c.width+' × '+c.height+' cm':furnitureInfo(id);
  return '<div class="card-head">'+iconBtn(closeIcon,'Close',{'data-menu':'close','data-tooltip':'Close · Esc'},'card-close')+'<input class="card-name" value="'+esc(name)+'" aria-label="Name" readonly>'
   +'<div class="card-sub">'+esc(info)+'</div></div>'
   +'<div class="card-list card-end"><button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button></div>';
@@ -1262,7 +1274,6 @@ function settleLinks(){
 function paintLink(){if(drag)return;render();paintPanel();if(menuOpen&&!cal)refreshCard()}
 function furnitureAction(id,menu){
  const piece=selected,name=isCabinet(piece)?CABINET.name:FURNITURE[piece].name;
- if(id==='close'){closeObjectMenu();$('#stage').querySelector('[data-chip-action="more"]')?.focus();return true}
  if(id==='remove'){
   const refusal=isCabinet(piece)?'':furnitureRefusal(piece);if(refusal){tell(refusal);return true}
   const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove the '+name.toLowerCase()+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
@@ -1273,9 +1284,9 @@ function furnitureAction(id,menu){
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);
- if(!l&&furnitureId(selected))return furnitureAction(id,menu);
- if(!l)return false;
+ if(!l&&!furnitureId(selected))return false;
  if(id==='close'){closeObjectMenu();$('#stage').querySelector('[data-chip-action="more"]')?.focus();return true}
+ if(!l)return furnitureAction(id,menu);
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove '+esc(l.name)+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
@@ -1538,7 +1549,7 @@ function freeCabinetX(w){
  const spans=[...(environment.desk?[[environment.deskX??0,environment.width]]:[]),...(environment.cabinets??[]).map(c=>[c.x,c.width])];
  const free=x=>Math.abs(x)<=X_LIMIT&&spans.every(([c,cw])=>Math.abs(x-c)>=(w+cw)/2+5);
  const start=environment.desk?Math.ceil(((environment.deskX??0)+environment.width/2+w/2+5)/STEP)*STEP:0;
- for(let d=0;d<=2*X_LIMIT;d+=STEP){if(free(start+d))return start+d;if(free(start-d))return start-d}
+ for(let d=0;d<=Math.abs(start)+X_LIMIT;d+=STEP){if(free(start+d))return start+d;if(free(start-d))return start-d}
  return null;
 }
 function newPieceId(){
@@ -1579,7 +1590,7 @@ function addFurniture(kind){
 function foundRows(){
  const back=removedLamps().map(l=>'<div class="lp-row found"><span class="lp-glyph">'+glyph[l.shape]+'</span><span><span class="lp-name">'+esc(l.name)+'</span><span class="lp-sub">'+esc(lampInfo(l))+'</span></span>'+btn(plusIcon,{'data-restore':l.id,'aria-label':'Return '+l.name,'data-tooltip':'Return to its place'},'sm square')+'</div>').join('');
  // Devices Light Studio cannot place as a lamp (plugs, other kinds) are not listed.
- const items=catalogEntries().filter(e=>catalogReason(e)!=='Unsupported');
+ const items=catalogEntries().map(e=>({e,reason:catalogReason(e)})).filter(i=>i.reason!=='Unsupported');
  if(!items.length&&!back){
   // Found shows only when it has something: lamps to place or return, or a search that fails.
   if(!discovery)return '';
@@ -1587,8 +1598,8 @@ function foundRows(){
   return '';
  }
  // Lamps that can be placed come first, then the others by how close they are to usable.
- const rank=e=>['','Offline','Unavailable','Ambiguous'].indexOf(catalogReason(e));
- return back+items.map((e,i)=>[e,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(([e])=>{const reason=catalogReason(e);return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
+ const rank=i=>['','Offline','Unavailable','Ambiguous'].indexOf(i.reason);
+ return back+items.sort((a,b)=>rank(a)-rank(b)).map(({e,reason})=>{return '<div class="lp-row found'+(reason?' unavailable':'')+'"><span class="lp-glyph">'+(glyph[e.shape]||glyph.bar)+'</span><span><span class="lp-name">'+esc(e.name)+'</span><span class="lp-sub">'+esc(e.model)+(Number.isInteger(e.zones)?' · '+zonesText(e.zones):'')+'</span></span>'+(reason?'<span class="lp-status">'+reason+'</span>':btn(plusIcon,{'data-place':e.id,'aria-label':'Place '+e.name,'data-tooltip':'Place in the room'},'sm square'))+'</div>'}).join('');
 }
 // The physical Hue bridge: Light Studio pairs it after its link button is pressed.
 // The keys stay in the core's private state; the page only sees name and address.
@@ -2087,7 +2098,7 @@ function keepsCard(e){
 stage.addEventListener('pointermove',e=>{
  if(!drag)return;if(drag.handle){dragHandle(drag.handle,point(e));placeOpenMenu();return}
  const l=movableFixture();if(!l)return;const p=point(e),oldX=l.x,oldH=l.h;
- const move=()=>{l.x=drag.x+(p.x-drag.start.x)/3.3;l.h=drag.h-(p.y-drag.start.y)/3.3;clampMovable(l)};
+ const move=()=>{l.x=drag.x+(p.x-drag.start.x)/3.3;if(l.kind!=='cabinet')l.h=drag.h-(p.y-drag.start.y)/3.3;clampMovable(l)};
  if(l.kind==='cabinet')keepRiders(()=>l,move);else move();
  if(l.x===oldX&&l.h===oldH)return;
  drag.moved=l.x!==drag.x||l.h!==drag.h;
@@ -2103,7 +2114,11 @@ stage.addEventListener('keydown',e=>{
  if(e.key==='Enter'||e.key===' '){e.preventDefault();if(id)select(id);if(id==='box')openBoxCard(['ready','offline'].includes(box.state)?'info':'connect');return}
  if(!e.key.startsWith('Arrow')||!id||id==='desk'||id==='zone')return;
  e.preventDefault();selected=id;const l=movableFixture();if(!l)return;const before=snapshot();
- const move=()=>{if(e.key==='ArrowLeft')l.x-=5;if(e.key==='ArrowRight')l.x+=5;if(e.key==='ArrowUp')l.h+=5;if(e.key==='ArrowDown')l.h-=5;clampMovable(l)};
+ // A table lamp steps up or down to the next top under it; a cabinet moves along the floor only.
+ const tops=()=>[0,...[deskPiece(),...(environment.cabinets??[])].filter(p=>covers(p,l.x)).map(p=>p.height)].sort((a,b)=>a-b);
+ const move=()=>{if(e.key==='ArrowLeft')l.x-=5;if(e.key==='ArrowRight')l.x+=5;
+  if(l.form==='table'){const t=tops();if(e.key==='ArrowUp')l.h=t.find(h=>h>l.h)??l.h;if(e.key==='ArrowDown')l.h=[...t].reverse().find(h=>h<l.h)??l.h;if(e.key.match(/Left|Right/))clampMovable(l);else clampFixture(l);return}
+  if(l.kind!=='cabinet'){if(e.key==='ArrowUp')l.h+=5;if(e.key==='ArrowDown')l.h-=5}clampMovable(l)};
  if(l.kind==='cabinet')keepRiders(()=>l,move);else move();recordChange(before);render();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
 });
 stage.addEventListener('pointermove',event=>{if(pendingDevice)paintPlacementGhost(placementPosition(event))});

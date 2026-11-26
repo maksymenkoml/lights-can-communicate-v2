@@ -2188,6 +2188,29 @@ test('a nightstand is added beside the desk, resized and moved like the desk, an
  app.run('drag=null');
 });
 
+test('a table lamp steps between tops by keys, drops below when its piece goes, and survives a resize within one drag',async()=>{
+ const app=await harness({rooms:twoRooms({sync:null})});await app.advance(100);
+ // A nightstand under the desk, the lamp on the nightstand.
+ app.run('environment.cabinets=[{id:"piece-0000aaaa",kind:"cabinet",x:0,width:45,height:55}];lamps.push({id:"govee-test-table",name:"Table",model:"H6022",shape:"table",form:"table",zones:1,x:15,h:55,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:"sync",unbound:true});render()');
+ const lampH=()=>json(app,'lamps.find(l=>l.id==="govee-test-table").h');
+ const desk=json(app,'environment.height');
+ const key=async k=>{await app.press(app.stage.querySelector('[data-lamp="govee-test-table"]'),k)};
+ await key('ArrowUp');assert.equal(lampH(),desk,'up to the desktop');
+ await key('ArrowUp');assert.equal(lampH(),desk,'nothing higher');
+ await key('ArrowDown');assert.equal(lampH(),55,'down to the nightstand');
+ await key('ArrowDown');assert.equal(lampH(),0,'down to the floor');
+ await key('ArrowUp');assert.equal(lampH(),55);
+ // Narrowed away and widened back within one drag, the lamp stays on the nightstand.
+ app.run('select("piece-0000aaaa");drag={handle:"cab-w",before:snapshot(),moved:false}');
+ app.run('dragHandle("cab-w",{x:500+10*3.3,y:0})');assert.equal(lampH(),0,'off the narrowed top');
+ app.run('dragHandle("cab-w",{x:500+22.5*3.3,y:0});drag=null;render()');assert.equal(lampH(),55,'back on it');
+ // Removed from under the desk, the nightstand leaves the lamp on the floor, not the desk.
+ app.run('removeCabinet("piece-0000aaaa")');assert.equal(lampH(),0);
+ // A free stretch far from the desk is still found.
+ app.run('environment.deskX=280;environment.width=240;environment.cabinets=[{id:"piece-0000bbbb",kind:"cabinet",x:0,width:300,height:50}]');
+ assert.equal(json(app,'freeCabinetX(45)'),-180);
+});
+
 test('a room holds at most twelve pieces and a nightstand needs free floor',async()=>{
  const app=await harness({rooms:twoRooms({sync:null})});await app.advance(100);
  app.run('removeFurniture("desk");environment.cabinets=[-155,155].map((x,i)=>({id:"piece-0000000"+i,kind:"cabinet",x,width:300,height:50}));render()');
