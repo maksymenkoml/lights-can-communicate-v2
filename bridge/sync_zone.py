@@ -100,11 +100,28 @@ def validate_zone(value):
     return result
 
 
+# A zone without a piece under the screen is drawn against the floor at the room axis.
+FLOOR_REFERENCE = {"x": 100, "width": 200, "height": 0}
+
+
+def _reference(layout):
+    """The piece a zone is relative to: the screen's support, else the floor."""
+    from desk_layout import screen_support
+
+    return screen_support(layout) or FLOOR_REFERENCE
+
+
 def default_zone(layout):
-    """Build the automatic world polygon with the existing 15 cm side fade."""
-    desk_height = layout["desk"]["height"]
-    half_width = layout["desk"]["width"] / 2
-    desk_left, desk_right = 100 - half_width, 100 + half_width
+    """Build the automatic world polygon with the existing 15 cm side fade below the
+    top of the screen's support, or None when the screen stands on nothing."""
+    from desk_layout import screen_support
+
+    support = screen_support(layout)
+    if support is None:
+        return None
+    desk_height = support["height"]
+    half_width = support["width"] / 2
+    desk_left, desk_right = support["x"] - half_width, support["x"] + half_width
     monitor_x = layout["screen"]["positionCm"]["x"]
     monitor_half_width = layout["screen"]["inches"] * 2.54 * 8 / math.hypot(16, 9)
     device_xs = [row["positionCm"]["x"] for row in layout["devices"]
@@ -125,12 +142,15 @@ def default_zone(layout):
 
 
 def zone_points(layout, key="syncZone"):
-    """Resolve a saved zone (``syncZone`` or ``sceneZone``) into world points."""
+    """Resolve a saved zone (``syncZone`` or ``sceneZone``) into world points, or None
+    without a saved zone and a piece under the screen. A saved zone is relative to
+    the screen's support (``u`` a fraction of its half width, ``h`` from its top)."""
     zone = validate_zone(layout.get(key))
     if zone is None:
         return default_zone(layout)
-    return [{"x": 100 + point["u"] * layout["desk"]["width"] / 2,
-             "height": layout["desk"]["height"] + point["h"]}
+    reference = _reference(layout)
+    return [{"x": reference["x"] + point["u"] * reference["width"] / 2,
+             "height": reference["height"] + point["h"]}
             for point in zone["points"]]
 
 

@@ -59,7 +59,7 @@ def zone_points(row, screen, zones=1):
     if kind == "segmented-floor":
         x = row["positionCm"]["x"]
         return [(x, (low + high) / 2) for low, high in segment_spans(row)]
-    if kind == "screen":
+    if kind == "screen" and screen is not None:
         # The screen object is authoritative for the screen's position and size.
         center = screen["positionCm"]
         width, height = screen_size({"screen": screen})

@@ -82,7 +82,7 @@ def _visibility_function(zone, fade_on):
     def visibility(x, physical_height):
         if not fade_on:
             return 1
-        bounds = vertical_bounds(zone, x)
+        bounds = vertical_bounds(zone, x) if zone is not None else None
         if bounds is None:
             return 1
         lower, upper = bounds
@@ -100,12 +100,16 @@ class _Projector:
 
     def __init__(self, validated_layout, zone_key="syncZone", fade_key="syncFalloff",
                  fade_default=True):
-        self.screen = validated_layout["screen"]
-        center = self.screen["positionCm"]
-        width, height = screen_size(validated_layout)
+        # A room without a screen has no Sync; its scene fade needs only the zone.
+        self.screen = validated_layout.get("screen")
         self.zone = zone_points(validated_layout, zone_key)
         self.fade_on = validated_layout.get(fade_key, fade_default)
         self.visibility = _visibility_function(self.zone, self.fade_on)
+        if self.screen is None:
+            self.screen_point = lambda x, physical_height: None
+            return
+        center = self.screen["positionCm"]
+        width, height = screen_size(validated_layout)
 
         def screen_point(x, physical_height):
             u = max(0, min(1, (x - center["x"]) / width + 0.5))
@@ -126,7 +130,8 @@ class _Projector:
         kind = geometry_for(row)["kind"]
         x = row["positionCm"]["x"]
         if kind == "segmented-floor":
-            bounds = vertical_bounds(self.zone, x) if self.fade_on else None
+            bounds = (vertical_bounds(self.zone, x)
+                      if self.fade_on and self.zone is not None else None)
             fade = bounds[1] - bounds[0] if bounds is not None else 0
             # The lit part of each segment, so a faded segment samples where it is lit.
             zones = [_segment_visibility(low, high, bounds[1], fade) if bounds is not None
@@ -138,7 +143,7 @@ class _Projector:
         points = light_geometry.zone_points(row, self.screen, zones)
         gains = [self.visibility(px, ph) for px, ph in points]
         samples = [self.screen_point(px, ph) for px, ph in points]
-        if kind == "screen":
+        if kind == "screen" and self.screen is not None:
             # Its anchors lie on the capture channels; drop the rounding noise of
             # the round trip through centimeters so they hit those channels exactly.
             samples = [tuple(round(value, 9) for value in point) for point in samples]

@@ -22,7 +22,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from desk_layout import ROLES, LayoutStore, calibration_values
+from desk_layout import LAYOUT_VERSION, MIGRATED_DESK, ROLES, LayoutStore, calibration_values
 
 ROOMS_VERSION = 1
 INDEX_FILE = "rooms.json"
@@ -58,11 +58,13 @@ def room_name(value):
 
 
 def new_layout(name):
-    """The layout of a new room: the default desk and screen of Light Studio, no rows."""
-    return {"version": 7, "gridStepCm": 5, "room": name,
-            "desk": {"width": 160, "height": 85},
+    """The layout of a new room: the default desk and monitor of Light Studio, no rows."""
+    return {"version": LAYOUT_VERSION, "gridStepCm": 5, "room": name,
             # The desk centre is x 100, as in Light Studio: the screen stands in the middle.
-            "screen": {"positionCm": {"x": 100, "height": 110}, "inches": 32},
+            "furniture": [{"id": MIGRATED_DESK, "kind": "desk", "x": 100,
+                           "width": 160, "height": 85}],
+            "screen": {"kind": "monitor", "positionCm": {"x": 100, "height": 110},
+                       "inches": 32, "on": MIGRATED_DESK},
             "devices": []}
 
 

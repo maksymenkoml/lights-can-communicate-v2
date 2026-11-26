@@ -12,9 +12,10 @@ from sync_zone import default_zone, validate_zone, vertical_bounds, zone_points 
 
 def layout():
     return {
-        "desk": {"width": 160, "height": 85},
-        "screen": {"positionCm": {"x": 100, "height": 110},
-                   "inches": math.hypot(80, 45) / 2.54},
+        "furniture": [{"id": "piece-00000001", "kind": "desk", "x": 100,
+                       "width": 160, "height": 85}],
+        "screen": {"kind": "monitor", "positionCm": {"x": 100, "height": 110},
+                   "inches": math.hypot(80, 45) / 2.54, "on": "piece-00000001"},
         "devices": [
             {"id": key, "positionCm": {"x": x, "height": height}}
             for key, x, height in (
@@ -31,6 +32,14 @@ def zone():
         {"u": -2, "h": 0}, {"u": 2, "h": 0},
         {"u": 2, "h": -95}, {"u": 1, "h": -15},
         {"u": -1, "h": -15}, {"u": -2, "h": -95},
+    ]}
+
+
+def band(top, bottom):
+    """A six-point zone between two heights over the reference's full width."""
+    return {"version": 1, "points": [
+        {"u": -1, "h": top}, {"u": 1, "h": top}, {"u": 1, "h": bottom},
+        {"u": 0.5, "h": bottom}, {"u": -0.5, "h": bottom}, {"u": -1, "h": bottom},
     ]}
 
 
@@ -85,7 +94,7 @@ class SyncZoneTests(unittest.TestCase):
             (-60, 85), (260, 85), (260, -10), (180, 70), (20, 70), (-60, -10),
         ]))
         self.assertEqual(data, before)
-        data["desk"] = {"width": 200, "height": 100}
+        data["furniture"][0].update(width=200, height=100)
         self.assertEqual(zone_points(data), world([
             (-100, 100), (300, 100), (300, 5), (200, 85), (0, 85), (-100, 5),
         ]))
@@ -196,6 +205,34 @@ class SyncZoneTests(unittest.TestCase):
                     validate_zone({"version": 1, "points": [
                         {"u": u, "h": h} for u, h in points]})
 
+
+    def test_a_tv_on_a_cabinet_fades_below_the_cabinet_top(self):
+        data = layout()
+        data["furniture"].append({"id": "piece-0000000a", "kind": "cabinet", "x": 230,
+                                  "width": 60, "height": 50})
+        data["screen"].update(kind="tv", on="piece-0000000a",
+                              positionCm={"x": 230, "height": 90})
+        points = default_zone(data)
+        self.assertEqual({point["height"] for point in points[:2]}, {50})
+        self.assertEqual([point["x"] for point in points[3:5]], [260, 200])
+        data["syncZone"] = band(0, -10)
+        self.assertEqual(zone_points(data), world([(200, 50), (260, 50), (260, 40),
+                                                   (245, 40), (215, 40), (200, 40)]))
+
+    def test_without_a_support_there_is_no_automatic_zone(self):
+        for change in ({"on": None}, None):
+            with self.subTest(change=change):
+                data = layout()
+                if change is None:
+                    del data["screen"]
+                else:
+                    data["screen"].update(change)
+                self.assertIsNone(default_zone(data))
+                self.assertIsNone(zone_points(data))
+                # A drawn zone is then relative to the floor at the room axis.
+                data["syncZone"] = band(40, 20)
+                self.assertEqual(zone_points(data), world([(0, 40), (200, 40), (200, 20),
+                                                           (150, 20), (50, 20), (0, 20)]))
 
 if __name__ == "__main__":
     unittest.main()

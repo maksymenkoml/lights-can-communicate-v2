@@ -102,12 +102,12 @@ class StudioRoomTests(unittest.TestCase):
         status_, answer = self.request("/api/layout?room=" + room)
         self.assertEqual((status_, answer["layout"]["devices"]), (200, []))
         layout_ = answer["layout"]
-        layout_["desk"]["width"] = 120
+        layout_["furniture"][0]["width"] = 120
         status_, saved = self.request("/api/layout?room=" + room, layout_,
                                       **{"If-Match": answer["revision"]})
-        self.assertEqual((status_, saved["layout"]["desk"]["width"]), (200, 120))
+        self.assertEqual((status_, saved["layout"]["furniture"][0]["width"]), (200, 120))
         # The first room is unchanged and stays the default.
-        self.assertEqual(self.request("/api/layout")[1]["layout"]["desk"]["width"], 160)
+        self.assertEqual(self.request("/api/layout")[1]["layout"]["furniture"][0]["width"], 160)
         self.assertEqual(self.request("/api/layout?room=room-ffffffff")[0], 404)
         # Renaming and reordering are allowed during Sync; creating is not.
         self.syncing = True
