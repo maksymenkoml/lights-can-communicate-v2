@@ -329,10 +329,10 @@ function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)
 const POWER_SETTLE_MS=8000;
 const powerPending=new Map();
 function livePower(l){
- const s=liveFresh()&&liveSnapshot?.lamps?.[l.id],live=s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true}:{on:null,can:false};
+ const s=liveFresh()&&liveSnapshot?.lamps?.[l.id],live=s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true,held:s.power_reason==='sync'}:{on:null,can:false};
  const p=powerPending.get(l.id);
  if(p&&p.sent&&(live.on===p.on||performance.now()>p.until))powerPending.delete(l.id);
- else if(p)return {on:p.on,can:live.can,busy:!p.sent};
+ else if(p)return {on:p.on,can:live.can,held:live.held,busy:!p.sent};
  return live;
 }
 // The badge marks a fault with "!". An off lamp always shows the grey power mark, which
@@ -349,7 +349,7 @@ function badgeTip(l,m){
  const p=livePower(l);
  return p.busy?'Turning on…':p.can?'Off · Click to turn on':'Off';
 }
-const POWER_REFUSED={paused:'Light output is paused',unavailable:'Light Studio cannot switch this lamp now'};
+const POWER_REFUSED={paused:'Light output is paused','sync active':'Sync is running: choose Off under During Sync to keep it dark',unavailable:'Light Studio cannot switch this lamp now'};
 async function switchPower(l,on){
  if(powerPending.has(l.id)&&!powerPending.get(l.id).sent)return;
  powerPending.set(l.id,{on,sent:false,until:0});paintPower();
@@ -1198,7 +1198,8 @@ function connectedField(l){
  const label=link==='connect'?'Connecting…':link==='disconnect'?'Disconnecting…':'Connected';
  return '<div class="card-field" data-connected-field><span>'+label+'</span><button class="card-switch" role="switch" aria-label="Connected" aria-checked="'+on+'" data-menu="connected"'+(link?' disabled':'')+'><span class="switch"><i></i></span></button></div>';
 }
-function powerWhy(p){return p.can?'':p.on===null?'No recent response from the lamp':'Light Studio cannot switch this lamp'}
+// A Hue lamp in a running Sync is held on by the stream; its Off would stop Sync.
+function powerWhy(p){return p.can?'':p.held?'Sync is running: choose Off under During Sync to keep it dark':p.on===null?'No recent response from the lamp':'Light Studio cannot switch this lamp'}
 function powerField(l){
  if(l.unbound)return '';
  const p=livePower(l),why=powerWhy(p);

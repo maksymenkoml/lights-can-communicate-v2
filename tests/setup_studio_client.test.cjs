@@ -1019,7 +1019,7 @@ test('a drawn lamp is connected while the core lists it, and shows its live ligh
 
 test('an off lamp shows the power mark at any time; clicking it or the card switch switches the lamp as the owner',async()=>{
  const calls=[];let state={on:false,power:true},answer={status:200,body:{accepted:true}};
- const app=await harness({live:()=>liveOk({mode:'idle',sync:{state:'off',reason:'idle',blockers:[]},lamps:{'play-left':lit([],{on:state.on,power:state.power})}}),
+ const app=await harness({live:()=>liveOk({mode:'idle',sync:{state:'off',reason:'idle',blockers:[]},lamps:{'play-left':lit([],{on:state.on,power:state.power,...(state.reason?{power_reason:state.reason}:{})})}}),
   power:body=>{calls.push(body);return answer}});
  await app.advance(100);
  const badge=()=>app.lamp('play-left').querySelector('[data-badge]');
@@ -1052,9 +1052,14 @@ test('an off lamp shows the power mark at any time; clicking it or the card swit
  app.run('menuAction("power")');await app.settle();
  assert.equal(app.$('#toast').textContent,'Light Studio cannot switch this lamp now');
  await app.advance(100);assert.equal(sw().getAttribute('aria-checked'),'false');
- // A lamp Light Studio cannot switch shows its state with the switch disabled.
- state.power=false;await app.advance(200);
+ // A Hue lamp held on by a running Sync explains how to keep it dark.
+ state.on=true;state.power=false;state.reason='sync';await app.advance(200);
  assert.ok(sw().disabled);
+ assert.equal(app.$('#object-menu [data-power-field]').getAttribute('data-tooltip'),'Sync is running: choose Off under During Sync to keep it dark');
+ // A lamp Light Studio cannot switch shows its state with the switch disabled.
+ state.on=false;state.reason=undefined;await app.advance(200);
+ assert.ok(sw().disabled);
+ assert.equal(app.$('#object-menu [data-power-field]').getAttribute('data-tooltip'),'Light Studio cannot switch this lamp');
  app.run('closeObjectMenu();select(null)');await app.advance(100);
  assert.ok(!badge().classList.contains('switch-on'),'the mark is not a button then');
 });

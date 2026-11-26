@@ -175,7 +175,11 @@ status and uses the lamp's owner power path:
   write to the owner's bridge, which Apple Home and the Hue app read.
 
 Both mark an owner power change, so Sync keeps an owner Off and lets an owner On
-back in (see `core/README.md`, "Off during Sync"). `GET /api/live` gives each lamp
+back in (see `core/README.md`, "Off during Sync"). A native Hue lamp in a running
+Sync is held on by the Entertainment stream, and the adapter stops Sync when such a
+lamp reports Off; while Sync runs Light Studio therefore does not switch it off
+(`power: false`, `power_reason: "sync"`, a write answers 409 `"sync active"`), and
+its card points to "During Sync: Off". `GET /api/live` gives each lamp
 `power: true` when it is online and has such a path. The answer is 200
 `{"accepted": true}`; 409 `{"accepted": false, "reason": "unavailable"}` for a lamp
 without a path (offline, a Govee lamp without a power authority) or `"paused"`

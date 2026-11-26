@@ -333,9 +333,15 @@ def project_status(data, source_active=None):
                  else 1 if tiers.get(identifier) == "basic"
                  else 7 if identifier.startswith("govee-")
                  else registry.get(identifier, {}).get("zones", 1))
+        # A native Hue lamp in a running Sync is held on by the Entertainment stream:
+        # its Off would stop Sync, so only its "Off during Sync" role switches it off.
+        held = (switchable.get(identifier) == "/native-power" and identifier in included
+                and sync_state in ("active", "waiting") and lamp["on"] is True)
         lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
                     included=identifier in included,
-                    power=lamp["online"] is True and identifier in switchable)
+                    power=lamp["online"] is True and identifier in switchable and not held)
+        if held:
+            lamp["power_reason"] = "sync"
     # Verified cause only; the existing state label keeps its meaning.
     health = derive_sync_health(data)
     blockers = [item for item in health["blockers"] if item.get("role") in lamps]
@@ -613,6 +619,8 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             route = power_paths(data).get(lamp)
             if lamp_state is None:
                 return 404, {"error": "unknown lamp"}
+            if lamp_state.get("power_reason") == "sync":
+                return 409, {"accepted": False, "reason": "sync active"}
             if route is None or lamp_state.get("power") is not True:
                 return 409, {"accepted": False, "reason": "unavailable"}
             body = ({"lights": {lamp: on}} if route == "/native-power"

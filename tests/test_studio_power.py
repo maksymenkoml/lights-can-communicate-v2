@@ -59,6 +59,22 @@ class PowerPathTests(unittest.TestCase):
         # Not reported by the bridge: offline, so it cannot be switched.
         self.assertIs(lamps["device-0123456789abcdef0123456789abcdef"]["power"], False)
 
+    def test_a_hue_lamp_in_a_running_sync_is_held_on(self):
+        # Its Off would stop Sync: the Entertainment stream holds it on.
+        data = status()
+        data["hue"]["play-left"]["native_on"] = True
+        data["video"] = {"active": True, "ready": True, "frame_age": 0.1}
+        data["composition"] = {"enabled_roles": ["play-left", "left"]}
+        lamps = studio.project_status(data)["lamps"]
+        self.assertIs(lamps["play-left"]["power"], False)
+        self.assertEqual(lamps["play-left"]["power_reason"], "sync")
+        # A Govee lamp in Sync switches as before; Sync keeps its owner Off.
+        self.assertIs(lamps["govee-left"]["power"], True)
+        self.assertNotIn("power_reason", lamps["govee-left"])
+        # Without Sync the Hue lamp switches again.
+        del data["video"]
+        self.assertIs(studio.project_status(data)["lamps"]["play-left"]["power"], True)
+
     def test_an_offline_lamp_cannot_be_switched(self):
         data = status()
         data["hue"]["play-left"]["native_age"] = 30
@@ -128,6 +144,14 @@ class StudioPowerTests(unittest.TestCase):
         self.assertEqual(self.post({"lamp": "device-0123456789abcdef0123456789abcdef",
                                     "on": True}),
                          (409, {"accepted": False, "reason": "unavailable"}))
+        self.assertEqual(self.calls, [])
+
+    def test_a_hue_lamp_held_by_sync_is_refused_with_the_reason(self):
+        self.status["hue"]["play-left"]["native_on"] = True
+        self.status["video"] = {"active": True, "ready": True, "frame_age": 0.1}
+        self.status["composition"] = {"enabled_roles": ["play-left"]}
+        self.assertEqual(self.post({"lamp": "play-left", "on": False}),
+                         (409, {"accepted": False, "reason": "sync active"}))
         self.assertEqual(self.calls, [])
 
     def test_an_unknown_lamp_is_not_found(self):
