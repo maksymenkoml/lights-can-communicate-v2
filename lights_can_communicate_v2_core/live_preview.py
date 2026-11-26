@@ -61,6 +61,27 @@ def _rgb(value, maximum=255):
     return list(value)
 
 
+def _govee_colors(native):
+    """The one color a Govee lamp reports in its status, or None without one.
+
+    A lamp in white reports its temperature, a colored one its RGB; an effect mode
+    reports neither. Commands from another app or clamped to the lamp's range show
+    only here, so a scene preview reads them back like a Hue light's state.
+    """
+    kelvin = native.get("colorTemInKelvin")
+    if _number(kelvin, 2000, 9000):
+        return [_temperature(kelvin)]
+    color = native.get("color")
+    if kelvin in (0, None) and isinstance(color, dict):
+        try:
+            rgb = _rgb([color.get(channel) for channel in ("r", "g", "b")])
+        except ValueError:
+            return None
+        if any(rgb):
+            return [rgb]
+    return None
+
+
 def _temperature(kelvin):
     temperature = kelvin / 100
     red = 255 if temperature <= 66 else 329.698727446 * (temperature - 60) ** -0.1332047592
@@ -390,11 +411,17 @@ def build_preview(adapter_status, output_snapshot):
             expected = None if streamed else "scene-output"
         colors = []
         valid = False
+        raw, color_source = sample.get("colors"), sample.get("color_source")
+        if lamp not in hue and fresh and expected == "scene-output" and not (
+                color_source == expected and isinstance(raw, list) and len(raw) > 1):
+            # A one-color Govee scene shows what the lamp reports, not the last command.
+            reading = _govee_colors(native)
+            if reading is not None:
+                raw, color_source, source = reading, expected, expected
         try:
-            raw = sample.get("colors")
             if (
                 source is not None
-                and sample.get("color_source") == expected
+                and color_source == expected
                 and expected
                 and isinstance(raw, list)
                 and 1 <= len(raw) <= 9

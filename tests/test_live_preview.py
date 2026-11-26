@@ -193,6 +193,32 @@ class PreviewTests(unittest.TestCase):
         )
         self.assertEqual(self.lamp()["colors"], [[51, 41, 33]])
 
+    def test_a_govee_scene_shows_the_white_or_color_the_lamp_reports(self):
+        # The core's last command (2150 K) is outside what the lamp shows now: it
+        # reports 2700 K, set by another app or clamped to its range.
+        self.send(self.device, "colorwc",
+                  {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 2150})
+
+        def reported(color, kelvin):
+            status = metadata()
+            status["targets"][0]["native"].update(
+                brightness=63, color=dict(zip("rgb", color)), colorTemInKelvin=kelvin)
+            return status
+
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 105, 55]])
+        self.assertEqual(self.lamp(reported((255, 0, 0), 0))["colors"], [[161, 0, 0]])
+        # Without a reading (an effect mode reports neither) the command stays.
+        self.assertEqual(self.lamp(reported((0, 0, 0), 0))["colors"], [[161, 91, 21]])
+        # Segment colors of a scene are not replaced by the lamp's single color.
+        self.send(self.device, "ptReal", segment_data([(255, 0, 0)] * 7))
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 0, 0]] * 7)
+        # During Sync the lamp's scene reading never shows.
+        sync = self.store.wrap_govee(lambda *_: True, "sync-output")
+        sync(self.device, "colorwc", {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0})
+        status = reported((0, 0, 0), 2700)
+        status["video"] = {"active": True, "ready": True, "frame_age": 0.1}
+        self.assertEqual(self.lamp(status)["colors"], [[0, 0, 161]])
+
     def test_shared_source_handoff_never_resurrects_inactive_video_colors(self):
         self.send(
             self.device, "colorwc", {"color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0}
