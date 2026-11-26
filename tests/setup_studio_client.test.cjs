@@ -244,7 +244,6 @@ async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=save
  return {document,context,$,stage,posts,requests,server,storage,timers,dispatch,advance,settle,
   now:()=>now,
   run:source=>vm.runInContext(source,context),
-  dispatch:(el,type,extra)=>dispatch(el,type,extra),
   click:async el=>{assert.ok(el,'click target');dispatch(el,'pointerdown');dispatch(el,'pointerup');dispatch(el,'click');await settle()},
   press:async(el,key,extra={})=>{dispatch(el,'keydown',{key,...extra});await settle()},
   lamp:id=>stage.querySelector('[data-lamp="'+id+'"]'),
@@ -1090,6 +1089,18 @@ test('the power mark is a button: only a primary click switches, it stays dimmed
  assert.equal(json(app,'powerPending.size'),1,'the On holds until a later snapshot confirms it');
  assert.equal(json(app,'livePower(lamps.find(l=>l.id==="play-left")).on'),true);
  state.on=true;await app.advance(200);assert.equal(json(app,'powerPending.size'),0);
+ // A delegated click right after the mark still works: the mark leaves no click
+ // suppression behind.
+ assert.equal(json(app,'skipClick'),false);
+ // The lamp reports On while the write still runs, then Apple Home switches it Off:
+ // once the write is accepted the newer Off shows at once.
+ state.on=false;await app.advance(200);
+ app.dispatch(badge(),'click',{button:0});await app.settle();
+ state.on=true;await app.advance(200);
+ state.on=false;await app.advance(200);
+ release();await app.settle();await app.advance(100);
+ assert.equal(json(app,'powerPending.size'),0);
+ assert.equal(badge().getAttribute('visibility'),'visible','the Off from Apple Home shows');
 });
 
 test('Blink asks the server once and explains a refusal; Off is saved for role lamps only',async()=>{

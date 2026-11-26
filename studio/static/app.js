@@ -328,12 +328,14 @@ function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)
 // seconds pass), so the mark and the card do not flicker back.
 const POWER_SETTLE_MS=8000;
 const powerPending=new Map();
-// A switch settles only on a live snapshot received after its write was accepted: an
-// older one still shows the state before it.
+// A switch settles once a live snapshot received after it began shows the requested
+// state (even while the write was still running), then later changes, say from Apple
+// Home, show at once; a snapshot from before it began never settles it.
 function livePower(l){
  const s=liveFresh()&&liveSnapshot?.lamps?.[l.id],live=s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true,held:s.power_reason==='sync'}:{on:null,can:false};
  const p=powerPending.get(l.id);
- if(p&&p.sent&&(liveAt>p.at&&live.on===p.on||performance.now()>p.until))powerPending.delete(l.id);
+ if(p&&liveAt>p.started&&live.on===p.on)p.seen=true;
+ if(p&&p.sent&&(p.seen||performance.now()>p.until))powerPending.delete(l.id);
  else if(p)return {on:p.on,can:live.can,held:live.held,busy:!p.sent,pending:true};
  return live;
 }
@@ -341,7 +343,7 @@ function livePower(l){
 // switches it on; an owner Off during Sync shows it too. A turn-on keeps the mark,
 // dimmed and inert, while it runs; once accepted the mark goes, even before the Off
 // blocker clears, and a refusal brings it back.
-function lampBadge(l,p=livePower(l)){
+function lampBadge(l,p){
  const b=lampBlocker(l);
  if(b&&!isOff(b))return {b,off:false};
  const off={b:b||{code:'native_off'},off:true};
@@ -358,13 +360,14 @@ function badgeTip(p,m){
 const POWER_REFUSED={paused:'Light output is paused','sync active':'Sync is running: choose Off under During Sync to keep it dark',unavailable:'Light Studio cannot switch this lamp now'};
 async function switchPower(l,on){
  if(powerPending.has(l.id)&&!powerPending.get(l.id).sent)return;
- powerPending.set(l.id,{on,sent:false,until:0});paintPower();
+ const started=performance.now();
+ powerPending.set(l.id,{on,sent:false,started,until:0});paintPower();
  let ok=false,reason='';
  try{
   const response=await fetch('/api/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lamp:l.id,on})});
   const body=await response.json().catch(()=>({}));ok=response.ok&&body.accepted===true;reason=body.reason||'';
  }catch{}
- if(ok)powerPending.set(l.id,{on,sent:true,at:performance.now(),until:performance.now()+POWER_SETTLE_MS});
+ if(ok)powerPending.set(l.id,{...powerPending.get(l.id),on,sent:true,started,until:performance.now()+POWER_SETTLE_MS});
  else{powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
  paintPower();
  if(ok)setTimeout(paintPower,POWER_SETTLE_MS+50);
@@ -2127,9 +2130,9 @@ document.addEventListener('pointerdown',()=>{skipClick=false},true);
 stage.addEventListener('click',e=>{
  const mark=e.target.closest('.health-badge.switch-on');
  if(!mark||(e.button??0)!==0)return;
- e.stopPropagation();skipClick=true;
+ e.stopPropagation();
  const l=lamps.find(l=>l.id===mark.closest('[data-lamp]')?.dataset.lamp);
- if(l&&!livePower(l).busy)switchPower(l,true);
+ if(l)switchPower(l,true);
 },true);
 document.addEventListener('click',e=>{
  if(skipClick){skipClick=false;return}
