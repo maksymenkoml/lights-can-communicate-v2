@@ -175,7 +175,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
+async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,power,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -201,6 +201,7 @@ async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=save
    if(url.startsWith('/api/sync-box')){const body=options.body?JSON.parse(options.body):null;requests.box.push({url,body,at:now});const result=await syncBox(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
    if(url.startsWith('/api/hue-bridge')){const body=options.body?JSON.parse(options.body):null;requests.hue.push({url,body,at:now});if(!hueBridge)return response(404,{});const result=await hueBridge(url,body);return result&&'status' in result?response(result.status,result.body):response(200,result)}
    if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
+   if(url==='/api/power'){assert.ok(power,'unexpected power change');const result=await power(JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/rooms'){requests.rooms.push(now);if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
    if(url.startsWith('/api/rooms/')){const body=JSON.parse(options.body);requests.roomPosts.push({url,body});const result=roomPost?await roomPost(url.slice(11),body,server):null;return result?response(result.status,result.body):response(200,roomsAnswer())}
@@ -1016,6 +1017,104 @@ test('a drawn lamp is connected while the core lists it, and shows its live ligh
  assert.ok(app.lamp(id).querySelector('[data-link-badge]'),'a removed light is not connected again');
 });
 
+test('an off lamp shows the power mark at any time; clicking it or the card switch switches the lamp as the owner',async()=>{
+ const calls=[];let state={on:false,power:true},answer={status:200,body:{accepted:true}};
+ const app=await harness({live:()=>liveOk({mode:'idle',sync:{state:'off',reason:'idle',blockers:[]},lamps:{'play-left':lit([],{on:state.on,power:state.power,...(state.reason?{power_reason:state.reason}:{})})}}),
+  power:body=>{calls.push(body);return answer}});
+ await app.advance(100);
+ const badge=()=>app.lamp('play-left').querySelector('[data-badge]');
+ assert.equal(badge().getAttribute('visibility'),'visible','off without Sync still shows the mark');
+ assert.ok(badge().classList.contains('off')&&badge().classList.contains('switch-on'));
+ assert.equal(badge().getAttribute('data-tooltip'),'Off · Click to turn on');
+ // Clicking the mark switches the lamp on; the mark goes at once and stays gone.
+ await app.click(badge());
+ assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{lamp:'play-left',on:true}]);
+ assert.equal(json(app,'selected'),null,'the click does not select the lamp');
+ await app.advance(100);
+ assert.equal(badge().getAttribute('visibility'),'hidden','the requested state shows until the lamp reports it');
+ state.on=true;await app.advance(200);
+ assert.equal(badge().getAttribute('visibility'),'hidden');
+ assert.equal(json(app,'powerPending.size'),0,'settled once the lamp reports on');
+ // The card switch turns it off; nothing goes into the layout or its history.
+ app.run('select("play-left");openObjectMenu($("#stage").querySelector(\'[data-chip-action="more"]\'))');await app.advance(50);
+ const sw=()=>app.$('#object-menu [data-menu="power"]');
+ assert.equal(sw().getAttribute('aria-checked'),'true');
+ // Live polls update the switch in place: a replaced button would lose a click.
+ const button=sw();await app.advance(300);assert.equal(sw(),button,'the same switch across live polls');
+ const posts=app.posts.length,history=json(app,'past.length');
+ app.run('menuAction("power")');await app.settle();
+ assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))),{lamp:'play-left',on:false});
+ await app.advance(100);
+ assert.equal(sw().getAttribute('aria-checked'),'false');
+ assert.equal(app.posts.length,posts,'no layout save');assert.equal(json(app,'past.length'),history,'no undo entry');
+ // A refusal explains itself and keeps the lamp's state.
+ state.on=false;answer={status:409,body:{accepted:false,reason:'unavailable'}};await app.advance(9000);
+ app.run('menuAction("power")');await app.settle();
+ assert.equal(app.$('#toast').textContent,'Light Studio cannot switch this lamp now');
+ await app.advance(100);assert.equal(sw().getAttribute('aria-checked'),'false');
+ // A Hue lamp held on by a running Sync explains how to keep it dark.
+ state.on=true;state.power=false;state.reason='sync';await app.advance(200);
+ assert.ok(sw().disabled);
+ assert.equal(app.$('#object-menu [data-power-field]').getAttribute('data-tooltip'),'Sync is running: choose Off under During Sync to keep it dark');
+ // A lamp Light Studio cannot switch shows its state with the switch disabled.
+ state.on=false;state.reason=undefined;await app.advance(200);
+ assert.ok(sw().disabled);
+ assert.equal(app.$('#object-menu [data-power-field]').getAttribute('data-tooltip'),'Light Studio cannot switch this lamp');
+ app.run('closeObjectMenu();select(null)');await app.advance(100);
+ assert.ok(!badge().classList.contains('switch-on'),'the mark is not a button then');
+});
+
+test('the power mark is a button: only a primary click switches, it stays dimmed while the request runs, and an older snapshot does not settle the switch',async()=>{
+ const calls=[];let state={on:false},release;
+ const app=await harness({live:()=>liveOk({mode:'idle',sync:{state:'off',reason:'idle',blockers:[]},lamps:{'play-left':lit([],{on:state.on,power:true})}}),
+  power:body=>{calls.push(body);return new Promise(resolve=>{release=()=>resolve({status:200,body:{accepted:true}})})}});
+ await app.advance(100);
+ const badge=()=>app.lamp('play-left').querySelector('[data-badge]');
+ // A press alone, a secondary click or a press dragged away sends nothing.
+ app.dispatch(badge(),'pointerdown');app.dispatch(badge(),'pointerup');await app.settle();
+ app.dispatch(badge(),'click',{button:2});await app.settle();
+ assert.equal(calls.length,0);
+ // The primary click sends one request; the mark stays, dimmed and inert, meanwhile.
+ app.dispatch(badge(),'click',{button:0});await app.settle();
+ assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{lamp:'play-left',on:true}]);
+ await app.advance(100);
+ assert.equal(badge().getAttribute('visibility'),'visible');
+ assert.ok(badge().classList.contains('busy')&&!badge().classList.contains('switch-on'));
+ assert.equal(badge().getAttribute('data-tooltip'),'Turning on…');
+ app.dispatch(badge(),'click',{button:0});await app.settle();assert.equal(calls.length,1,'no second request while it runs');
+ // Accepted: the mark goes although the lamp still reports off.
+ release();await app.settle();await app.advance(100);
+ assert.equal(badge().getAttribute('visibility'),'hidden');
+ // Snapshots that still show the old Off do not settle the accepted On.
+ assert.equal(json(app,'powerPending.size'),1,'the On holds until a later snapshot confirms it');
+ assert.equal(json(app,'livePower(lamps.find(l=>l.id==="play-left")).on'),true);
+ state.on=true;await app.advance(200);assert.equal(json(app,'powerPending.size'),0);
+ // A delegated click right after the mark still works: the mark leaves no click
+ // suppression behind.
+ assert.equal(json(app,'skipClick'),false);
+ // The lamp reports On while the write still runs, then Apple Home switches it Off:
+ // once the write is accepted the newer Off shows at once.
+ state.on=false;await app.advance(200);
+ app.dispatch(badge(),'click',{button:0});await app.settle();
+ state.on=true;await app.advance(200);
+ state.on=false;await app.advance(200);
+ release();await app.settle();await app.advance(100);
+ assert.equal(json(app,'powerPending.size'),0);
+ assert.equal(badge().getAttribute('visibility'),'visible','the Off from Apple Home shows');
+ // A quick reversal: On accepted, then Off accepted while the lamp still reports the
+ // original Off. That repeated Off does not settle the Off; the lamp must be seen to
+ // pass through On first (or the settle time pass).
+ app.run('switchPower(lamps.find(l=>l.id==="play-left"),true)');await app.settle();release();await app.settle();
+ app.run('switchPower(lamps.find(l=>l.id==="play-left"),false)');await app.settle();release();await app.settle();
+ await app.advance(200);
+ assert.equal(json(app,'powerPending.size'),1,'not settled by the old Off');
+ // An unknown reading is not a transition: the old Off after it still does not settle.
+ state.on=null;await app.advance(200);state.on=false;await app.advance(200);
+ assert.equal(json(app,'powerPending.size'),1,'not settled after unknown, then the old Off');
+ state.on=true;await app.advance(200);state.on=false;await app.advance(200);
+ assert.equal(json(app,'powerPending.size'),0,'settled after On, then Off');
+});
+
 test('Blink asks the server once and explains a refusal; Off is saved for role lamps only',async()=>{
  const calls=[];
  const app=await harness({identify:body=>{calls.push(body);return calls.length===1?{status:200,body:{accepted:true}}:{status:409,body:{accepted:false,reason:'lamp off'}}}});
@@ -1440,7 +1539,7 @@ test('the corner follows the box and stops asking while the page is hidden',asyn
  assert.equal(app.requests.box.length,asked+1);
 });
 
-test('a lamp that is off is not a problem: a grey power mark only while Sync runs',async()=>{
+test('a lamp that is off is not a problem: an owner Off during Sync shows the grey power mark without a status',async()=>{
  const off=state=>liveOk({sync:{state,blockers:[{role:'govee-left',code:'owner_off'},{role:'play-left',code:'native_off'}]},lamps:{}});
  let answer=off('off');
  const app=await harness({live:()=>answer});
@@ -1451,10 +1550,11 @@ test('a lamp that is off is not a problem: a grey power mark only while Sync run
  assert.equal(app.$('#sync-status span').textContent,'Syncing','an off lamp is not counted as a problem');
  assert.equal(badge('govee-left').getAttribute('visibility'),'visible');
  assert.ok(badge('govee-left').classList.contains('off'),'the power mark, not "!"');
- assert.equal(badge('govee-left').dataset.tooltip,'Off in HomeKit');
+ assert.equal(badge('govee-left').dataset.tooltip,'Off','no source named: power stays in sync everywhere');
+ assert.equal(app.run('chipStatus(lamps.find(l=>l.id==="govee-left"))'),'','off is not a chip status');
  assert.equal(badge('play-left').style.getPropertyValue('--h-color'),'var(--unknown)');
  app.run('select("govee-left")');await app.settle();
- assert.equal(app.$('#object-menu .card-alert')?.style.getPropertyValue('--h-color')??'var(--unknown)','var(--unknown)');
+ assert.equal(app.$('#object-menu .card-alert'),null,'the Power switch shows off; no alert');
 });
 
 test('a lamp problem during Sync is the status, and clicking it shows the lamp',async()=>{
