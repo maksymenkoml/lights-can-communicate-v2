@@ -108,9 +108,9 @@ optional `calibration` on the two Govee rows: `{"warmth": -100..100, "tint":
 -100..100, "lowLight": 0..100}` (integers; missing controls are 0, an all-zero
 calibration is not stored). Versions 3-5 load as version 6, so their revision
 changes and pages opened before the upgrade must refetch. Version 8 (current)
-stores the desk as a piece in `furniture` and the screen as a monitor standing on
-it (see `core/README.md`, "Room furniture"); older files load as version 8, and
-writes must use it. Writes accept geometry and corrections only: no power,
+stores the desk as a piece in `furniture` and the display standing on it or
+hanging (see `core/README.md`, "Room furniture"); older files load as version 8,
+and writes must use it. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
 
 ## Calibrate
@@ -186,15 +186,51 @@ adds the registry `"id"`), 409
 `{"accepted": false, "reason"}`, 400 for a malformed body and 503 when the adapter
 is not reachable. Removing a row from the layout does not disconnect its light.
 
+## Objects panel
+
+The Objects button opens one panel for everything in the room: Lamps, Furniture,
+Found lamps, the Sync Box and the Hue bridge. Furniture lists the desk, the
+nightstands (cabinets) and the display with their sizes. The trash on a row, or
+Delete on a selected piece, asks in place and removes it; ⌘Z brings it back. Without the desk the
+display hangs where it was and the Sync Box lies on the floor under it. Without the
+display every strip, the Monitor Strip too, is drawn as a bar at its own place, the
+room has no samples and no automatic fade zone, and the Sync Box is not offered.
+The Sync Box is listed only in its own room, where the trash on its row (or Delete
+on the selected box) removes it from the room after a confirmation; a box in no
+room is offered to every room with a display ("Add here"). Another room never
+lists it: moving it means removing it there and adding it here.
+The display of the Sync Box room cannot be removed ("The Sync Box needs a display
+in its room"). "+ Desk" and "+ Display" add a missing one: the desk at the room
+axis, the display on the desk or hanging at 110 cm. A new room is empty.
+
+Three tiles under Furniture add a desk, a nightstand or a display; the desk and
+display tiles are dimmed while the room has one. Like a lamp, a selected desk,
+display or nightstand has a chip whose card shows its name and size and offers
+Remove from layout.
+
+"+ Nightstand" adds a 45 × 55 cm cabinet on the first free stretch of floor, right
+of the desk or at the room axis. A selected
+nightstand has the desk's handles: width knobs on both sides (20–300 cm, kept
+centred), a height knob (20–150 cm) and typed dimension labels, and it is dragged
+or moved with the arrow keys along the floor. A table lamp placed or moved snaps
+to the top under its foot nearest to its height (a nightstand, the desk or the
+floor); a saved lamp keeps its height. A lamp standing on a nightstand or the desk
+follows that top's height, moves with the nightstand, and drops to the nearest top
+under it when the piece is narrowed away or removed. A new nightstand needs free
+floor ("No free floor for a nightstand"); a room holds up to 12 desks and cabinets. A display standing
+on a cabinet is not drawn yet: such a room opens read-only.
+
 ## Found lamps
 
-The Lamps panel polls `/api/discovery` every 3 s only while it is open. Found
+The Objects panel polls `/api/discovery` every 3 s only while it is open. Found
 lamps that are supported, online and unambiguous can be placed with "+" and a
 click in the room. They become `device-*` rows with their canonical name, model,
 shape and zones, which the server verifies before saving. These rows are
 configuration only: they show "Not connected", stay neutral in the room and do
 not enroll any physical output. Unavailable lamps show their reason (Offline,
-Unsupported, Ambiguous).
+Ambiguous); unsupported devices such as plugs are not listed, and Found shows only
+when it lists a lamp or the search fails. Section headings carry no counts, and
+lamp rows show no brightness correction.
 
 ## Live colours and Sync status
 

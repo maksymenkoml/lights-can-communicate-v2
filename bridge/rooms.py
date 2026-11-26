@@ -24,7 +24,6 @@ from pathlib import Path
 
 from desk_layout import (
     LAYOUT_VERSION,
-    MIGRATED_DESK,
     ROLES,
     LayoutStore,
     calibration_values,
@@ -65,13 +64,8 @@ def room_name(value):
 
 
 def new_layout(name):
-    """The layout of a new room: the default desk and monitor of Light Studio, no rows."""
-    return {"version": LAYOUT_VERSION, "gridStepCm": 5, "room": name,
-            # The desk centre is x 100, as in Light Studio: the screen stands in the middle.
-            "furniture": [{"id": MIGRATED_DESK, "kind": "desk", "x": 100,
-                           "width": 160, "height": 85}],
-            "screen": {"positionCm": {"x": 100, "height": 110},
-                       "inches": 32, "on": MIGRATED_DESK},
+    """The layout of a new room: empty, without furniture, a display or rows."""
+    return {"version": LAYOUT_VERSION, "gridStepCm": 5, "room": name, "furniture": [],
             "devices": []}
 
 

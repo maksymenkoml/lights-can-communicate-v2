@@ -870,9 +870,10 @@ Without a support a saved zone is drawn against the floor at the room axis (half
 width 100, top 0) and the automatic zone is absent: every gain is 1 and a light
 whose geometry needs the screen is projected as a point. The Sync Box needs a
 screen: `Rooms.place_sync_box` and a layout write to the Sync room without one are
-refused with `no_screen` (HTTP 409 in Light Studio). Light Studio still draws one
-desk under a display; it keeps the desk's id and place and passes other pieces
-through. `STATE_SCHEMAS["desk_layout"]` is 8, so a rollback restores the
+refused with `no_screen` (HTTP 409 in Light Studio). Light Studio draws at most
+one desk and one display (on the desk, or hanging in a room without one) and keeps
+the desk's id and place; a room with other pieces opens read-only. A new room is
+empty: no furniture and no display. `STATE_SCHEMAS["desk_layout"]` is 8, so a rollback restores the
 pre-upgrade layout.
 
 ## Lamp controls

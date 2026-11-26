@@ -100,9 +100,13 @@ class StudioRoomTests(unittest.TestCase):
         room = body["rooms"][1]["id"]
         self.assertEqual(body["rooms"][1]["name"], "Bedroom")
         status_, answer = self.request("/api/layout?room=" + room)
-        self.assertEqual((status_, answer["layout"]["devices"]), (200, []))
+        # A new room is empty: no furniture, no display.
+        self.assertEqual((status_, answer["layout"]["devices"], answer["layout"]["furniture"]),
+                         (200, [], []))
+        self.assertNotIn("screen", answer["layout"])
         layout_ = answer["layout"]
-        layout_["furniture"][0]["width"] = 120
+        layout_["furniture"] = [{"id": "piece-0000abcd", "kind": "desk", "x": 100,
+                                 "width": 120, "height": 75}]
         status_, saved = self.request("/api/layout?room=" + room, layout_,
                                       **{"If-Match": answer["revision"]})
         self.assertEqual((status_, saved["layout"]["furniture"][0]["width"]), (200, 120))
@@ -141,15 +145,15 @@ class StudioRoomTests(unittest.TestCase):
         self.assertNotIn("play-left", [row["id"] for row in rows])
         # The Sync Box moves the same way.
         self.answers["/lights/rooms"] = (200, {"accepted": True, "changes": {}})
-        # A room without a screen cannot take the Sync Box.
+        # A room without a screen (a new room) cannot take the Sync Box.
         status_, answer = self.request("/api/layout?room=" + room)
-        bare = {key: value for key, value in answer["layout"].items() if key != "screen"}
-        status_, saved = self.request("/api/layout?room=" + room, bare,
-                                      **{"If-Match": answer["revision"]})
+        bare = answer["layout"]
         self.assertEqual(self.request("/api/rooms/sync-box", {"room": room}),
                          (409, {"accepted": False, "reason": "no_screen"}))
-        status_, saved = self.request("/api/layout?room=" + room, answer["layout"],
-                                      **{"If-Match": saved["revision"]})
+        hanging = {**bare, "screen": {"positionCm": {"x": 100, "height": 110}, "inches": 32,
+                                      "on": None}}
+        status_, saved = self.request("/api/layout?room=" + room, hanging,
+                                      **{"If-Match": answer["revision"]})
         status_, body = self.request("/api/rooms/sync-box", {"room": room})
         self.assertEqual((status_, body["sync"]), (200, room))
         # Nor can the Sync room lose its screen.
