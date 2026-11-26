@@ -49,7 +49,7 @@ class LayoutCompositionTests(unittest.TestCase):
         data['devices'][0]['syncRole'] = 'sync'
         data['devices'][4]['syncRole'] = 'own'
         result = validate_layout(data)
-        self.assertEqual(result['version'], 7)
+        self.assertEqual(result["version"], 8)
         self.assertNotIn('syncRole', result['devices'][0])
         self.assertEqual(result['devices'][4]['syncRole'], 'own')
         self.assertEqual(validate_layout(copy.deepcopy(result)), result)
@@ -62,7 +62,7 @@ class LayoutCompositionTests(unittest.TestCase):
         data = layout()
         data['devices'][4]['enabled'] = False
         result = validate_layout(data)
-        self.assertEqual(result['version'], 7)
+        self.assertEqual(result["version"], 8)
         self.assertTrue(all('syncRole' not in row for row in result['devices']))
         self.assertIs(result['devices'][4]['enabled'], False)
 

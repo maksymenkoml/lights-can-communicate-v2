@@ -46,9 +46,12 @@ PREVIEW_FIELDS = {
 # optional Govee row field ``calibration`` (see govee_calibration.py); older
 # files load as version 6 without it. Version 7 replaces ``monitorInches`` with the
 # ``screen`` object (position and diagonal); older files load with a screen taken
-# from their ``hue-monitor`` row and ``monitorInches``.
-LAYOUT_VERSION = 7
-LAYOUT_VERSIONS = (3, 4, 5, 6, LAYOUT_VERSION)
+# from their ``hue-monitor`` row and ``monitorInches``. Version 8 replaces ``desk``
+# with ``furniture``, a list of desks and cabinets, and makes the screen optional:
+# a monitor or a TV standing on a piece (``on``) or hanging on the wall (``on``
+# null). Older files load with their desk as the first piece and a monitor on it.
+LAYOUT_VERSION = 8
+LAYOUT_VERSIONS = (3, 4, 5, 6, 7, LAYOUT_VERSION)
 # Calibration controls of a Govee row: name -> (lowest, highest). Zero is neutral;
 # an all-zero calibration is not stored. The migrated Govee rows and every enrolled
 # device row take one; the layout does not know a device's provider, and the
@@ -56,6 +59,14 @@ LAYOUT_VERSIONS = (3, 4, 5, 6, LAYOUT_VERSION)
 CALIBRATION_RANGES = {"warmth": (-100, 100), "tint": (-100, 100), "lowLight": (0, 100)}
 CALIBRATION_ROWS = ("govee-left", "govee-right")
 DEVICE_ROW = re.compile(r"device-[a-f0-9]{32}\Z")
+# A piece of furniture: its id, and the width and height ranges of each kind (cm).
+PIECE_ID = re.compile(r"piece-[0-9a-f]{8}\Z")
+PIECE_SIZES = {"desk": ((80, 240), (50, 120)), "cabinet": ((20, 300), (20, 150))}
+MAX_PIECES = 12
+# The desk of a layout before version 8 becomes this piece.
+MIGRATED_DESK = "piece-00000001"
+# The diagonal of the display (a monitor or a TV) in inches.
+DISPLAY_INCHES = (19, 100)
 # Drawing shapes of a lamp: floor lamp, light strip, bar (a Play) and table lamp.
 SHAPES = ("floor", "strip", "bar", "table")
 # Fade switches are stored only when they differ from these defaults.
@@ -121,15 +132,53 @@ def grid_position(point):
     return {"x": x, "height": height}
 
 
-def validate_screen(value):
-    """Validate the version 7 ``screen`` object; its height rises to the minimum."""
-    if not isinstance(value, dict) or set(value) != {"positionCm", "inches"}:
-        raise ValueError("Expected the screen position and size")
-    inches = number(value["inches"], 19, 55)
+def on_grid(value):
+    if not math.isclose(value / 5, round(value / 5), abs_tol=1e-7):
+        raise ValueError("Position must be on the five-centimeter grid")
+    return value
+
+
+def validate_furniture(value):
+    """Validate the version 8 ``furniture`` list: desks and cabinets on the floor."""
+    if not isinstance(value, list) or len(value) > MAX_PIECES:
+        raise ValueError("Expected at most twelve pieces of furniture")
+    result, seen = [], set()
+    for piece in value:
+        if not isinstance(piece, dict) or set(piece) != {"id", "kind", "x", "width", "height"}:
+            raise ValueError("Expected a piece of furniture")
+        identifier, kind = piece["id"], piece["kind"]
+        if not isinstance(identifier, str) or not PIECE_ID.match(identifier) or identifier in seen:
+            raise ValueError("Invalid or duplicate piece of furniture")
+        if kind not in PIECE_SIZES:
+            raise ValueError("Unknown kind of furniture")
+        seen.add(identifier)
+        (low_width, high_width), (low_height, high_height) = PIECE_SIZES[kind]
+        result.append({"id": identifier, "kind": kind, "x": on_grid(number(piece["x"], -200, 400)),
+                       "width": number(piece["width"], low_width, high_width),
+                       "height": number(piece["height"], low_height, high_height)})
+    return result
+
+
+def validate_screen(value, furniture):
+    """Validate the version 8 ``screen``: one display, a monitor or a TV alike,
+    standing on a piece or hanging (``on`` null). Its height rises to the minimum."""
+    if not isinstance(value, dict) or set(value) != {"positionCm", "inches", "on"}:
+        raise ValueError("Expected the screen position, size and support")
+    inches = number(value["inches"], *DISPLAY_INCHES)
+    if value["on"] is not None and value["on"] not in {piece["id"] for piece in furniture}:
+        raise ValueError("The screen stands on a piece that is not in the room")
     position = grid_position(value["positionCm"])
     position["height"] = max(position["height"],
                              minimum_anchor_height({"id": "hue-monitor"}, inches))
-    return {"positionCm": position, "inches": inches}
+    return {"positionCm": position, "inches": inches, "on": value["on"]}
+
+
+def screen_support(layout):
+    """Return the piece the screen of a validated layout stands on, or None."""
+    screen = layout.get("screen")
+    if screen is None or screen["on"] is None:
+        return None
+    return next(piece for piece in layout["furniture"] if piece["id"] == screen["on"])
 
 
 def validate_sync_box(value):
@@ -140,10 +189,7 @@ def validate_sync_box(value):
     """
     if not isinstance(value, dict) or set(value) != {"x"}:
         raise ValueError("Expected the Sync Box position")
-    x = number(value["x"], -200, 400)
-    if not math.isclose(x / 5, round(x / 5), abs_tol=1e-7):
-        raise ValueError("Position must be on the five-centimeter grid")
-    return {"x": x}
+    return {"x": on_grid(number(value["x"], -200, 400))}
 
 
 def screen_size(layout):
@@ -153,20 +199,28 @@ def screen_size(layout):
 
 
 def validate_layout(value):
-    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "screen", "devices",
-               "syncZone", "sceneZone", "syncBox", *FALLOFF_DEFAULTS}
+    allowed = {"version", "gridStepCm", "room", "desk", "monitorInches", "screen", "furniture",
+               "devices", "syncZone", "sceneZone", "syncBox", *FALLOFF_DEFAULTS}
     version = value.get("version") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) - allowed or type(version) is not int
             or version not in LAYOUT_VERSIONS):
-        raise ValueError("Expected a desk layout of version three to seven")
-    if (version == LAYOUT_VERSION) != ("screen" in value) or (
-            version == LAYOUT_VERSION and "monitorInches" in value):
+        raise ValueError("Expected a desk layout of version three to eight")
+    if version == LAYOUT_VERSION:
+        if "desk" in value or "monitorInches" in value or "furniture" not in value:
+            raise ValueError("Version eight carries furniture, not a desk")
+    elif ("furniture" in value or (version == 7) != ("screen" in value)
+          or (version == 7 and "monitorInches" in value)):
         raise ValueError("Version seven carries the screen object, older versions monitorInches")
     if value.get("gridStepCm", 5) != 5:
         raise ValueError("Desk placement requires a five-centimeter grid")
-    desk = value.get("desk")
-    if not isinstance(desk, dict) or set(desk) != {"width", "height"}:
-        raise ValueError("Expected desk dimensions")
+    if version == LAYOUT_VERSION:
+        furniture = validate_furniture(value["furniture"])
+    else:
+        desk = value.get("desk")
+        if not isinstance(desk, dict) or set(desk) != {"width", "height"}:
+            raise ValueError("Expected desk dimensions")
+        # Before version 8 the desk stood at the room axis.
+        furniture = validate_furniture([{"id": MIGRATED_DESK, "kind": "desk", "x": 100, **desk}])
     room = value.get("room", "Mykola Office")
     if not isinstance(room, str) or not 1 <= len(room) <= 40:
         raise ValueError("Invalid room name")
@@ -178,14 +232,22 @@ def validate_layout(value):
         "version": LAYOUT_VERSION,
         "gridStepCm": 5,
         "room": room,
-        "desk": {
-            "width": number(desk["width"], 80, 240),
-            "height": number(desk["height"], 50, 120),
-        },
+        "furniture": furniture,
         "devices": [],
     }
-    screen = (validate_screen(value["screen"]) if version == LAYOUT_VERSION
-              else {"inches": number(value.get("monitorInches"), 19, 55)})
+    if version == LAYOUT_VERSION:
+        screen = (validate_screen(value["screen"], furniture)
+                  if value.get("screen") is not None else None)
+    elif version == 7:
+        old = value["screen"]
+        if not isinstance(old, dict) or set(old) != {"positionCm", "inches"}:
+            raise ValueError("Expected the screen position and size")
+        # Version 7 knew monitors only: 19-55 inches.
+        number(old["inches"], 19, 55)
+        screen = validate_screen({**old, "on": MIGRATED_DESK}, furniture)
+    else:
+        # Before version 7 the monitor row carries the screen position (below).
+        screen = {"inches": number(value.get("monitorInches"), 19, 55), "on": MIGRATED_DESK}
     seen = set()
     for row in devices:
         if not isinstance(row, dict) or set(row) - PREVIEW_FIELDS:
@@ -255,18 +317,20 @@ def validate_layout(value):
                 raise ValueError("Invalid identity-bound layout metadata")
             device.update(name=name, model=model, shape=shape, zones=zones)
         device['positionCm']['height'] = max(height, minimum_anchor_height(
-            device, screen["inches"]))
-        if key == "hue-monitor":
+            device, screen["inches"] if screen is not None else None))
+        if key == "hue-monitor" and screen is not None:
             if "positionCm" in screen:
                 # The screen is authoritative: its row follows it.
                 device["positionCm"] = copy.deepcopy(screen["positionCm"])
             else:
                 screen["positionCm"] = copy.deepcopy(device["positionCm"])
         result["devices"].append(device)
-    if "positionCm" not in screen:
-        # Before version seven the monitor row carried the screen position.
-        raise ValueError("An older layout needs its monitor row")
-    result["screen"] = {"positionCm": screen["positionCm"], "inches": screen["inches"]}
+    if screen is not None:
+        if "positionCm" not in screen:
+            # Before version seven the monitor row carried the screen position.
+            raise ValueError("An older layout needs its monitor row")
+        # One key order for every version: Light Studio compares layouts as JSON text.
+        result["screen"] = {key: screen[key] for key in ("positionCm", "inches", "on")}
     if value.get("syncBox") is not None:
         result["syncBox"] = validate_sync_box(value["syncBox"])
     if value.get('syncZone') is not None:
@@ -294,7 +358,7 @@ def composed(device):
 def minimum_anchor_height(device, monitor_inches):
     """Keep the complete schematic body above the floor on the five-cm grid."""
     identifier = device['id']
-    if identifier == 'hue-monitor':
+    if identifier == 'hue-monitor' and monitor_inches is not None:
         display_height = monitor_inches * 2.54 * 9 / math.hypot(16, 9)
         return math.ceil((display_height / 2 + 4.8) / 5) * 5
     shape = ('floor' if identifier in ('govee-left','govee-right') else

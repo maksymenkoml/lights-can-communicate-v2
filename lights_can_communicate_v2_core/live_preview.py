@@ -35,7 +35,8 @@ def _number(value, low, high):
 
 
 def _govee_reading(item):
-    """Return a fresh verified Govee status, else a recently verified one."""
+    """Return a fresh verified Govee status, else a recently verified one, with its age
+    in seconds; (None, None) without one."""
     for native, age, limit in (
         (item.get("native"), item.get("status_age"), GOVEE_FRESH_SECONDS),
         (item.get("verified_native"), item.get("verified_age"), GOVEE_HOLD_SECONDS),
@@ -47,8 +48,8 @@ def _govee_reading(item):
             and type(native.get("onOff")) is int
             and native["onOff"] in (0, 1)
         ):
-            return native
-    return None
+            return native, age
+    return None, None
 
 
 def _rgb(value, maximum=255):
@@ -61,7 +62,34 @@ def _rgb(value, maximum=255):
     return list(value)
 
 
+def _govee_colors(native):
+    """The one color a Govee lamp reports in its status, or None without one.
+
+    A lamp in white reports its temperature, a colored one its RGB; an effect mode
+    reports neither. Commands from another app or clamped to the lamp's range show
+    only here, so a scene preview reads them back like a Hue light's state.
+    """
+    kelvin = native.get("colorTemInKelvin")
+    if _number(kelvin, 2000, 9000):
+        return [_temperature(kelvin)]
+    color = native.get("color")
+    if kelvin in (0, None) and isinstance(color, dict):
+        try:
+            rgb = _rgb([color.get(channel) for channel in ("r", "g", "b")])
+        except ValueError:
+            return None
+        if any(rgb):
+            return [rgb]
+    return None
+
+
+# How much of a white's blackbody tint the preview keeps. The eye adapts to white
+# light, so 2700 K reads as warm white, not as the orange its RGB is.
+WHITE_TINT = 0.4
+
+
 def _temperature(kelvin):
+    """The preview color of white light at ``kelvin``: white with its warm or cool tint."""
     temperature = kelvin / 100
     red = 255 if temperature <= 66 else 329.698727446 * (temperature - 60) ** -0.1332047592
     green = (
@@ -72,7 +100,8 @@ def _temperature(kelvin):
     blue = (
         255 if temperature >= 66 else 138.5177312231 * math.log(temperature - 10) - 305.0447927307
     )
-    return [max(0, min(255, round(value))) for value in (red, green, blue)]
+    blackbody = [max(0, min(255, round(value))) for value in (red, green, blue)]
+    return [round(255 - (255 - channel) * WHITE_TINT) for channel in blackbody]
 
 
 def _segments(data):
@@ -290,8 +319,12 @@ def _hue_fresh(value):
     )
 
 
-def build_preview(adapter_status, output_snapshot):
-    """Project only known layout lamps from already assembled snapshots, without IO."""
+def build_preview(adapter_status, output_snapshot, now=None):
+    """Project only known layout lamps from already assembled snapshots, without IO.
+
+    ``now`` is the store's clock reading at assembly; with it a Govee scene shows the
+    lamp's reported color once that status is newer than the last command.
+    """
     status = adapter_status if isinstance(adapter_status, dict) else {}
     output = output_snapshot if isinstance(output_snapshot, dict) else {}
     video = status.get("video")
@@ -365,7 +398,7 @@ def build_preview(adapter_status, output_snapshot):
     for lamp in lamp_ids:
         brightness = None
         if lamp not in hue:
-            native = _govee_reading(govee.get(lamp, {}))
+            native, reading_age = _govee_reading(govee.get(lamp, {}))
             fresh = native is not None
             on = bool(native["onOff"]) if fresh else None
             brightness = native.get("brightness") if fresh else None
@@ -390,11 +423,22 @@ def build_preview(adapter_status, output_snapshot):
             expected = None if streamed else "scene-output"
         colors = []
         valid = False
+        raw, color_source = sample.get("colors"), sample.get("color_source")
+        commanded = color_source == expected and isinstance(raw, list)
+        command_age = (now - sample["seen"] if now is not None
+                       and _number(sample.get("seen"), -math.inf, math.inf) else None)
+        if lamp not in hue and fresh and expected == "scene-output" and not (
+                commanded and (len(raw) > 1 or not _number(command_age, reading_age,
+                                                            math.inf))):
+            # A one-color Govee scene shows what the lamp reports once that status is
+            # newer than the last command, not the command itself.
+            reading = _govee_colors(native)
+            if reading is not None:
+                raw, color_source, source = reading, expected, expected
         try:
-            raw = sample.get("colors")
             if (
                 source is not None
-                and sample.get("color_source") == expected
+                and color_source == expected
                 and expected
                 and isinstance(raw, list)
                 and 1 <= len(raw) <= 9

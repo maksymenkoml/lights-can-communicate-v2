@@ -59,7 +59,7 @@ class LayoutFieldTests(StoreCase):
             data = v5(version=version)
             with self.subTest(version=version):
                 result = validate_layout(data)
-                self.assertEqual(result["version"], 7)
+                self.assertEqual(result["version"], 8)
                 for key in ("sceneZone", "syncFalloff", "sceneFalloff"):
                     self.assertNotIn(key, result)
                 # The without-Sync correction is the row's own value: a file
@@ -387,7 +387,7 @@ class HueProxyTests(StoreCase):
         self.save(data)
         stored = json.loads(self.path.read_text())
         self.assertEqual((stored["version"], stored["sceneFalloff"], stored["syncFalloff"]),
-                         (7, True, False))
+                         (8, True, False))
 
 
 if __name__ == "__main__":

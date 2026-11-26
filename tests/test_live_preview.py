@@ -53,7 +53,8 @@ class PreviewTests(unittest.TestCase):
         self.device = targets()[0]
 
     def lamp(self, status=None, key="govee-left"):
-        return build_preview(metadata() if status is None else status, self.store.snapshot())[
+        return build_preview(metadata() if status is None else status, self.store.snapshot(),
+                             self.now)[
             "lamps"
         ][key]
 
@@ -181,7 +182,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(self.lamp(key="hue-monitor")["colors"][0], [51, 0, 0])
         self.store.record_hue("hue-monitor", {"color_temperature": {"mirek": 250}})
         self.assertEqual(len(self.lamp(key="hue-monitor")["colors"]), 1)
-        self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 41, 33]])
+        self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 47, 44]])
         self.store.record_hue("hue-monitor", {"color": {"xy": {"x": 0.7, "y": 0.299}}})
         self.assertEqual(self.lamp(key="hue-monitor")["colors"], [[51, 0, 0]])
 
@@ -191,7 +192,41 @@ class PreviewTests(unittest.TestCase):
         self.send(
             self.device, "colorwc", {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 4000}
         )
-        self.assertEqual(self.lamp()["colors"], [[51, 41, 33]])
+        self.assertEqual(self.lamp()["colors"], [[51, 47, 44]])
+
+    def test_a_govee_scene_shows_the_white_or_color_the_lamp_reports(self):
+        # The core's last command (2150 K) is outside what the lamp shows now: it
+        # reports 2700 K, set by another app or clamped to its range.
+        self.send(self.device, "colorwc",
+                  {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 2150})
+        self.now += 1  # The status below (0.1 s old) is newer than that command.
+
+        def reported(color, kelvin):
+            status = metadata()
+            status["targets"][0]["native"].update(
+                brightness=63, color=dict(zip("rgb", color)), colorTemInKelvin=kelvin)
+            return status
+
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 139, 118]])
+        self.assertEqual(self.lamp(reported((255, 0, 0), 0))["colors"], [[161, 0, 0]])
+        # Without a reading (an effect mode reports neither) the command stays.
+        self.assertEqual(self.lamp(reported((0, 0, 0), 0))["colors"], [[161, 133, 105]])
+        # A status older than a new command does not hide it.
+        self.send(self.device, "colorwc",
+                  {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0})
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[0, 0, 161]])
+        # Segment colors of a scene are not replaced by the lamp's single color, even
+        # by a newer status.
+        self.send(self.device, "ptReal", segment_data([(255, 0, 0)] * 7))
+        self.now += 1
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 0, 0]] * 7)
+        # During Sync the lamp's scene reading never shows, even when newer.
+        sync = self.store.wrap_govee(lambda *_: True, "sync-output")
+        sync(self.device, "colorwc", {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0})
+        self.now += 1
+        status = reported((0, 0, 0), 2700)
+        status["video"] = {"active": True, "ready": True, "frame_age": 0.1}
+        self.assertEqual(self.lamp(status)["colors"], [[0, 0, 161]])
 
     def test_shared_source_handoff_never_resurrects_inactive_video_colors(self):
         self.send(
@@ -459,10 +494,10 @@ class ProducerTests(unittest.TestCase):
         client.native["color_temperature"] = {"mirek": 250, "mirek_valid": True}
         proxy.process_once()
         lamp = build_preview(metadata(), store.snapshot())["lamps"]["play-center"]
-        self.assertEqual(lamp["colors"], [[128, 103, 83]], "a white light shows its temperature")
+        self.assertEqual(lamp["colors"], [[128, 118, 110]], "a white light shows its temperature")
         client.native["mode"] = "streaming"
         proxy.process_once()
-        self.assertEqual(store.snapshot()["play-center"]["colors"], [[255, 206, 166]],
+        self.assertEqual(store.snapshot()["play-center"]["colors"], [[255, 235, 219]],
                          "a streaming light keeps the last read-back")
 
     def test_a_light_outside_sync_shows_its_scene_in_every_mode(self):

@@ -46,8 +46,8 @@ ROOM_ROUTES = ("/api/rooms/create", "/api/rooms/rename", "/api/rooms/order",
 # until Sync is off.
 ROOM_CHANGES_OUTSIDE_SYNC = ("create", "delete", "move", "sync-box")
 ROOM_REASONS = ("invalid_name", "room_limit", "unknown_room", "unknown_light", "last_room",
-                "has_sync_box", "has_lights", "layout_full", "sync_active", "restarting",
-                "unavailable")
+                "has_sync_box", "has_lights", "layout_full", "no_screen", "sync_active",
+                "restarting", "unavailable")
 LIGHT_ROUTES = {"/api/lights/enroll": "/lights/enroll", "/api/lights/remove": "/lights/remove"}
 OUTSIDE_REASONS = ("room", "channels_shared", "area_full")
 LIGHT_REASONS = ("sync_active", "restarting", "enrolled", "not_enrolled", "unavailable",
@@ -824,6 +824,8 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                     validate_bindings(data, store)
                     result = rooms.save(self.room_id(), data)
                 return self.respond(200, result)
+            except RoomRefused as refused:
+                return self.respond(409, {"accepted": False, "reason": refused.reason})
             except (ValueError, TypeError, KeyError):
                 return self.respond(400, {"error": "invalid desk layout"})
             except OSError:

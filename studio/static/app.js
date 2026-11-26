@@ -97,14 +97,35 @@ const finite=(v,lo,hi,fallback)=>typeof v==='number'&&Number.isFinite(v)?clamp(v
 const CALIBRATION={warmth:[-100,100],tint:[-100,100],lowLight:[0,100]};
 function calibrationOf(v){const c={};for(const [k,[lo,hi]] of Object.entries(CALIBRATION))c[k]=Math.round(finite(v?.[k],lo,hi,0));return c}
 const calibrated=c=>!!c&&Object.keys(CALIBRATION).some(k=>c[k]);
-function fromLayout(data){
- if(!data||typeof data!=='object'||![3,4,5,6,7].includes(data.version)||!Array.isArray(data.devices)||!data.desk||typeof data.desk!=='object')return null;
- const environment={width:finite(data.desk.width,80,240,160),height:finite(data.desk.height,50,120,85),inches:finite(data.screen?.inches??data.monitorInches,19,55,32),
+// Layout version 8 lists the room's furniture and the screen stands on one piece. Older
+// files had one desk at the room axis and a monitor on it; they read as that version 8.
+const LAYOUT_VERSION=8,MIGRATED_DESK='piece-00000001',DISPLAY_INCHES=[19,100];
+const FOREIGN_ROOM='Light Studio cannot edit the furniture of this room yet';
+function currentLayout(data){
+ if(!data||typeof data!=='object'||![3,4,5,6,7,LAYOUT_VERSION].includes(data.version)||!Array.isArray(data.devices))return null;
+ const result=clone(data);
+ if(data.version===LAYOUT_VERSION)return Array.isArray(data.furniture)?result:null;
+ if(!data.desk||typeof data.desk!=='object')return null;
+ // Before version 7 the screen was monitorInches and the monitor row's position.
+ const position=data.screen?.positionCm??data.devices.find(d=>d?.id===MONITOR)?.positionCm;
+ delete result.desk;delete result.monitorInches;
+ result.version=LAYOUT_VERSION;
+ result.furniture=[{id:MIGRATED_DESK,kind:'desk',x:DESK_CENTER,width:data.desk.width,height:data.desk.height}];
+ result.screen={positionCm:clone(position),inches:data.screen?.inches??data.monitorInches,on:MIGRATED_DESK};
+ return result;
+}
+// The piece the screen stands on.
+const supportOf=layout=>layout?.screen?layout.furniture?.find(p=>p?.id===layout.screen.on)??null:null;
+function fromLayout(source){
+ const data=currentLayout(source),desk=supportOf(data);
+ // Light Studio draws one desk under a monitor: the screen's support is that desk.
+ if(!data||!desk||desk.kind!=='desk')return null;
+ const environment={width:finite(desk.width,80,240,160),height:finite(desk.height,50,120,85),inches:finite(data.screen.inches,...DISPLAY_INCHES,32),
+  furniture:data.furniture,support:desk.id,
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
- // The screen position: its own object from version 7, before that the monitor row's.
- const screenAt=data.screen?.positionCm??rows.get(MONITOR)?.positionCm;
+ const screenAt=data.screen.positionCm;
  if(!screenAt||typeof screenAt!=='object')return null;
  environment.screen={x:finite(screenAt.x,-400,600,DESK_CENTER)-DESK_CENTER,h:finite(screenAt.height,-400,600,110)};
  if(typeof data.syncBox?.x==='number'&&Number.isFinite(data.syncBox.x))environment.box={kind:'box',x:clampBoxX(data.syncBox.x-DESK_CENTER,environment),h:0};
@@ -137,7 +158,10 @@ function pack(m={room,environment,lamps}){
  const zone=z=>z?{version:1,points:z.map(p=>({u:p.u,h:p.h}))}:null;
  // The strip that wraps the monitor, when there is one, carries the screen position.
  const monitor=wrapOf(m.lamps)||env.screen;
- return {version:7,gridStepCm:STEP,room:m.room,desk:{width:env.width,height:env.height},screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches},
+ // The desk keeps its id and place; other pieces pass through unchanged.
+ const support=env.support??MIGRATED_DESK,pieces=env.furniture??[{id:support,kind:'desk',x:DESK_CENTER}];
+ return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:pieces.map(p=>p.id===support?{...clone(p),width:env.width,height:env.height}:clone(p)),
+  screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:support},
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
   // A strip that wraps the monitor in place of the Monitor Strip keeps its own saved place.
@@ -901,7 +925,7 @@ function changeField(key,value){
   environment[key]=clamp(Math.round(value/5)*5,key==='width'?80:50,key==='width'?240:120);
   if(key==='height'){strip().h+=environment.height-previous;clampFixture(strip())}
  }else if(selected==='monitor'){
-  if(key==='inches')environment.inches=clamp(Math.round(value),19,55);else strip()[key]=value;
+  if(key==='inches')environment.inches=clamp(Math.round(value),...DISPLAY_INCHES);else strip()[key]=value;
   clampFixture(strip());
  }else if(l){l[key]=key==='x'?value+(l.form==='strip'?0:strip().x):value;clampFixture(l)}
  recordChange(before);renderScene();renderHistory();
@@ -1610,19 +1634,25 @@ function applyModel(m){
  lastPersisted=JSON.stringify(pack());
 }
 function mergeLayouts(base,local,remote){
- const result=clone(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+ // Older files read as version 8, so an older baseline is no local change by itself.
+ const result=currentLayout(remote),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+ [base,local]=[base,local].map(currentLayout);
  const field=(out,key,b,l)=>{if(!equal(b,l)){if(l===undefined)delete out[key];else out[key]=clone(l);}};
- // Files before version 7 carry the screen as monitorInches and the monitor row.
- const screenOf=l=>l.screen??{positionCm:clone(l.devices.find(d=>d.id===MONITOR).positionCm),inches:l.monitorInches};
- result.screen=screenOf(remote);delete result.monitorInches;
  field(result,'room',base.room,local.room);
- field(result,'screen',screenOf(base),screenOf(local));
+ // Screen fields merge one by one, so a local resize keeps a remote change of support.
+ if(result.screen&&base.screen&&local.screen)for(const key of ['positionCm','inches','on'])field(result.screen,key,base.screen[key],local.screen[key]);
+ else field(result,'screen',base.screen,local.screen);
  // Canonical responses omit an automatic zone; treat that like this client's explicit null.
  for(const key of ['syncZone','sceneZone'])field(result,key,base[key]??null,local[key]??null);
  // Canonical responses also omit fade switches at their defaults.
  field(result,'syncFalloff',base.syncFalloff??true,local.syncFalloff??true);
  field(result,'sceneFalloff',base.sceneFalloff??false,local.sceneFalloff??false);
- for(const key of ['width','height'])field(result.desk,key,base.desk[key],local.desk[key]);
+ // A piece is merged by its id, each size on its own.
+ const pieces=l=>new Map(l.furniture.map(p=>[p.id,p])),was=pieces(base),now=pieces(local);
+ for(const [id,piece] of now){
+  const target=result.furniture.find(p=>p.id===id),previous=was.get(id);
+  if(target&&previous)for(const key of ['x','width','height'])field(target,key,previous[key],piece[key]);
+ }
  const old=new Map(base.devices.map(d=>[d.id,d])),mine=new Map(local.devices.map(d=>[d.id,d]));
  for(const [id]of old)if(!mine.has(id))result.devices=result.devices.filter(d=>d.id!==id);
  for(const [id,current]of mine){
@@ -1654,7 +1684,9 @@ async function flushLayout(){
    const response=await fetch(layoutUrl(),{method:'POST',headers:{'Content-Type':'application/json','If-Match':'"'+(revision||'')+'"'},body:JSON.stringify(payload)});
    if(response.status===409&&conflicts++<2){
     const current=await fetch(layoutUrl(),{cache:'no-store'});if(!current.ok)throw new Error('offline');
-    reconcile(await current.json(),base);pendingLayout=pack(committedModel());continue;
+    const fresh=await current.json();
+    if(fresh.layout&&!fromLayout(fresh.layout)){serverReady=false;setDraftState('error');tell(FOREIGN_ROOM);return}
+    reconcile(fresh,base);pendingLayout=pack(committedModel());continue;
    }
    if(!response.ok){pendingLayout=pendingLayout||payload;throw new Error('save');}
    acceptBaseline(await response.json());if(!pendingLayout)store.remove(KEY+'-pending');offlineNotice=false;
@@ -1680,6 +1712,8 @@ async function connectLayout(retried=false){
   if(!response.ok)throw new Error('offline');
   const saved=await response.json(),hasLocalEdits=editGeneration>0||!!store.get(KEY+'-pending');
   if(generation!==roomGeneration)return;
+  // A room this page cannot draw yet (no desk under its screen) is never overwritten.
+  if(saved.layout&&!fromLayout(saved.layout)){serverReady=false;setDraftState('error');tell(FOREIGN_ROOM);return}
   revision=saved.revision;
   if(saved.layout){
    if(hasLocalEdits)reconcile(saved);
@@ -2089,7 +2123,7 @@ document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(b
 // is marked, and the Sync Box's room shows the box. The page edits one room at a time;
 // its layout, browser draft and undo history belong to that room.
 const ROOM_REFUSED={invalid_name:'A name has 1 to 40 characters',room_limit:'A home has up to ten rooms',unknown_room:'This room no longer exists',unknown_light:'This lamp cannot change rooms',
- last_room:'The last room stays',has_sync_box:'The Sync Box is in this room',has_lights:'Move its lamps to another room first',layout_full:'That room holds up to '+MAX_ROWS+' lamps',
+ last_room:'The last room stays',has_sync_box:'The Sync Box is in this room',has_lights:'Move its lamps to another room first',layout_full:'That room holds up to '+MAX_ROWS+' lamps',no_screen:'Sync needs a screen in the room',
  sync_active:'Not while Sync is on',restarting:'The lamps are restarting; try again in a moment',unavailable:'Light Studio cannot reach the lamps now'};
 const boxIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="14" height="6.5" rx="1.6"/><path d="M6 10.2h.01M14 10.2h2"/></svg>';
 const roomIcons={pen:'<path d="m12.5 4.5 3 3-8 8H4.5v-3z"/>',trash:'<path d="M4.5 6h11M8 6V4.5h4V6m-6 0 .7 9.5h6.6L14 6"/>',plus:'<path d="M10 4v12M4 10h12"/>'};
@@ -2193,14 +2227,22 @@ function closeRooms(){
 }
 // The room drawn small: floor, desk, screen and a dot per lamp, in the room's own centimetres.
 function roomThumb(layout){
- if(!layout?.desk||!layout.screen)return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true"></svg>';
- const X=x=>20+(x+40)*160/320,Y=h=>100-h*80/220,len=v=>v*80/220;
- const dw=layout.desk.width,dh=layout.desk.height,sw=layout.screen.inches*2.54*16/Math.hypot(16,9),sh=sw*9/16,sx=layout.screen.positionCm.x,sy=layout.screen.positionCm.height;
+ const current=currentLayout(layout),desk=supportOf(current);
+ if(!desk)return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true"></svg>';
+ layout=current;
+ // The desk is drawn around its own centre, like the screen on it.
+ const dl=desk.x-desk.width/2,dr=desk.x+desk.width/2,dh=desk.height,sw=layout.screen.inches*2.54*16/Math.hypot(16,9),sh=sw*9/16,sx=layout.screen.positionCm.x,sy=layout.screen.positionCm.height;
+ // The card shows at least -40..280 cm and 0..220 cm high, and grows to fit the desk,
+ // the screen and every lamp.
+ const placed=layout.devices.filter(d=>d.enabled!==false&&d.positionCm),xs=placed.map(d=>d.positionCm.x);
+ const lo=Math.min(-40,dl,sx-sw/2,...xs.map(x=>x-10)),hi=Math.max(280,dr,sx+sw/2,...xs.map(x=>x+10));
+ const top=Math.max(220,sy+sh/2,...placed.map(d=>d.positionCm.height+10));
+ const scaleY=80/top,X=x=>20+(x-lo)*160/(hi-lo),Y=h=>100-h*scaleY;
  let out='<line class="rc-floor" x1="8" y1="100" x2="192" y2="100"/>'
-  +'<rect class="rc-desk" x="'+X(0)+'" y="'+Y(dh)+'" width="'+(X(dw)-X(0))+'" height="3"/>'
-  +'<path class="rc-leg" d="M'+X(6)+' '+Y(dh)+'V100M'+X(dw-6)+' '+Y(dh)+'V100"/>'
-  +'<rect class="rc-screen" x="'+X(sx-sw/2)+'" y="'+Y(sy+sh/2)+'" width="'+(X(sx+sw/2)-X(sx-sw/2))+'" height="'+len(sh)+'" rx="1"/>';
- for(const d of layout.devices||[])if(d.enabled!==false&&d.positionCm)out+='<circle class="rc-lamp" cx="'+X(d.positionCm.x)+'" cy="'+Y(d.positionCm.height)+'" r="4"/>';
+  +'<rect class="rc-desk" x="'+X(dl)+'" y="'+Y(dh)+'" width="'+(X(dr)-X(dl))+'" height="3"/>'
+  +'<path class="rc-leg" d="M'+X(dl+6)+' '+Y(dh)+'V100M'+X(dr-6)+' '+Y(dh)+'V100"/>'
+  +'<rect class="rc-screen" x="'+X(sx-sw/2)+'" y="'+Y(sy+sh/2)+'" width="'+(X(sx+sw/2)-X(sx-sw/2))+'" height="'+sh*scaleY+'" rx="1"/>';
+ for(const d of placed)out+='<circle class="rc-lamp" cx="'+X(d.positionCm.x)+'" cy="'+Y(d.positionCm.height)+'" r="4"/>';
  return '<svg class="rc-thumb" viewBox="0 0 200 110" aria-hidden="true">'+out+'</svg>';
 }
 function roomCount(id){

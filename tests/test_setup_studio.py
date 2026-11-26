@@ -85,7 +85,7 @@ class StudioTests(unittest.TestCase):
             data['syncZone'] = custom_zone()
             saved = request('/api/layout', data)
             older = layout()
-            older['desk']['width'] = 180
+            older['furniture'][0]['width'] = 180
             saved = request('/api/layout', older, **{'If-Match': saved['revision']})
             self.assertEqual(saved['layout']['syncZone'], data['syncZone'])
             older['syncZone'] = None
@@ -236,7 +236,7 @@ class StudioTests(unittest.TestCase):
                     self.assertIsNone(json.load(response)["layout"])
                 with post(layout(), **{"If-Match": '""'}) as response:
                     result = json.load(response)
-                self.assertEqual(result["layout"]["desk"]["width"], 160)
+                self.assertEqual(result["layout"]["furniture"][0]["width"], 160)
                 current = {"If-Match": '"' + result["revision"] + '"'}
                 with opener.open(base + "/api/layout") as response:
                     self.assertEqual(json.load(response), result)
@@ -281,7 +281,7 @@ class StudioTests(unittest.TestCase):
             path.write_text(json.dumps(older))
             old_revision = LayoutStore.digest(older)
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 7)
+            self.assertEqual(store.snapshot()["version"], 8)
             self.assertNotEqual(store.revision(), old_revision)
 
     def test_status_projection_excludes_keys_unselected_devices_and_raw_commands(self):

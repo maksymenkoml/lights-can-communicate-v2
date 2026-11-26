@@ -7,10 +7,13 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 from desk_layout import (  # noqa: E402
+    LAYOUT_VERSION,
+    MIGRATED_DESK,
     LayoutStore,
     layout_event,
     positions,
     screen_size,
+    screen_support,
     validate_layout,
 )
 
@@ -42,6 +45,14 @@ def layout():
     }
 
 
+def version_seven():
+    data = layout()
+    data["version"] = 7
+    del data["monitorInches"]
+    data["screen"] = {"positionCm": {"x": 100, "height": 110}, "inches": 32}
+    return data
+
+
 def named(**names):
     data = layout()
     data["version"] = 5
@@ -63,7 +74,7 @@ class LayoutTests(unittest.TestCase):
         self.assertNotIn("name", rows["hue-monitor"])
         result = validate_layout(named(**{"hue-monitor": None}))
         self.assertTrue(all("name" not in row for row in result["devices"]))
-        self.assertEqual(result["version"], 7)
+        self.assertEqual(result["version"], LAYOUT_VERSION)
 
     def test_role_names_are_bounded_printable_text(self):
         for role, name in (("govee-left", ""), ("govee-left", "   "), ("govee-left", "x" * 36),
@@ -132,7 +143,8 @@ class LayoutTests(unittest.TestCase):
         data["monitorInches"] = 43
         data["devices"][2]["positionCm"] = {"x": 60, "height": 130}
         result = validate_layout(data)
-        self.assertEqual(result["screen"], {"positionCm": {"x": 60, "height": 130}, "inches": 43})
+        self.assertEqual(result["screen"], {"positionCm": {"x": 60, "height": 130},
+                                            "inches": 43, "on": MIGRATED_DESK})
         self.assertNotIn("monitorInches", result)
         monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
         self.assertEqual(monitor["positionCm"], {"x": 60, "height": 130})
@@ -148,7 +160,7 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(monitor["positionCm"]["height"], 40)
 
     def test_v7_requires_screen_and_rejects_monitor_inches(self):
-        data = validate_layout(layout())
+        data = version_seven()
         broken = copy.deepcopy(data)
         del broken["screen"]
         with self.assertRaises(ValueError):
@@ -161,6 +173,74 @@ class LayoutTests(unittest.TestCase):
         legacy["screen"] = copy.deepcopy(data["screen"])
         with self.assertRaises(ValueError):
             validate_layout(legacy)
+        for key, extra in (("desk", {"width": 160, "height": 85}), ("monitorInches", 32)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_layout({**validate_layout(data), key: extra})
+
+    def test_older_versions_migrate_to_furniture_and_a_monitor(self):
+        for data in (layout(), version_seven()):
+            with self.subTest(version=data["version"]):
+                data["desk"] = {"width": 140, "height": 75}
+                result = validate_layout(data)
+                self.assertEqual(result["furniture"], [{"id": MIGRATED_DESK, "kind": "desk",
+                                                        "x": 100, "width": 140, "height": 75}])
+                self.assertEqual(set(result["screen"]), {"positionCm", "inches", "on"})
+                self.assertEqual(result["screen"]["on"], MIGRATED_DESK)
+                self.assertNotIn("desk", result)
+                self.assertNotIn("monitorInches", result)
+                self.assertEqual(screen_support(result)["id"], MIGRATED_DESK)
+                self.assertEqual(validate_layout(result), result, "version eight round-trips")
+
+    def test_furniture_ranges_and_ids(self):
+        base = validate_layout(layout())
+
+        def with_pieces(*pieces):
+            return {**base, "furniture": list(pieces)}
+
+        def piece(identifier="piece-0000000a", kind="cabinet", width=45, height=55, x=230):
+            return {"id": identifier, "kind": kind, "x": x, "width": width, "height": height}
+
+        accepted = validate_layout(with_pieces(base["furniture"][0], piece(width=20, height=150),
+                                               piece("piece-0000000b", width=300, height=20)))
+        self.assertEqual(len(accepted["furniture"]), 3)
+        for bad in (piece(width=19), piece(height=151), piece(kind="desk", width=79),
+                    piece(kind="bed"), piece(identifier="desk-1"), piece(x=231),
+                    {**piece(), "depth": 40}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_layout(with_pieces(base["furniture"][0], bad))
+        with self.assertRaises(ValueError):
+            validate_layout(with_pieces(base["furniture"][0], piece(MIGRATED_DESK)))
+        too_many = [piece("piece-%08x" % index) for index in range(13)]
+        with self.assertRaises(ValueError):
+            validate_layout({**base, "furniture": too_many, "screen": None})
+
+    def test_the_screen_is_optional_and_stands_on_a_piece_of_the_room(self):
+        base = validate_layout(layout())
+        bare = {key: value for key, value in base.items() if key != "screen"}
+        result = validate_layout({**bare, "furniture": []})
+        self.assertNotIn("screen", result)
+        self.assertIsNone(screen_support(result))
+        monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+        self.assertEqual(monitor["positionCm"], {"x": 100, "height": 110},
+                         "without a screen the strip keeps its own place")
+        hanging = validate_layout({**base, "screen": {**base["screen"], "on": None}})
+        self.assertIsNone(screen_support(hanging))
+        # One display kind: a monitor and a TV are both 19-100 inches.
+        tv = {**base["screen"], "inches": 100}
+        self.assertEqual(validate_layout({**base, "screen": tv})["screen"]["inches"], 100)
+        for bad in ({**base["screen"], "on": "piece-0000000f"}, {**base["screen"], "inches": 101},
+                    {**base["screen"], "inches": 18}, {**base["screen"], "kind": "tv"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_layout({**base, "screen": bad})
+
+    def test_a_version_seven_screen_keeps_its_monitor_range(self):
+        old = version_seven()
+        old["screen"]["inches"] = 56
+        with self.assertRaises(ValueError):
+            validate_layout(old)
+        current = validate_layout(version_seven())
+        current["screen"]["inches"] = 56
+        self.assertEqual(validate_layout(current)["screen"]["inches"], 56)
 
     def test_screen_fields_are_validated(self):
         for mutate in [
@@ -168,7 +248,7 @@ class LayoutTests(unittest.TestCase):
             lambda s: s.pop("inches"),
             lambda s: s.pop("positionCm"),
             lambda s: s.update(inches=18),
-            lambda s: s.update(inches=56),
+            lambda s: s.update(inches=101),
             lambda s: s.update(inches=True),
             lambda s: s.update(inches=float("nan")),
             lambda s: s["positionCm"].update(x=102),
@@ -344,7 +424,7 @@ class LayoutTests(unittest.TestCase):
             data = layout()
             data["version"] = version
             with self.subTest(version=version):
-                self.assertEqual(validate_layout(data)["version"], 7)
+                self.assertEqual(validate_layout(data)["version"], LAYOUT_VERSION)
         for version in (2, 8, "4", 4.0, True, None):
             data = layout()
             data["version"] = version
@@ -356,9 +436,9 @@ class LayoutTests(unittest.TestCase):
             path = Path(folder) / "layout.json"
             path.write_text(json.dumps(layout()))
             store = LayoutStore(path)
-            self.assertEqual(store.snapshot()["version"], 7)
+            self.assertEqual(store.snapshot()["version"], LAYOUT_VERSION)
             store.save(store.snapshot())
-            self.assertEqual(json.loads(path.read_text())["version"], 7)
+            self.assertEqual(json.loads(path.read_text())["version"], LAYOUT_VERSION)
 
     def test_atomic_persistence_and_invalid_file_keep_last_good_configuration(self):
         with TemporaryDirectory(prefix="tmp_desk_layout_") as folder:
