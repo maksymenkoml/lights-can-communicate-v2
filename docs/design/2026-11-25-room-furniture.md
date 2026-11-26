@@ -186,13 +186,14 @@ moving or resizing a piece later does not move lamps. *(Builder's call.)*
 
 Each stage is one PR, verified live on the NAS before it is offered.
 
-1. **Core:** layout version 8, migration from 3–7, empty new rooms, zones and
-   the Sync Box relative to the screen's support, the `no_screen` refusal.
-   Light Studio reads and writes version 8 with the same look (the migrated desk
-   and monitor).
+1. **Core:** layout version 8, migration from 3–7, zones and the Sync Box
+   relative to the screen's support, rooms without furniture or a screen, the
+   `no_screen` refusal. Light Studio reads and writes version 8 with the same
+   look (the migrated desk and monitor); new rooms still get a desk and a
+   monitor until stage 2 can draw a room without them.
 2. **Light Studio furniture:** variants of the cabinet and TV drawings first,
-   then the Objects panel, adding, editing and removing pieces, snapping lamps
-   onto tops, and the Sync Box and screen rules in the panel.
+   then the Objects panel, adding, editing and removing pieces, empty new rooms,
+   snapping lamps onto tops, and the Sync Box and screen rules in the panel.
 
 ## Verification
 
