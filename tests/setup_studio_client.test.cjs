@@ -502,15 +502,15 @@ test('a table lamp stands on the desk by default, keeps its shape and draws a sh
  const ghost=app.$('#placement-ghost');
  assert.equal(json(app,"lampFrame({form:'table',x:0,h:0}).bottom-lampFrame({form:'table',x:0,h:0}).ref"),6);
  assert.ok(ghost.querySelector('.table-glass'),'the ghost is a table lamp');
- // The foot stands on the surface clicked, down to the floor.
+ // The foot stands on the top under it: here the desk, wherever the click is.
  app.dispatch(app.stage,'pointerdown',{clientX:500+40*3.3,clientY:740});await app.settle();
  await app.advance(300);
  const row=app.posts.at(-1).body.devices.at(-1);
- assert.deepEqual([row.shape,row.zones,row.positionCm],['table',1,{x:140,height:0}]);
+ assert.deepEqual([row.shape,row.zones,row.positionCm],['table',1,{x:140,height:json(app,'environment.height')}]);
  const lamp=app.lamp(table.id);
  assert.ok(lamp.querySelector('path.lens-off.solid'),'an unlit shade is black');
  assert.equal(json(app,"lamps.find(l=>l.id==='"+table.id+"').form"),'table','a table lamp never wraps the monitor');
- assert.equal(json(app,"sampleHeight(lamps.find(l=>l.id==='"+table.id+"'))"),17,'Sync samples its shade');
+ assert.equal(json(app,"sampleHeight(lamps.find(l=>l.id==='"+table.id+"'))"),json(app,'environment.height')+17,'Sync samples its shade, above the desktop');
 });
 test('removing asks inline, keeps the place, and Found returns the lamp',async()=>{
  const app=await harness();
@@ -1119,9 +1119,10 @@ test('version 8 keeps the desk id and place; a room with only lamps or a hanging
  assert.ok(Math.abs(both.screen.positionCm.x-100)<=70,'the display stands on the tabletop');
  app.run('environment.display=false;removeFurniture("desk");addFurniture("desk")');
  assert.equal(json(app,'pack()').furniture[0].x,100);
- // A cabinet, or a display hanging over a desk, is not drawn yet.
+ // A display on a cabinet, or hanging over a desk, is not drawn yet.
  const cabinet={...structuredClone(layout),furniture:[...layout.furniture,{id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50}]};
- assert.equal(app.run('fromLayout('+JSON.stringify(cabinet)+')'),null);
+ assert.deepEqual(json(app,'fromLayout('+JSON.stringify(cabinet)+').environment.cabinets'),[{id:'piece-0000abcd',kind:'cabinet',x:200,width:60,height:50}]);
+ assert.equal(app.run('fromLayout('+JSON.stringify({...cabinet,screen:{...cabinet.screen,on:'piece-0000abcd'}})+')'),null);
  assert.equal(app.run('fromLayout('+JSON.stringify({...layout,screen:{...layout.screen,on:null}})+')'),null);
 });
 
@@ -1167,7 +1168,7 @@ test('a room thumbnail draws the desk around its own centre',async()=>{
 });
 
 test('a room this page cannot draw yet is never overwritten',async()=>{
- const layout=canonical(saved());layout.furniture.push({id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50});
+ const layout=canonical(saved());layout.furniture.push({id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50});layout.screen.on='piece-0000abcd';
  const app=await harness({layout});
  assert.equal(app.$('#toast').textContent,'Light Studio cannot edit the furniture of this room yet');
  // An edit is kept in this browser only.
@@ -2123,6 +2124,43 @@ test('the Delete key removes a selected desk; the display of the Sync Box room s
  assert.match(app.run('(environment.desk=true,environmentSvg(sceneGeometry()))'),/l-31 7h62Z/,'on a desk it has its stand');app.run('environment.desk=false');
  const y=+app.stage.querySelector('.box-group .box-body').getAttribute('y');
  assert.ok(y>720,'on the floor');
+});
+
+test('a nightstand is added beside the desk, resized and moved like the desk, and carries its table lamp',async()=>{
+ const app=await harness({rooms:twoRooms({sync:null})});await app.advance(100);
+ await app.click(app.$('#list-toggle'));
+ await app.click(app.$('#lamp-panel').querySelector('[data-furniture-add="cabinet"]'));await app.advance(300);
+ const piece=app.posts.at(-1).body.furniture.find(p=>p.kind==='cabinet');
+ assert.match(piece.id,/^piece-[0-9a-f]{8}$/);
+ assert.deepEqual([piece.width,piece.height],[45,55]);
+ const deskRight=json(app,'(environment.deskX??0)+environment.width/2');
+ assert.ok(piece.x-100-22.5>=deskRight,'it stands right of the desk, not inside it');
+ assert.equal(json(app,'selected'),piece.id);
+ assert.match(app.$('#lamp-panel').textContent,/Nightstand\s*45 × 55 cm/);
+ // A table lamp put on it stands on its top and follows its height, place and removal.
+ app.run('lamps.push({id:"govee-test-table",name:"Table",model:"H6022",shape:"table",form:"table",zones:1,x:'+(piece.x-100)+',h:0,scale:80,sceneScale:80,vertical:false,enabled:true,syncRole:"sync",unbound:true});render()');
+ const lampH=()=>json(app,'lamps.find(l=>l.id==="govee-test-table").h');
+ assert.equal(lampH(),55);
+ app.run('drag={handle:"cab-h",before:snapshot(),moved:false};dragHandle("cab-h",{x:0,y:740-80*3.3});drag=null;render()');
+ assert.equal(json(app,'cabinetOf(selected).height'),80);assert.equal(lampH(),80);
+ app.run('drag={handle:"cab-w",before:snapshot(),moved:false};dragHandle("cab-w",{x:500+(cabinetOf(selected).x+60)*3.3,y:0});drag=null;render()');
+ assert.equal(json(app,'cabinetOf(selected).width'),120);
+ app.run('changeField("width",13)');assert.equal(json(app,'cabinetOf(selected).width'),20,'at least 20 cm');
+ app.run('changeField("height",400)');assert.equal(json(app,'cabinetOf(selected).height'),150,'at most 150 cm');
+ app.run('changeField("width",45);changeField("height",55)');
+ const x0=json(app,'cabinetOf(selected).x');
+ app.run('changeField("x",'+(x0+30)+')');
+ assert.equal(json(app,'lamps.find(l=>l.id==="govee-test-table").x'),x0+30,'the lamp moves with it');assert.equal(lampH(),55);
+ await app.press(app.document.body,'Delete');
+ const panel=app.$('#lamp-panel');
+ assert.ok(panel.querySelector('[data-remove-ok="'+piece.id+'"]'),'removal asks first');
+ await app.click(panel.querySelector('[data-remove-ok="'+piece.id+'"]'));await app.advance(300);
+ assert.equal(app.posts.at(-1).body.furniture.filter(p=>p.kind==='cabinet').length,0);
+ assert.equal(lampH(),0,'the lamp is on the floor');
+ app.run('undo()');
+ assert.equal(json(app,'environment.cabinets.length'),1);assert.equal(lampH(),55);
+ // The room card draws the nightstand.
+ assert.match(app.run('roomThumb(pack())'),/class="rc-cabinet"/);
 });
 
 test('without a display the Monitor Strip draws as a bar where it was, and wraps the display again when one is added',async()=>{

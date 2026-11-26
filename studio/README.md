@@ -189,15 +189,24 @@ is not reachable. Removing a row from the layout does not disconnect its light.
 ## Objects panel
 
 The Objects button opens one panel for everything in the room: Lamps, Furniture,
-Found lamps, the Sync Box and the Hue bridge. Furniture lists the desk and the
-display with their sizes. The trash on a row, or Delete on a selected desk or
-display, asks in place and removes it; ⌘Z brings it back. Without the desk the
+Found lamps, the Sync Box and the Hue bridge. Furniture lists the desk, the
+nightstands (cabinets) and the display with their sizes. The trash on a row, or
+Delete on a selected piece, asks in place and removes it; ⌘Z brings it back. Without the desk the
 display hangs where it was and the Sync Box lies on the floor under it. Without the
 display every strip, the Monitor Strip too, is drawn as a bar at its own place, the
 room has no samples and no automatic fade zone, and the Sync Box is not offered.
 The display of the Sync Box room cannot be removed ("The Sync Box needs a display
 in its room"). "+ Desk" and "+ Display" add a missing one: the desk at the room
 axis, the display on the desk or hanging at 110 cm. A new room is empty.
+
+"+ Nightstand" adds a 45 × 55 cm cabinet on the first free stretch of floor, right
+of the desk or at the room axis; a room holds up to 12 pieces. A selected
+nightstand has the desk's handles: width knobs on both sides (20–300 cm, kept
+centred), a height knob (20–150 cm) and typed dimension labels, and it is dragged
+or moved with the arrow keys along the floor. A table lamp always stands on the
+highest top under its foot (a nightstand, the desk or the floor), so it rises and
+falls with that top and moves with the nightstand it stands on. A display standing
+on a cabinet is not drawn yet: such a room opens read-only.
 
 ## Found lamps
 
