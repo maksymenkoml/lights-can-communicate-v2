@@ -328,25 +328,31 @@ function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)
 // seconds pass), so the mark and the card do not flicker back.
 const POWER_SETTLE_MS=8000;
 const powerPending=new Map();
+// A switch settles only on a live snapshot received after its write was accepted: an
+// older one still shows the state before it.
 function livePower(l){
  const s=liveFresh()&&liveSnapshot?.lamps?.[l.id],live=s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true,held:s.power_reason==='sync'}:{on:null,can:false};
  const p=powerPending.get(l.id);
- if(p&&p.sent&&(live.on===p.on||performance.now()>p.until))powerPending.delete(l.id);
- else if(p)return {on:p.on,can:live.can,held:live.held,busy:!p.sent};
+ if(p&&p.sent&&(liveAt>p.at&&live.on===p.on||performance.now()>p.until))powerPending.delete(l.id);
+ else if(p)return {on:p.on,can:live.can,held:live.held,busy:!p.sent,pending:true};
  return live;
 }
 // The badge marks a fault with "!". An off lamp always shows the grey power mark, which
-// switches it on; an owner Off during Sync shows it too.
-function lampBadge(l){
+// switches it on; an owner Off during Sync shows it too. A turn-on keeps the mark,
+// dimmed and inert, while it runs; once accepted the mark goes, even before the Off
+// blocker clears, and a refusal brings it back.
+function lampBadge(l,p=livePower(l)){
  const b=lampBlocker(l);
  if(b&&!isOff(b))return {b,off:false};
- if(livePower(l).on===false)return {b:b||{code:'native_off'},off:true};
- return b&&['active','waiting'].includes(liveState())?{b,off:true}:null;
+ const off={b:b||{code:'native_off'},off:true};
+ if(p.busy)return p.on===true?off:null;
+ if(p.on===false)return off;
+ if(p.pending)return null;
+ return b&&['active','waiting'].includes(liveState())?off:null;
 }
-function badgeTip(l,m){
+function badgeTip(p,m){
  if(!m)return '';
  if(!m.off)return capital(blockerText(m.b));
- const p=livePower(l);
  return p.busy?'Turning on…':p.can?'Off · Click to turn on':'Off';
 }
 const POWER_REFUSED={paused:'Light output is paused','sync active':'Sync is running: choose Off under During Sync to keep it dark',unavailable:'Light Studio cannot switch this lamp now'};
@@ -358,7 +364,7 @@ async function switchPower(l,on){
   const response=await fetch('/api/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lamp:l.id,on})});
   const body=await response.json().catch(()=>({}));ok=response.ok&&body.accepted===true;reason=body.reason||'';
  }catch{}
- if(ok)powerPending.set(l.id,{on,sent:true,until:performance.now()+POWER_SETTLE_MS});
+ if(ok)powerPending.set(l.id,{on,sent:true,at:performance.now(),until:performance.now()+POWER_SETTLE_MS});
  else{powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
  paintPower();
  if(ok)setTimeout(paintPower,POWER_SETTLE_MS+50);
@@ -619,8 +625,8 @@ function healthMarkSvg(l){
  if(selected===l.id||l.enabled===false)return '';
  const f=lampFrame(l),cx=f.right-f.x-3,cy=f.top-f.y+3;
  if(l.unbound)return '<g class="health-badge unlinked" data-link-badge data-tooltip="Not connected"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><g transform="translate('+cx+' '+cy+')">'+UNLINKED_ICON+'</g></g>';
- const m=lampBadge(l),b=m?.b,p=livePower(l);
- return '<g class="health-badge'+(m?.off?' off':'')+(m?.off&&p.can?' switch-on':'')+(m?.off&&p.busy?' busy':'')+'" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+esc(badgeTip(l,m))+'"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><text x="'+cx+'" y="'+(cy+3.6)+'">!</text><g transform="translate('+cx+' '+cy+')">'+POWER_ICON+'</g></g>';
+ const p=livePower(l),m=lampBadge(l,p),b=m?.b;
+ return '<g class="health-badge'+(m?.off?' off':'')+(m?.off&&p.can&&!p.busy?' switch-on':'')+(m?.off&&p.busy?' busy':'')+'" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+esc(badgeTip(p,m))+'"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><text x="'+cx+'" y="'+(cy+3.6)+'">!</text><g transform="translate('+cx+' '+cy+')">'+POWER_ICON+'</g></g>';
 }
 // The monitor strip glows left to right like the screen picture: left side, three top zones, right side.
 function stripStops(colors){
@@ -1008,7 +1014,7 @@ function paintLive(){
   else if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
   const badge=node.querySelector('[data-badge]');
-  if(badge){const m=lampBadge(l),b=m?.b,p=livePower(l);badge.classList.toggle('off',!!m?.off);badge.classList.toggle('switch-on',!!m?.off&&p.can);badge.classList.toggle('busy',!!m?.off&&!!p.busy);setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',badgeTip(l,m))}
+  if(badge){const p=livePower(l),m=lampBadge(l,p),b=m?.b;badge.classList.toggle('off',!!m?.off);badge.classList.toggle('switch-on',!!m?.off&&p.can&&!p.busy);badge.classList.toggle('busy',!!m?.off&&!!p.busy);setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',badgeTip(p,m))}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  setAttr(stage.querySelector('[data-scene-demo]'),'opacity',scenePreview()?1:0);
@@ -2118,6 +2124,13 @@ function queueTooltip(node,immediate=false){
 // ---------------------------------------------------------------- events --
 const stage=$('#stage');
 document.addEventListener('pointerdown',()=>{skipClick=false},true);
+stage.addEventListener('click',e=>{
+ const mark=e.target.closest('.health-badge.switch-on');
+ if(!mark||(e.button??0)!==0)return;
+ e.stopPropagation();skipClick=true;
+ const l=lamps.find(l=>l.id===mark.closest('[data-lamp]')?.dataset.lamp);
+ if(l&&!livePower(l).busy)switchPower(l,true);
+},true);
 document.addEventListener('click',e=>{
  if(skipClick){skipClick=false;return}
  const b=e.target.closest('[data-select]');if(b&&b.closest('#stage')){select(b.dataset.select);return}
@@ -2128,9 +2141,9 @@ stage.addEventListener('pointerdown',event=>{
 },true);
 stage.addEventListener('pointerdown',()=>showHover(null),true);
 stage.addEventListener('pointerdown',e=>{
- // The power mark of an off lamp switches it on.
- const mark=e.target.closest('.health-badge.switch-on');
- if(mark){const l=lamps.find(l=>l.id===mark.closest('[data-lamp]')?.dataset.lamp);if(l){e.preventDefault();e.stopPropagation();skipClick=true;if(!livePower(l).busy)switchPower(l,true);return}}
+ // The power mark of an off lamp is a button: its press neither selects nor drags the
+ // lamp, and its click (below) switches the lamp on.
+ if(e.target.closest('.health-badge.off')){e.preventDefault();e.stopPropagation();return}
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
  if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}

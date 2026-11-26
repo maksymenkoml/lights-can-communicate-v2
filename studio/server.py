@@ -1,6 +1,7 @@
 """Loopback setup UI with validated desk geometry and calibration persistence."""
 
 import argparse
+import itertools
 import json
 import math
 import re
@@ -198,7 +199,7 @@ def power_paths(data):
                 local or _number(row.get("grant_remaining"), 0.001, math.inf)):
             paths[light] = "/power-request"
     hue = data.get("hue") if isinstance(data.get("hue"), dict) else {}
-    for light in list(hue)[:MAX_LAMPS]:
+    for light in itertools.islice(hue, MAX_LAMPS):
         if _light_id(light):
             paths[light] = "/native-power"
     return paths

@@ -244,6 +244,7 @@ async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=save
  return {document,context,$,stage,posts,requests,server,storage,timers,dispatch,advance,settle,
   now:()=>now,
   run:source=>vm.runInContext(source,context),
+  dispatch:(el,type,extra)=>dispatch(el,type,extra),
   click:async el=>{assert.ok(el,'click target');dispatch(el,'pointerdown');dispatch(el,'pointerup');dispatch(el,'click');await settle()},
   press:async(el,key,extra={})=>{dispatch(el,'keydown',{key,...extra});await settle()},
   lamp:id=>stage.querySelector('[data-lamp="'+id+'"]'),
@@ -1062,6 +1063,33 @@ test('an off lamp shows the power mark at any time; clicking it or the card swit
  assert.equal(app.$('#object-menu [data-power-field]').getAttribute('data-tooltip'),'Light Studio cannot switch this lamp');
  app.run('closeObjectMenu();select(null)');await app.advance(100);
  assert.ok(!badge().classList.contains('switch-on'),'the mark is not a button then');
+});
+
+test('the power mark is a button: only a primary click switches, it stays dimmed while the request runs, and an older snapshot does not settle the switch',async()=>{
+ const calls=[];let state={on:false},release;
+ const app=await harness({live:()=>liveOk({mode:'idle',sync:{state:'off',reason:'idle',blockers:[]},lamps:{'play-left':lit([],{on:state.on,power:true})}}),
+  power:body=>{calls.push(body);return new Promise(resolve=>{release=()=>resolve({status:200,body:{accepted:true}})})}});
+ await app.advance(100);
+ const badge=()=>app.lamp('play-left').querySelector('[data-badge]');
+ // A press alone, a secondary click or a press dragged away sends nothing.
+ app.dispatch(badge(),'pointerdown');app.dispatch(badge(),'pointerup');await app.settle();
+ app.dispatch(badge(),'click',{button:2});await app.settle();
+ assert.equal(calls.length,0);
+ // The primary click sends one request; the mark stays, dimmed and inert, meanwhile.
+ app.dispatch(badge(),'click',{button:0});await app.settle();
+ assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{lamp:'play-left',on:true}]);
+ await app.advance(100);
+ assert.equal(badge().getAttribute('visibility'),'visible');
+ assert.ok(badge().classList.contains('busy')&&!badge().classList.contains('switch-on'));
+ assert.equal(badge().getAttribute('data-tooltip'),'Turning on…');
+ app.dispatch(badge(),'click',{button:0});await app.settle();assert.equal(calls.length,1,'no second request while it runs');
+ // Accepted: the mark goes although the lamp still reports off.
+ release();await app.settle();await app.advance(100);
+ assert.equal(badge().getAttribute('visibility'),'hidden');
+ // Snapshots that still show the old Off do not settle the accepted On.
+ assert.equal(json(app,'powerPending.size'),1,'the On holds until a later snapshot confirms it');
+ assert.equal(json(app,'livePower(lamps.find(l=>l.id==="play-left")).on'),true);
+ state.on=true;await app.advance(200);assert.equal(json(app,'powerPending.size'),0);
 });
 
 test('Blink asks the server once and explains a refusal; Off is saved for role lamps only',async()=>{
