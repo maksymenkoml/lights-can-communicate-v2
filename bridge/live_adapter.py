@@ -832,10 +832,10 @@ def handler_for(controller, token, hue_proxies=None, video_output=None,
                 result["calibration"] = calibration.snapshot()
             if preview is not None:
                 try:
-                    output_snapshot = preview.snapshot()
+                    output_snapshot, now = preview.snapshot(), preview.clock()
                 except Exception:
-                    output_snapshot = {}
-                result["preview"] = build_preview(result, output_snapshot)
+                    output_snapshot, now = {}, None
+                result["preview"] = build_preview(result, output_snapshot, now)
             if self.path == "/diagnostics":
                 # Allowlisted export: no credentials, addresses or device identifiers.
                 return self.respond(200, export_diagnostics(result))

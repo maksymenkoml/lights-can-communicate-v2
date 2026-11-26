@@ -53,7 +53,8 @@ class PreviewTests(unittest.TestCase):
         self.device = targets()[0]
 
     def lamp(self, status=None, key="govee-left"):
-        return build_preview(metadata() if status is None else status, self.store.snapshot())[
+        return build_preview(metadata() if status is None else status, self.store.snapshot(),
+                             self.now)[
             "lamps"
         ][key]
 
@@ -198,6 +199,7 @@ class PreviewTests(unittest.TestCase):
         # reports 2700 K, set by another app or clamped to its range.
         self.send(self.device, "colorwc",
                   {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 2150})
+        self.now += 1  # The status below (0.1 s old) is newer than that command.
 
         def reported(color, kelvin):
             status = metadata()
@@ -209,6 +211,11 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(self.lamp(reported((255, 0, 0), 0))["colors"], [[161, 0, 0]])
         # Without a reading (an effect mode reports neither) the command stays.
         self.assertEqual(self.lamp(reported((0, 0, 0), 0))["colors"], [[161, 133, 105]])
+        # A status older than a new command does not hide it.
+        self.send(self.device, "colorwc",
+                  {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0})
+        self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[0, 0, 161]])
+        self.now += 1
         # Segment colors of a scene are not replaced by the lamp's single color.
         self.send(self.device, "ptReal", segment_data([(255, 0, 0)] * 7))
         self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 0, 0]] * 7)
