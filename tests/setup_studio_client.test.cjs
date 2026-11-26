@@ -158,8 +158,8 @@ function canonical(layout){
  // configurations' zones and fade switches.
  const result=structuredClone(layout);result.version=8;
  // Older files carry the screen as monitorInches and the monitor row.
- const screen=result.screen??{positionCm:structuredClone(result.devices.find(row=>row.id==='hue-monitor').positionCm),inches:result.monitorInches};
  if(result.desk){
+  const screen=result.screen??{positionCm:structuredClone(result.devices.find(row=>row.id==='hue-monitor').positionCm),inches:result.monitorInches};
   result.furniture=[{id:'piece-00000001',kind:'desk',x:100,width:result.desk.width,height:result.desk.height}];
   result.screen={positionCm:screen.positionCm,inches:screen.inches,on:'piece-00000001'};
  }
@@ -1072,21 +1072,31 @@ test('fromLayout reads version 6 and version 7 screens and pack writes the scree
  assert.equal('monitorInches' in packed,false);
 });
 
-test('version 8 keeps the desk id and place and passes other furniture through',async()=>{
+test('version 8 keeps the desk id and place; a room with only lamps or a hanging display opens',async()=>{
  const app=await harness();
  const layout=canonical(saved());
- layout.furniture=[{id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50},{id:'piece-12345678',kind:'desk',x:100,width:140,height:75}];
+ layout.furniture=[{id:'piece-12345678',kind:'desk',x:110,width:140,height:75}];
  layout.screen.on='piece-12345678';
  const model=json(app,'fromLayout('+JSON.stringify(layout)+').environment');
- assert.deepEqual([model.width,model.height,model.support],[140,75,'piece-12345678']);
+ assert.deepEqual([model.desk,model.display,model.width,model.height,model.support],[true,true,140,75,'piece-12345678']);
  app.run('applyModel(fromLayout('+JSON.stringify(layout)+'));environment.width=150');
  const packed=json(app,'pack()');
- assert.deepEqual(packed.furniture,[layout.furniture[0],{id:'piece-12345678',kind:'desk',x:100,width:150,height:75}]);
+ assert.deepEqual(packed.furniture,[{id:'piece-12345678',kind:'desk',x:110,width:150,height:75}]);
  assert.deepEqual([packed.version,packed.screen.on],[8,'piece-12345678']);
- // A screen without a desk under it is not this page's model yet.
- assert.equal(app.run('fromLayout('+JSON.stringify({...layout,screen:{...layout.screen,on:'piece-0000abcd'}})+')'),null);
- const bare=structuredClone(layout);delete bare.screen;
- assert.equal(app.run('fromLayout('+JSON.stringify(bare)+')'),null);
+ // Lamps only: no desk, no display.
+ const bare={...structuredClone(layout),furniture:[]};delete bare.screen;
+ const empty=json(app,'fromLayout('+JSON.stringify(bare)+').environment');
+ assert.deepEqual([empty.desk,empty.display],[false,false]);
+ app.run('applyModel(fromLayout('+JSON.stringify(bare)+'))');
+ const packedBare=json(app,'pack()');
+ assert.deepEqual(packedBare.furniture,[]);assert.equal('screen' in packedBare,false);
+ // A display hanging in a room without a desk.
+ const hanging={...structuredClone(layout),furniture:[],screen:{...layout.screen,on:null}};
+ assert.deepEqual(json(app,'(m=>[m.desk,m.display])(fromLayout('+JSON.stringify(hanging)+').environment)'),[false,true]);
+ // A cabinet, or a display hanging over a desk, is not drawn yet.
+ const cabinet={...structuredClone(layout),furniture:[...layout.furniture,{id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50}]};
+ assert.equal(app.run('fromLayout('+JSON.stringify(cabinet)+')'),null);
+ assert.equal(app.run('fromLayout('+JSON.stringify({...layout,screen:{...layout.screen,on:null}})+')'),null);
 });
 
 test('a 65-inch display (a TV) keeps its size through an edit',async()=>{
@@ -1131,7 +1141,7 @@ test('a room thumbnail draws the desk around its own centre',async()=>{
 });
 
 test('a room this page cannot draw yet is never overwritten',async()=>{
- const layout=canonical(saved());layout.furniture[0]={...layout.furniture[0],kind:'cabinet'};
+ const layout=canonical(saved());layout.furniture.push({id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50});
  const app=await harness({layout});
  assert.equal(app.$('#toast').textContent,'Light Studio cannot edit the furniture of this room yet');
  // An edit is kept in this browser only.
@@ -2039,11 +2049,74 @@ test('Found lists the lamps that can be placed above the unsupported ones',async
  assert.match(rows[1].textContent,/Unsupported/);
 });
 
-test('the Lamps panel lists lamps only: no desk or monitor rows',async()=>{
+test('the Objects panel lists lamps and furniture; the desk and display are removed with a confirmation and come back',async()=>{
  const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ assert.equal(app.$('.list-word').textContent,'Objects');
  await app.click(app.$('#list-toggle'));
  const panel=app.$('#lamp-panel');
- assert.equal(panel.querySelector('[data-list-lamp="desk"],[data-list-lamp="monitor"]'),null);
+ assert.equal(panel.querySelector('h2').textContent,'Objects');
+ assert.ok(panel.querySelector('[data-list-lamp="desk"]')&&panel.querySelector('[data-list-lamp="monitor"]'),'the desk and the display are listed');
+ // The trash asks first; Remove takes the desk away and the display hangs where it was.
+ await app.click(panel.querySelector('[data-remove="desk"]'));
+ assert.ok(panel.querySelector('[data-remove-ok="desk"]'),'removal is confirmed in place');
+ const before=app.posts.length;
+ await app.click(panel.querySelector('[data-remove-ok="desk"]'));await app.advance(300);
+ assert.equal(app.stage.querySelector('.desk-group'),null);
+ const body=app.posts.at(-1).body;
+ assert.ok(app.posts.length>before);
+ assert.deepEqual(body.furniture,[]);assert.equal(body.screen.on,null);
+ // The display goes too: a room of lamps only.
+ await app.click(panel.querySelector('[data-remove="monitor"]'));await app.click(panel.querySelector('[data-remove-ok="monitor"]'));await app.advance(300);
+ assert.equal(app.stage.querySelector('.monitor-group'),null);
+ assert.equal('screen' in app.posts.at(-1).body,false);
+ assert.equal(app.stage.querySelector('#sync-visibility'),null,'no desk under a display: no automatic fade zone');
+ assert.ok(panel.querySelector('[data-furniture-add="desk"]')&&panel.querySelector('[data-furniture-add="monitor"]'));
+ // Undo brings the display back; adding the desk puts the display on it again.
+ await app.click(app.$('#undo'));await app.advance(300);
+ assert.ok(app.stage.querySelector('.monitor-group'));
+ await app.click(app.$('#lamp-panel').querySelector('[data-furniture-add="desk"]'));await app.advance(300);
+ const back=app.posts.at(-1).body;
+ assert.equal(back.furniture.length,1);assert.equal(back.screen.on,back.furniture[0].id);
+ assert.ok(back.screen.positionCm.height>back.furniture[0].height,'the display stands above the tabletop');
+});
+
+test('the Delete key removes a selected desk; the display of the Sync Box room stays',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
+ app.run('select("monitor")');
+ await app.press(app.document.body,'Delete');
+ assert.equal(app.$('#toast').textContent,'The Sync Box needs a display in its room');
+ assert.equal(app.$('#lamp-panel').querySelector('[data-remove-ok="monitor"]'),null);
+ app.run('select("desk")');
+ await app.press(app.document.body,'Delete');
+ const panel=app.$('#lamp-panel');
+ assert.ok(panel.querySelector('[data-remove-ok="desk"]'));
+ await app.click(panel.querySelector('[data-remove-ok="desk"]'));await app.advance(300);
+ assert.deepEqual(app.posts.at(-1).body.furniture,[]);
+ // The Sync Box now lies on the floor under the display.
+ const y=+app.stage.querySelector('.box-group .box-body').getAttribute('y');
+ assert.ok(y>720,'on the floor');
+});
+
+test('without a display the Monitor Strip draws as a bar where it was, and wraps the display again when one is added',async()=>{
+ const app=await harness({rooms:twoRooms({sync:null})});await app.advance(100);
+ const before=json(app,'(l=>[l.form,l.x,l.h])(lamps.find(l=>l.id==="hue-monitor"))');
+ assert.equal(before[0],'strip');
+ app.run('removeFurniture("monitor")');await app.advance(300);
+ assert.deepEqual(json(app,'(l=>[l.form,l.x,l.h])(lamps.find(l=>l.id==="hue-monitor"))'),['bar',before[1],before[2]]);
+ const row=app.posts.at(-1).body.devices.find(d=>d.id==='hue-monitor');
+ assert.deepEqual(row.positionCm,{x:before[1]+100,height:before[2]});
+ app.run('addFurniture("monitor")');
+ assert.equal(json(app,'lamps.find(l=>l.id==="hue-monitor").form'),'strip');
+});
+
+test('a room without a display is not offered the Sync Box',async()=>{
+ const app=await harness({rooms:twoRooms(),syncBox:READY_BOX,storage:new Map([['light-studio-room-v1',BEDROOM]])});await app.advance(100);
+ await app.click(app.$('#list-toggle'));
+ assert.ok(app.$('#lamp-panel').querySelector('[data-box-room="ask"]'),'with a display it can move here');
+ app.run('removeFurniture("monitor")');
+ const panel=app.$('#lamp-panel');
+ assert.equal(panel.querySelector('[data-box-room="ask"]'),null);
+ assert.match(panel.textContent,/add a display to sync here/);
 });
 
 test('an undragged Sync Box follows the monitor strip when the monitor moves',async()=>{

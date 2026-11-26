@@ -327,6 +327,8 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .lp-remove svg path{fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
 .lp-row.confirm{grid-template-columns:1fr auto auto;column-gap:6px}
 .lp-empty{padding:10px;font-size:var(--fs-small);color:var(--muted)}
+.lp-add{display:flex;gap:6px;padding:4px 10px 6px}
+.lp-add .btn svg{width:14px;height:14px;margin-right:4px;vertical-align:-2px}
 .lp-hue-address{display:flex;gap:6px;padding:4px 10px 8px}
 .lp-hue-error{padding:0 10px 8px}
 .lp-row.hue-pairing{grid-template-columns:44px 1fr auto}

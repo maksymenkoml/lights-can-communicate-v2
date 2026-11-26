@@ -172,6 +172,13 @@ class RoomManagementTests(unittest.TestCase):
         (self.state / "desk-layout.json").write_text(json.dumps(current()))
         self.rooms = Rooms(self.state)
 
+    def with_display(self, room):
+        """Hang a display in ``room``, which the Sync Box needs."""
+        layout = self.rooms.store(room).snapshot()
+        self.rooms.save(room, {**layout, "screen": {"positionCm": {"x": 100, "height": 110},
+                                                    "inches": 32, "on": None}})
+        return room
+
     def refused(self, reason, call, *args):
         with self.assertRaises(RoomRefused) as refused:
             call(*args)
@@ -184,12 +191,11 @@ class RoomManagementTests(unittest.TestCase):
         # The single layout became the first room on the way.
         self.assertFalse((self.state / "desk-layout.json").exists())
         self.assertEqual(self.rooms.index()["rooms"], [FIRST_ROOM, room])
+        # A new room is empty: no furniture, no display, no rows.
         layout = self.rooms.store(room).snapshot()
-        self.assertEqual((layout["room"], layout["devices"], layout["screen"]["inches"]),
-                         ("Bedroom", [], 32))
-        self.assertEqual((layout["version"], layout["furniture"], layout["screen"]["on"]),
-                         (8, [{"id": "piece-00000001", "kind": "desk", "x": 100,
-                               "width": 160, "height": 85}], "piece-00000001"))
+        self.assertEqual((layout["room"], layout["version"], layout["furniture"],
+                          layout["devices"]), ("Bedroom", 8, [], []))
+        self.assertNotIn("screen", layout)
         self.assertEqual(self.rooms.index()["sync"], FIRST_ROOM)
         for name in ("", "   ", "x" * 41, 5):
             self.refused("invalid_name", self.rooms.create, name)
@@ -230,7 +236,7 @@ class RoomManagementTests(unittest.TestCase):
                                          "sync": None})["default"], room)
 
     def test_deleting_the_default_room_makes_the_first_room_the_default(self):
-        bedroom, hall = self.rooms.create("Bedroom"), self.rooms.create("Hall")
+        bedroom, hall = self.rooms.create("Bedroom"), self.with_display(self.rooms.create("Hall"))
         for role in ROLES:
             self.rooms.move(role, hall)
         self.rooms.place_sync_box(hall)
@@ -271,7 +277,7 @@ class RoomManagementTests(unittest.TestCase):
         self.refused("last_room", self.rooms.delete, FIRST_ROOM, [])
 
     def test_the_sync_box_moves_between_rooms(self):
-        room = self.rooms.create("Bedroom")
+        room = self.with_display(self.rooms.create("Bedroom"))
         self.rooms.move("govee-right", room)
         self.rooms.place_sync_box(room)
         self.assertTrue(self.rooms.enabled("govee-right"))
@@ -282,9 +288,6 @@ class RoomManagementTests(unittest.TestCase):
 
     def test_the_sync_box_needs_a_room_with_a_screen(self):
         room = self.rooms.create("Hall")
-        bare = {key: value for key, value in self.rooms.store(room).snapshot().items()
-                if key != "screen"}
-        self.rooms.save(room, bare)
         before = self.rooms.index()
         self.refused("no_screen", self.rooms.place_sync_box, room)
         self.assertEqual(self.rooms.index(), before)

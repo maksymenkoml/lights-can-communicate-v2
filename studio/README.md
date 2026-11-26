@@ -108,9 +108,9 @@ optional `calibration` on the two Govee rows: `{"warmth": -100..100, "tint":
 -100..100, "lowLight": 0..100}` (integers; missing controls are 0, an all-zero
 calibration is not stored). Versions 3-5 load as version 6, so their revision
 changes and pages opened before the upgrade must refetch. Version 8 (current)
-stores the desk as a piece in `furniture` and the screen as a monitor standing on
-it (see `core/README.md`, "Room furniture"); older files load as version 8, and
-writes must use it. Writes accept geometry and corrections only: no power,
+stores the desk as a piece in `furniture` and the display standing on it or
+hanging (see `core/README.md`, "Room furniture"); older files load as version 8,
+and writes must use it. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
 
 ## Calibrate
@@ -186,9 +186,22 @@ adds the registry `"id"`), 409
 `{"accepted": false, "reason"}`, 400 for a malformed body and 503 when the adapter
 is not reachable. Removing a row from the layout does not disconnect its light.
 
+## Objects panel
+
+The Objects button opens one panel for everything in the room: Lamps, Furniture,
+Found lamps, the Sync Box and the Hue bridge. Furniture lists the desk and the
+display with their sizes. The trash on a row, or Delete on a selected desk or
+display, asks in place and removes it; ⌘Z brings it back. Without the desk the
+display hangs where it was and the Sync Box lies on the floor under it. Without the
+display every strip, the Monitor Strip too, is drawn as a bar at its own place, the
+room has no samples and no automatic fade zone, and the Sync Box is not offered.
+The display of the Sync Box room cannot be removed ("The Sync Box needs a display
+in its room"). "+ Desk" and "+ Display" add a missing one: the desk at the room
+axis, the display on the desk or hanging at 110 cm. A new room is empty.
+
 ## Found lamps
 
-The Lamps panel polls `/api/discovery` every 3 s only while it is open. Found
+The Objects panel polls `/api/discovery` every 3 s only while it is open. Found
 lamps that are supported, online and unambiguous can be placed with "+" and a
 click in the room. They become `device-*` rows with their canonical name, model,
 shape and zones, which the server verifies before saving. These rows are
