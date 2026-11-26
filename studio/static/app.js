@@ -76,7 +76,7 @@ function migratedLamp(s){return {...clone(s),sceneScale:s.scale,form:formOf(s.id
 // box keeps its own place (desk-centred cm, like the lamps), stored as the layout's syncBox.
 const BOX_W=18,BOX_H=3.5,BOX_GAP=30;
 // On the desktop it stays on the desk; without a desk it lies on the floor under the display.
-function clampBoxX(x,env=environment){const edge=env.desk?Math.floor((env.width/2-BOX_W/2-2)/STEP)*STEP:X_LIMIT;return clamp(Math.round(x/STEP)*STEP,-edge,edge)}
+function clampBoxX(x,env=environment){const c=env.desk?env.deskX??0:0,edge=env.desk?Math.floor((env.width/2-BOX_W/2-2)/STEP)*STEP:X_LIMIT;return clamp(Math.round(x/STEP)*STEP,c-edge,c+edge)}
 function boxX(env=environment){
  // The monitor: the strip lamp that carries it when there is one, else the screen.
  const monitor=env===environment?strip():env.screen;
@@ -85,7 +85,7 @@ function boxX(env=environment){
 function defaults(){
  // A new room is empty: lamps are placed from the Found list, furniture is added.
  // The desk and display sizes are kept for when they are added.
- const environment={desk:false,display:false,width:160,height:85,inches:32,screen:{x:0,h:110},zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
+ const environment={desk:false,display:false,deskX:0,width:160,height:85,inches:32,screen:{x:0,h:110},zones:{sync:null,scene:null},fade:{sync:true,scene:false}};
  return {room:'Office',environment,lamps:[]};
 }
 function monitorWidthCm(inches){return inches*2.54*16/Math.hypot(16,9)}
@@ -119,11 +119,10 @@ function currentLayout(data){
 }
 // The piece the screen stands on.
 const supportOf=layout=>layout?.screen?layout.furniture?.find(p=>p?.id===layout.screen.on)??null:null;
-// The furniture this page draws: at most one desk, at the room axis, and one display, on the
-// desk or, in a room without a desk, hanging. Anything else (a cabinet, a desk moved off
-// the axis) is not drawn yet.
+// The furniture this page draws: at most one desk, where it stands, and one display, on the
+// desk or, in a room without a desk, hanging. Anything else (a cabinet) is not drawn yet.
 function drawnDesk(data){
- if(!data||data.furniture.length>1||data.furniture.some(p=>p?.kind!=='desk'||p.x!==DESK_CENTER))return undefined;
+ if(!data||data.furniture.length>1||data.furniture.some(p=>p?.kind!=='desk'))return undefined;
  const desk=data.furniture[0]??null;
  if(data.screen&&(desk?data.screen.on!==desk.id:data.screen.on!==null))return undefined;
  return desk;
@@ -132,7 +131,7 @@ function fromLayout(source){
  const data=currentLayout(source),desk=drawnDesk(data);
  if(!data||desk===undefined)return null;
  const environment={desk:!!desk,display:!!data.screen,width:finite(desk?.width,80,240,160),height:finite(desk?.height,50,120,85),inches:finite(data.screen?.inches,...DISPLAY_INCHES,32),
-  ...(desk?{support:desk.id}:{}),
+  support:desk?.id,deskX:finite(desk?.x,-200,400,DESK_CENTER)-DESK_CENTER,
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
@@ -171,7 +170,7 @@ function pack(m={room,environment,lamps}){
  const monitor=wrapOf(m.lamps,env)||env.screen;
  // The desk keeps its id; the display stands on it, or hangs in a room without one.
  const support=env.support??MIGRATED_DESK;
- return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:env.desk?[{id:support,kind:'desk',x:DESK_CENTER,width:env.width,height:env.height}]:[],
+ return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:env.desk?[{id:support,kind:'desk',x:(env.deskX??0)+DESK_CENTER,width:env.width,height:env.height}]:[],
   ...(env.display?{screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:env.desk?support:null}}:{}),
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
@@ -337,9 +336,9 @@ function syncPoint(x,h){
 }
 // Mirrors sync_zone.default_zone in desk-centred coordinates.
 function autoZonePoints(){
- const H=environment.height,half=environment.width/2,mx=strip().x,mh=environment.inches*2.54*8/Math.hypot(16,9),xs=activeLamps().map(l=>l.x);
- const left=Math.floor(Math.min(-half-50,mx-mh-20,...xs.map(x=>x-20))/5)*5,right=Math.ceil(Math.max(half+50,mx+mh+20,...xs.map(x=>x+20))/5)*5;
- return [{x:left,h:H},{x:right,h:H},{x:right,h:H-15-Math.max(0,right-half)},{x:half,h:H-15},{x:-half,h:H-15},{x:left,h:H-15-Math.max(0,-half-left)}];
+ const H=environment.height,c=environment.deskX??0,dl=c-environment.width/2,dr=c+environment.width/2,mx=strip().x,mh=environment.inches*2.54*8/Math.hypot(16,9),xs=activeLamps().map(l=>l.x);
+ const left=Math.floor(Math.min(dl-50,mx-mh-20,...xs.map(x=>x-20))/5)*5,right=Math.ceil(Math.max(dr+50,mx+mh+20,...xs.map(x=>x+20))/5)*5;
+ return [{x:left,h:H},{x:right,h:H},{x:right,h:H-15-Math.max(0,right-dr)},{x:dr,h:H-15},{x:dl,h:H-15},{x:left,h:H-15-Math.max(0,dl-left)}];
 }
 // Two configurations: the Sync view edits the Sync one, the room view the one without Sync.
 const view=()=>mode==='sync'?'sync':'scene';
@@ -348,10 +347,10 @@ function setCorr(l,v,c=view()){if(c==='sync')l.scale=v;else l.sceneScale=v}
 // Mirrors sync_zone: a zone is relative to the desk under the display, else to the floor
 // at the room axis (half width 100 cm). Without that desk there is no automatic zone.
 const zoneSupport=(env=environment)=>!!(env.desk&&env.display);
-const zoneRef=(env=environment)=>zoneSupport(env)?{half:env.width/2,top:env.height}:{half:100,top:0};
+const zoneRef=(env=environment)=>zoneSupport(env)?{x:env.deskX??0,half:env.width/2,top:env.height}:{x:0,half:100,top:0};
 const deskTop=()=>environment.desk?environment.height:0;
-function zonePoints(c=view()){const z=environment.zones[c],r=zoneRef();return z?z.map(p=>({x:p.u*r.half,h:r.top+p.h})):zoneSupport()?autoZonePoints():null}
-function zoneConfig(points){const r=zoneRef();return {version:1,points:points.map(p=>({u:p.x/r.half,h:p.h-r.top}))}}
+function zonePoints(c=view()){const z=environment.zones[c],r=zoneRef();return z?z.map(p=>({x:r.x+p.u*r.half,h:r.top+p.h})):zoneSupport()?autoZonePoints():null}
+function zoneConfig(points){const r=zoneRef();return {version:1,points:points.map(p=>({u:(p.x-r.x)/r.half,h:p.h-r.top}))}}
 function zoneIntersections(P,x){
  const hs=[];
  P.forEach((a,i)=>{const b=P[(i+1)%P.length];if(x<Math.min(a.x,b.x)||x>Math.max(a.x,b.x))return;
@@ -461,7 +460,7 @@ function tagSvg(x,y,text,edit,value,anchor='middle'){
 function vDim(x,y1,y2){return Math.abs(y2-y1)<2?'':'<path class="dim" d="M'+(x-4)+' '+y1+'h8M'+(x-4)+' '+y2+'h8M'+x+' '+y1+'V'+y2+'"/>'}
 function hDim(x1,x2,y){return Math.abs(x2-x1)<2?'':'<path class="dim" d="M'+x1+' '+(y-4)+'v8M'+x2+' '+(y-4)+'v8M'+x1+' '+y+'H'+x2+'"/>'}
 function frameOf({cx,cy,mw,mh,w,left,top}){
- if(selected==='desk')return {left,right:left+w,top:top-8,bottom:top+18,x:500};
+ if(selected==='desk')return {left,right:left+w,top:top-8,bottom:top+18,x:left+w/2};
  if(selected==='monitor'){const mx=cx-mw/2,my=cy-mh/2;return {left:mx-24,right:mx+mw+24,top:my-24,bottom:my+mh+6,x:cx}}
  const l=lamps.find(l=>l.id===selected&&l.enabled!==false);return l?lampFrame(l):null;
 }
@@ -491,7 +490,7 @@ function handlesSvg(geo){
   m.push({axis:'h',x1:left,x2:left+w,y:top+44,text:environment.width+' cm',edit:'width',value:environment.width});
   const hx=deskHeightX(left,top);m.push({axis:'v',x:hx,y1:740,y2:top,text:environment.height+' cm',edit:'height',value:environment.height});
   knobs+=knob('desk-w',left,top+8,'ew-resize','Desk width')+knob('desk-w',left+w,top+8,'ew-resize','Desk width')+knob('desk-h',hx,top,'ns-resize','Tabletop height');
-  chip=chipSvg(500,top-12,'Desk','',[]);
+  chip=chipSvg(left+w/2,top-12,'Desk','',[]);
  }else if(selected==='monitor'){
   const mx=cx-mw/2,my=cy-mh/2,gap=monitorGap();
   m.push({axis:'v',x:f.left-12,y1:top,y2:my+mh,text:gap+' cm',edit:'gap',value:gap,leader:mx-4});
@@ -519,7 +518,7 @@ function zoneHandlesSvg(){
  let out='';
  if(on)P.forEach((p,i)=>out+=knob('zp-'+i,sx(p.x),sy(p.h),'move','Zone corner · drag'));
  const actions=[{id:'fade',label:on?'Turn the fade off':'Turn the fade on'}].concat(on&&!auto?[{id:'auto',label:'Restore the automatic zone'}]:[]);
- return out+chipSvg((sx(P[0].x)+sx(-zoneRef().half))/2,sy(P[0].h)-12,'Fade zone',on?auto?'auto':'':'off',actions);
+ return out+chipSvg((sx(P[0].x)+sx(zoneRef().x-zoneRef().half))/2,sy(P[0].h)-12,'Fade zone',on?auto?'auto':'':'off',actions);
 }
 function toggleFade(){const c=view();remember();environment.fade[c]=!environment.fade[c];render();tell(environment.fade[c]?'Fade on':'Fade off')}
 function dragZone(kind,p){
@@ -628,10 +627,11 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  // glow is a vertical line and a Play's a horizontal one, whose zero-width box would switch the
  // blur off and leave a hard coloured capsule around the lens.
  const defs='<defs><linearGradient id="wood-face" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--wood-top)"/><stop offset="1" stop-color="var(--wood-front)"/></linearGradient><linearGradient id="glass-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="var(--glass-top)"/><stop offset=".5" stop-color="var(--glass-bottom)"/><stop offset="1" stop-color="var(--glass-top)"/></linearGradient><filter id="furniture-shadow" x="-100%" y="-200%" width="300%" height="500%"><feGaussianBlur stdDeviation="5"/></filter></defs>';
- let out=defs;
  // A room without a desk or a display draws neither; a display without a desk hangs, with no stand.
+ if(!environment.desk&&!environment.display)return '';
+ let out=defs;
  if(environment.desk){
-  let desk='<ellipse cx="500" cy="741" rx="'+(w/2-3)+'" ry="5" fill="#243247" opacity=".08" filter="url(#furniture-shadow)"/>';
+  let desk='<ellipse cx="'+(left+w/2)+'" cy="741" rx="'+(w/2-3)+'" ry="5" fill="#243247" opacity=".08" filter="url(#furniture-shadow)"/>';
   for(const x of [left+15,right-27])desk+='<rect x="'+x+'" y="'+(top+13)+'" width="12" height="'+(740-top-15)+'" rx="2" fill="var(--furniture-metal)"/><path d="M'+(x+1)+' '+(top+22)+'V736" stroke="#ffffff" stroke-opacity=".18"/><rect x="'+(x-9)+'" y="736" width="30" height="4" rx="2" fill="var(--furniture-metal)"/>';
   desk+='<rect x="'+(left+17)+'" y="'+(top+23)+'" width="'+(w-34)+'" height="5" rx="2" fill="var(--furniture-metal)" opacity=".55"/><rect x="'+left+'" y="'+top+'" width="'+w+'" height="16" rx="3" fill="url(#wood-face)"/><path d="M'+(left+3)+' '+(top+1)+'H'+(right-3)+'" stroke="var(--wood-edge)" stroke-width="2"/><path d="M'+(left+8)+' '+(top+8)+'H'+(right-8)+'M'+(left+17)+' '+(top+11)+'H'+(right-28)+'" stroke="#70451f" stroke-opacity=".12" stroke-width=".6"/>';
   const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
@@ -755,7 +755,7 @@ function syncVisibilitySvg(){
  if(on)out+='<g pointer-events="none">'+tagSvg(sx(P[1].x)+4,sy(P[1].h),'100%','',0,'start')+tagSvg(sx(P[2].x)+4,sy(P[2].h),'0%','',0,'start')+'</g>';
  return out+'</g>';
 }
-function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16,w=environment.width*3.3;return {cx,cy,mw,mh,w,left:500-w/2,top:740-environment.height*3.3}}
+function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16,w=environment.width*3.3,dc=500+(environment.deskX??0)*3.3;return {cx,cy,mw,mh,w,dc,left:dc-w/2,top:740-environment.height*3.3}}
 
 // ------------------------------------------------------------ render --
 let focusState=new Map(),skipClick=false,menuOpen=false;
@@ -970,7 +970,7 @@ function changeField(key,value){
 function dragHandle(kind,p){
  if(kind.startsWith('zp-')){const before=snapshot();dragZone(kind,p);if(snapshot()!==before){drag.moved=true;renderScene();renderHistory()}return}
  const s=strip(),l=lamps.find(l=>l.id===selected),before=snapshot();
- if(kind==='desk-w')environment.width=clamp(Math.round(Math.abs(p.x-500)*2/3.3/5)*5,80,240);
+ if(kind==='desk-w')environment.width=clamp(Math.round(Math.abs(p.x-500-(environment.deskX??0)*3.3)*2/3.3/5)*5,80,240);
  else if(kind==='desk-h'){const prev=environment.height;environment.height=clamp(Math.round((740-p.y)/3.3/5)*5,50,120);if(environment.height!==prev&&environment.display){s.h+=environment.height-prev;clampFixture(s)}}
  else if(kind==='mon-size'){const cx=500+s.x*3.3,cy=740-s.h*3.3,wcm=Math.max(Math.abs(p.x-cx)*2,Math.abs(p.y-cy)*2*16/9)/3.3;environment.inches=clamp(Math.round(wcm/2.54*Math.hypot(16,9)/16),19,55);clampFixture(s)}
 
@@ -1461,7 +1461,7 @@ function addFurniture(kind){
  remember();
  const clearance=()=>Math.ceil((monitorHalfCm()+5)/STEP)*STEP;
  if(kind==='desk'){
-  environment.desk=true;
+  environment.desk=true;environment.deskX=0;
   if(environment.display){const s=strip();s.h=Math.max(s.h,environment.height+clearance())}
  }else{
   environment.display=true;
@@ -1860,9 +1860,9 @@ document.addEventListener('visibilitychange',()=>{
 let hoverKey=null;
 function hoverAnchor(key){
  if(key==='box'){const top=740-deskTop()*3.3;return {x:500+boxX()*3.3,y:top-BOX_H*3.3-17,name:'Sync Box'}}
- if(key==='desk'){if(!environment.desk)return null;const top=740-environment.height*3.3;return {x:500,y:top-23,name:'Desk'}}
+ if(key==='desk'){if(!environment.desk)return null;const top=740-environment.height*3.3;return {x:500+(environment.deskX??0)*3.3,y:top-23,name:'Desk'}}
  if(key==='monitor'){if(!environment.display)return null;const m=strip(),mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16;return {x:500+m.x*3.3,y:740-m.h*3.3-mh/2-41,name:'Display'}}
- if(key==='zone'){const P=zonePoints();if(!P)return null;return {x:(500+P[0].x*3.3+500-zoneRef().half*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
+ if(key==='zone'){const P=zonePoints();if(!P)return null;return {x:(500+P[0].x*3.3+500+(zoneRef().x-zoneRef().half)*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
  const l=lamps.find(l=>l.id===key&&l.enabled!==false);if(!l)return null;const f=lampFrame(l);return {x:f.x,y:f.top-17,name:l.name};
 }
 function showHover(key){

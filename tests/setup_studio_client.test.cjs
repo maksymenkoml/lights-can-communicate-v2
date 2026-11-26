@@ -1093,8 +1093,17 @@ test('version 8 keeps the desk id and place; a room with only lamps or a hanging
  // A display hanging in a room without a desk.
  const hanging={...structuredClone(layout),furniture:[],screen:{...layout.screen,on:null}};
  assert.deepEqual(json(app,'(m=>[m.desk,m.display])(fromLayout('+JSON.stringify(hanging)+').environment)'),[false,true]);
- // A cabinet, a desk off the room axis, or a display hanging over a desk, is not drawn yet.
- assert.equal(app.run('fromLayout('+JSON.stringify({...layout,furniture:[{...layout.furniture[0],x:110}]})+')'),null);
+ // A desk off the room axis keeps its place; its zone and Sync Box are relative to it.
+ const offset={...structuredClone(layout),furniture:[{...layout.furniture[0],x:110}],syncZone:{version:1,points:[{u:-2,h:0},{u:2,h:0},{u:2,h:-65},{u:1,h:-15},{u:-1,h:-15},{u:-2,h:-65}]}};
+ app.run('applyModel(fromLayout('+JSON.stringify(offset)+'))');
+ assert.equal(json(app,'environment.deskX'),10);
+ assert.equal(json(app,'zonePoints("sync")[3].x'),10+70,'u=1 is the right edge of the desk at x 110');
+ const moved=json(app,'pack()');
+ assert.equal(moved.furniture[0].x,110);assert.deepEqual(moved.syncZone,offset.syncZone);
+ // Removing and adding the desk puts the new one at the room axis.
+ app.run('environment.display=false;removeFurniture("desk");addFurniture("desk")');
+ assert.equal(json(app,'pack()').furniture[0].x,100);
+ // A cabinet, or a display hanging over a desk, is not drawn yet.
  const cabinet={...structuredClone(layout),furniture:[...layout.furniture,{id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50}]};
  assert.equal(app.run('fromLayout('+JSON.stringify(cabinet)+')'),null);
  assert.equal(app.run('fromLayout('+JSON.stringify({...layout,screen:{...layout.screen,on:null}})+')'),null);
