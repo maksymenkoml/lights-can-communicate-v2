@@ -233,6 +233,15 @@ class LayoutTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 validate_layout({**base, "screen": bad})
 
+    def test_a_version_seven_screen_keeps_its_monitor_range(self):
+        old = version_seven()
+        old["screen"]["inches"] = 56
+        with self.assertRaises(ValueError):
+            validate_layout(old)
+        current = validate_layout(version_seven())
+        current["screen"]["inches"] = 56
+        self.assertEqual(validate_layout(current)["screen"]["inches"], 56)
+
     def test_screen_fields_are_validated(self):
         for mutate in [
             lambda s: s.update(extra=1),

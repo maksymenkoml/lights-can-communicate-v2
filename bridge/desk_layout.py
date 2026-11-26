@@ -240,6 +240,8 @@ def validate_layout(value):
         old = value["screen"]
         if not isinstance(old, dict) or set(old) != {"positionCm", "inches"}:
             raise ValueError("Expected the screen position and size")
+        # Version 7 knew monitors only: 19-55 inches.
+        number(old["inches"], 19, 55)
         screen = validate_screen({**old, "on": MIGRATED_DESK}, furniture)
     else:
         # Before version 7 the monitor row carries the screen position (below).
@@ -325,6 +327,7 @@ def validate_layout(value):
         if "positionCm" not in screen:
             # Before version seven the monitor row carried the screen position.
             raise ValueError("An older layout needs its monitor row")
+        # One key order for every version: Light Studio compares layouts as JSON text.
         result["screen"] = {key: screen[key] for key in ("positionCm", "inches", "on")}
     if value.get("syncBox") is not None:
         result["syncBox"] = validate_sync_box(value["syncBox"])
