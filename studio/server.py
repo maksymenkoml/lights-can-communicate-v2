@@ -9,6 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -178,6 +179,31 @@ def _unavailable(mode="unknown"):
             "lights": []}
 
 
+def power_paths(data):
+    """Map each lamp Light Studio can switch to its owner power path in the adapter.
+
+    A Govee lamp the power authority lists goes through the Hue app path
+    (``/power-request``): under the HomeKit authority it sets the same intent as a
+    HomeKit write, and under the remote owner it needs a live grant. A native Hue
+    lamp with a bridge proxy goes through ``/native-power``.
+    """
+    paths = {}
+    if not isinstance(data, dict):
+        return paths
+    authority = data.get("power_owner") if isinstance(data.get("power_owner"), dict) else {}
+    rows = authority.get("lights") if isinstance(authority.get("lights"), dict) else {}
+    local = authority.get("authority") == "homekit"
+    for light, row in rows.items():
+        if _light_id(light) and isinstance(row, dict) and (
+                local or _number(row.get("grant_remaining"), 0.001, math.inf)):
+            paths[light] = "/power-request"
+    hue = data.get("hue") if isinstance(data.get("hue"), dict) else {}
+    for light in list(hue)[:MAX_LAMPS]:
+        if _light_id(light):
+            paths[light] = "/native-power"
+    return paths
+
+
 def project_status(data, source_active=None):
     """Read-only, bounded UI projection of emitted colors and observed power."""
     if not isinstance(data, dict):
@@ -277,6 +303,7 @@ def project_status(data, source_active=None):
         sync_state = mode = "unknown"
     # The adapter lists the registry lights: exactly those are shown, in registry
     # order. An older adapter without the list shows the six migrated lamps first.
+    switchable = power_paths(data)
     known = (list(registry) if isinstance(data.get("lights"), list)
              else [*ROLES, *sorted(set(lamps) - set(ROLES))])[:MAX_LAMPS]
     for identifier in known:
@@ -307,7 +334,8 @@ def project_status(data, source_active=None):
                  else 7 if identifier.startswith("govee-")
                  else registry.get(identifier, {}).get("zones", 1))
         lamp.update(colors=_sample_zones(colors, count), source=source, stale=stale,
-                    included=identifier in included)
+                    included=identifier in included,
+                    power=lamp["online"] is True and identifier in switchable)
     # Verified cause only; the existing state label keeps its meaning.
     health = derive_sync_health(data)
     blockers = [item for item in health["blockers"] if item.get("role") in lamps]
@@ -395,7 +423,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 source_fetch=None, adapter_url="http://127.0.0.1:19880",
                 bridge_url="http://127.0.0.1", identify_post=None, calibration_post=None,
                 sync_box=None, hosts=(), lights_post=None, hue_bridge=None,
-                hue_config=None):
+                hue_config=None, power_post=None):
     state_dir = Path(state_dir) if state_dir is not None else Path(token_file).parent
     rooms = Rooms(state_dir)
 
@@ -567,6 +595,42 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
         if status == 400:
             return 400, {"error": "invalid calibration request"}
         return 503, {"active": False, "reason": "adapter unavailable"}
+
+    def switch(lamp, on):
+        """Switch a lamp as the owner would; return (status, public body).
+
+        The adapter's status names the lamp's owner power path, so Apple Home, the
+        Hue app and Sync see the change as owner intent (see ``power_paths``).
+        """
+        if (state_dir / "live-output-hold").exists():
+            return 409, {"accepted": False, "reason": "paused"}
+        try:
+            token = None if live_fetch is not None else token_file.read_text().strip()
+            data = (live_fetch() if live_fetch is not None
+                    else _read_local_json(adapter_url + "/status", 0.5,
+                                          {"X-Adapter-Token": token}))
+            lamp_state = project_status(data).get("lamps", {}).get(lamp)
+            route = power_paths(data).get(lamp)
+            if lamp_state is None:
+                return 404, {"error": "unknown lamp"}
+            if route is None or lamp_state.get("power") is not True:
+                return 409, {"accepted": False, "reason": "unavailable"}
+            body = ({"lights": {lamp: on}} if route == "/native-power"
+                    else {"id": uuid.uuid4().hex, "issued_at": time.time(),
+                          "states": {lamp: on}})
+            if power_post is not None:
+                status, answer = power_post(route, body)
+            else:
+                # A confirmed Govee or bridge write takes up to a few seconds.
+                status, answer = _post_local_json(adapter_url + route, body, 6,
+                                                  {"X-Adapter-Token": token})
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            return 503, {"accepted": False, "reason": "adapter unavailable"}
+        if status == 200 and isinstance(answer, dict) and answer.get("accepted") is True:
+            return 200, {"accepted": True}
+        return 503, {"accepted": False, "reason": "not confirmed"}
 
     def adapter_post(route, body):
         if lights_post is not None:
@@ -774,7 +838,7 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ("/api/layout", "/api/identify", *CALIBRATION_ROUTES,
+            if path not in ("/api/layout", "/api/identify", "/api/power", *CALIBRATION_ROUTES,
                             *SYNC_BOX_ROUTES, *HUE_BRIDGE_ROUTES, *LIGHT_ROUTES,
                             *ROOM_ROUTES):
                 return self.respond(405, {"error": "unsupported write route"})
@@ -784,6 +848,8 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
                 return self.respond(415, {"error": "JSON required"})
             if path == "/api/identify":
                 return self.identify()
+            if path == "/api/power":
+                return self.power()
             if path in CALIBRATION_ROUTES:
                 return self.calibrate(CALIBRATION_ROUTES[path])
             if path in SYNC_BOX_ROUTES:
@@ -876,6 +942,19 @@ def handler_for(token_file, state_dir=None, catalog_fetch=None, live_fetch=None,
             if role is None:
                 return self.respond(404, {"error": "unknown lamp"})
             return self.respond(*identify(role))
+
+        def power(self):
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 256:
+                    return self.respond(413, {"error": "power payload too large"})
+                data = json.loads(self.rfile.read(size))
+                if (not isinstance(data, dict) or set(data) != {"lamp", "on"}
+                        or not _light_id(data["lamp"]) or type(data["on"]) is not bool):
+                    raise ValueError("Expected a lamp and on")
+            except (ValueError, TypeError):
+                return self.respond(400, {"error": "invalid power request"})
+            return self.respond(*switch(data["lamp"], data["on"]))
 
         def lights(self, route):
             try:

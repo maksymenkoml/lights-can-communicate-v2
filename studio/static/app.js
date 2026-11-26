@@ -323,8 +323,46 @@ const OFF_CODES=new Set(['native_off','owner_off']);
 const isOff=b=>OFF_CODES.has(b.code);
 function blockerLevel(b){return isOff(b)?'idle':b.code==='color_fenced'?'wait':'bad'}
 function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)return false;const b=lampBlocker(l);return b&&!isOff(b)})}
-// The badge marks a fault with "!"; an off lamp gets a grey power mark only while Sync runs.
-function lampBadge(l){const b=lampBlocker(l);return !b?null:!isOff(b)?{b,off:false}:['active','waiting'].includes(liveState())?{b,off:true}:null}
+// Power: the lamp's reported state and whether Light Studio can switch it. A switch
+// shows the requested state while it runs and until the lamp reports it (or a few
+// seconds pass), so the mark and the card do not flicker back.
+const POWER_SETTLE_MS=8000;
+const powerPending=new Map();
+function livePower(l){
+ const s=liveFresh()&&liveSnapshot?.lamps?.[l.id],live=s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true}:{on:null,can:false};
+ const p=powerPending.get(l.id);
+ if(p&&p.sent&&(live.on===p.on||performance.now()>p.until))powerPending.delete(l.id);
+ else if(p)return {on:p.on,can:live.can,busy:!p.sent};
+ return live;
+}
+// The badge marks a fault with "!". An off lamp always shows the grey power mark, which
+// switches it on; an owner Off during Sync shows it too.
+function lampBadge(l){
+ const b=lampBlocker(l);
+ if(b&&!isOff(b))return {b,off:false};
+ if(livePower(l).on===false)return {b:b||{code:'native_off'},off:true};
+ return b&&['active','waiting'].includes(liveState())?{b,off:true}:null;
+}
+function badgeTip(l,m){
+ if(!m)return '';
+ if(!m.off)return capital(blockerText(m.b));
+ const p=livePower(l);
+ return p.busy?'Turning on…':p.can?'Off · Click to turn on':'Off';
+}
+const POWER_REFUSED={paused:'Light output is paused',unavailable:'Light Studio cannot switch this lamp now'};
+async function switchPower(l,on){
+ if(powerPending.has(l.id)&&!powerPending.get(l.id).sent)return;
+ powerPending.set(l.id,{on,sent:false,until:0});paintPower();
+ let ok=false,reason='';
+ try{
+  const response=await fetch('/api/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lamp:l.id,on})});
+  const body=await response.json().catch(()=>({}));ok=response.ok&&body.accepted===true;reason=body.reason||'';
+ }catch{}
+ if(ok)powerPending.set(l.id,{on,sent:true,until:performance.now()+POWER_SETTLE_MS});
+ else{powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
+ paintPower();
+ if(ok)setTimeout(paintPower,POWER_SETTLE_MS+50);
+}
 function syncStatus(){
  if(!activeLamps().some(l=>!l.unbound))return {level:'idle',label:'No lamps',detail:'Nothing to sync'};
  const g=globalHealth(),p=problemLamps();
@@ -512,7 +550,8 @@ function monitorHalfCm(){return environment.inches*2.54*9/Math.hypot(16,9)/2}
 function monitorGap(){return Math.round(strip().h-monitorHalfCm()-deskTop())}
 function chipStatus(l){
  if(l.unbound)return 'not connected';
- const b=lampBlocker(l);if(b)return blockerText(b);
+ // Off is shown by the power mark and the card's Power switch, not as a status.
+ const b=lampBlocker(l);if(b&&!isOff(b))return blockerText(b);
  if(mode!=='sync')return '';
  if(syncRole(l)==='own')return 'own light';
  if(syncRole(l)==='off')return 'off in Sync';
@@ -580,8 +619,8 @@ function healthMarkSvg(l){
  if(selected===l.id||l.enabled===false)return '';
  const f=lampFrame(l),cx=f.right-f.x-3,cy=f.top-f.y+3;
  if(l.unbound)return '<g class="health-badge unlinked" data-link-badge data-tooltip="Not connected"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><g transform="translate('+cx+' '+cy+')">'+UNLINKED_ICON+'</g></g>';
- const m=lampBadge(l),b=m?.b;
- return '<g class="health-badge'+(m?.off?' off':'')+'" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+(b?esc(capital(blockerText(b))):'')+'"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><text x="'+cx+'" y="'+(cy+3.6)+'">!</text><g transform="translate('+cx+' '+cy+')">'+POWER_ICON+'</g></g>';
+ const m=lampBadge(l),b=m?.b,p=livePower(l);
+ return '<g class="health-badge'+(m?.off?' off':'')+(m?.off&&p.can?' switch-on':'')+(m?.off&&p.busy?' busy':'')+'" data-badge visibility="'+(b?'visible':'hidden')+'" style="--h-color:'+(b?levelColor[blockerLevel(b)]:'var(--bad)')+'" data-tooltip="'+esc(badgeTip(l,m))+'"><circle cx="'+cx+'" cy="'+cy+'" r="7.5"/><text x="'+cx+'" y="'+(cy+3.6)+'">!</text><g transform="translate('+cx+' '+cy+')">'+POWER_ICON+'</g></g>';
 }
 // The monitor strip glows left to right like the screen picture: left side, three top zones, right side.
 function stripStops(colors){
@@ -969,7 +1008,7 @@ function paintLive(){
   else if(l.zones>1){const cs=(colors||Array.from({length:l.zones},()=>[0,0,0])).slice().reverse();cs.forEach((c,i)=>{const z=zoneStop(c,level);for(const stop of [stops[2*i],stops[2*i+1]]){setAttr(stop,'stop-color',z.color);setAttr(stop,'stop-opacity',z.opacity)}})}
   else{setAttr(stops[1],'stop-color',beam);setAttr(stops[2],'stop-color',beam)}
   const badge=node.querySelector('[data-badge]');
-  if(badge){const m=lampBadge(l),b=m?.b;badge.classList.toggle('off',!!m?.off);setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',b?capital(blockerText(b)):'')}
+  if(badge){const m=lampBadge(l),b=m?.b,p=livePower(l);badge.classList.toggle('off',!!m?.off);badge.classList.toggle('switch-on',!!m?.off&&p.can);badge.classList.toggle('busy',!!m?.off&&!!p.busy);setAttr(badge,'visibility',b?'visible':'hidden');setVar(badge,'--h-color',b?levelColor[blockerLevel(b)]:'var(--bad)');setAttr(badge,'data-tooltip',badgeTip(l,m))}
  }
  stage.querySelectorAll('#wash-layer [data-wash-for]').forEach(w=>{const lamp=stage.querySelector('[data-lamp="'+w.dataset.washFor+'"]');if(lamp)paintWash(w,lamp)});
  setAttr(stage.querySelector('[data-scene-demo]'),'opacity',scenePreview()?1:0);
@@ -1159,14 +1198,33 @@ function connectedField(l){
  const label=link==='connect'?'Connecting…':link==='disconnect'?'Disconnecting…':'Connected';
  return '<div class="card-field" data-connected-field><span>'+label+'</span><button class="card-switch" role="switch" aria-label="Connected" aria-checked="'+on+'" data-menu="connected"'+(link?' disabled':'')+'><span class="switch"><i></i></span></button></div>';
 }
+function powerWhy(p){return p.can?'':p.on===null?'No recent response from the lamp':'Light Studio cannot switch this lamp'}
+function powerField(l){
+ if(l.unbound)return '';
+ const p=livePower(l),why=powerWhy(p);
+ return '<div class="card-field'+(p.can?'':' disabled')+'" data-power-field'+(why?' data-tooltip="'+why+'"':'')+'><span>Power</span><button class="card-switch" role="switch" aria-label="Power" aria-checked="'+(p.on===true)+'" data-menu="power"'+(p.can&&!p.busy?'':' disabled')+'><span class="switch"><i></i></span></button></div>';
+}
+// Live power reaches the open card and the stage marks without a rebuild. The switch
+// is updated in place: the live poll runs every few dozen milliseconds, and a
+// replaced button would lose a click between its pointerdown and pointerup.
+function paintPower(){
+ paintLive();
+ const l=lamps.find(l=>l.id===selected),f=menuOpen&&l?$('#object-menu')?.querySelector('[data-power-field]'):null;
+ const b=f?.querySelector('[data-menu="power"]');if(!b)return;
+ const p=livePower(l),why=powerWhy(p);
+ f.classList.toggle('disabled',!p.can);
+ if(why)setAttr(f,'data-tooltip',why);else f.removeAttribute('data-tooltip');
+ setAttr(b,'aria-checked',String(p.on===true));
+ b.disabled=!(p.can&&!p.busy);
+}
 function cardMenu(l){
  if(connectPrompt===l.id)return connectPromptHtml(l);
  const b=lampBlocker(l),editable=virtualDevice(l.id)||isRole(l.id);
  // The card closes from its corner as well as from the lamp's chip.
  return '<div class="card-head">'+iconBtn(closeIcon,'Close',{'data-menu':'close','data-tooltip':'Close · Esc'},'card-close')+'<input class="card-name" value="'+esc(l.name)+'" aria-label="Lamp name" maxlength="'+nameLimit(l.id)+'"'+(editable?'':' readonly')+'>'
   +'<div class="card-sub">'+esc(lampInfo(l))+'</div>'
-  +(b?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
-  +connectedField(l)
+  +(b&&!isOff(b)?'<div class="card-alert" style="--h-color:'+levelColor[blockerLevel(b)]+'"><i></i><div><b>'+esc(capital(blockerText(b)))+'</b><span>'+esc(blockerHint(b))+'</span></div></div>':'')+'</div>'
+  +powerField(l)+connectedField(l)
   +(syncHere()?'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>':'')
   +'<div class="card-list"><button class="card-row" data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'<span>Blink</span></button>'
   +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button>'
@@ -1288,6 +1346,7 @@ function menuAction(id){
  if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='connect-now'){connectPrompt=null;refreshCard();changeLink(l,'connect');return true}
  if(id==='connect-later'){connectPrompt=null;closeObjectMenu();return true}
+ if(id==='power'){const p=livePower(l);if(p.can&&!p.busy)switchPower(l,p.on!==true);return true}
  if(id==='connected'){
   if(linkState(l))return true;
   if(l.unbound){changeLink(l,'connect');return true}
@@ -1493,7 +1552,7 @@ function paintSwatches(){
 function lampRowStatus(l){
  const link=linkState(l);if(link)return '<span class="lp-status">'+(link==='connect'?'Connecting…':'Disconnecting…')+'</span>';
  if(l.unbound)return linkable(l.id)?btn('Connect',{'data-connect':l.id},'sm'):'<span class="lp-status">Not connected</span>';
- const b=lampBlocker(l);if(b)return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
+ const b=lampBlocker(l);if(b&&!isOff(b))return '<span class="lp-status warn" style="--h-color:'+levelColor[blockerLevel(b)]+'">'+esc(capital(blockerText(b)))+'</span>';
  if(mode==='sync'&&syncRole(l)==='own')return '<span class="lp-status">Own light</span>';
  if(mode==='sync'&&syncRole(l)==='off')return '<span class="lp-status">Off during Sync</span>';
  if(mode==='sync'&&!syncSummary(l).active)return '<span class="lp-status">Outside Sync</span>';
@@ -1953,7 +2012,7 @@ function expireLive(){liveSnapshot=null;liveAt=-Infinity;paintLive()}
 function watchLive(){
  clearTimeout(liveWatchdog);
  if(document.hidden)return;
- paintLive();
+ paintPower();
  const remaining=LIVE_FRESH_MS-(performance.now()-liveAt);
  if(remaining>0)liveWatchdog=setTimeout(watchLive,remaining);
 }
@@ -2068,6 +2127,9 @@ stage.addEventListener('pointerdown',event=>{
 },true);
 stage.addEventListener('pointerdown',()=>showHover(null),true);
 stage.addEventListener('pointerdown',e=>{
+ // The power mark of an off lamp switches it on.
+ const mark=e.target.closest('.health-badge.switch-on');
+ if(mark){const l=lamps.find(l=>l.id===mark.closest('[data-lamp]')?.dataset.lamp);if(l){e.preventDefault();e.stopPropagation();skipClick=true;if(!livePower(l).busy)switchPower(l,true);return}}
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
  if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}

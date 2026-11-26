@@ -33,7 +33,7 @@ files and credentials are never served. The page makes no external requests.
   lamp, and the falloff zone below the desk has six corner knobs, Auto and reset.
 - A lamp's chip is one button ("Govee Left ⌄"); it, or a double click on the
   lamp, opens the lamp card beside the lamp, on the side of the nearer screen
-  edge. The card shows the lamp, its Sync blocker with a hint, "During Sync:
+  edge. The card shows the lamp, its Sync blocker with a hint, the Power switch, "During Sync:
   Sync / Own light / Off", Blink, "Calibrate ›" with the brightness correction
   of the current view, and Remove. Removal always asks inline; removed lamps
   return through "Found".
@@ -111,7 +111,7 @@ changes and pages opened before the upgrade must refetch. Version 8 (current)
 stores the desk as a piece in `furniture` and the display standing on it or
 hanging (see `core/README.md`, "Room furniture"); older files load as version 8,
 and writes must use it. Writes accept geometry and corrections only: no power,
-physical identifiers or commands.
+physical identifiers or commands (power has its own route, see "Power").
 
 ## Calibrate
 
@@ -153,6 +153,34 @@ not drive. The answer is 200 `{"accepted": true}`,
 `writer closed`, `sync active`, `busy`, `unavailable`, `brightness unknown`, or
 `paused` during the owner's live-output hold) and 503 when the adapter is not
 reachable or the blink was not delivered. Only an owner click triggers it.
+
+## Power
+
+The owner switches a lamp on or off in Light Studio as from Apple Home or the Hue
+app. The lamp card has a Power switch. A lamp that is off always shows the grey
+power mark at its corner, with or without Sync; clicking the mark switches the
+lamp on. While a switch runs the mark is dimmed; the requested state shows until
+the lamp reports it (at most 8 s), and a refusal shows a toast and keeps the
+state. Power is not part of the layout: no draft, no undo.
+
+`POST /api/power` with `{"lamp": "<registry light id>", "on": true|false}` has the
+local-origin protections of layout writes. The Studio server reads the adapter's
+status and uses the lamp's owner power path:
+
+- A Govee lamp listed by the power authority goes to `/power-request`, the Hue app
+  path: under the HomeKit authority it sets the same intent as a HomeKit write
+  (Apple Home follows within a second); under the remote owner it needs a live
+  grant.
+- A native Hue lamp with a bridge proxy goes to `/native-power`, the confirmed
+  write to the owner's bridge, which Apple Home and the Hue app read.
+
+Both mark an owner power change, so Sync keeps an owner Off and lets an owner On
+back in (see `core/README.md`, "Off during Sync"). `GET /api/live` gives each lamp
+`power: true` when it is online and has such a path. The answer is 200
+`{"accepted": true}`; 409 `{"accepted": false, "reason": "unavailable"}` for a lamp
+without a path (offline, a Govee lamp without a power authority) or `"paused"`
+during the live-output hold; 404 for a light the adapter does not list; 400 for a
+malformed body; 503 when the adapter is unreachable or does not confirm.
 
 ## Connected lamps
 
