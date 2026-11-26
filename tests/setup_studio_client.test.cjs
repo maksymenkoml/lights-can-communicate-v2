@@ -1075,13 +1075,13 @@ test('fromLayout reads version 6 and version 7 screens and pack writes the scree
 test('version 8 keeps the desk id and place; a room with only lamps or a hanging display opens',async()=>{
  const app=await harness();
  const layout=canonical(saved());
- layout.furniture=[{id:'piece-12345678',kind:'desk',x:110,width:140,height:75}];
+ layout.furniture=[{id:'piece-12345678',kind:'desk',x:100,width:140,height:75}];
  layout.screen.on='piece-12345678';
  const model=json(app,'fromLayout('+JSON.stringify(layout)+').environment');
  assert.deepEqual([model.desk,model.display,model.width,model.height,model.support],[true,true,140,75,'piece-12345678']);
  app.run('applyModel(fromLayout('+JSON.stringify(layout)+'));environment.width=150');
  const packed=json(app,'pack()');
- assert.deepEqual(packed.furniture,[{id:'piece-12345678',kind:'desk',x:110,width:150,height:75}]);
+ assert.deepEqual(packed.furniture,[{id:'piece-12345678',kind:'desk',x:100,width:150,height:75}]);
  assert.deepEqual([packed.version,packed.screen.on],[8,'piece-12345678']);
  // Lamps only: no desk, no display.
  const bare={...structuredClone(layout),furniture:[]};delete bare.screen;
@@ -1093,7 +1093,8 @@ test('version 8 keeps the desk id and place; a room with only lamps or a hanging
  // A display hanging in a room without a desk.
  const hanging={...structuredClone(layout),furniture:[],screen:{...layout.screen,on:null}};
  assert.deepEqual(json(app,'(m=>[m.desk,m.display])(fromLayout('+JSON.stringify(hanging)+').environment)'),[false,true]);
- // A cabinet, or a display hanging over a desk, is not drawn yet.
+ // A cabinet, a desk off the room axis, or a display hanging over a desk, is not drawn yet.
+ assert.equal(app.run('fromLayout('+JSON.stringify({...layout,furniture:[{...layout.furniture[0],x:110}]})+')'),null);
  const cabinet={...structuredClone(layout),furniture:[...layout.furniture,{id:'piece-0000abcd',kind:'cabinet',x:300,width:60,height:50}]};
  assert.equal(app.run('fromLayout('+JSON.stringify(cabinet)+')'),null);
  assert.equal(app.run('fromLayout('+JSON.stringify({...layout,screen:{...layout.screen,on:null}})+')'),null);
@@ -2080,7 +2081,7 @@ test('the Objects panel lists lamps and furniture; the desk and display are remo
  assert.ok(back.screen.positionCm.height>back.furniture[0].height,'the display stands above the tabletop');
 });
 
-test('the Delete key removes a selected desk; the display of the Sync Box room stays',async()=>{
+test('the Delete key removes a selected desk; the display of the Sync Box room stays and hangs without a stand',async()=>{
  const app=await harness({rooms:twoRooms(),syncBox:READY_BOX});await app.advance(100);
  app.run('select("monitor")');
  await app.press(app.document.body,'Delete');
@@ -2092,7 +2093,9 @@ test('the Delete key removes a selected desk; the display of the Sync Box room s
  assert.ok(panel.querySelector('[data-remove-ok="desk"]'));
  await app.click(panel.querySelector('[data-remove-ok="desk"]'));await app.advance(300);
  assert.deepEqual(app.posts.at(-1).body.furniture,[]);
- // The Sync Box now lies on the floor under the display.
+ // The display hangs without its desktop stand; the Sync Box lies on the floor under it.
+ assert.doesNotMatch(app.run('environmentSvg(sceneGeometry())'),/l-31 7h62Z/);
+ assert.match(app.run('(environment.desk=true,environmentSvg(sceneGeometry()))'),/l-31 7h62Z/,'on a desk it has its stand');app.run('environment.desk=false');
  const y=+app.stage.querySelector('.box-group .box-body').getAttribute('y');
  assert.ok(y>720,'on the floor');
 });
@@ -2105,8 +2108,13 @@ test('without a display the Monitor Strip draws as a bar where it was, and wraps
  assert.deepEqual(json(app,'(l=>[l.form,l.x,l.h])(lamps.find(l=>l.id==="hue-monitor"))'),['bar',before[1],before[2]]);
  const row=app.posts.at(-1).body.devices.find(d=>d.id==='hue-monitor');
  assert.deepEqual(row.positionCm,{x:before[1]+100,height:before[2]});
- app.run('addFurniture("monitor")');
+ // The strip, moved meanwhile, keeps its own place; the new display hangs at 110 cm on the axis.
+ app.run('(l=>{l.x=60;l.h=70})(lamps.find(l=>l.id==="hue-monitor"));render()');
+ app.run('addFurniture("monitor")');await app.advance(300);
  assert.equal(json(app,'lamps.find(l=>l.id==="hue-monitor").form'),'strip');
+ const added=app.posts.at(-1).body;
+ assert.deepEqual(added.screen.positionCm.x,100);
+ assert.ok(added.screen.positionCm.height>85,'on the desk');
 });
 
 test('a room without a display is not offered the Sync Box',async()=>{

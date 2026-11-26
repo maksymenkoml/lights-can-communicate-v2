@@ -119,10 +119,11 @@ function currentLayout(data){
 }
 // The piece the screen stands on.
 const supportOf=layout=>layout?.screen?layout.furniture?.find(p=>p?.id===layout.screen.on)??null:null;
-// The furniture this page draws: at most one desk and one display, the display on the desk
-// or, in a room without a desk, hanging. Anything else (a cabinet) is not drawn yet.
+// The furniture this page draws: at most one desk, at the room axis, and one display, on the
+// desk or, in a room without a desk, hanging. Anything else (a cabinet, a desk moved off
+// the axis) is not drawn yet.
 function drawnDesk(data){
- if(!data||data.furniture.length>1||data.furniture.some(p=>p?.kind!=='desk'))return undefined;
+ if(!data||data.furniture.length>1||data.furniture.some(p=>p?.kind!=='desk'||p.x!==DESK_CENTER))return undefined;
  const desk=data.furniture[0]??null;
  if(data.screen&&(desk?data.screen.on!==desk.id:data.screen.on!==null))return undefined;
  return desk;
@@ -131,7 +132,7 @@ function fromLayout(source){
  const data=currentLayout(source),desk=drawnDesk(data);
  if(!data||desk===undefined)return null;
  const environment={desk:!!desk,display:!!data.screen,width:finite(desk?.width,80,240,160),height:finite(desk?.height,50,120,85),inches:finite(data.screen?.inches,...DISPLAY_INCHES,32),
-  ...(desk?{support:desk.id,deskX:desk.x}:{}),
+  ...(desk?{support:desk.id}:{}),
   zones:{sync:null,scene:null},fade:{sync:data.syncFalloff!==false,scene:data.sceneFalloff===true}};
  for(const [c,key] of [['sync','syncZone'],['scene','sceneZone']])if(validSyncZone(data[key]))environment.zones[c]=data[key].points.map(p=>({u:p.u,h:p.h}));
  const rows=new Map(data.devices.filter(r=>r&&typeof r.id==='string'&&r.positionCm&&typeof r.positionCm==='object').map(r=>[r.id,r]));
@@ -170,7 +171,7 @@ function pack(m={room,environment,lamps}){
  const monitor=wrapOf(m.lamps,env)||env.screen;
  // The desk keeps its id; the display stands on it, or hangs in a room without one.
  const support=env.support??MIGRATED_DESK;
- return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:env.desk?[{id:support,kind:'desk',x:env.deskX??DESK_CENTER,width:env.width,height:env.height}]:[],
+ return {version:LAYOUT_VERSION,gridStepCm:STEP,room:m.room,furniture:env.desk?[{id:support,kind:'desk',x:DESK_CENTER,width:env.width,height:env.height}]:[],
   ...(env.display?{screen:{positionCm:{x:monitor.x+DESK_CENTER,height:monitor.h},inches:env.inches,on:env.desk?support:null}}:{}),
   syncZone:zone(env.zones.sync),sceneZone:zone(env.zones.scene),syncFalloff:env.fade.sync,sceneFalloff:env.fade.scene,
   ...(env.box?{syncBox:{x:boxX(env)+DESK_CENTER}}:{}),
@@ -358,7 +359,7 @@ function zoneIntersections(P,x){
  return [...new Set(hs)].sort((a,b)=>a-b);
 }
 // The Sync fade switched off leaves every zone at full brightness.
-function syncBounds(x){const P=zonePoints('sync');if(!environment.fade.sync||!P)return null;const hs=zoneIntersections(P,x);return hs.length?[hs[0],hs[hs.length-1]]:null}
+function syncBounds(x){if(!environment.fade.sync)return null;const P=zonePoints('sync');if(!P)return null;const hs=zoneIntersections(P,x);return hs.length?[hs[0],hs[hs.length-1]]:null}
 // The same validation as sync_zone.validate_zone, so a dragged corner is never refused by the server.
 function validSyncZone(config){
  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
@@ -627,15 +628,22 @@ function environmentSvg({cx,cy,mw,mh,w,left,top}){
  // glow is a vertical line and a Play's a horizontal one, whose zero-width box would switch the
  // blur off and leave a hard coloured capsule around the lens.
  const defs='<defs><linearGradient id="wood-face" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--wood-top)"/><stop offset="1" stop-color="var(--wood-front)"/></linearGradient><linearGradient id="glass-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="var(--glass-top)"/><stop offset=".5" stop-color="var(--glass-bottom)"/><stop offset="1" stop-color="var(--glass-top)"/></linearGradient><filter id="furniture-shadow" x="-100%" y="-200%" width="300%" height="500%"><feGaussianBlur stdDeviation="5"/></filter></defs>';
- let desk='<ellipse cx="500" cy="741" rx="'+(w/2-3)+'" ry="5" fill="#243247" opacity=".08" filter="url(#furniture-shadow)"/>';
- for(const x of [left+15,right-27])desk+='<rect x="'+x+'" y="'+(top+13)+'" width="12" height="'+(740-top-15)+'" rx="2" fill="var(--furniture-metal)"/><path d="M'+(x+1)+' '+(top+22)+'V736" stroke="#ffffff" stroke-opacity=".18"/><rect x="'+(x-9)+'" y="736" width="30" height="4" rx="2" fill="var(--furniture-metal)"/>';
- desk+='<rect x="'+(left+17)+'" y="'+(top+23)+'" width="'+(w-34)+'" height="5" rx="2" fill="var(--furniture-metal)" opacity=".55"/><rect x="'+left+'" y="'+top+'" width="'+w+'" height="16" rx="3" fill="url(#wood-face)"/><path d="M'+(left+3)+' '+(top+1)+'H'+(right-3)+'" stroke="var(--wood-edge)" stroke-width="2"/><path d="M'+(left+8)+' '+(top+8)+'H'+(right-8)+'M'+(left+17)+' '+(top+11)+'H'+(right-28)+'" stroke="#70451f" stroke-opacity=".12" stroke-width=".6"/>';
- // The diagonal measures the picture, so the bezel is drawn outside it and Sync samples sit on the picture's edge.
- const B=BEZEL;
- const monitor='<rect x="'+(mx-B)+'" y="'+(my-B)+'" width="'+(mw+2*B)+'" height="'+(mh+2*B)+'" rx="7" fill="#445367" stroke="#77879b" stroke-width="1"/><rect x="'+mx+'" y="'+my+'" width="'+mw+'" height="'+mh+'" rx="3" fill="url(#glass-face)"/><path d="M'+(mx+3)+' '+(my+1)+'H'+(mx+mw-3)+'" stroke="#eaf5ff" stroke-opacity=".4"/><path d="M'+cx+' '+(bottom+B)+'v'+Math.max(0,top-bottom-B-9)+'" stroke="var(--furniture-metal)" stroke-width="5"/><path d="M'+cx+' '+(top-10)+'l-31 7h62Z" fill="var(--furniture-metal)"/><circle cx="'+cx+'" cy="'+(my+mh+B/2)+'" r=".9" fill="#c8d7e9" opacity=".5"/>';
- const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
- // A room without a desk or a display draws neither.
- return defs+(environment.desk?'<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g>':'')+(environment.display?'<g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected&&selected===wrapOf(lamps)?.id?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Display">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>':'');
+ let out=defs;
+ // A room without a desk or a display draws neither; a display without a desk hangs, with no stand.
+ if(environment.desk){
+  let desk='<ellipse cx="500" cy="741" rx="'+(w/2-3)+'" ry="5" fill="#243247" opacity=".08" filter="url(#furniture-shadow)"/>';
+  for(const x of [left+15,right-27])desk+='<rect x="'+x+'" y="'+(top+13)+'" width="12" height="'+(740-top-15)+'" rx="2" fill="var(--furniture-metal)"/><path d="M'+(x+1)+' '+(top+22)+'V736" stroke="#ffffff" stroke-opacity=".18"/><rect x="'+(x-9)+'" y="736" width="30" height="4" rx="2" fill="var(--furniture-metal)"/>';
+  desk+='<rect x="'+(left+17)+'" y="'+(top+23)+'" width="'+(w-34)+'" height="5" rx="2" fill="var(--furniture-metal)" opacity=".55"/><rect x="'+left+'" y="'+top+'" width="'+w+'" height="16" rx="3" fill="url(#wood-face)"/><path d="M'+(left+3)+' '+(top+1)+'H'+(right-3)+'" stroke="var(--wood-edge)" stroke-width="2"/><path d="M'+(left+8)+' '+(top+8)+'H'+(right-8)+'M'+(left+17)+' '+(top+11)+'H'+(right-28)+'" stroke="#70451f" stroke-opacity=".12" stroke-width=".6"/>';
+  const deskHit='<rect x="'+(left-5)+'" y="'+(top-12)+'" width="'+(w+10)+'" height="45" fill="transparent"/>';
+  out+='<g class="desk-group '+(selected==='desk'?'chosen':'')+'" data-select="desk" tabindex="0" role="button" aria-label="Desk">'+desk+'<path class="furniture-select" d="M'+left+' '+(top-6)+'H'+right+'"/>'+deskHit+'</g>';
+ }
+ if(environment.display){
+  // The diagonal measures the picture, so the bezel is drawn outside it and Sync samples sit on the picture's edge.
+  const B=BEZEL,stand=environment.desk?'<path d="M'+cx+' '+(bottom+B)+'v'+Math.max(0,top-bottom-B-9)+'" stroke="var(--furniture-metal)" stroke-width="5"/><path d="M'+cx+' '+(top-10)+'l-31 7h62Z" fill="var(--furniture-metal)"/>':'';
+  const monitor='<rect x="'+(mx-B)+'" y="'+(my-B)+'" width="'+(mw+2*B)+'" height="'+(mh+2*B)+'" rx="7" fill="#445367" stroke="#77879b" stroke-width="1"/><rect x="'+mx+'" y="'+my+'" width="'+mw+'" height="'+mh+'" rx="3" fill="url(#glass-face)"/><path d="M'+(mx+3)+' '+(my+1)+'H'+(mx+mw-3)+'" stroke="#eaf5ff" stroke-opacity=".4"/>'+stand+'<circle cx="'+cx+'" cy="'+(my+mh+B/2)+'" r=".9" fill="#c8d7e9" opacity=".5"/>';
+  out+='<g class="monitor-group '+(selected==='monitor'?'chosen':'')+(selected&&selected===wrapOf(lamps)?.id?' paired':'')+'" data-select="monitor" tabindex="0" role="button" aria-label="Display">'+monitor+'<rect class="furniture-select" x="'+(mx-3-BEZEL)+'" y="'+(my-3-BEZEL)+'" width="'+(mw+6+2*BEZEL)+'" height="'+(mh+6+2*BEZEL)+'" rx="9"/></g>';
+ }
+ return out;
 }
 // The Sync Box on the desktop of its room. Its front light shows the box: dark when it is
 // not connected or not answering, dim when ready, lit while it syncs.
@@ -2306,7 +2314,7 @@ function roomThumb(layout){
  // Each piece is drawn around its own centre, the display where it is: a room may have
  // a desk, a display, both or neither.
  const pieces=layout.furniture.filter(p=>p&&typeof p.x==='number'),screen=layout.screen;
- const sw=screen?screen.inches*2.54*16/Math.hypot(16,9):0,sh=sw*9/16,sx=screen?.positionCm.x??0,sy=screen?.positionCm.height??0;
+ const sw=screen?monitorWidthCm(screen.inches):0,sh=sw*9/16,sx=screen?.positionCm.x??0,sy=screen?.positionCm.height??0;
  // The card shows at least -40..280 cm and 0..220 cm high, and grows to fit the furniture,
  // the display and every lamp.
  const placed=layout.devices.filter(d=>d.enabled!==false&&d.positionCm),xs=placed.map(d=>d.positionCm.x);
