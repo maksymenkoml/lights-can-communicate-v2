@@ -328,13 +328,18 @@ function problemLamps(){return lamps.filter(l=>{if(l.unbound||l.enabled===false)
 // seconds pass), so the mark and the card do not flicker back.
 const POWER_SETTLE_MS=8000;
 const powerPending=new Map();
-// A switch settles once a live snapshot received after it began shows the requested
-// state (even while the write was still running), then later changes, say from Apple
-// Home, show at once; a snapshot from before it began never settles it.
+// A switch settles once a live snapshot received after it began shows the lamp reach
+// the requested state (even while the write still runs); later changes, say from
+// Apple Home, then show at once. A reading that only repeats the state the lamp
+// already had when the switch began (a quick reversal) does not count until the lamp
+// was seen to leave it.
+function reportedPower(l){
+ const s=liveFresh()&&liveSnapshot?.lamps?.[l.id];
+ return s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true,held:s.power_reason==='sync'}:{on:null,can:false};
+}
 function livePower(l){
- const s=liveFresh()&&liveSnapshot?.lamps?.[l.id],live=s&&typeof s==='object'?{on:typeof s.on==='boolean'?s.on:null,can:s.power===true,held:s.power_reason==='sync'}:{on:null,can:false};
- const p=powerPending.get(l.id);
- if(p&&liveAt>p.started&&live.on===p.on)p.seen=true;
+ const live=reportedPower(l),p=powerPending.get(l.id);
+ if(p&&liveAt>p.started){if(live.on!==p.on)p.left=true;else if(p.base!==p.on||p.left)p.seen=true}
  if(p&&p.sent&&(p.seen||performance.now()>p.until))powerPending.delete(l.id);
  else if(p)return {on:p.on,can:live.can,held:live.held,busy:!p.sent,pending:true};
  return live;
@@ -360,15 +365,15 @@ function badgeTip(p,m){
 const POWER_REFUSED={paused:'Light output is paused','sync active':'Sync is running: choose Off under During Sync to keep it dark',unavailable:'Light Studio cannot switch this lamp now'};
 async function switchPower(l,on){
  if(powerPending.has(l.id)&&!powerPending.get(l.id).sent)return;
- const started=performance.now();
- powerPending.set(l.id,{on,sent:false,started,until:0});paintPower();
+ const entry={on,sent:false,started:performance.now(),base:reportedPower(l).on,until:0};
+ powerPending.set(l.id,entry);paintPower();
  let ok=false,reason='';
  try{
   const response=await fetch('/api/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lamp:l.id,on})});
   const body=await response.json().catch(()=>({}));ok=response.ok&&body.accepted===true;reason=body.reason||'';
  }catch{}
- if(ok)powerPending.set(l.id,{...powerPending.get(l.id),on,sent:true,started,until:performance.now()+POWER_SETTLE_MS});
- else{powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
+ if(ok){entry.sent=true;entry.until=performance.now()+POWER_SETTLE_MS}
+ else{if(powerPending.get(l.id)===entry)powerPending.delete(l.id);tell(POWER_REFUSED[reason]||'Could not turn '+l.name+(on?' on':' off'))}
  paintPower();
  if(ok)setTimeout(paintPower,POWER_SETTLE_MS+50);
 }

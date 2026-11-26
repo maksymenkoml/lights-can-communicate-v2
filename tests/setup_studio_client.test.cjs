@@ -1101,6 +1101,15 @@ test('the power mark is a button: only a primary click switches, it stays dimmed
  release();await app.settle();await app.advance(100);
  assert.equal(json(app,'powerPending.size'),0);
  assert.equal(badge().getAttribute('visibility'),'visible','the Off from Apple Home shows');
+ // A quick reversal: On accepted, then Off accepted while the lamp still reports the
+ // original Off. That repeated Off does not settle the Off; the lamp must be seen to
+ // pass through On first (or the settle time pass).
+ app.run('switchPower(lamps.find(l=>l.id==="play-left"),true)');await app.settle();release();await app.settle();
+ app.run('switchPower(lamps.find(l=>l.id==="play-left"),false)');await app.settle();release();await app.settle();
+ await app.advance(200);
+ assert.equal(json(app,'powerPending.size'),1,'not settled by the old Off');
+ state.on=true;await app.advance(200);state.on=false;await app.advance(200);
+ assert.equal(json(app,'powerPending.size'),0,'settled after On, then Off');
 });
 
 test('Blink asks the server once and explains a refusal; Off is saved for role lamps only',async()=>{
