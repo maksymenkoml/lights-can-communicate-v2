@@ -809,11 +809,11 @@ function animateRays(prev){
 }
 function updateStageViewport(){
  if(drag)return;
- const m=strip(),half=environment.inches*2.54*9/Math.hypot(16,9)*3.3/2;
+ const m=strip(),halfWidth=monitorWidthCm(environment.inches)/2,half=halfWidth*9/16*3.3;
  const top=Math.min(90,environment.display?740-m.h*3.3-half-28:90,...activeLamps().map(l=>740-l.h*3.3-(l.form==='floor'?470:l.form==='table'?110:l.vertical?65:35)));
  // Widen the room symmetrically so a lamp placed far from the desk stays visible.
  const reach=Math.max(500,...activeLamps().map(l=>Math.abs(l.x)*3.3+90),environment.desk?(Math.abs(environment.deskX??0)+environment.width/2)*3.3+90:0,
-  environment.display?(Math.abs(m.x)+monitorWidthCm(environment.inches)/2)*3.3+90:0);
+  environment.display?(Math.abs(m.x)+halfWidth)*3.3+90:0);
  $('#stage').setAttribute('viewBox',(500-reach)+' '+top+' '+(2*reach)+' '+(830-top));
 }
 function syncScreenAxis(){const g=sceneGeometry(),stage=$('#stage'),ax=stage.querySelector('.axis'),need=!!selected&&Math.abs(g.cx-500)>1,d='M'+g.cx+' 170V744';if(!need){ax?.remove();return}if(ax){ax.setAttribute('d',d);return}const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('class','axis');p.setAttribute('d',d);stage.querySelector('.desk-axis')?.after(p)}

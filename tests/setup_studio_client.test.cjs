@@ -1106,10 +1106,12 @@ test('version 8 keeps the desk id and place; a room with only lamps or a hanging
  app.run('environment.deskX=200;render()');
  const view=app.stage.getAttribute('viewBox').split(' ').map(Number);
  assert.ok(view[0]+view[2]>=500+(200+70)*3.3,'the desk at x 300 is inside the stage');
- // The stage fits a wide display there too.
- app.run('environment.inches=65;render()');
+ // In a room without lamps the stage fits a 65-inch display on a narrow desk at x 300,
+ // whose resize handle lies beyond the desk.
+ app.run('lamps=[];environment.width=80;environment.deskX=200;environment.inches=65;environment.display=false;render();addFurniture("monitor")');
  const wide=app.stage.getAttribute('viewBox').split(' ').map(Number);
- assert.ok(wide[0]+wide[2]>=500+(json(app,'strip().x')+json(app,'monitorWidthCm(65)')/2)*3.3+30,'the display and its handle are inside the stage');
+ assert.ok(wide[0]+wide[2]>=500+(200+json(app,'monitorWidthCm(65)')/2)*3.3+30,'the display and its handle are inside the stage');
+ app.run('environment.width=140');
  // A desk is added at the room axis; a display that would miss its top moves onto it.
  app.run('environment.inches=32;environment.deskX=10;strip().x=400;removeFurniture("desk");addFurniture("desk")');
  const both=json(app,'pack()');
