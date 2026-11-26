@@ -2075,7 +2075,7 @@ document.addEventListener('visibilitychange',()=>{++boxGeneration;clearTimeout(b
 // is marked, and the Sync Box's room shows the box. The page edits one room at a time;
 // its layout, browser draft and undo history belong to that room.
 const ROOM_REFUSED={invalid_name:'A name has 1 to 40 characters',room_limit:'A home has up to ten rooms',unknown_room:'This room no longer exists',unknown_light:'This lamp cannot change rooms',
- last_room:'The last room stays',has_sync_box:'The Sync Box is in this room',has_lights:'Move its lamps to another room first',layout_full:'That room holds up to '+MAX_ROWS+' lamps',
+ last_room:'The last room stays',has_sync_box:'The Sync Box is in this room',has_lights:'Move its lamps to another room first',layout_full:'That room holds up to '+MAX_ROWS+' lamps',no_screen:'Sync needs a screen in the room',
  sync_active:'Not while Sync is on',restarting:'The lamps are restarting; try again in a moment',unavailable:'Light Studio cannot reach the lamps now'};
 const boxIcon='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="14" height="6.5" rx="1.6"/><path d="M6 10.2h.01M14 10.2h2"/></svg>';
 const roomIcons={pen:'<path d="m12.5 4.5 3 3-8 8H4.5v-3z"/>',trash:'<path d="M4.5 6h11M8 6V4.5h4V6m-6 0 .7 9.5h6.6L14 6"/>',plus:'<path d="M10 4v12M4 10h12"/>'};

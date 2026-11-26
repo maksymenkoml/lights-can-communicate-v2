@@ -141,8 +141,21 @@ class StudioRoomTests(unittest.TestCase):
         self.assertNotIn("play-left", [row["id"] for row in rows])
         # The Sync Box moves the same way.
         self.answers["/lights/rooms"] = (200, {"accepted": True, "changes": {}})
+        # A room without a screen cannot take the Sync Box.
+        status_, answer = self.request("/api/layout?room=" + room)
+        bare = {key: value for key, value in answer["layout"].items() if key != "screen"}
+        status_, saved = self.request("/api/layout?room=" + room, bare,
+                                      **{"If-Match": answer["revision"]})
+        self.assertEqual(self.request("/api/rooms/sync-box", {"room": room}),
+                         (409, {"accepted": False, "reason": "no_screen"}))
+        status_, saved = self.request("/api/layout?room=" + room, answer["layout"],
+                                      **{"If-Match": saved["revision"]})
         status_, body = self.request("/api/rooms/sync-box", {"room": room})
         self.assertEqual((status_, body["sync"]), (200, room))
+        # Nor can the Sync room lose its screen.
+        self.assertEqual(self.request("/api/layout?room=" + room, bare,
+                                      **{"If-Match": saved["revision"]}),
+                         (409, {"accepted": False, "reason": "no_screen"}))
         self.syncing = True
         self.assertEqual(self.request("/api/rooms/move", {"light": "play-left",
                                                           "room": FIRST_ROOM})[1]["reason"],

@@ -22,7 +22,14 @@ import tempfile
 import threading
 from pathlib import Path
 
-from desk_layout import LAYOUT_VERSION, MIGRATED_DESK, ROLES, LayoutStore, calibration_values
+from desk_layout import (
+    LAYOUT_VERSION,
+    MIGRATED_DESK,
+    ROLES,
+    LayoutStore,
+    calibration_values,
+    validate_layout,
+)
 
 ROOMS_VERSION = 1
 INDEX_FILE = "rooms.json"
@@ -201,6 +208,9 @@ class Rooms:
                    and self.room_of(row["id"], index) != room
                    for row in (rows if isinstance(rows, list) else ())):
                 raise ValueError("A light's row belongs to its own room")
+            # The Sync Box's room keeps a screen: Sync samples the picture on it.
+            if room == index["sync"] and "screen" not in validate_layout(value):
+                raise RoomRefused("no_screen")
             if self.materialized():
                 return self.store(room).save(value)
             result = LayoutStore(self.state_dir / LAYOUTS_DIR / (room + ".json"),
@@ -481,5 +491,8 @@ class Rooms:
             index = self.index()
             if room is not None:
                 self._known(room, index)
+                layout = self.store(room).snapshot()
+                if layout is not None and "screen" not in layout:
+                    raise RoomRefused("no_screen")
             index["sync"] = room
             self.write_index(index)

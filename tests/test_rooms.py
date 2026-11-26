@@ -187,6 +187,10 @@ class RoomManagementTests(unittest.TestCase):
         layout = self.rooms.store(room).snapshot()
         self.assertEqual((layout["room"], layout["devices"], layout["screen"]["inches"]),
                          ("Bedroom", [], 32))
+        self.assertEqual((layout["version"], layout["furniture"], layout["screen"]["kind"],
+                          layout["screen"]["on"]),
+                         (8, [{"id": "piece-00000001", "kind": "desk", "x": 100,
+                               "width": 160, "height": 85}], "monitor", "piece-00000001"))
         self.assertEqual(self.rooms.index()["sync"], FIRST_ROOM)
         for name in ("", "   ", "x" * 41, 5):
             self.refused("invalid_name", self.rooms.create, name)
@@ -276,6 +280,23 @@ class RoomManagementTests(unittest.TestCase):
         self.rooms.place_sync_box(None)
         self.assertIsNone(self.rooms.sync_profile())
         self.refused("unknown_room", self.rooms.place_sync_box, "room-ffffffff")
+
+    def test_the_sync_box_needs_a_room_with_a_screen(self):
+        room = self.rooms.create("Hall")
+        bare = {key: value for key, value in self.rooms.store(room).snapshot().items()
+                if key != "screen"}
+        self.rooms.save(room, bare)
+        before = self.rooms.index()
+        self.refused("no_screen", self.rooms.place_sync_box, room)
+        self.assertEqual(self.rooms.index(), before)
+        # The Sync room cannot lose its screen either; another room can.
+        screenless = {key: value for key, value in self.rooms.store(FIRST_ROOM).snapshot()
+                      .items() if key != "screen"}
+        self.refused("no_screen", self.rooms.save, FIRST_ROOM, screenless)
+        self.assertIn("screen", self.rooms.store(FIRST_ROOM).snapshot())
+        self.rooms.place_sync_box(None)
+        self.rooms.save(FIRST_ROOM, screenless)
+        self.assertNotIn("screen", self.rooms.store(FIRST_ROOM).snapshot())
 
     def test_restore_puts_back_the_rooms_and_their_layouts(self):
         room = self.rooms.create("Bedroom")
