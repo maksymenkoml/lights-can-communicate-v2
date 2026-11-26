@@ -94,7 +94,8 @@ function minimumHeight(l,env=environment){if(l.form==='floor'||l.form==='table')
 // a floor lamp's anchor is its bottom + 60 cm.
 const X_LIMIT=300;
 function maximumHeight(l){return l.form==='floor'?300-FLOOR_ANCHOR:300}
-function clampFixture(l,env=environment){l.x=clamp(Math.round(l.x/5)*5,-X_LIMIT,X_LIMIT);l.h=clamp(Math.round(l.h/5)*5,minimumHeight(l,env),maximumHeight(l))}
+const clampX=l=>{l.x=clamp(Math.round(l.x/5)*5,-X_LIMIT,X_LIMIT)};
+function clampFixture(l,env=environment){clampX(l);l.h=clamp(Math.round(l.h/5)*5,minimumHeight(l,env),maximumHeight(l))}
 const deskPiece=(env=environment)=>env.desk?{x:env.deskX??0,width:env.width,height:env.height}:null;
 // A table lamp placed or moved snaps to the top under its foot nearest to its height: a
 // nightstand, the desk or the floor. A loaded lamp keeps its saved height.
@@ -226,7 +227,7 @@ function ridersOf(get){
 }
 function seatRiders(get,start){
  const p=get();
- for(const r of start.list){const l=lamps.find(l=>l.id===r.id);if(!l)continue;l.x=p?p.x+r.x-start.x0:r.x;clampFixture(l);l.h=covers(p,l.x)?p.height:surfaceBelow(l.x,r.h)}
+ for(const r of start.list){const l=lamps.find(l=>l.id===r.id);if(!l)continue;l.x=p?p.x+r.x-start.x0:r.x;clampX(l);l.h=covers(p,l.x)?p.height:surfaceBelow(l.x,r.h)}
 }
 function keepRiders(get,edit){
  // During a drag the riders are taken once, at its first step.
@@ -1272,25 +1273,19 @@ function settleLinks(){
  if(changed)paintLink();
 }
 function paintLink(){if(drag)return;render();paintPanel();if(menuOpen&&!cal)refreshCard()}
-function furnitureAction(id,menu){
- const piece=selected,name=isCabinet(piece)?CABINET.name:FURNITURE[piece].name;
- if(id==='remove'){
-  const refusal=isCabinet(piece)?'':furnitureRefusal(piece);if(refusal){tell(refusal);return true}
-  const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove the '+name.toLowerCase()+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
- if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
- if(id==='remove-ok'){closeObjectMenu();removeLampById(piece);return true}
- return false;
-}
 function setLamp(l,change,message){remember();change(l);render();if(message)tell(message);refreshCard()}
 function menuAction(id){
  const menu=$('#object-menu'),l=lamps.find(l=>l.id===selected);
  if(!l&&!furnitureId(selected))return false;
  if(id==='close'){closeObjectMenu();$('#stage').querySelector('[data-chip-action="more"]')?.focus();return true}
- if(!l)return furnitureAction(id,menu);
- if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
- if(id==='remove'){const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:'Remove '+esc(l.name)+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
+ // Lamps and furniture share the removal confirmation; the Sync Box room keeps its display.
+ if(id==='remove'){
+  const refusal=!l&&!isCabinet(selected)?furnitureRefusal(selected):'';if(refusal){tell(refusal);return true}
+  const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:l?'Remove '+esc(l.name)+'?':'Remove the '+(isCabinet(selected)?CABINET.name:FURNITURE[selected].name).toLowerCase()+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
- if(id==='remove-ok'){closeObjectMenu();removeLampById(l.id);return true}
+ if(id==='remove-ok'){closeObjectMenu();removeLampById(selected);return true}
+ if(!l)return false;
+ if(id.startsWith('role-')){const v=id.slice(5);if(SYNC_ROLES.includes(v)&&(v!=='off'||isRole(l.id))&&v!==syncRole(l)&&!l.unbound)setLamp(l,l=>{l.syncRole=v});return true}
  if(id==='connect-now'){connectPrompt=null;refreshCard();changeLink(l,'connect');return true}
  if(id==='connect-later'){connectPrompt=null;closeObjectMenu();return true}
  if(id==='connected'){
@@ -2114,11 +2109,17 @@ stage.addEventListener('keydown',e=>{
  if(e.key==='Enter'||e.key===' '){e.preventDefault();if(id)select(id);if(id==='box')openBoxCard(['ready','offline'].includes(box.state)?'info':'connect');return}
  if(!e.key.startsWith('Arrow')||!id||id==='desk'||id==='zone')return;
  e.preventDefault();selected=id;const l=movableFixture();if(!l)return;const before=snapshot();
- // A table lamp steps up or down to the next top under it; a cabinet moves along the floor only.
- const tops=()=>[0,...[deskPiece(),...(environment.cabinets??[])].filter(p=>covers(p,l.x)).map(p=>p.height)].sort((a,b)=>a-b);
- const move=()=>{if(e.key==='ArrowLeft')l.x-=5;if(e.key==='ArrowRight')l.x+=5;
-  if(l.form==='table'){const t=tops();if(e.key==='ArrowUp')l.h=t.find(h=>h>l.h)??l.h;if(e.key==='ArrowDown')l.h=[...t].reverse().find(h=>h<l.h)??l.h;if(e.key.match(/Left|Right/))clampMovable(l);else clampFixture(l);return}
-  if(l.kind!=='cabinet'){if(e.key==='ArrowUp')l.h+=5;if(e.key==='ArrowDown')l.h-=5}clampMovable(l)};
+ // A table lamp steps up or down to the next top under it, at that top's exact height; a
+ // cabinet moves along the floor only.
+ const up=e.key==='ArrowUp',down=e.key==='ArrowDown';
+ const move=()=>{
+  if(l.form==='table'&&(up||down)){
+   let next=l.h;
+   for(const t of [0,...[deskPiece(),...(environment.cabinets??[])].filter(p=>covers(p,l.x)).map(p=>p.height)])if(up?t>l.h&&(next===l.h||t<next):t<l.h&&(next===l.h||t>next))next=t;
+   l.h=next;return;
+  }
+  if(e.key==='ArrowLeft')l.x-=5;if(e.key==='ArrowRight')l.x+=5;
+  if(l.kind!=='cabinet'){if(up)l.h+=5;if(down)l.h-=5}clampMovable(l)};
  if(l.kind==='cabinet')keepRiders(()=>l,move);else move();recordChange(before);render();stage.querySelector(selectionFocus())?.focus({preventScroll:true});
 });
 stage.addEventListener('pointermove',event=>{if(pendingDevice)paintPlacementGhost(placementPosition(event))});

@@ -2209,6 +2209,10 @@ test('a table lamp steps between tops by keys, drops below when its piece goes, 
  // A free stretch far from the desk is still found.
  app.run('environment.deskX=280;environment.width=240;environment.cabinets=[{id:"piece-0000bbbb",kind:"cabinet",x:0,width:300,height:50}]');
  assert.equal(json(app,'freeCabinetX(45)'),-180);
+ // A saved top off the 5 cm grid is reached exactly by ArrowUp.
+ app.run('environment.deskX=0;environment.cabinets=[{id:"piece-0000cccc",kind:"cabinet",x:0,width:45,height:52}];environment.desk=false;const l=lamps.find(l=>l.id==="govee-test-table");l.x=15;l.h=0;render()');
+ await key('ArrowUp');assert.equal(lampH(),52);
+ await key('ArrowUp');assert.equal(lampH(),52);
 });
 
 test('a room holds at most twelve pieces and a nightstand needs free floor',async()=>{
