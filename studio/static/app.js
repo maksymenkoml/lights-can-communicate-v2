@@ -1280,7 +1280,7 @@ function menuAction(id){
  if(id==='close'){closeObjectMenu();$('#stage').querySelector('[data-chip-action="more"]')?.focus();return true}
  // Lamps and furniture share the removal confirmation; the Sync Box room keeps its display.
  if(id==='remove'){
-  const refusal=!l&&!isCabinet(selected)?furnitureRefusal(selected):'';if(refusal){tell(refusal);return true}
+  const refusal=l?'':furnitureRefusal(selected);if(refusal){tell(refusal);return true}
   const b=menu.querySelector('[data-menu="remove"]');if(b)b.outerHTML=confirmHtml({text:l?'Remove '+esc(l.name)+'?':'Remove the '+(isCabinet(selected)?CABINET.name:FURNITURE[selected].name).toLowerCase()+'?',cancel:{'data-menu':'remove-cancel'},ok:{'data-menu':'remove-ok'},okLabel:'Remove'});menu.querySelector('[data-menu="remove-cancel"]')?.focus();return true}
  if(id==='remove-cancel'){const c=menu.querySelector('.confirm');if(c)c.outerHTML='<button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button>';return true}
  if(id==='remove-ok'){closeObjectMenu();removeLampById(selected);return true}
