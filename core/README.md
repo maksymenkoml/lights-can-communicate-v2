@@ -808,7 +808,7 @@ independent. Source capture channels, identities, power and native membership
 are unchanged. The layout canonicalizer also keeps physical bodies above the
 floor; the table has dimensions only and cannot move off the floor.
 
-## Two configurations (layout version 5, current version 7)
+## Two configurations (layout version 5, current version 8)
 
 Light Studio edits two independent configurations. With Sync uses `scale`,
 `syncZone` and `syncFalloff` (default on). Without Sync (scenes from the Hue app)
@@ -834,8 +834,7 @@ version 7: the screen takes the size from `monitorInches` and the position from 
 `hue-monitor` row after its minimum height was applied. The screen is
 authoritative: the validated `hue-monitor` row always follows its position, and its
 height is raised to the same minimum as that row. Light Studio still drags the
-monitor lamp; its position is written as the screen. `STATE_SCHEMAS["desk_layout"]`
-is 7, so a rollback restores the pre-upgrade layout.
+monitor lamp; its position is written as the screen.
 
 `bridge/light_geometry.py` turns one layout row and the screen into zones. A zone is
 a point in layout centimeters: a segmented floor lamp (a model in `GEOMETRIES`,
@@ -853,6 +852,28 @@ same entries, for every role row the layout holds, so the outputs of the six
 current lights are byte-identical. `scene_fade` uses the same geometry. Every row
 is optional: a migrated light without a row has no entry in either, and an empty
 layout gives an empty composition.
+
+## Room furniture (layout version 8)
+
+Not every room has a desk and a monitor (design:
+`docs/design/2026-11-25-room-furniture.md`). Version 8 replaces `desk` with
+`furniture`, a list of up to 12 pieces `{"id": "piece-<8 hex>", "kind", "x",
+"width", "height"}` in centimeters on the 5 cm grid (x -200..400). A `desk` is
+80-240 wide and 50-120 high, a `cabinet` 20-300 wide and 20-150 high. The
+`screen` is optional: one display (a monitor or a TV alike, 19-100") that adds `on`,
+the id of the piece it stands on or null. Files of version 3-7 load as version 8: the
+desk becomes the piece `piece-00000001` at the room axis (x 100) and the screen a
+monitor on it, so saved zones resolve to the same world points.
+
+Sync zones are relative to the screen's support (`desk_layout.screen_support`).
+Without a support a saved zone is drawn against the floor at the room axis (half
+width 100, top 0) and the automatic zone is absent: every gain is 1 and a light
+whose geometry needs the screen is projected as a point. The Sync Box needs a
+screen: `Rooms.place_sync_box` and a layout write to the Sync room without one are
+refused with `no_screen` (HTTP 409 in Light Studio). Light Studio still draws one
+desk under a display; it keeps the desk's id and place and passes other pieces
+through. `STATE_SCHEMAS["desk_layout"]` is 8, so a rollback restores the
+pre-upgrade layout.
 
 ## Lamp controls
 

@@ -107,7 +107,10 @@ like `syncZone`; omitted fade switches mean their defaults. Version 6 adds an
 optional `calibration` on the two Govee rows: `{"warmth": -100..100, "tint":
 -100..100, "lowLight": 0..100}` (integers; missing controls are 0, an all-zero
 calibration is not stored). Versions 3-5 load as version 6, so their revision
-changes and pages opened before the upgrade must refetch. Writes accept geometry and corrections only: no power,
+changes and pages opened before the upgrade must refetch. Version 8 (current)
+stores the desk as a piece in `furniture` and the screen as a monitor standing on
+it (see `core/README.md`, "Room furniture"); older files load as version 8, and
+writes must use it. Writes accept geometry and corrections only: no power,
 physical identifiers or commands.
 
 ## Calibrate

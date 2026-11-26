@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 import sync_projection  # noqa: E402
+from desk_layout import MIGRATED_DESK  # noqa: E402
 from sync_projection import (  # noqa: E402
     _sample,
     light_entry,
@@ -18,16 +19,19 @@ from sync_projection import (  # noqa: E402
 
 
 def current(data):
-    """Return a hand-written layout in the shape the projection reads (version 7).
+    """Return a hand-written layout in the shape the projection reads (version 8).
 
-    The screen object comes from the ``hue-monitor`` row and ``monitorInches``, as when a
-    stored file loads. Nothing is rounded to the grid, so tests may use any height.
+    The desk becomes the piece at the room axis and the screen, a monitor on it, comes
+    from the ``hue-monitor`` row and ``monitorInches``, as when a stored file loads.
+    Nothing is rounded to the grid, so tests may use any height.
     """
     result = copy.deepcopy(data)
     monitor = next(row for row in result["devices"] if row["id"] == "hue-monitor")
+    result["furniture"] = [{"id": MIGRATED_DESK, "kind": "desk", "x": 100,
+                            **result.pop("desk")}]
     result["screen"] = {"positionCm": copy.deepcopy(monitor["positionCm"]),
-                        "inches": result.pop("monitorInches")}
-    result["version"] = 7
+                        "inches": result.pop("monitorInches"), "on": MIGRATED_DESK}
+    result["version"] = 8
     return result
 
 
@@ -373,6 +377,22 @@ class SyncProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             project_govee_frame(frame(), "extra", sync_profile(layout()))
 
+
+    def test_a_room_without_furniture_or_a_screen_has_full_scene_gains(self):
+        data = current(layout())
+        del data["screen"]
+        data["furniture"] = []
+        data["sceneFalloff"] = True
+        gains = sync_projection.scene_fade(data)
+        self.assertTrue(gains)
+        flat = [gain for value in gains.values()
+                for gain in (value if isinstance(value, list) else [value])]
+        self.assertTrue(all(gain == 1 for gain in flat), gains)
+        # The Monitor Strip is an ordinary light there: its zones have no samples.
+        entry = light_entry(next(row for row in data["devices"] if row["id"] == "hue-monitor"),
+                            data)
+        self.assertEqual(entry["gains"], [1])
+        self.assertEqual(entry["samples"], [None])
 
 if __name__ == "__main__":
     unittest.main()
