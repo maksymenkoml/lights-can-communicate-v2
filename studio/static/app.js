@@ -518,7 +518,7 @@ function zoneHandlesSvg(){
  let out='';
  if(on)P.forEach((p,i)=>out+=knob('zp-'+i,sx(p.x),sy(p.h),'move','Zone corner · drag'));
  const actions=[{id:'fade',label:on?'Turn the fade off':'Turn the fade on'}].concat(on&&!auto?[{id:'auto',label:'Restore the automatic zone'}]:[]);
- return out+chipSvg((sx(P[0].x)+sx(zoneRef().x-zoneRef().half))/2,sy(P[0].h)-12,'Fade zone',on?auto?'auto':'':'off',actions);
+ const {x:rx,half}=zoneRef();return out+chipSvg((sx(P[0].x)+sx(rx-half))/2,sy(P[0].h)-12,'Fade zone',on?auto?'auto':'':'off',actions);
 }
 function toggleFade(){const c=view();remember();environment.fade[c]=!environment.fade[c];render();tell(environment.fade[c]?'Fade on':'Fade off')}
 function dragZone(kind,p){
@@ -755,7 +755,7 @@ function syncVisibilitySvg(){
  if(on)out+='<g pointer-events="none">'+tagSvg(sx(P[1].x)+4,sy(P[1].h),'100%','',0,'start')+tagSvg(sx(P[2].x)+4,sy(P[2].h),'0%','',0,'start')+'</g>';
  return out+'</g>';
 }
-function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16,w=environment.width*3.3,dc=500+(environment.deskX??0)*3.3;return {cx,cy,mw,mh,w,dc,left:dc-w/2,top:740-environment.height*3.3}}
+function sceneGeometry(){const s=strip(),cx=500+s.x*3.3,cy=740-s.h*3.3,mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16,w=environment.width*3.3,dc=500+(environment.deskX??0)*3.3;return {cx,cy,mw,mh,w,left:dc-w/2,top:740-environment.height*3.3}}
 
 // ------------------------------------------------------------ render --
 let focusState=new Map(),skipClick=false,menuOpen=false;
@@ -812,7 +812,7 @@ function updateStageViewport(){
  const m=strip(),half=environment.inches*2.54*9/Math.hypot(16,9)*3.3/2;
  const top=Math.min(90,environment.display?740-m.h*3.3-half-28:90,...activeLamps().map(l=>740-l.h*3.3-(l.form==='floor'?470:l.form==='table'?110:l.vertical?65:35)));
  // Widen the room symmetrically so a lamp placed far from the desk stays visible.
- const reach=Math.max(500,...activeLamps().map(l=>Math.abs(l.x)*3.3+90));
+ const reach=Math.max(500,...activeLamps().map(l=>Math.abs(l.x)*3.3+90),environment.desk?(Math.abs(environment.deskX??0)+environment.width/2)*3.3+90:0);
  $('#stage').setAttribute('viewBox',(500-reach)+' '+top+' '+(2*reach)+' '+(830-top));
 }
 function syncScreenAxis(){const g=sceneGeometry(),stage=$('#stage'),ax=stage.querySelector('.axis'),need=!!selected&&Math.abs(g.cx-500)>1,d='M'+g.cx+' 170V744';if(!need){ax?.remove();return}if(ax){ax.setAttribute('d',d);return}const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('class','axis');p.setAttribute('d',d);stage.querySelector('.desk-axis')?.after(p)}
@@ -1454,18 +1454,22 @@ function removeFurniture(kind){
  if(selected&&!present(selected))selected=null;
  render();tell(FURNITURE[kind].name+' removed · ⌘Z to restore');
 }
-// An added desk stands at the room axis; an added display stands on the desk, or hangs at
-// 110 cm in a room without one. A display on a new desk rises above its top.
+// An added desk stands under the display, else at the room axis; an added display stands in
+// the middle of the desk, or hangs at 110 cm on the axis. A display on a new desk rises
+// above its top.
 function addFurniture(kind){
  if(furnitureHere(kind))return;
  remember();
  const clearance=()=>Math.ceil((monitorHalfCm()+5)/STEP)*STEP;
  if(kind==='desk'){
-  environment.desk=true;environment.deskX=0;
+  environment.desk=true;environment.deskX=environment.display?Math.round(strip().x/STEP)*STEP:0;
   if(environment.display){const s=strip();s.h=Math.max(s.h,environment.height+clearance())}
  }else{
   environment.display=true;
-  environment.screen={x:0,h:environment.desk?environment.height+clearance():110};
+  environment.screen={x:environment.desk?environment.deskX??0:0,h:environment.desk?environment.height+clearance():110};
+  // The strip that wraps the new display moves onto it; a bar remembers its own place.
+  const w=wrapOf(lamps);
+  if(w){if(w.form!=='strip')w.barAt={x:w.x,h:w.h};w.form='strip';w.x=environment.screen.x;w.h=environment.screen.h}
  }
  selected=kind;render();tell(FURNITURE[kind].name+' added');
 }
@@ -1862,7 +1866,7 @@ function hoverAnchor(key){
  if(key==='box'){const top=740-deskTop()*3.3;return {x:500+boxX()*3.3,y:top-BOX_H*3.3-17,name:'Sync Box'}}
  if(key==='desk'){if(!environment.desk)return null;const top=740-environment.height*3.3;return {x:500+(environment.deskX??0)*3.3,y:top-23,name:'Desk'}}
  if(key==='monitor'){if(!environment.display)return null;const m=strip(),mw=monitorWidthCm(environment.inches)*3.3,mh=mw*9/16;return {x:500+m.x*3.3,y:740-m.h*3.3-mh/2-41,name:'Display'}}
- if(key==='zone'){const P=zonePoints();if(!P)return null;return {x:(500+P[0].x*3.3+500+(zoneRef().x-zoneRef().half)*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
+ if(key==='zone'){const P=zonePoints();if(!P)return null;const {x:rx,half}=zoneRef();return {x:(500+P[0].x*3.3+500+(rx-half)*3.3)/2,y:740-P[0].h*3.3-23,name:'Fade zone'}}
  const l=lamps.find(l=>l.id===key&&l.enabled!==false);if(!l)return null;const f=lampFrame(l);return {x:f.x,y:f.top-17,name:l.name};
 }
 function showHover(key){

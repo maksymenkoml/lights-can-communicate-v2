@@ -1100,7 +1100,15 @@ test('version 8 keeps the desk id and place; a room with only lamps or a hanging
  assert.equal(json(app,'zonePoints("sync")[3].x'),10+70,'u=1 is the right edge of the desk at x 110');
  const moved=json(app,'pack()');
  assert.equal(moved.furniture[0].x,110);assert.deepEqual(moved.syncZone,offset.syncZone);
- // Removing and adding the desk puts the new one at the room axis.
+ // A display added to the desk stands in its middle; the stage widens to the desk.
+ app.run('environment.display=false;addFurniture("monitor")');
+ assert.equal(json(app,'pack()').screen.positionCm.x,110);
+ app.run('environment.deskX=200;render()');
+ const view=app.stage.getAttribute('viewBox').split(' ').map(Number);
+ assert.ok(view[0]+view[2]>=500+(200+70)*3.3,'the desk at x 300 is inside the stage');
+ // A desk added under a display stands under it; without a display at the room axis.
+ app.run('environment.deskX=10;strip().x=-40;removeFurniture("desk");addFurniture("desk")');
+ assert.equal(json(app,'pack()').furniture[0].x,60);
  app.run('environment.display=false;removeFurniture("desk");addFurniture("desk")');
  assert.equal(json(app,'pack()').furniture[0].x,100);
  // A cabinet, or a display hanging over a desk, is not drawn yet.
