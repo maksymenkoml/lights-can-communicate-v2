@@ -215,13 +215,15 @@ class PreviewTests(unittest.TestCase):
         self.send(self.device, "colorwc",
                   {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0})
         self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[0, 0, 161]])
-        self.now += 1
-        # Segment colors of a scene are not replaced by the lamp's single color.
+        # Segment colors of a scene are not replaced by the lamp's single color, even
+        # by a newer status.
         self.send(self.device, "ptReal", segment_data([(255, 0, 0)] * 7))
+        self.now += 1
         self.assertEqual(self.lamp(reported((0, 0, 0), 2700))["colors"], [[161, 0, 0]] * 7)
-        # During Sync the lamp's scene reading never shows.
+        # During Sync the lamp's scene reading never shows, even when newer.
         sync = self.store.wrap_govee(lambda *_: True, "sync-output")
         sync(self.device, "colorwc", {"color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0})
+        self.now += 1
         status = reported((0, 0, 0), 2700)
         status["video"] = {"active": True, "ready": True, "frame_age": 0.1}
         self.assertEqual(self.lamp(status)["colors"], [[0, 0, 161]])
