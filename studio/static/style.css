@@ -270,7 +270,6 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 .header{height:auto;top:22px;left:30px;right:30px;padding:0;align-items:center}
 /* The mark, then the name with the saved mark, and the author's byline under the name. */
 .brand{display:grid;grid-template-columns:auto auto;align-items:center;justify-content:start;row-gap:1px;transition:color .3s}
-.brand .mark{grid-row:1}
 .brand-line{display:flex;align-items:center}
 .byline{grid-column:2;justify-self:start;font-size:var(--fs-small);font-weight:400;letter-spacing:.15px;line-height:1.2;color:var(--muted);text-decoration:none;opacity:.8;pointer-events:auto;transition:color .2s,opacity .2s}
 .byline:hover,.byline:focus-visible{color:var(--accent);opacity:1}
