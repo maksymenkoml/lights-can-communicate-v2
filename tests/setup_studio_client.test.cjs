@@ -2146,6 +2146,16 @@ test('every text button, icon button, confirmation and field comes from the shar
   assert.equal(css.includes(old)||code.includes(old),false,old+' is replaced by the shared controls');
 });
 
+test('the author byline sits under the name and opens the GitHub profile in a new tab',async()=>{
+ const app=await harness();
+ const by=app.$('.brand > a.byline');assert.ok(by,'the byline is part of the brand');
+ assert.equal(by.textContent,'by Mykola Maksymenko');
+ assert.equal(by.getAttribute('href'),'https://github.com/maksymenkoml');
+ assert.equal(by.getAttribute('target'),'_blank');
+ assert.equal(by.getAttribute('rel'),'noopener');
+ assert.ok(app.$('.brand > .brand-line > #draft-status'),'the saved mark stays next to the name');
+});
+
 test('the page uses three type sizes and scene labels keep them at any window size',async()=>{
  const css=fs.readFileSync(path.join(STATIC,'style.css'),'utf8');
  assert.match(css,/--fs-title:15px;--fs-ui:13px;--fs-small:12px/);

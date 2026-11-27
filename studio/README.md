@@ -20,7 +20,8 @@ files and credentials are never served. The page makes no external requests.
 ## The room
 
 - "Light Studio ✓" in the top-left corner; the check mark means the layout is
-  saved. The room button ("Office ⌄") is in the top-right corner and opens the
+  saved. Under the name, "by Mykola Maksymenko" links to the author's GitHub
+  profile. The room button ("Office ⌄") is in the top-right corner and opens the
   room cards (see Rooms). Bottom panels: Objects (left), the Sync bar (centre;
   see Sync Box), undo/redo (right). The room is always drawn in the light scene.
 - Select an object to edit it in place: name chip above, height on the left,
