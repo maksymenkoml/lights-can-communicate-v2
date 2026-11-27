@@ -68,7 +68,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
             --title "$GITHUB_REF_NAME" --generate-notes \
             --notes "Image: \`ghcr.io/$GITHUB_REPOSITORY:${GITHUB_REF_NAME#v}\`. Install and update: see README, Install on a Synology NAS." \
             "$RUNNER_TEMP"/release/plugin/*.tgz
