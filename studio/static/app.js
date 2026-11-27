@@ -19,7 +19,7 @@ const store={
 function readJson(key){try{return JSON.parse(store.get(key))}catch{return null}}
 
 // ---------------------------------------------------------------- model --
-const VIEW_KEY='light-studio-view-v1',DARK_KEY='light-studio-dark-scene-v1',ROOM_KEY='light-studio-room-v1';
+const ROOM_KEY='light-studio-room-v1';
 // Each room keeps its own browser draft; the first room keeps the draft from before rooms.
 const FIRST_ROOM='room-00000001',ROOM_ID=/^room-[0-9a-f]{8}$/;
 const draftKey=id=>!id||id===FIRST_ROOM?'light-studio-grid-v3':'light-studio-grid-v3:'+id;
@@ -198,7 +198,7 @@ function pack(m={room,environment,lamps}){
 
 let room,environment,lamps;
 ({room,environment,lamps}=fromLayout(readJson(KEY))||defaults());
-let selected=null,mode=store.get(VIEW_KEY)==='sync'?'sync':'placement',past=[],future=[],drag=null,toastTimer;
+let selected=null,mode='placement',past=[],future=[],drag=null,toastTimer;
 // The monitor: the strip lamp when the room has one, otherwise the screen alone.
 const strip=()=>wrapOf(lamps)||environment.screen;
 const activeLamps=()=>lamps.filter(l=>l.enabled!==false);
@@ -1101,16 +1101,11 @@ function endDragView(){$('#app').classList.remove('is-dragging')}
 function point(e){return new DOMPoint(e.clientX,e.clientY).matrixTransform($('#stage').getScreenCTM().inverse())}
 
 // ---------------------------------------------------- scene and Sync view --
-let darkScene=store.get(DARK_KEY)==='true',sceneSweep=null,sceneSweepId=0,modeFade=null;
-function applyDarkScene(){
- $('#app').classList.toggle('dark-scene',darkScene);
- $('#scene-toggle').setAttribute('aria-pressed',String(darkScene));
- $('#scene-toggle').title=darkScene?'Show the light scene':'Show the dark scene';
-}
-// A static copy of the room for the scene and Sync-view transitions.
-function captureScene(wasDark){
+let modeFade=null,sceneSweepId=0;
+// A static copy of the room for the Sync-view transition.
+function captureScene(){
  const layer=document.createElement('div');
- layer.className='scene-snapshot motion-halo '+(wasDark?'snapshot-dark reveal-light':'snapshot-light reveal-dark');
+ layer.className='scene-snapshot snapshot-light mode-fade';
  layer.setAttribute('aria-hidden','true');layer.inert=true;
  layer.append($('#app > .scene-background').cloneNode(true));
  const vector=$('#stage').cloneNode(true),prefix='sweep-'+(++sceneSweepId)+'-';
@@ -1124,49 +1119,34 @@ function captureScene(wasDark){
  vector.querySelectorAll('.render-bloom,.contact-shadow').forEach(n=>n.style.filter='url(#'+prefix+'bloom)');
  layer.append(vector);return layer;
 }
-function toggleDarkScene(){
- const wasDark=darkScene;darkScene=!darkScene;
- store.set(DARK_KEY,String(darkScene));
- if(matchMedia('(prefers-reduced-motion:reduce)').matches){
-  if(sceneSweep){sceneSweep.animation.cancel();sceneSweep.layer.remove();sceneSweep=null}
-  applyDarkScene();return;
- }
- if(sceneSweep){
-  sceneSweep.animation.updatePlaybackRate(darkScene===sceneSweep.toDark?1:-1);
-  sceneSweep.animation.play();
-  $('#scene-toggle').setAttribute('aria-pressed',String(darkScene));
-  $('#scene-toggle').title=darkScene?'Show the light scene':'Show the dark scene';
-  return;
- }
- const layer=captureScene(wasDark);
- const app=$('#app').getBoundingClientRect(),origin=$('#scene-toggle').getBoundingClientRect();
- layer.style.setProperty('--sweep-x',(origin.left+origin.width/2-app.left)+'px');
- layer.style.setProperty('--sweep-y',(origin.top+origin.height/2-app.top)+'px');
- applyDarkScene();$('#app').append(layer);
- const ends=darkScene?['1.2','-0.2']:['-0.2','1.2'];
- layer.style.setProperty('--scene-sweep',ends[0]);
- const animation=layer.animate([{'--scene-sweep':ends[0]},{'--scene-sweep':ends[1]}],{duration:650,easing:'cubic-bezier(.4,0,.2,1)',fill:'both'});
- const sweep={layer,animation,toDark:darkScene};sceneSweep=sweep;
- animation.onfinish=()=>{
-  if(sceneSweep!==sweep)return;
-  applyDarkScene();layer.remove();sceneSweep=null;animation.cancel();
- };
-}
-// The Sync switch chooses which settings are shown; it does not start or stop Sync.
-function applyMode(m,keep=true){
+// The page shows the settings of the Sync state it sees: with Sync while the Sync Box
+// syncs (or starts), without Sync otherwise. Only the Sync Box room has Sync settings.
+function applyMode(m){
  mode=m;
- $('#sync-tool').classList.toggle('active',m==='sync');$('#sync-tool').setAttribute('aria-pressed',String(m==='sync'));$('#app').classList.toggle('sync-mode',m==='sync');
- if(keep)store.set(VIEW_KEY,m);renderScene();renderInspector();
+ $('#app').classList.toggle('sync-mode',m==='sync');
+ renderScene();renderInspector();
 }
 function setMode(m){
- if(m===mode||matchMedia('(prefers-reduced-motion:reduce)').matches)return applyMode(m);
+ if(m===mode)return;
+ if(matchMedia('(prefers-reduced-motion:reduce)').matches)return applyMode(m);
  if(modeFade){modeFade.animation.cancel();modeFade.layer.remove();modeFade=null}
- const layer=captureScene(darkScene);layer.classList.remove('motion-halo','reveal-light','reveal-dark');layer.classList.add('mode-fade');
+ const layer=captureScene();
  applyMode(m);
  $('#app').append(layer);
  const animation=layer.animate([{opacity:1},{opacity:0}],{duration:600,easing:'ease',fill:'forwards'});
  const fade={layer,animation};modeFade=fade;
  animation.onfinish=()=>{if(modeFade===fade)modeFade=null;layer.remove()};
+}
+// The Sync state the page follows: the one Start or Stop is switching to, else the box's.
+function syncTarget(){const busy=boxBusy??box.changing??null;return busy===null?box.syncing===true:busy===true}
+let viewSettled=false;
+function followSync(){
+ // Until the page knows its room it cannot tell whether that room has Sync.
+ if(roomsInfo&&!currentRoom)return;
+ const want=syncHere()&&syncTarget()?'sync':'placement';
+ // The first known box state is the page's starting view, without a fade.
+ const fade=viewSettled;if(box.state!=='unknown')viewSettled=true;
+ if(want!==mode)fade?setMode(want):applyMode(want);
 }
 
 // ------------------------------------------------------ shared controls --
@@ -1743,9 +1723,9 @@ function hueClick(e){
 // new pairing in the Hue app: the stream keeps its group, only the driven lamps change.
 let boxRoomAsk=false,boxRoomBusy=false;
 function boxRoomName(){return roomsInfo?.rooms.find(r=>r.id===roomsInfo.sync)?.name||''}
-function boxRow(sub,action,cls='lp-row found'){
+function boxRow(sub,action,cls='lp-row found',extra=''){
  const name=box.state!=='none'?esc(box.name||'Sync Box'):'Sync Box';
- return '<div class="'+cls+'" data-box-row><span class="lp-glyph">'+boxSvg('box')+'</span><span><span class="lp-name">'+name+'</span><span class="lp-sub">'+sub+'</span></span>'+(action||'<span></span>')+'</div>';
+ return '<div class="'+cls+'" data-box-row'+extra+'><span class="lp-glyph">'+boxSvg('box')+'</span><span><span class="lp-name">'+name+'</span><span class="lp-sub">'+sub+'</span></span>'+(action||'<span></span>')+'</div>';
 }
 // In its own room the section offers connecting a box that is not connected, and removing
 // the box from the room with the same inline confirmation as a lamp.
@@ -1754,7 +1734,8 @@ function boxHereRow(){
  const trash=iconBtn(trashIcon,'Remove the Sync Box from this room',{'data-remove':'box','data-tooltip':'Remove from the room'},'danger lp-remove');
  const connect=box.state==='none'?btn('Connect',{'data-box-room':'connect'},'sm'):box.state==='unauthorized'?btn('Reconnect',{'data-box-room':'connect'},'sm'):'<span></span>';
  const sub=box.state==='none'?'Not connected':box.state==='unauthorized'?'Needs connecting again':'Syncs this room with the screen';
- return boxRow(sub,connect+trash,'lp-row lamp-row');
+ // The box drawn in this room is listed like a lamp: hover marks it, a click selects it.
+ return boxRow(sub,connect+trash,'lp-row lamp-row'+(selected==='box'?' active':''),' role="button" tabindex="0" data-list-lamp="box"');
 }
 // The Sync Box of another room is not listed here: it is removed there first, then added
 // here. A box in no room is offered to a room with a display.
@@ -1814,7 +1795,26 @@ function placePanel(){
  const p=$('#lamp-panel'),a=$('#app').getBoundingClientRect(),r=$('#list-toggle').getBoundingClientRect();
  p.style.left=(r.left-a.left)+'px';p.style.bottom=(a.bottom-r.top+8)+'px';
 }
-function markLamp(id){$('#stage').querySelectorAll('.lamp.list-hover').forEach(n=>n.classList.remove('list-hover'));if(id)$('#stage').querySelector('[data-lamp="'+id+'"]')?.classList.add('list-hover')}
+// A row under the pointer marks its object in the room: a lamp shows its outline; a piece
+// of furniture or the Sync Box gets the same frame round what is drawn of it.
+function markLamp(id){
+ const stage=$('#stage');stage.querySelectorAll('.list-hover').forEach(n=>n.classList.remove('list-hover'));stage.querySelector('#list-mark')?.remove();
+ if(!id)return;
+ const q=CSS.escape(id),lamp=stage.querySelector('[data-lamp="'+q+'"]');if(lamp){lamp.classList.add('list-hover');return}
+ const piece=stage.querySelector('[data-select="'+q+'"]');if(!piece)return;piece.classList.add('list-hover');
+ let box=null;
+ piece.querySelectorAll('rect,path,ellipse,circle,line,polygon,polyline').forEach(n=>{
+  if(n.closest('.furniture-select,[class*="hit"],.contact-shadow,.render-wash,.render-bloom,[filter]')||n.getAttribute('fill')==='transparent')return;
+  const r=n.getBoundingClientRect();if(!r.width&&!r.height)return;
+  box=box?{l:Math.min(box.l,r.left),t:Math.min(box.t,r.top),r:Math.max(box.r,r.right),b:Math.max(box.b,r.bottom)}:{l:r.left,t:r.top,r:r.right,b:r.bottom};
+ });
+ if(!box)return;
+ const m=stage.getScreenCTM().inverse(),pad=10,p0=new DOMPoint(box.l-pad,box.t-pad).matrixTransform(m),p1=new DOMPoint(box.r+pad,box.b+pad).matrixTransform(m);
+ const mark=document.createElementNS('http://www.w3.org/2000/svg','rect');
+ mark.id='list-mark';mark.setAttribute('class','outline list-mark');mark.setAttribute('pointer-events','none');
+ mark.setAttribute('x',p0.x);mark.setAttribute('y',p0.y);mark.setAttribute('width',p1.x-p0.x);mark.setAttribute('height',p1.y-p0.y);
+ stage.append(mark);
+}
 function openPanel(kind){
  cancelPlacement();closeRooms();panelKind=kind;refreshRooms().then(paintPanel);const p=$('#lamp-panel');p.hidden=false;p.scrollTop=0;paintPanel();p.scrollTop=0;placePanel();
  $('#list-toggle').setAttribute('aria-expanded','true');$('#list-toggle').classList.add('active');
@@ -2086,12 +2086,10 @@ function repeatsText(node,label){
 function tooltipLabelText(node){
  const native=node.getAttribute('title');if(native){node.dataset.originalTitle=native;node.removeAttribute('title')}
  if(node.classList.contains('lp-row'))return '';
- if(node.id==='sync-tool')return mode==='sync'?'Settings with Sync':'Settings without Sync';
  if(node.id==='sync-status')return cornerStatus().detail;
  // Every control in the box card says what it does in its own words.
  if(node.closest('#box-card'))return '';
  if(node.classList.contains('health-badge'))return node.dataset.tooltip;
- if(node.id==='scene-toggle')return darkScene?'Show the light scene':'Show the dark scene';
  if(node.id==='undo')return node.disabled?'Nothing to undo':'Undo · ⌘Z';
  if(node.id==='redo')return node.disabled?'Nothing to redo':'Redo · ⇧⌘Z';
  if(node.id==='list-toggle')return 'All objects';
@@ -2250,8 +2248,6 @@ panel.addEventListener('mouseover',e=>{const row=e.target.closest('[data-list-la
 panel.addEventListener('mouseleave',()=>markLamp(null));
 panel.addEventListener('keydown',e=>{const row=e.target.closest('[data-list-lamp]');if(row&&e.target===row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();select(row.dataset.listLamp);paintPanel()}if(row&&e.target===row&&['Delete','Backspace'].includes(e.key)){e.preventDefault();e.stopPropagation();askRemove(row.dataset.listLamp)}});
 $('#list-toggle').addEventListener('click',toggleList);
-$('#sync-tool').addEventListener('click',()=>setMode(mode==='sync'?'placement':'sync'));
-$('#scene-toggle').addEventListener('click',toggleDarkScene);
 $('#undo').addEventListener('click',undo);
 $('#redo').addEventListener('click',redo);
 $('#empty-add').addEventListener('click',e=>{e.stopPropagation();openAdd()});
@@ -2337,6 +2333,7 @@ function paintBox(){
  const text=boxSaid?boxSvg(boxSaid.kind==='ok'?'check':'alert')+'<span>'+esc(boxSaid.text)+'</span>':'';
  said.hidden=!text;said.dataset.kind=boxSaid?.kind||'';if(said.innerHTML!==text)said.innerHTML=text;
  paintBoxCard();
+ followSync();
 }
 function boxRing(left){const share=Math.max(0,Math.min(1,left/BOX_PAIR_S));return '<div class="box-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="box-track" cx="22" cy="22" r="19"/><circle class="box-arc" cx="22" cy="22" r="19" style="stroke-dashoffset:'+(BOX_RING*(1-share)).toFixed(1)+'"/></svg><b>'+left+'</b></div>'}
 function boxStep(n,state,title,body=''){return '<li class="box-step '+state+'"><i>'+(state==='done'?boxSvg('check'):n)+'</i><div><b>'+title+'</b>'+body+'</div></li>'}
@@ -2460,9 +2457,8 @@ async function refreshRooms(follow=true){
  }catch{return false}
 }
 function applyRoomChrome(){
- const here=syncHere();$('#app').classList.toggle('no-sync',!here);
- if(!here&&mode==='sync')applyMode('placement',false);
- else if(here&&mode!=='sync'&&store.get(VIEW_KEY)==='sync')applyMode('sync',false);
+ if(roomsInfo&&!currentRoom)return;
+ $('#app').classList.toggle('no-sync',!syncHere());followSync();
  paintTitle();if(roomsOpen)paintRooms();
 }
 // Loads a room's browser draft into the page; the server's layout follows from connectLayout.
@@ -2580,7 +2576,8 @@ function paintRooms(){
  node.innerHTML='<div class="rc-grid" style="--cols:'+Math.max(1,Math.min(4,cards))+'">'+list.map(roomCard).join('')+(roomsInfo?add:'')+'</div>'+roomNoteHtml('all')+(roomsInfo&&list.length>1?'<p class="rc-hint">Drag a card to change the order</p>':'');
  node.hidden=false;
  const a=$('#app').getBoundingClientRect(),r=$('#room-switch').getBoundingClientRect();
- node.style.left=Math.max(12,r.left-a.left)+'px';node.style.top=(r.bottom-a.top+8)+'px';
+ // The cards open under the room button, right-aligned with it.
+ node.style.left=Math.max(12,r.right-a.left-node.offsetWidth)+'px';node.style.top=(r.bottom-a.top+8)+'px';
  const input=node.querySelector('[data-room-name],[data-room-new]');if(input&&document.activeElement!==input){input.focus();input.select?.()}
 }
 $('#room-cards').addEventListener('click',e=>{
@@ -2651,6 +2648,7 @@ async function moveLamp(l,target){
 
 // ----------------------------------------------------------------- start --
 $('#room-switch').addEventListener('click',e=>{e.stopPropagation();roomsOpen?closeRooms():openRooms()});
-applyDarkScene();applyMode(mode);render();annotateTooltips();
+store.remove('light-studio-view-v1');store.remove('light-studio-dark-scene-v1');
+applyMode(mode);render();annotateTooltips();
 connectLayout();
 if(!document.hidden){watchLive();refreshLive();refreshBox();}

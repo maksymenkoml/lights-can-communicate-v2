@@ -19,16 +19,17 @@ files and credentials are never served. The page makes no external requests.
 
 ## The room
 
-- "Light Studio | Office ⌄ ✓" in the top-left corner; the check mark means the
-  layout is saved. The room name opens the room cards (see Rooms). The Sync Box
-  corner is at the top right (see Sync Box); it also shows Sync problems. Bottom panels: Lamps (left), the Settings switch and
-  the light/dark scene (centre), undo/redo (right).
+- "Light Studio ✓" in the top-left corner; the check mark means the layout is
+  saved. The room button ("Office ⌄") is in the top-right corner and opens the
+  room cards (see Rooms). Bottom panels: Objects (left), the Sync bar (centre;
+  see Sync Box), undo/redo (right). The room is always drawn in the light scene.
 - Select an object to edit it in place: name chip above, height on the left,
   offset from the screen centre at the floor and resize knobs on its edges.
   Click a dimension to type an exact value. Positions snap to 5 cm. Every edit, including undo, saves after
   300 ms; there is no Save button.
-- The Settings switch chooses which settings are shown, with or without Sync; it
-  does not start or stop Sync (the Sync Box corner does). In the Sync view a selected lamp shows a ray from each lit zone to its
+- The page shows and edits the settings of the current Sync state: the Sync view
+  while the Sync Box syncs, the view without Sync otherwise. Start Sync and Stop
+  Sync switch the view at once (a refused Start switches back). In the Sync view a selected lamp shows a ray from each lit zone to its
   sample point on the screen, a selected monitor shows the rays of every lit
   lamp, and the falloff zone below the desk has six corner knobs, Auto and reset.
 - A lamp's chip is one button ("Govee Left ⌄"); it, or a double click on the
@@ -37,14 +38,13 @@ files and credentials are never served. The page makes no external requests.
   Sync / Own light / Off", Blink, "Calibrate ›" with the brightness correction
   of the current view, and Remove. Removal always asks inline; removed lamps
   return through "Found".
-- The light/dark switch previews the room at night. It and the Sync view are
-  browser preferences and are not part of the layout.
+- The view is not stored: neither in the layout nor in the browser.
 
 ## Rooms
 
-- The room name in the header opens the room cards. Each card draws its room
+- The room button opens the room cards. Each card draws its room
   small (desk, screen and a dot per lamp) with its name and lamp count; the room
-  with the Sync Box shows the box, and so does the header while there is more
+  with the Sync Box shows the box, and so does the room button while there is more
   than one room. Click a card to edit that room. Hover a card for Rename and
   Delete (Delete asks inline); drag a card to change the order; the last card
   adds a room. A refusal, such as "Move its lamps to another room first", is said
@@ -52,9 +52,9 @@ files and credentials are never served. The page makes no external requests.
 - The page edits one room at a time. Each room has its own layout, browser
   draft and undo history, and this browser remembers the room it edits
   (`light-studio-room-v1`).
-- The Settings switch, the Sync view and the Sync Box corner appear only in the
-  room with the Sync Box. In another room the lamp card has no "During Sync"
-  choice; the Sync view stays the browser's choice for the Sync Box room.
+- The Sync view and the Sync bar appear only in the room with the Sync Box. In
+  another room the page shows the view without Sync and the lamp card has no
+  "During Sync" choice.
 - Found lists the discovered lamps that no other room holds. Placing a lamp that
   belongs to the first room in another room moves it there first; Connect
   connects a lamp in the room it is in.
@@ -116,8 +116,8 @@ physical identifiers or commands (power has its own route, see "Power").
 ## Calibrate
 
 "Calibrate ›" slides the lamp card to its Calibrate page. Brightness is the
-correction (0-100 %) of the configuration the Settings switch shows ("with Sync" or
-"without Sync"); a Govee lamp also has Warmth, Tint and Low light. Reset sets
+correction (0-100 %) of the configuration the page shows ("with Sync" while Sync
+runs, else "without Sync"); a Govee lamp also has Warmth, Tint and Low light. Reset sets
 colour to zero and brightness to 100 % (unsaved); Save stores the values in the
 layout; back, Cancel and Esc discard them.
 
@@ -221,7 +221,9 @@ is not reachable. Removing a row from the layout does not disconnect its light.
 ## Objects panel
 
 The Objects button opens one panel for everything in the room: Lamps, Furniture,
-Found lamps, the Sync Box and the Hue bridge. Furniture lists the desk, the
+Found lamps, the Sync Box and the Hue bridge. Pointing at a row marks its object in
+the room (a lamp's outline; a frame round the desk, a nightstand, the display or
+the Sync Box), and clicking the row selects it. Furniture lists the desk, the
 nightstands (cabinets) and the display with their sizes. The trash on a row, or
 Delete on a selected piece, asks in place and removes it; ⌘Z brings it back. Without the desk the
 display hangs where it was and the Sync Box lies on the floor under it. Without the
@@ -278,7 +280,7 @@ scene instead (a warm white at its correction without Sync) and the screen reads
 Demo, as the Sync view does with its demo picture while Sync is off. Telemetry only
 repaints existing SVG attributes: it never rebuilds the layout and never saves.
 
-The Sync status in the Sync Box corner shows Syncing, Waiting for frames, Hue
+The Sync status in the Sync bar shows Syncing, Waiting for frames, Hue
 busy, Not syncing, Sync status unknown, "<lamp> <reason>" or "N lamps not lit"
 (with a connected box it follows the table in Sync Box). Unknown reasons fall
 back to these labels. Clicking it selects the lamp with the problem. A local sleep
@@ -286,10 +288,10 @@ hold (`live-output-hold`) reports Not syncing without contacting the adapter.
 
 ## Sync Box
 
-The corner at the top right is one block for everything about Sync: one Sync
+The Sync bar at the bottom centre is one block for everything about Sync: one Sync
 status (a dot and its words), one action, short messages ("Connected", "The Sync
 Box did not respond") and, when opened, the connect steps or the box details.
-Nothing about Sync is shown at the bottom of the page.
+Messages and the opened card appear above the bar.
 
 | Situation | Status | Action |
 | --- | --- | --- |
@@ -335,7 +337,7 @@ live checks), when:
 
 It never acts while the adapter is down, another app streams, the output is
 paused or the box is switching, and it never undoes a Stop made while the bridge
-runs undisturbed, here or in the Hue app. The corner shows Restarting Sync… meanwhile and says
+runs undisturbed, here or in the Hue app. The Sync bar shows Restarting Sync… meanwhile and says
 "Sync did not come back. Stop and start it again" when the six tries fail
 (`recovery: "restarting" | "failed"` in `GET /api/sync-box`).
 
