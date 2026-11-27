@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from . import __version__
 from .config import (
@@ -45,6 +46,8 @@ GATEWAY_DIR = Path("/opt/hue-emulator")
 PYTHON = "python3"
 
 CONFIG_FILE = "core.json"
+# The core network of a version-1 project when it named none.
+V1_CORE_SUBNET = "172.30.250.0/29"
 VERSION_FILE = "version"
 BACKUPS = "backups"
 STATE = "state"
@@ -202,6 +205,22 @@ def first_start(data, env):
     })
 
 
+def _on_old_core(url, subnet):
+    """Whether ``url`` names a host on the old core network (default subnet if unset)."""
+    try:
+        host = urlsplit(url).hostname
+        network = ipaddress.IPv4Network(subnet if isinstance(subnet, str) else V1_CORE_SUBNET)
+        return host is not None and ipaddress.IPv4Address(host) in network
+    except ValueError:
+        return False
+
+
+def _with_host(url, host):
+    parts = urlsplit(url)
+    netloc = host if parts.port is None else f"{host}:{parts.port}"
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
 def convert_v1(data):
     """Return the version-two form of a version-one configuration.
 
@@ -218,8 +237,14 @@ def convert_v1(data):
     result["version"] = VERSION
     gateway = result.get("gateway")
     if isinstance(gateway, dict):
-        result["gateway"] = {key: value for key, value in gateway.items()
-                             if key not in ("container_name", "image")}
+        gateway = {key: value for key, value in gateway.items()
+                   if key not in ("container_name", "image")}
+        url = gateway.get("adapter_url")
+        if isinstance(url, str) and _on_old_core(url, container.get("core_subnet")):
+            # The gateway reached the adapter on the old core network; the adapter now
+            # binds to the fixed core address, with the same port.
+            gateway["adapter_url"] = _with_host(url, CORE_ADDRESS)
+        result["gateway"] = gateway
     for section in ("adapter", "setup"):
         value = result.get(section)
         if isinstance(value, dict):
@@ -265,18 +290,28 @@ def _skip_large_logs(directory, names):
             and (Path(directory) / name).stat().st_size > LOG_LIMIT]
 
 
-def _state_dir(data):
-    """The state folder that ``core.json`` names; it must lie inside the data folder."""
+def _read_backup_config(data):
+    """``core.json`` as a mapping for a backup; an unreadable file gives defaults."""
     try:
-        value = json.loads((data / CONFIG_FILE).read_bytes()).get("state_dir", STATE)
-    except (OSError, ValueError, AttributeError):
-        value = STATE
+        value = json.loads((data / CONFIG_FILE).read_bytes())
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _state_dir(data, config):
+    """The state folder that ``config`` names, inside the data folder and outside backups."""
+    value = config.get("state_dir", STATE)
     if not isinstance(value, str) or not value or "\x00" in value:
         raise ConfigError("Invalid path for state_dir")
+    root = data.resolve()
     state = (data / value).resolve()
-    if not state.is_relative_to(data.resolve()) or state == data.resolve():
+    if not state.is_relative_to(root) or state == root:
         # A backup copies the whole state; a folder outside /data is not in the volume.
         raise ConfigError("state_dir must be a folder inside the data folder")
+    if state.is_relative_to(root / BACKUPS):
+        # A backup is written there: copying it into itself would never end.
+        raise ConfigError("state_dir must not be in the backups folder")
     return state
 
 
@@ -293,13 +328,8 @@ def _require_core_address(address):
         probe.close()
 
 
-def _token_paths(data):
-    """Token files named by the configuration that lie outside ``state/``."""
-    try:
-        options = json.loads((data / CONFIG_FILE).read_bytes())["adapter"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return []
-    state = _state_dir(data)
+def _token_paths(data, options, state):
+    """Token files named by the adapter section that lie outside the state folder."""
     found = []
     for key in ("token_file", "power_owner_token_file"):
         value = options.get(key) if isinstance(options, dict) else None
@@ -318,6 +348,10 @@ def backup(data, previous, current, now=None):
     The copy is built in a hidden folder and renamed, so a backup that exists is
     complete. Returns its path.
     """
+    config = _read_backup_config(data)
+    # Validated before anything is written, so a refused layout leaves no trace.
+    state = _state_dir(data, config)
+    tokens = _token_paths(data, config.get("adapter"), state)
     root = data / BACKUPS
     root.mkdir(mode=0o700, exist_ok=True)
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
@@ -330,11 +364,10 @@ def backup(data, previous, current, now=None):
     try:
         partial.chmod(0o700)
         shutil.copy2(data / CONFIG_FILE, partial / CONFIG_FILE)
-        for token in _token_paths(data):
+        for token in tokens:
             destination = partial / token.relative_to(data.resolve())
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             shutil.copy2(token, destination)
-        state = _state_dir(data)
         if state.is_dir():
             shutil.copytree(state, partial / state.relative_to(data.resolve()),
                             ignore=_skip_large_logs)

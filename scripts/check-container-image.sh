@@ -6,7 +6,6 @@
 set -eu
 image=$1
 suffix=$$
-name=lcc-image-check-$suffix
 data=$(mktemp -d)
 # Only what this run created is removed, by ID.
 container="" core="" lan=""
@@ -21,7 +20,7 @@ cleanup() {
 trap cleanup EXIT
 core=$(docker network create --internal --subnet 172.30.250.0/29 --gateway 172.30.250.1 "lcc-check-core-$suffix")
 lan=$(docker network create --internal --subnet 10.250.0.0/24 --gateway 10.250.0.1 "lcc-check-lan-$suffix")
-container=$(docker create --name "$name" --network "$core" --ip 172.30.250.3 \
+container=$(docker create --network "$core" --ip 172.30.250.3 \
     -e CORE_ADDRESS=10.250.0.40 -e TZ=Europe/Kyiv -e STUDIO_HOSTS=nas.local \
     -v "$data:/data" --stop-timeout 20 "$image")
 docker network connect --ip 10.250.0.40 "$lan" "$container"
@@ -56,8 +55,18 @@ fi
 printf '%s' "$studio" | grep -q "Light Studio"
 printf '%s' "$bridge" | grep -q '"bridgeid"'
 # Light Studio is not on the LAN address: only the NAS's published port reaches it.
-if probe "$lan" http://10.250.0.40:19881/ 10.250.0.40:19881 >/dev/null 2>&1; then
-    echo "Light Studio answers on the LAN address" >&2
+# A TCP connect decides, whatever HTTP would answer: 0 open, 3 closed.
+set +e
+docker run --rm --network "$lan" --entrypoint python3 "$image" -I -c "
+import socket, sys
+try:
+    socket.create_connection(('10.250.0.40', 19881), timeout=3).close()
+except OSError:
+    sys.exit(3)" >/dev/null 2>&1
+lan_port=$?
+set -e
+if [ "$lan_port" != 3 ]; then
+    echo "Light Studio's port on the LAN address: probe exit $lan_port (3 means closed)" >&2
     exit 1
 fi
 docker exec "$container" sh -c 'test -s /data/core.json && test -s /data/state/adapter-token && test -s /data/state/power-owner-token && test -s /data/version && test -d /data/state'

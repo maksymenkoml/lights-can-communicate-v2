@@ -239,6 +239,23 @@ class VersionOneTests(DataFolderCase):
                          ("172.30.250.3", "172.30.250.3"))
         self.assertNotIn("bind", self.values()["setup"])
 
+    def test_an_adapter_url_on_the_old_core_network_follows_the_adapter(self):
+        value = json.loads(json.dumps(V1))
+        value["container"]["core_subnet"] = "172.30.251.0/29"
+        value["adapter"]["bind"] = "172.30.251.3"
+        value["gateway"]["adapter_url"] = "http://172.30.251.3:19880"
+        self.seed(value)
+        config = self.prepare()
+        self.assertEqual(config.gateway.environment()["PROBE_ADAPTER_URL"],
+                         "http://172.30.250.3:19880")
+
+    def test_an_unrelated_adapter_url_stays(self):
+        value = json.loads(json.dumps(V1))
+        value["gateway"]["adapter_url"] = "http://192.168.10.77:19880"
+        self.seed(value)
+        self.prepare()
+        self.assertEqual(self.values()["gateway"]["adapter_url"], "http://192.168.10.77:19880")
+
     def test_an_unsupported_version_is_refused(self):
         self.seed({**V1, "version": 3})
         with self.assertRaises(ConfigError):
@@ -530,7 +547,7 @@ class ReviewCaseTests(BackupTests):
         self.assertTrue((folder / "durable" / "adapter-token").is_file())
 
     def test_a_state_folder_outside_the_data_folder_is_refused(self):
-        for state_dir in ("../elsewhere", "."):
+        for state_dir in ("../elsewhere", ".", "backups", "backups/inner"):
             with self.subTest(state_dir=state_dir):
                 value = self.values()
                 value["state_dir"] = state_dir
@@ -539,6 +556,7 @@ class ReviewCaseTests(BackupTests):
                 with self.assertRaises(ConfigError):
                     container.version_change(self.data, "0.1.0", self.stamp(1))
                 self.assertEqual((self.data / "version").read_text(), "0.0.9\n")
+                self.assertFalse((self.data / "backups").exists())
 
     def test_a_new_token_is_complete_and_no_partial_file_stays(self):
         token = self.data / "fresh" / "adapter-token"
