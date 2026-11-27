@@ -220,7 +220,8 @@ def _migrated_adapter_url(url, subnet):
         port = parts.port
         if host is None:
             return url
-        if host not in V1_ADAPTER_NAMES:
+        # A trailing dot is the same DNS name.
+        if host.removesuffix(".") not in V1_ADAPTER_NAMES:
             network = ipaddress.IPv4Network(
                 subnet if isinstance(subnet, str) else V1_CORE_SUBNET)
             if ipaddress.IPv4Address(host) not in network:

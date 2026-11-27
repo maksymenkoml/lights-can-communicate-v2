@@ -251,7 +251,8 @@ class VersionOneTests(DataFolderCase):
                          "http://172.30.250.3:19880")
 
     def test_an_adapter_url_with_the_old_compose_name_follows_the_adapter(self):
-        for url in ("http://adapter:19880", "http://lights-can-communicate-v2-adapter:19880"):
+        for url in ("http://adapter:19880", "http://adapter.:19880",
+                    "http://lights-can-communicate-v2-adapter:19880"):
             with self.subTest(url=url):
                 shutil.rmtree(self.data, ignore_errors=True)
                 value = json.loads(json.dumps(V1))
