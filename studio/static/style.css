@@ -453,7 +453,7 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-corner .box-start:hover:not(:disabled){filter:brightness(1.08)}
 .box-corner .box-connect{color:var(--accent)}
 .box-said[hidden],.box-act[hidden]{display:none}
-.box-said{display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:var(--r-ctl);font-weight:500;animation:card-in .18s ease both}
+.box-said{display:flex;align-items:center;gap:7px;padding:6px 10px;font-weight:500;animation:card-in .18s ease both}
 .box-said[data-kind=ok]{color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--surface))}
 .box-said[data-kind=bad]{color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
 #box-card{font-size:var(--fs-ui)}

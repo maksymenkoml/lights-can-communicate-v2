@@ -1650,6 +1650,18 @@ test('a first visit while the box syncs also starts in the Sync view without a f
  assert.equal(app.$('#app').querySelector('.mode-fade'),null);
 });
 
+// A failed room lookup is the single-room fallback: connectLayout() stops at the room
+// list, keeps the browser's layout and shows the Sync bar for its one room.
+test('without the room list the page falls back to one room with the Sync bar and Start working',async()=>{
+ const box=fakeBox({...BOX,syncing:false});
+ const app=await harness({roomsDown:()=>true,syncBox:box.api});await app.advance(100);
+ assert.equal(app.requests.layout,0,'the layout waits for the room list');
+ assert.ok(!app.$('#app').classList.contains('room-pending'),'the Sync bar shows');
+ assert.ok(!app.$('#app').classList.contains('no-sync'));
+ await startSync(app);
+ assert.ok(app.requests.box.some(r=>r.body),'Start reaches the box');
+});
+
 // The box can answer before the room list: the page waits for its room before it
 // settles the view, so neither a room without the box nor the Sync room fades at start.
 test('a box answer that arrives before the room list settles no view until the room is known',async()=>{
