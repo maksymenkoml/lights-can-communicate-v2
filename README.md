@@ -58,6 +58,11 @@ starts a different version, the core copies its configuration and state to
 `data/backups/`.
 **Roll back:** set the previous version the same way.
 
+**Apple Home:** the Govee lamps reach Apple Home through the Homebridge plugin.
+Each release page carries its package,
+`homebridge-lights-can-communicate-v2-<version>.tgz`; install the same version
+as the core. See [homebridge/README.md](homebridge/README.md).
+
 ## Development
 
 Use a feature branch; `main`/`master` are read-only for development. Only the owner
