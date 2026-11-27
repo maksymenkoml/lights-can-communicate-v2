@@ -200,12 +200,12 @@ def _setup(config):
     urls = services.endpoints(config)
     _interruptible(lambda: studio.serve(
         config.token_file, config.state_dir,
-        bind=config.setup.bind, port=config.setup.port,
+        # Only on the core network: the LAN reaches Light Studio through the NAS's
+        # published port and firewall, never directly on the core's LAN address.
+        bind=config.container.core_address, port=config.setup.port,
         adapter_url=urls["adapter"],
         bridge_url=urls["bridge"],
-        # The LAN address always names Light Studio, whatever STUDIO_HOSTS adds.
-        hosts=(config.gateway.lan_ip, config.container.core_address,
-               *config.container.studio_hosts),
+        hosts=(config.container.core_address, *config.container.studio_hosts),
         hue_config=config.hue_config_file,
     ))
     return 0

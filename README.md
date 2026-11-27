@@ -41,8 +41,8 @@ outside the router's DHCP range, and the address of your router.
    **Create docker-compose.yml** and paste
    [deploy/synology/compose.yaml](deploy/synology/compose.yaml).
 3. Change the values marked `CHANGE`: the release version, `CORE_ADDRESS` (twice),
-   the network interface, your network and router, the time zone and the NAS
-   address for Light Studio.
+   the network interface, your network and router, the time zone and, in
+   `STUDIO_HOSTS`, the NAS address you open Light Studio with.
 4. Select **Next** and **Done**. Container Manager downloads the image and starts
    the core.
 5. Open Light Studio at `http://<NAS address>:19881`.

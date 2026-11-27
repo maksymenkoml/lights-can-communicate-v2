@@ -80,8 +80,7 @@ class ManagedServiceTests(unittest.TestCase):
 
     def test_gateway_and_setup_sections_have_safe_defaults(self):
         config = load_config(self.config_path)
-        self.assertEqual((config.setup.bind, config.setup.port),
-                         ("0.0.0.0", self.value["setup"]["port"]))
+        self.assertEqual(config.setup.port, self.value["setup"]["port"])
         self.assertEqual(config.gateway.timezone, "Etc/UTC")
         self.assertEqual(config.gateway.adapter_url,
                          f"http://172.30.250.3:{self.value['adapter']['port']}")
@@ -213,6 +212,10 @@ class ManagedServiceTests(unittest.TestCase):
 
     def test_packaged_setup_serves_archive_assets_and_stops_on_sigterm(self):
         port = self.value["setup"]["port"]
+        # Light Studio listens on the core address only; here that is the loopback.
+        self.value["container"]["core_address"] = "127.0.0.1"
+        self.value["adapter"].pop("bind", None)
+        self.config_path.write_text(json.dumps(self.value))
         process = subprocess.Popen(
             [sys.executable, "-I", "-B", str(self.release / services.ARCHIVE), "setup",
              "--config", str(self.config_path)],

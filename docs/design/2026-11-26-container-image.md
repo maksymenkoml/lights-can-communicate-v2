@@ -48,8 +48,9 @@ owner cannot repeat this.
 
 - `Dockerfile` at the repository root, two stages on the pinned diyHue image
   (`config.GATEWAY_IMAGE`): the first runs `dist` to build the release, the
-  second copies the archive to `/app` and the gateway modules to `/probe`.
-- Entrypoint: `python3 -I -B /app/lights-can-communicate-v2.pyz container`.
+  second copies the archive and the gateway modules to `/probe` (the gateway
+  imports the core package from the archive next to its modules).
+- Entrypoint: `python3 -I -B /probe/lights-can-communicate-v2.pyz container`.
 - `/data` is the only volume.
 
 ## Project file
@@ -62,14 +63,17 @@ owner cannot repeat this.
 - the macvlan network: parent interface, subnet, router;
 - `TZ` (IANA name);
 - the data folder path;
-- optional `STUDIO_HOSTS`: extra names or addresses the browser uses.
+- `STUDIO_HOSTS`: the NAS names or addresses the browser uses (required).
 
 The container joins two networks: `lan` (macvlan, `CORE_ADDRESS`) and `core`
 (bridge `172.30.250.0/29`, fixed `172.30.250.3`). The NAS host cannot reach its own
 macvlan containers, so Homebridge on the NAS reaches the adapter on the core
-address, and Light Studio is also published on the NAS at port 19881 through it.
-Light Studio is reachable at `http://<CORE_ADDRESS>:19881` and
-`http://<NAS>:19881` (with the NAS in `STUDIO_HOSTS`).
+address, and Light Studio, which listens on the core address only, is published on
+the NAS at port 19881 through it: `http://<NAS>:19881`. Light Studio is never
+reachable directly on `CORE_ADDRESS`, so the NAS firewall applies to it. A
+version-1 file moves to the fixed core address (an older custom core subnet is
+dropped), and the entrypoint stops with a clear message when the project does not
+assign that address.
 
 ## Data folder
 
@@ -105,7 +109,8 @@ lights 3–6 depend on the registry is a gateway change outside this issue.
 ## Version change
 
 When `/data/version` differs from the image version, the entrypoint copies
-`core.json` and `state/` (without append-only logs over 1 MB) into a new backup folder before any child
+the configured `state_dir` (it must lie inside `/data`), `core.json` and that
+folder (without append-only logs over 1 MB) into a new backup folder before any child
 starts, keeps the last five, then records the version. A rollback reads the
 newer state as today's releases do; if a release ever changes a state format
 incompatibly, the owner restores that backup folder.

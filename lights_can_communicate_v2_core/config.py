@@ -87,7 +87,6 @@ def _port(value, label):
 
 @dataclass(frozen=True)
 class SetupConfig:
-    bind: str = "0.0.0.0"
     port: int = 19881
 
 
@@ -168,12 +167,9 @@ def _container(value):
 
 
 def _setup(value):
-    _fields(value, set(), {"bind", "port"}, "setup")
-    bind = _address(value.get("bind", "0.0.0.0"), "setup bind address")
-    if bind != "0.0.0.0":
-        # The container publishes Light Studio's port on every interface.
-        raise ConfigError("Container profile serves Light Studio on all interfaces")
-    return SetupConfig(bind=bind, port=_port(value.get("port", 19881), "setup port"))
+    # Light Studio listens on the core address only (see cli._setup).
+    _fields(value, set(), {"port"}, "setup")
+    return SetupConfig(port=_port(value.get("port", 19881), "setup port"))
 
 
 def _gateway(value, adapter_host, adapter_port):

@@ -15,6 +15,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 from unittest.mock import patch
 
 from lights_can_communicate_v2_core import __version__, cli, container
@@ -32,8 +33,16 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(env.studio_hosts, ("192.168.10.10", "nas.local"))
 
     def test_defaults(self):
-        env = container.parse_environment({"CORE_ADDRESS": "10.0.0.5", "TZ": " "})
-        self.assertEqual((env.timezone, env.studio_hosts), ("Etc/UTC", ()))
+        env = container.parse_environment({"CORE_ADDRESS": "10.0.0.5", "TZ": " ",
+                                           "STUDIO_HOSTS": "nas.local"})
+        self.assertEqual((env.timezone, env.studio_hosts), ("Etc/UTC", ("nas.local",)))
+
+    def test_studio_hosts_are_required(self):
+        # Light Studio is reached through the NAS's published port only.
+        for value in ("", " , "):
+            with self.subTest(value=value), self.assertRaises(ConfigError) as caught:
+                container.parse_environment({**ENV, "STUDIO_HOSTS": value})
+            self.assertIn("STUDIO_HOSTS", str(caught.exception))
 
     def test_invalid_values_are_rejected_without_echo(self):
         for change in ({"CORE_ADDRESS": ""}, {"CORE_ADDRESS": "8.8.8.8"},
@@ -128,12 +137,12 @@ class FirstStartTests(DataFolderCase):
     def test_every_start_applies_the_project_file_values(self):
         self.prepare()
         mac = self.values()["gateway"]["mac"]
-        self.prepare(CORE_ADDRESS="192.168.10.41", TZ="Etc/UTC", STUDIO_HOSTS="")
+        self.prepare(CORE_ADDRESS="192.168.10.41", TZ="Etc/UTC", STUDIO_HOSTS="nas.local")
         value = self.values()
         self.assertEqual(value["gateway"]["lan_ip"], "192.168.10.41")
         self.assertEqual(value["gateway"]["timezone"], "Etc/UTC")
         self.assertEqual(value["gateway"]["mac"], mac)
-        self.assertEqual(value["container"]["studio_hosts"], [])
+        self.assertEqual(value["container"]["studio_hosts"], ["nas.local"])
 
     def test_an_interrupted_first_start_repeats_safely(self):
         config = self.prepare()
@@ -217,12 +226,18 @@ class VersionOneTests(DataFolderCase):
         self.assertEqual(json.loads((backup / "core.json").read_text()), V1)
         self.assertTrue((backup / "state" / "adapter-token").is_file())
 
-    def test_a_custom_core_subnet_gives_the_adapter_its_third_host(self):
+    def test_a_custom_core_subnet_moves_to_the_fixed_core_address(self):
+        # The project file assigns 172.30.250.3; an old subnet or bind must not
+        # leave the adapter on an address the container does not have.
         value = json.loads(json.dumps(V1))
         value["container"]["core_subnet"] = "172.30.251.0/29"
         value["adapter"]["bind"] = "172.30.251.3"
+        value["setup"]["bind"] = "0.0.0.0"
         self.seed(value)
-        self.assertEqual(self.prepare().container.core_address, "172.30.251.3")
+        config = self.prepare()
+        self.assertEqual((config.container.core_address, config.bind),
+                         ("172.30.250.3", "172.30.250.3"))
+        self.assertNotIn("bind", self.values()["setup"])
 
     def test_an_unsupported_version_is_refused(self):
         self.seed({**V1, "version": 3})
@@ -498,6 +513,61 @@ class RealProcessTests(unittest.TestCase):
                 process.kill()
                 process.wait()
             process.stdout.close()
+
+
+class ReviewCaseTests(BackupTests):
+    def test_a_configured_state_folder_is_the_one_backed_up(self):
+        # A state_dir other than state/ is still the folder the runtime uses.
+        os.replace(self.data / "state", self.data / "durable")
+        value = self.values()
+        value["state_dir"] = "durable"
+        for key in ("token_file", "power_owner_token_file"):
+            value["adapter"][key] = value["adapter"][key].replace("state/", "durable/")
+        self.config_path.write_text(json.dumps(value))
+        (self.data / "version").write_text("0.0.9\n")
+        folder = container.version_change(self.data, "0.1.0", self.stamp(1))
+        self.assertTrue((folder / "durable" / "desk-layout.json").is_file())
+        self.assertTrue((folder / "durable" / "adapter-token").is_file())
+
+    def test_a_state_folder_outside_the_data_folder_is_refused(self):
+        for state_dir in ("../elsewhere", "."):
+            with self.subTest(state_dir=state_dir):
+                value = self.values()
+                value["state_dir"] = state_dir
+                self.config_path.write_text(json.dumps(value))
+                (self.data / "version").write_text("0.0.9\n")
+                with self.assertRaises(ConfigError):
+                    container.version_change(self.data, "0.1.0", self.stamp(1))
+                self.assertEqual((self.data / "version").read_text(), "0.0.9\n")
+
+    def test_a_new_token_is_complete_and_no_partial_file_stays(self):
+        token = self.data / "fresh" / "adapter-token"
+        container._new_token(token)
+        self.assertEqual(len(token.read_text().strip()), 64)
+        container._new_token(token)
+        self.assertEqual(sorted(p.name for p in token.parent.iterdir()), ["adapter-token"])
+
+    def test_an_unassigned_core_address_stops_with_a_clear_message(self):
+        with self.assertRaises(ConfigError) as caught:
+            container._require_core_address("172.30.250.3")
+        self.assertIn("ipv4_address", str(caught.exception))
+        container._require_core_address("127.0.0.1")
+
+    def test_a_relative_data_folder_gives_the_children_absolute_paths(self):
+        seen = []
+
+        class Recorder:
+            def __init__(self, specs):
+                seen.extend(specs)
+
+            def run(self):
+                return 0
+
+        relative = os.path.relpath(self.data)
+        with mock.patch.object(container, "_require_core_address"):
+            container.run(relative, {**ENV}, supervisor=Recorder)
+        for spec in seen[1:]:
+            self.assertTrue(Path(spec.argv[-1]).is_absolute())
 
 
 class ChildCommandTests(DataFolderCase):

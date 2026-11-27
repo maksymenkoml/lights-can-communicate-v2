@@ -9,14 +9,14 @@ COPY . .
 RUN python3 -B -m lights_can_communicate_v2_core.dist --output /release
 
 FROM ${BASE}
-COPY --from=build /release/lights-can-communicate-v2.pyz /app/lights-can-communicate-v2.pyz
 COPY --from=build /release/gateway/ /probe/
-# The gateway imports the core package from the archive next to its modules.
+# The gateway imports the core package from the archive next to its modules; the
+# entrypoint runs the same archive.
 COPY --from=build /release/lights-can-communicate-v2.pyz /probe/lights-can-communicate-v2.pyz
 WORKDIR /data
 VOLUME /data
 STOPSIGNAL SIGTERM
 LABEL org.opencontainers.image.source="https://github.com/maksymenkoml/lights-can-communicate-v2" \
       org.opencontainers.image.description="Lights Can Communicate v2 core: virtual Hue bridge, Govee adapter and Light Studio"
-ENTRYPOINT ["python3", "-I", "-B", "/app/lights-can-communicate-v2.pyz", "container"]
+ENTRYPOINT ["python3", "-I", "-B", "/probe/lights-can-communicate-v2.pyz", "container"]
 CMD []

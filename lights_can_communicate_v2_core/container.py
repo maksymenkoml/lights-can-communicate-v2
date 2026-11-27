@@ -12,6 +12,7 @@ import os
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -36,9 +37,10 @@ from .light_registry import REGISTRY_FILE, LightRegistry
 from .services import ARCHIVE
 
 DATA = "/data"
-ARCHIVE_PATH = Path("/app") / ARCHIVE
-# The gateway modules of the release; the image's own Hue emulator is at /opt/hue-emulator.
+# The gateway modules and the core archive (the gateway imports the core package from
+# it); the image's own Hue emulator is at /opt/hue-emulator.
 PROBE_DIR = Path("/probe")
+ARCHIVE_PATH = PROBE_DIR / ARCHIVE
 GATEWAY_DIR = Path("/opt/hue-emulator")
 PYTHON = "python3"
 
@@ -79,6 +81,11 @@ def parse_environment(env):
         raise ConfigError("CORE_ADDRESS must be a specific LAN address")
     zone = timezone_name(env.get("TZ", "").strip() or DEFAULT_TIMEZONE)
     names = [item.strip() for item in env.get("STUDIO_HOSTS", "").split(",") if item.strip()]
+    if not names:
+        # Light Studio listens on the core network only and is reached through the
+        # NAS's published port, so the browser names the NAS.
+        raise ConfigError("STUDIO_HOSTS is required: the NAS address or name that opens "
+                          "Light Studio")
     return Environment(address, zone, tuple(studio_host_names(names)))
 
 
@@ -124,12 +131,24 @@ def _new_token(path):
     """Create a private credential file unless it exists; never replace a token."""
     path = Path(path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
+    if path.exists():
         return
-    with os.fdopen(descriptor, "w") as stream:
-        stream.write(secrets.token_hex(32) + "\n")
+    # Written and synced under a temporary name, then linked into place, so an
+    # interrupted start never leaves an empty token that a later start would keep.
+    descriptor, partial = tempfile.mkstemp(dir=path.parent, prefix=".token-")
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(secrets.token_hex(32) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(partial, 0o600)
+        try:
+            os.link(partial, path)
+        except FileExistsError:
+            return
+        _sync_directory(path.parent)
+    finally:
+        os.unlink(partial)
 
 
 def new_mac():
@@ -187,9 +206,10 @@ def convert_v1(data):
     """Return the version-two form of a version-one configuration.
 
     Every value stays, including the bridge MAC and the paths of the tokens. The
-    ``lan`` block, the core subnet and the gateway's container name and image
-    belonged to the Compose project and are dropped. The adapter's core address
-    is the one the subnet gave it (its third host).
+    ``lan`` block, the core subnet, the Light Studio bind and the gateway's
+    container name and image belonged to the Compose project and are dropped. The
+    core address is the fixed one of the project file, whatever subnet the old
+    project used.
     """
     container = data.get("container")
     if not isinstance(container, dict):
@@ -200,14 +220,12 @@ def convert_v1(data):
     if isinstance(gateway, dict):
         result["gateway"] = {key: value for key, value in gateway.items()
                              if key not in ("container_name", "image")}
-    address = CORE_ADDRESS
-    subnet = container.get("core_subnet")
-    if subnet is not None:
-        try:
-            address = str(ipaddress.IPv4Network(subnet).network_address + 3)
-        except (ValueError, TypeError):
-            raise ConfigError("Invalid container core subnet") from None
-    result["container"] = {"core_address": address,
+    for section in ("adapter", "setup"):
+        value = result.get(section)
+        if isinstance(value, dict):
+            # The adapter and Light Studio bind to the fixed core address.
+            result[section] = {key: item for key, item in value.items() if key != "bind"}
+    result["container"] = {"core_address": CORE_ADDRESS,
                            "studio_hosts": container.get("studio_hosts", [])}
     return result
 
@@ -215,22 +233,21 @@ def convert_v1(data):
 def apply_environment(data, env):
     """Write the values that only the project file may change; return whether it did."""
     path = data / CONFIG_FILE
-    config = read_json(path, "service configuration")
-    if config.get("version") == 1:
-        config = convert_v1(config)
+    original = read_json(path, "service configuration")
+    wanted = original
+    if original.get("version") == 1:
+        wanted = convert_v1(original)
         _log("converted core.json from version 1 to version 2")
-    wanted = json.loads(json.dumps(config))
-    gateway = wanted.get("gateway")
+    gateway, section = wanted.get("gateway"), wanted.get("container", {})
     if not isinstance(gateway, dict):
         raise ConfigError("Invalid fields in gateway")
-    gateway["lan_ip"] = env.core_address
-    gateway["timezone"] = env.timezone
-    section = wanted.setdefault("container", {})
     if not isinstance(section, dict):
         raise ConfigError("Invalid fields in container")
-    section.setdefault("core_address", CORE_ADDRESS)
-    section["studio_hosts"] = list(env.studio_hosts)
-    if wanted != json.loads(path.read_bytes()):
+    wanted = {**wanted,
+              "gateway": {**gateway, "lan_ip": env.core_address, "timezone": env.timezone},
+              "container": {**section, "core_address": section.get("core_address", CORE_ADDRESS),
+                            "studio_hosts": list(env.studio_hosts)}}
+    if wanted != original:
         write_config(path, wanted)
         return True
     return False
@@ -248,13 +265,41 @@ def _skip_large_logs(directory, names):
             and (Path(directory) / name).stat().st_size > LOG_LIMIT]
 
 
+def _state_dir(data):
+    """The state folder that ``core.json`` names; it must lie inside the data folder."""
+    try:
+        value = json.loads((data / CONFIG_FILE).read_bytes()).get("state_dir", STATE)
+    except (OSError, ValueError, AttributeError):
+        value = STATE
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ConfigError("Invalid path for state_dir")
+    state = (data / value).resolve()
+    if not state.is_relative_to(data.resolve()) or state == data.resolve():
+        # A backup copies the whole state; a folder outside /data is not in the volume.
+        raise ConfigError("state_dir must be a folder inside the data folder")
+    return state
+
+
+def _require_core_address(address):
+    """Stop with a clear message when the project does not give the core its address."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.bind((address, 0))
+    except OSError:
+        raise ConfigError(f"The core network address {address} is not assigned to this "
+                          "container: give the core network this ipv4_address in the "
+                          "project file") from None
+    finally:
+        probe.close()
+
+
 def _token_paths(data):
     """Token files named by the configuration that lie outside ``state/``."""
     try:
         options = json.loads((data / CONFIG_FILE).read_bytes())["adapter"]
     except (OSError, ValueError, KeyError, TypeError):
         return []
-    state = (data / STATE).resolve()
+    state = _state_dir(data)
     found = []
     for key in ("token_file", "power_owner_token_file"):
         value = options.get(key) if isinstance(options, dict) else None
@@ -289,8 +334,10 @@ def backup(data, previous, current, now=None):
             destination = partial / token.relative_to(data.resolve())
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             shutil.copy2(token, destination)
-        if (data / STATE).is_dir():
-            shutil.copytree(data / STATE, partial / STATE, ignore=_skip_large_logs)
+        state = _state_dir(data)
+        if state.is_dir():
+            shutil.copytree(state, partial / state.relative_to(data.resolve()),
+                            ignore=_skip_large_logs)
         os.replace(partial, target)
     except BaseException:
         shutil.rmtree(partial, ignore_errors=True)
@@ -341,11 +388,11 @@ class ChildSpec:
 
 
 class _Child:
-    def __init__(self, spec):
+    def __init__(self, spec, delay):
         self.spec = spec
         self.process = None
         self.started = 0.0
-        self.delay = RESTART_MIN
+        self.delay = delay
         self.restart_at = 0.0
 
 
@@ -355,13 +402,11 @@ class Supervisor:
     def __init__(self, specs, *, popen=subprocess.Popen, clock=time.monotonic,
                  sleep=time.sleep, grace=SHUTDOWN_GRACE, minimum=RESTART_MIN,
                  maximum=RESTART_MAX, reset=RESTART_RESET, poll=POLL, log=_log):
-        self.children = [_Child(spec) for spec in specs]
+        self.children = [_Child(spec, minimum) for spec in specs]
         self.popen, self.clock, self.sleep = popen, clock, sleep
         self.grace, self.minimum, self.maximum = grace, minimum, maximum
         self.reset, self.poll, self.log = reset, poll, log
         self.stopping = False
-        for child in self.children:
-            child.delay = minimum
 
     def stop(self, *_):
         self.stopping = True
@@ -469,5 +514,8 @@ def prepare(data, environ):
 
 
 def run(data=DATA, environ=None, supervisor=Supervisor):
+    # The children run in the state folder: they get absolute paths.
+    data = Path(data).absolute()
     config = prepare(data, os.environ if environ is None else environ)
-    return supervisor(children(config, Path(data) / CONFIG_FILE)).run()
+    _require_core_address(config.container.core_address)
+    return supervisor(children(config, data / CONFIG_FILE)).run()

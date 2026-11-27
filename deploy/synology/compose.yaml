@@ -22,8 +22,8 @@ services:
       CORE_ADDRESS: 192.168.1.40
       # CHANGE: your time zone (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
       TZ: Europe/Kyiv
-      # CHANGE (optional): the NAS address or name you open Light Studio with,
-      # comma-separated. Light Studio also answers on CORE_ADDRESS.
+      # CHANGE: the NAS address or name you open Light Studio with,
+      # comma-separated. Light Studio is reached only through the NAS.
       STUDIO_HOSTS: 192.168.1.10
     volumes:
       # The folder next to this file; it holds all settings and state.

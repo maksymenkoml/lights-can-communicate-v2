@@ -78,7 +78,7 @@ class ContainerProfileTests(unittest.TestCase):
         container = config.container
         self.assertEqual(container.core_address, "172.30.250.3")
         self.assertEqual(config.bind, "172.30.250.3")
-        self.assertEqual(config.setup.bind, "0.0.0.0")
+        self.assertEqual(config.setup.port, 19881)
         self.assertEqual(config.gateway.adapter_url, "http://172.30.250.3:19880")
         self.assertEqual(container.studio_hosts, ("192.168.99.5", "diskstation.local"))
 

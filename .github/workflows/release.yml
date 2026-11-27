@@ -21,6 +21,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: The tag points at a reviewed commit on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: The tag names the core version
         run: |
           version=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('lights_can_communicate_v2_core/__init__.py').read()).group(1))")
