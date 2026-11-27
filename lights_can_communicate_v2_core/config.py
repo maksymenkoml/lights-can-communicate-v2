@@ -3,6 +3,7 @@
 import ipaddress
 import json
 import re
+import zoneinfo
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -16,14 +17,15 @@ MAX_BYTES = 65536
 GATEWAY_IMAGE = (
     "diyhue/core@sha256:392c1c39a5b46168d1d6d8582abd266586bdd45d61fb3459fa95821c710ffcba"
 )
-_IMAGE = re.compile(r"diyhue/core@sha256:[0-9a-f]{64}\Z")
 _MAC = re.compile(r"[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}\Z")
-_CONTAINER = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 _TIMEZONE = re.compile(r"[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}\Z")
-_INTERFACE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,14}\Z")
 _LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
 _HOSTNAME = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(\.{_LABEL})*\Z")
-CORE_SUBNET = "172.30.250.0/29"
+# The adapter's address on the container's internal network; Homebridge on the
+# NAS host reaches the adapter and the bridge here.
+CORE_ADDRESS = "172.30.250.3"
+DEFAULT_TIMEZONE = "Etc/UTC"
+VERSION = 2
 
 
 class ConfigError(ValueError):
@@ -85,7 +87,6 @@ def _port(value, label):
 
 @dataclass(frozen=True)
 class SetupConfig:
-    bind: str = "0.0.0.0"
     port: int = 19881
 
 
@@ -94,21 +95,20 @@ class GatewayConfig:
     lan_ip: str
     mac: str
     adapter_url: str
-    container_name: str = "lights-can-communicate-v2-gateway"
-    image: str = GATEWAY_IMAGE
     live_output: bool = False
     hue_strip: bool = False
     hue_play: bool = False
     entertainment: bool = False
     gradient: bool = False
-    timezone: str = "America/Toronto"
+    timezone: str = DEFAULT_TIMEZONE
 
-    def environment(self):
+    def environment(self, config_path="/opt/hue-emulator/config"):
+        """The gateway's environment; ``config_path`` is the directory diyHue uses."""
         flag = {True: "true", False: "false"}
         return {
             "IP": self.lan_ip,
             "MAC": self.mac,
-            "CONFIG_PATH": "/opt/hue-emulator/config",
+            "CONFIG_PATH": str(config_path),
             "DEBUG": "false",
             "TZ": self.timezone,
             "PROBE_LIVE_OUTPUT": flag[self.live_output],
@@ -122,115 +122,73 @@ class GatewayConfig:
 
 @dataclass(frozen=True)
 class ContainerConfig:
-    """The NAS profile: one compose project on a macvlan LAN and a core network."""
+    """The container profile: one LAN address, one internal address.
 
-    parent: str
-    subnet: str
-    router: str
-    adapter_ip: str
-    core_subnet: str = CORE_SUBNET
+    The LAN address is ``gateway.lan_ip``. ``core_address`` is the fixed address on
+    the container's internal network, where the adapter listens and from where the
+    NAS host reaches the adapter and the bridge.
+    """
+
+    core_address: str = CORE_ADDRESS
     studio_hosts: tuple = ()
 
-    def _core(self, offset):
-        return str(ipaddress.IPv4Network(self.core_subnet).network_address + offset)
 
-    @property
-    def gateway_core(self):
-        return self._core(2)
-
-    @property
-    def adapter_core(self):
-        return self._core(3)
-
-    @property
-    def studio_core(self):
-        return self._core(4)
-
-
-def _network(value, label):
+def timezone_name(value):
+    """Return an IANA time zone name that this system knows, else raise ConfigError."""
+    if not isinstance(value, str) or not _TIMEZONE.match(value):
+        raise ConfigError("Invalid gateway timezone")
     try:
-        if not isinstance(value, str):
-            raise ConfigError(f"Expected a textual {label}")
-        network = ipaddress.IPv4Network(value)
-    except (ValueError, TypeError) as error:
-        raise ConfigError(f"Invalid {label}") from error
-    if not network.is_private:
-        raise ConfigError(f"{label.capitalize()} must be local")
-    return network
+        zoneinfo.ZoneInfo(value)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+        raise ConfigError("Unknown gateway timezone") from None
+    return value
 
 
-def _is_host(network, address):
-    address = ipaddress.IPv4Address(address)
-    return (address in network
-            and address not in (network.network_address, network.broadcast_address))
-
-
-def _container(value):
-    _fields(value, {"lan", "studio_hosts"}, {"core_subnet"}, "container")
-    lan = value["lan"]
-    _fields(lan, {"parent", "subnet", "router", "adapter_ip"}, set(), "container LAN")
-    if not isinstance(lan["parent"], str) or not _INTERFACE.match(lan["parent"]):
-        raise ConfigError("Invalid container LAN parent interface")
-    subnet = _network(lan["subnet"], "container LAN subnet")
-    router = _address(lan["router"], "container LAN router")
-    adapter_ip = _address(lan["adapter_ip"], "container adapter LAN address")
-    for address in (router, adapter_ip):
-        if not _is_host(subnet, address):
-            raise ConfigError("Container LAN addresses must be hosts of its subnet")
-    if adapter_ip == router:
-        raise ConfigError("Container LAN addresses must differ")
-    core = _network(value.get("core_subnet", CORE_SUBNET), "container core subnet")
-    if core.prefixlen > 29 or core.overlaps(subnet):
-        raise ConfigError("Container core subnet must hold four hosts apart from the LAN")
-    names = value["studio_hosts"]
-    if not isinstance(names, list) or not names or len(names) > 8:
-        raise ConfigError("Container studio hosts must be a short non-empty list")
-    studio_hosts = []
+def studio_host_names(names):
+    """Validate and lower-case Light Studio host names; keep the first of each."""
+    if not isinstance(names, list) or len(names) > 8:
+        raise ConfigError("Container studio hosts must be a short list")
+    hosts = []
     for name in names:
         if not isinstance(name, str) or not _HOSTNAME.match(name.lower()):
             raise ConfigError("Invalid container studio host")
-        if name.lower() not in studio_hosts:
-            studio_hosts.append(name.lower())
-    return ContainerConfig(parent=lan["parent"], subnet=str(subnet), router=router,
-                           adapter_ip=adapter_ip, core_subnet=str(core),
-                           studio_hosts=tuple(studio_hosts))
+        if name.lower() not in hosts:
+            hosts.append(name.lower())
+    return hosts
+
+
+def _container(value):
+    _fields(value, set(), {"core_address", "studio_hosts"}, "container")
+    core_address = _address(value.get("core_address", CORE_ADDRESS), "container core address")
+    if ipaddress.IPv4Address(core_address).is_unspecified:
+        raise ConfigError("Container core address must be specific")
+    return ContainerConfig(core_address=core_address,
+                           studio_hosts=tuple(studio_host_names(value.get("studio_hosts", []))))
 
 
 def _setup(value):
-    _fields(value, set(), {"bind", "port"}, "setup")
-    bind = _address(value.get("bind", "0.0.0.0"), "setup bind address")
-    if bind != "0.0.0.0":
-        # The studio container has only the core network; Docker publishes its port.
-        raise ConfigError("Container profile serves Light Studio on all interfaces")
-    return SetupConfig(bind=bind, port=_port(value.get("port", 19881), "setup port"))
+    # Light Studio listens on the core address only (see cli._setup).
+    _fields(value, set(), {"port"}, "setup")
+    return SetupConfig(port=_port(value.get("port", 19881), "setup port"))
 
 
 def _gateway(value, adapter_host, adapter_port):
     flags = ("live_output", "hue_strip", "hue_play", "entertainment", "gradient")
-    _fields(value, {"lan_ip", "mac"},
-            {"container_name", "image", "adapter_url", "timezone", *flags}, "gateway")
+    _fields(value, {"lan_ip", "mac"}, {"adapter_url", "timezone", *flags}, "gateway")
     for field in flags:
         if type(value.get(field, False)) is not bool:
             raise ConfigError(f"Expected boolean {field}")
     if value.get("entertainment", False) and not (
             value.get("hue_strip", False) and value.get("hue_play", False)):
         # The gateway builds Desk Entertainment from all six virtual lights and
-        # refuses to start without them, which Docker turns into a restart loop.
+        # refuses to start without them; the supervisor would restart it forever.
         raise ConfigError("Gateway entertainment requires hue_strip and hue_play")
     lan_ip = _address(value["lan_ip"], "gateway LAN address")
     if ipaddress.IPv4Address(lan_ip).is_unspecified:
         raise ConfigError("Gateway LAN address must be specific")
     if not isinstance(value["mac"], str) or not _MAC.match(value["mac"]):
         raise ConfigError("Invalid gateway MAC address")
-    name = value.get("container_name", "lights-can-communicate-v2-gateway")
-    if not isinstance(name, str) or not _CONTAINER.match(name):
-        raise ConfigError("Invalid gateway container name")
-    image = value.get("image", GATEWAY_IMAGE)
-    if not isinstance(image, str) or not _IMAGE.match(image):
-        raise ConfigError("Gateway image must be a pinned diyHue digest")
-    timezone = value.get("timezone", "America/Toronto")
-    if not isinstance(timezone, str) or not _TIMEZONE.match(timezone):
-        raise ConfigError("Invalid gateway timezone")
+    timezone = timezone_name(value.get("timezone", DEFAULT_TIMEZONE))
     url = value.get("adapter_url", f"http://{adapter_host}:{adapter_port}")
     parsed = urlsplit(url) if isinstance(url, str) else None
     if (parsed is None or parsed.scheme != "http" or not parsed.hostname
@@ -238,8 +196,7 @@ def _gateway(value, adapter_host, adapter_port):
             or parsed.query or parsed.fragment):
         raise ConfigError("Invalid gateway adapter URL")
     return GatewayConfig(lan_ip=lan_ip, mac=value["mac"].lower(), adapter_url=url.rstrip("/"),
-                         container_name=name, image=image, timezone=timezone,
-                         **{field: value.get(field, False) for field in flags})
+                         timezone=timezone, **{field: value.get(field, False) for field in flags})
 
 
 @dataclass(frozen=True)
@@ -255,7 +212,7 @@ class ServiceConfig:
     hue_play: bool
     hue_stream_config_file: Path | None
     gateway: GatewayConfig
-    container: ContainerConfig
+    container: ContainerConfig = ContainerConfig()
     native_profile_file: Path | None = None
     power_authority: str = "owner"
     setup: SetupConfig = SetupConfig()
@@ -285,8 +242,8 @@ class ServiceConfig:
             result.append("--hue-play")
         if self.hue_stream_config_file:
             result.extend(["--hue-stream-config", str(self.hue_stream_config_file)])
-        # The adapter is on the LAN and the core network; LAN searches send from here.
-        result.extend(["--lan-address", self.container.adapter_ip])
+        # The one LAN address of the core: LAN searches send from here.
+        result.extend(["--lan-address", self.gateway.lan_ip])
         result.extend(["--power-authority", self.power_authority])
         return result
 
@@ -294,12 +251,9 @@ class ServiceConfig:
 def load_config(path):
     path = Path(path).resolve()
     data = read_json(path, "service configuration")
-    if isinstance(data, dict) and ("container" not in data or "gateway" not in data):
-        raise ConfigError("Service configuration requires gateway and container sections: "
-                          "the NAS container profile is the only supported profile")
-    _fields(data, {"version", "state_dir", "adapter", "gateway", "container"}, {"setup"},
+    _fields(data, {"version", "state_dir", "adapter", "gateway"}, {"setup", "container"},
             "service configuration")
-    if type(data["version"]) is not int or data["version"] != 1:
+    if type(data["version"]) is not int or data["version"] != VERSION:
         raise ConfigError("Unsupported service configuration version")
     options = data["adapter"]
     paths = {"token_file", "power_owner_token_file"}
@@ -315,17 +269,14 @@ def load_config(path):
     for field in ("gradient", "hue_play"):
         if type(options.get(field, False)) is not bool:
             raise ConfigError(f"Expected boolean {field}")
-    container = _container(data["container"])
+    container = _container(data.get("container", {}))
     port = _port(options.get("port", 19880), "adapter port")
-    bind = _address(options.get("bind", container.adapter_core), "adapter bind address")
-    if bind != container.adapter_core:
-        # Homebridge on the NAS host reaches the adapter on the core network only.
+    bind = _address(options.get("bind", container.core_address), "adapter bind address")
+    if bind != container.core_address:
+        # Homebridge on the NAS host reaches the adapter on the core address only.
         raise ConfigError("Container profile binds the adapter to its core address")
     setup = _setup(data.get("setup", {}))
-    gateway = _gateway(data["gateway"], container.adapter_core, port)
-    if (not _is_host(ipaddress.IPv4Network(container.subnet), gateway.lan_ip)
-            or gateway.lan_ip in (container.router, container.adapter_ip)):
-        raise ConfigError("Gateway LAN address must be a free host of the container LAN")
+    gateway = _gateway(data["gateway"], container.core_address, port)
     resolved = {key: _path(path.parent, options[key], key) for key in paths}
     resolved.update(
         {
@@ -334,12 +285,6 @@ def load_config(path):
         }
     )
     state_dir = _path(path.parent, data["state_dir"], "state_dir")
-    # Only the configuration directory and state_dir are mounted into containers.
-    for value in resolved.values():
-        if value is not None and not (value.is_relative_to(path.parent)
-                                      or value.is_relative_to(state_dir)):
-            raise ConfigError("Container profile files must be in the configuration "
-                              "directory or state_dir")
     if resolved["token_file"] == resolved["power_owner_token_file"]:
         raise ConfigError("Adapter and power credentials must be separate")
     if options.get("hue_play", False) and resolved["hue_config_file"] is None:

@@ -59,6 +59,8 @@ from virtual_lights import load as load_registry  # noqa: E402
 from virtual_lights import signature as registry_signature  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
+# The owner's time zone comes from the environment (TZ in the project file).
+timezone = os.environ.get("TZ") or "Etc/UTC"
 state = Path(configManager.runtimeConfig.arg["CONFIG_PATH"])
 state.chmod(0o700)
 layout_store = Rooms(state)
@@ -81,7 +83,7 @@ settings.update(
     {
         "discovery": False,
         "Remote API enabled": False,
-        "timezone": "America/Toronto",
+        "timezone": timezone,
         "apiversion": "1.78.0",
         "swversion": "1978545030",
         "users": {"probe@localhost": {"password": generate_password_hash(token)}},
@@ -849,7 +851,7 @@ def receiver_shutdown_main(upstream_main, receiver):
 
 
 main = receiver_shutdown_main(main, entertainment_receiver)
-os.environ["TZ"] = "America/Toronto"
+os.environ["TZ"] = timezone
 time.tzset()
 try:
     main()

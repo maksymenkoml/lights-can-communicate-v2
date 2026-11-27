@@ -1,4 +1,7 @@
-"""Build a versioned release directory: archive, bridge modules and manifest."""
+"""Build a versioned release directory: archive, gateway modules, plugin and manifest.
+
+The container image build copies the archive and the gateway modules from it.
+"""
 
 import argparse
 import gzip
@@ -11,17 +14,8 @@ from pathlib import Path
 
 from . import __version__
 from .build import build
-from .config import GATEWAY_IMAGE
 from .services import ARCHIVE, GATEWAY_MODULES
 
-# Durable state formats this release writes. Rollback restores the
-# pre-upgrade snapshot when these differ between two releases, so bump a
-# number whenever a stored format changes.
-STATE_SCHEMAS = {"desk_layout": 8, "homekit_power": 2, "rooms": 1, "scene_play_intent": 1}
-CONFIG_VERSIONS = [1]
-PYTHON = "3.10"
-# Version of the signed /homekit API the bundled Homebridge plugin expects.
-CORE_API = {"homekit": 2}
 # npm's fixed package mtime (1985-10-26T08:15:00Z) keeps the tarball reproducible.
 _NPM_MTIME = 499162500
 
@@ -80,14 +74,7 @@ def build_release(output):
         files = sorted(p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file())
         manifest = {
             "version": __version__,
-            "compatibility": {
-                "config_version": CONFIG_VERSIONS,
-                "state": STATE_SCHEMAS,
-                "python": PYTHON,
-                "gateway_image": GATEWAY_IMAGE,
-                "core_api": CORE_API,
-                "plugin": plugin,
-            },
+            "plugin": plugin,
             "files": {name: hashlib.sha256((output / name).read_bytes()).hexdigest()
                       for name in files},
         }

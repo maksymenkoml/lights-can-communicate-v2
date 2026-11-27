@@ -1,0 +1,59 @@
+# Lights Can Communicate v2 core for Synology Container Manager.
+#
+# Container Manager > Project > Create: choose a folder (for example
+# /volume1/docker/lights-can-communicate-v2), "Create docker-compose.yml",
+# paste this file and change the values marked CHANGE. To update, stop the
+# project, change the image version in YAML Configurations, save and choose
+# "Build and start the project"; to roll back, set the previous version.
+# The data folder keeps the bridge identity, pairings and settings across both.
+
+services:
+  core:
+    # CHANGE: the release to run (https://github.com/maksymenkoml/lights-can-communicate-v2/releases).
+    image: ghcr.io/maksymenkoml/lights-can-communicate-v2:0.1.0
+    container_name: lights-can-communicate-v2
+    restart: unless-stopped
+    # Reaps processes that the gateway's helpers leave behind.
+    init: true
+    stop_grace_period: 20s
+    environment:
+      # CHANGE: a free address on your home network, outside the router's DHCP
+      # range. The Hue app and the Sync Box find the virtual bridge here.
+      CORE_ADDRESS: 192.168.1.40
+      # CHANGE: your time zone (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+      TZ: Europe/Kyiv
+      # CHANGE: the NAS address or name you open Light Studio with,
+      # comma-separated. Light Studio is reached only through the NAS.
+      STUDIO_HOSTS: 192.168.1.10
+    volumes:
+      # The folder next to this file; it holds all settings and state.
+      - ./data:/data
+    ports:
+      # Light Studio on the NAS: http://<NAS address>:19881
+      - "19881:19881"
+    networks:
+      lan:
+        # CHANGE: the same address as CORE_ADDRESS.
+        ipv4_address: 192.168.1.40
+      core:
+        # Homebridge on the NAS reaches the core here (keep this address).
+        ipv4_address: 172.30.250.3
+
+networks:
+  lan:
+    driver: macvlan
+    driver_opts:
+      # CHANGE: the NAS network interface (Control Panel > Network > Network
+      # Interface; with Open vSwitch enabled it is ovs_eth0).
+      parent: eth0
+    ipam:
+      config:
+        # CHANGE: your home network and router.
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+  core:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.250.0/29
+          gateway: 172.30.250.1

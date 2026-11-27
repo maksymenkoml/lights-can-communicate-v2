@@ -487,6 +487,11 @@ class GoveeController:
                     if self.power_revisions.get(light) != revision:
                         self.last_sent.pop(light, None)
                         self.stream_brightness.pop(light, None)
+                        # An owner power change cycles the lamp, which ends DreamView.
+                        # An owner Off skips the lamp before its status is read, so a
+                        # quick On would otherwise keep sending frames to a lamp that
+                        # left DreamView; the next frame switches it on again.
+                        self.razer_frame.pop(light, None)
                         self.power_revisions[light] = revision
                     if not self.power_owner.allowed(light):
                         self.last_sent.pop(light, None)
