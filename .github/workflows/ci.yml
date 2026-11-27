@@ -63,8 +63,6 @@ jobs:
           echo "BRIDGE_IMAGE=$image" >> "$GITHUB_ENV"
       - name: Pull pinned public test image
         run: docker pull "$BRIDGE_IMAGE"
-      - name: NAS container profile renders a valid Compose project
-        run: python3 -B tests/check_container_compose.py
       - name: Python contracts without network or private state
         run: >-
           docker run --rm --network none
@@ -79,3 +77,16 @@ jobs:
           --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly"
           -w /workspace --entrypoint python3 "$BRIDGE_IMAGE"
           -B tests/check_core_archive.py
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the core image
+        run: docker build -t lights-can-communicate-v2:check .
+      - name: First start, answers and clean stop
+        run: sh scripts/check-container-image.sh lights-can-communicate-v2:check

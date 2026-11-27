@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from . import __version__, install, services
+from . import __version__, services
 from .config import ConfigError, load_config, read_json
 from .light_registry import REGISTRY_FILE, RegistryError, ensure
 from .native_profile import NativeProfileError
@@ -203,7 +203,9 @@ def _setup(config):
         bind=config.setup.bind, port=config.setup.port,
         adapter_url=urls["adapter"],
         bridge_url=urls["bridge"],
-        hosts=config.container.studio_hosts,
+        # The LAN address always names Light Studio, whatever STUDIO_HOSTS adds.
+        hosts=(config.gateway.lan_ip, config.container.core_address,
+               *config.container.studio_hosts),
         hue_config=config.hue_config_file,
     ))
     return 0
@@ -211,36 +213,27 @@ def _setup(config):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv and argv[0] in install.COMMANDS:
-        return install.main(argv)
     parser = argparse.ArgumentParser(description="Lights Can Communicate v2 managed core")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("command", nargs="?", default="adapter",
-                        choices=("adapter", "setup", "ready", "services"))
-    parser.add_argument("--config", required=True, help="Version-one service configuration")
+                        choices=("adapter", "setup", "container"))
+    parser.add_argument("--config", help="Version-two service configuration")
     parser.add_argument(
         "--check", action="store_true", help="adapter: validate without network or state writes"
     )
-    parser.add_argument("--release", help="services: installed release directory")
-    parser.add_argument("--output", help="services: new directory for the Compose project")
-    parser.add_argument("--timeout", type=float, default=10.0, help="ready: seconds to wait")
+    parser.add_argument("--data", default="/data", help="container: the data folder")
     args = parser.parse_args(argv)
     try:
+        if args.command == "container":
+            from . import container
+
+            return container.run(args.data)
+        if not args.config:
+            raise ConfigError("This command requires --config")
         config = load_config(args.config)
         if args.command == "adapter":
             return _adapter(config, args.check)
-        if args.command == "setup":
-            return _setup(config)
-        if args.command == "ready":
-            token = _credential(config.token_file).decode()
-            result = services.ready(config, token, timeout=max(0.0, min(args.timeout, 300.0)))
-            print(json.dumps(result))
-            return 0 if result["ready"] else 1
-        if not args.release or not args.output:
-            raise ConfigError("services requires --release and --output")
-        names = services.render(config, args.config, args.release, args.output)
-        print(json.dumps({"rendered": names}))
-        return 0
+        return _setup(config)
     except (ConfigError, OSError, ValueError) as error:
         message = (
             str(error) if isinstance(error, ConfigError) else "Command failed to start or stop"

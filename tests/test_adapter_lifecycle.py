@@ -32,7 +32,7 @@ class RegistryCheckTests(unittest.TestCase):
                 (state / name).write_text(content)
                 (state / name).chmod(0o600)
             (root / "core.json").write_text(json.dumps({
-                "version": 1, "state_dir": "state",
+                "version": 2, "state_dir": "state",
                 "adapter": {"targets_file": "targets.json", "token_file": "state/token",
                             "power_owner_token_file": "state/owner"},
                 **nas_profile.sections(),

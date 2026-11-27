@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "state_dir": "../state",
   "adapter": {
     "targets_file": "../state/live-targets.json",
@@ -12,7 +12,9 @@
     "hue_play": true,
     "hue_stream_config_file": "../state/hue-stream.json"
   },
-  "setup": {"port": 19881},
+  "setup": {
+    "port": 19881
+  },
   "gateway": {
     "lan_ip": "192.168.10.50",
     "mac": "02:00:00:00:00:01",
@@ -20,12 +22,14 @@
     "hue_strip": true,
     "hue_play": true,
     "entertainment": true,
-    "gradient": true
+    "gradient": true,
+    "timezone": "America/Toronto"
   },
   "container": {
-    "lan": {"parent": "eth0", "subnet": "192.168.10.0/24",
-            "router": "192.168.10.1", "adapter_ip": "192.168.10.51"},
-    "core_subnet": "172.30.250.0/29",
-    "studio_hosts": ["192.168.10.5", "diskstation.local"]
+    "core_address": "172.30.250.3",
+    "studio_hosts": [
+      "192.168.10.5",
+      "diskstation.local"
+    ]
   }
 }

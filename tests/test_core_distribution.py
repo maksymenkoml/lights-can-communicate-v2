@@ -81,7 +81,7 @@ class CoreDistributionTests(unittest.TestCase):
             path.chmod(0o600)
         self.config = self.folder / "core.json"
         self.value = {
-            "version": 1,
+            "version": 2,
             "state_dir": "state",
             "adapter": {
                 "targets_file": "targets.json",
@@ -91,7 +91,7 @@ class CoreDistributionTests(unittest.TestCase):
                 "gradient": True,
             },
             # Loopback core network, so the packaged process can bind its address.
-            **nas_profile.sections(core_subnet="127.0.0.0/29"),
+            **nas_profile.sections(core_address="127.0.0.3"),
         }
         self.save()
         self.cwd = self.root / "elsewhere"
@@ -225,7 +225,7 @@ raise SystemExit(main(["--config", sys.argv[2], "--check"]))
     def test_strict_config_rejects_bad_values_without_echoing_secrets(self):
         cases = [
             {"version": True},
-            {"version": 2},
+            {"version": 1},
             {"adapter": {**self.value["adapter"], "bind": True}},
             {"unexpected": "a" * 48},
             {"state_dir": ""},

@@ -67,7 +67,7 @@ class ExplicitSelectionTests(unittest.TestCase):
         with TemporaryDirectory(prefix="tmp_explicit_selection_") as folder:
             path = Path(folder) / "service.json"
             path.write_text(json.dumps({
-                "version": 1, "state_dir": "state", "adapter": {
+                "version": 2, "state_dir": "state", "adapter": {
                     "targets_file": "targets.json", "token_file": "token",
                     "power_owner_token_file": "owner-token", "hue_config_file": "hue.json",
                 },

@@ -17,11 +17,10 @@ python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --version
 python3 -I -B /new/path/lights-can-communicate-v2-adapter.pyz --config /private/core.json --check
 ```
 
-The only supported runtime is the NAS container profile: Docker Compose runs the
-adapter, Light Studio and the virtual bridge from the pinned diyHue image (see
-"Managed service release" and "NAS container profile"). `--check` runs
-anywhere with Python and needs no network. Starting the adapter outside its
-container is not a supported deployment.
+The only supported runtime is the container image: one container runs the
+adapter, Light Studio and the virtual bridge (see "Container image install").
+`--check` runs anywhere with Python and needs no network. Starting the adapter
+outside its container is not a supported deployment.
 
 Python 3.10+ is required. Native video also requires OpenSSL; preflight checks its
 availability before starting the adapter. No pip/runtime library installation is
@@ -36,10 +35,11 @@ configuration fields can be omitted for Govee-only operation. Native video
 requires Hue configuration, `hue_play` and a native Hue profile in the light
 registry (see "Light registry"). Omit all Hue fields for Govee-only operation.
 `adapter.targets_file` and `adapter.native_profile_file` are optional: they are
-inputs of the one-time registry migration only. The `gateway` and
-`container` sections are mandatory: a configuration without them is rejected.
-The adapter listens on its core-network address only (`adapter.bind` may only
-repeat it).
+inputs of the one-time registry migration only. The `gateway` section is
+mandatory; `container` is optional. The configuration version is 2 (a version-1
+file is converted by the container entrypoint, see "Container image install").
+The adapter listens on the core address (`container.core_address`) only
+(`adapter.bind` may only repeat it).
 
 Referenced files retain the existing live adapter formats. The two local token files
 must already exist, contain distinct bounded hexadecimal credentials and have
@@ -130,55 +130,96 @@ group "90" does not change. During Sync only the lights of the Sync Box's room
 follow the stream: the Govee lights of the other rooms keep their scenes and
 HomeKit power.
 
-## Managed service release
+## Container image install
 
-A release directory holds everything the services run, without a checkout:
+Each release publishes `ghcr.io/maksymenkoml/lights-can-communicate-v2:<version>`.
+The image is the pinned diyHue image plus the release (`python3 -B -m
+lights_can_communicate_v2_core.dist --output DIR` builds it: the archive
+`lights-can-communicate-v2.pyz`, the `gateway/` bridge modules, the Homebridge
+plugin tarball and a `manifest.json` with the version and the SHA256 of every
+file). Its entrypoint is `python3 -I -B /app/lights-can-communicate-v2.pyz
+container`, which runs the gateway (`/probe/bootstrap.py --docker`), the adapter
+and Light Studio as child processes. `/data` is the only volume.
 
-```sh
-python3 -B -m lights_can_communicate_v2_core.dist --output /new/path/releases/0.1.0.devN
-R=/new/path/releases/0.1.0.devN
-python3 -I -B $R/lights-can-communicate-v2.pyz services --config /private/core.json \
-  --release $R --output /new/path/services-0.1.0.devN
+Commands of the archive: `adapter` (default), `setup` (Light Studio on
+`setup.bind:setup.port`, default `0.0.0.0:19881`) and `container`
+(`--data DIR`, default `/data`). An active `state_dir/live-output-hold` keeps
+`adapter` waiting until the hold is removed.
+
+Environment of `container`:
+
+- `CORE_ADDRESS` (required): the private IPv4 address of the container on the LAN.
+  It becomes `gateway.lan_ip`, the bridge address, and the address Govee replies
+  and LAN searches use. Light Studio always accepts it as a host name.
+- `TZ`: an IANA time zone name, default `Etc/UTC`. It becomes `gateway.timezone`
+  and the bridge's time zone.
+- `STUDIO_HOSTS`: optional comma separated host names or addresses that Light
+  Studio accepts besides `CORE_ADDRESS` (`container.studio_hosts`).
+
+Data folder:
+
+```
+core.json                  configuration, version 2
+state/                     durable state: bridge config, registry, layouts, ...
+state/adapter-token        internal tokens, mode 0600 (the gateway reads the
+state/power-owner-token    adapter token from the state it serves)
+backups/<stamp>-<from>-<to>/   snapshot before a version change (newest 5)
+version                    the version that last started
 ```
 
-The release contains `lights-can-communicate-v2.pyz` (adapter and Setup Studio),
-`gateway/` (the virtual bridge modules) and `manifest.json` (version and
-SHA256 per file). `services` refuses a release of another version and writes
-into a new directory only. It writes `compose.json`, one Compose project that
-holds the gateway, the adapter and Light Studio (see "NAS container profile").
+First start (no `core.json`): the entrypoint creates the two tokens, a random
+locally administered bridge MAC (the bridge identity, kept forever), an empty
+light registry and a version-2 `core.json` with live output and gradients on,
+`power_authority` `owner`, and the gateway flags `hue_strip`, `hue_play` and
+`entertainment` off. The gateway builds the virtual lights 3-6 and Desk
+Entertainment from the four migrated Hue lights, so a new install without them
+starts with no lights and no Hue bridge.
 
-Commands of the archive: `adapter` (default), `setup` (Setup Studio on
-`setup.bind:setup.port`, default `0.0.0.0:19881` inside its container),
-`ready` (exit 0 once the adapter `/status` and the bridge `/api/config` answer
-on the core network; prints a credential-free summary) and `services`. An
-active `state_dir/live-output-hold` keeps `adapter` waiting until the hold is
-removed, because Docker restarts a finished container whatever its exit code.
+Every start writes `gateway.lan_ip`, `gateway.timezone` and
+`container.studio_hosts` from the environment atomically (mode 0600) and
+validates the file. A version-1 `core.json` is converted once and every other
+value stays, including the bridge MAC and the token paths; the `lan` block, the
+core subnet and the gateway's `container_name` and `image` are dropped.
 
-Required configuration sections:
+When `version` differs from the image version (or is missing next to an existing
+`core.json`), the entrypoint copies `core.json`, the token files and `state/`
+into `backups/` before any child starts and keeps the newest five. Append-only
+`.jsonl` logs above 1 MB are not copied. Then it records the version.
+
+Supervisor: a child that exits restarts after 1 s, doubling to 30 s; a child that
+ran 60 s starts again with the short delay. SIGTERM and SIGINT forward SIGTERM
+to all children, wait 15 s, then kill them, and exit 0. The gateway's `CONFIG_PATH`
+is the data folder's `state/`.
+
+The container has two addresses: the LAN address (`CORE_ADDRESS`, macvlan) and
+`container.core_address` (default `172.30.250.3`) on an internal bridge network.
+The adapter listens on the second one only; Homebridge on the NAS host reaches
+the adapter and the bridge there, since a host cannot reach its own macvlan
+containers. Light Studio listens on every interface.
+
+Required configuration sections of a version-2 `core.json`:
 
 ```json
 "gateway": {"lan_ip": "192.168.1.20", "mac": "02:00:00:00:00:01",
-            "live_output": true, "hue_strip": true, "hue_play": true,
-            "entertainment": true, "gradient": true},
-"container": {"lan": {"parent": "eth0", "subnet": "192.168.1.0/24",
-                      "router": "192.168.1.1", "adapter_ip": "192.168.1.21"},
-              "studio_hosts": ["diskstation.local"]}
+            "live_output": true, "hue_strip": false, "hue_play": false,
+            "entertainment": false, "gradient": true, "timezone": "Etc/UTC"},
+"container": {"core_address": "172.30.250.3", "studio_hosts": ["diskstation.local"]}
 ```
 
 and the optional `"setup": {"port": 19881}` (`setup.bind` may only be
-`0.0.0.0`).
+`0.0.0.0`). `gateway` also accepts `adapter_url` (default
+`http://<core address>:<adapter port>`). `entertainment` requires `hue_strip`
+and `hue_play`: Desk Entertainment uses all six virtual lights.
 
 `adapter.power_authority` selects who owns Govee power: `owner` (default, the
 remote heartbeat of the Homebridge overlay) or `homekit` (this adapter executes
 power for the `homebridge-lights-can-communicate-v2` plugin through `/homekit`;
 `/power-owner` is then closed). See `homebridge/README.md`.
 
-`gateway` also accepts `container_name`, `image` (a pinned `diyhue/core`
-digest), `adapter_url` (default `http://<adapter core address>:<adapter port>`)
-and `timezone`. `entertainment` requires `hue_strip` and `hue_play`: Desk
-Entertainment uses all six virtual lights. Rendering and readiness never load,
-start or stop services; starting the compose project is a separate, owner
-authorized activation. Design: `docs/design/2026-11-17-core-managed-service.md`.
+Update: change the image version and rebuild the project; rollback: the previous
+version. The data folder survives both. If a release ever changes a state format
+incompatibly, restore the backup folder of the version change. Design:
+`docs/design/2026-11-26-container-image.md`.
 
 ## Compatibility and operation
 
@@ -584,100 +625,6 @@ membership. A missing, partial or invalid profile blocks Hue startup.
 Keep the previous artifact and configuration for rollback. Do not start a second
 writer. This migration does not deploy the new artifact or change a running service.
 
-## Installation, upgrades and rollback
-
-Each release `manifest.json` declares a `compatibility` contract:
-- configuration versions it reads;
-- durable state schemas it writes;
-- minimum Python and the pinned gateway image;
-- the `/homekit` API version;
-- the bundled Homebridge plugin tarball (`plugin/*.tgz`). The tarball is built
-  deterministically in Python and needs no npm or network.
-
-The plugin refuses a core whose `/homekit` API version differs from its
-`CORE_API`. An installation directory holds `config/core.json`, `state/`,
-`releases/<version>/`, a `current` symlink, `backups/` and the `install.json`
-journal. Run every command from a release archive:
-
-```sh
-python3 -I -B RELEASE/lights-can-communicate-v2.pyz stage --release RELEASE --base BASE
-python3 -I -B BASE/current/lights-can-communicate-v2.pyz activate VERSION --base BASE
-python3 -I -B BASE/current/lights-can-communicate-v2.pyz rollback --base BASE
-python3 -I -B BASE/current/lights-can-communicate-v2.pyz status --base BASE
-```
-
-`stage` does the following and never changes the active release:
-1. Verifies every manifest hash.
-2. Checks the configuration version and the Python version.
-3. Runs the new archive's `adapter --check`.
-4. Renders the Compose project whose paths go through `BASE/current`, and records
-   the digest of `core.json` they were rendered from (`services/config.sha256`).
-
-When `core.json` changes, run `stage` again with the same archive: it renders
-the Compose project of a staged release again. It refuses for the active
-release, because its running services were started from those files. A release
-rendered before digests existed is not treated as stale; it records a digest
-when it is staged again while inactive. `activate` and `rollback`
-also render a release again when its files come from another configuration;
-they refuse when the release is of another version than the running archive.
-`activate` of the active version then needs stopped components and prints the
-start commands, like any other transition.
-
-`activate` and `rollback` refuse while the adapter, Setup Studio or gateway
-still answers locally. They snapshot durable state (without logs, request
-logs or stream journals) and swap `current` atomically. They print the start
-commands but never start, stop or restart services.
-
-`rollback` restores the upgrade snapshot only when the two releases declare
-different state schemas. Even then, the state it replaces is kept in the
-rollback snapshot first. Each step is journaled and repeatable, so after an
-interruption the next command finishes the transaction. The five newest
-snapshots and the current upgrade point are kept. Activation and rollback of
-the live installation still need the owner's approval; these commands never
-publish packages.
-
-### NAS container profile
-
-The required `container` section in `core.json` describes the NAS profile, the
-only supported runtime (`docs/design/2026-11-20-nas-container-profile.md`,
-issue #9):
-
-```json
-"container": {
-  "lan": {"parent": "eth0", "subnet": "192.168.10.0/24",
-          "router": "192.168.10.1", "adapter_ip": "192.168.10.51"},
-  "core_subnet": "172.30.250.0/29",
-  "studio_hosts": ["192.168.10.5", "diskstation.local"]
-}
-```
-
-`stage` renders one `services/compose.json`. Docker
-runs the gateway, the adapter and Light Studio from the pinned diyHue image
-with `restart: unless-stopped`:
-- The gateway (`gateway.lan_ip`) and the adapter (`lan.adapter_ip`) get their
-  own LAN addresses on a macvlan network. Hue clients need TCP 80/443 and Govee
-  replies use UDP 4002; the NAS and its Govee plugin hold those ports.
-  Choose both addresses outside the router's DHCP pool. `gateway.mac` stays the
-  bridge identity; Docker derives the interface MAC from the address.
-- All three share the core network (`core_subnet`, gateway `.2`, adapter `.3`,
-  Light Studio `.4`). The NAS host, Homebridge and Light Studio use these
-  addresses; a host cannot reach its own macvlan containers. The adapter
-  listens on its core address only.
-- Light Studio is published on `setup.port` of the NAS and accepts the Host
-  names in `studio_hosts` besides loopback. It has no password yet (#53). Its
-  Sync guard restarts Sync on the Sync Box after a bridge restart or a stall,
-  never the bridge container.
-- Configured files must lie in the configuration directory or `state_dir`.
-  These and the release are mounted at their host paths.
-- An owner `live-output-hold` keeps the adapter waiting instead of exiting.
-
-The installer commands need Python 3.10 or later. Without it on the NAS, run
-them in the pinned image with the installation mounted at its own path, for
-example `docker run --rm --network host -v BASE:BASE --entrypoint python3 IMAGE
--I -B ARCHIVE status --base BASE`. Host networking lets the stop check reach
-the core addresses. Start with
-`docker compose -f BASE/current/services/compose.json up -d --force-recreate`.
-
 ## Stream recovery diagnostics
 
 `0.1.0.dev5` reuses the authenticated bridge-to-adapter HTTP connection for
@@ -703,8 +650,8 @@ credentials, frame payloads, exception text or device addresses are logged by
 these journals. A journal failure increments `write_errors` without interrupting
 output. Existing protocol request logs are separate.
 
-Before recreating the containers, stop Sync on the Sync Box. After `ready`
-reports the gateway, start Sync and confirm that frames arrive. The
+Before recreating the container, stop Sync on the Sync Box. After the bridge
+answers on `/api/config`, start Sync and confirm that frames arrive. The
 control-datagram counter and the actual DTLS frame counter are distinct checks.
 See `evidence/sync-transport-recovery.json` for a delivery failure observed on
 the former Mac host, sequential live observation windows, tests and measurement
@@ -873,8 +820,7 @@ screen: `Rooms.place_sync_box` and a layout write to the Sync room without one a
 refused with `no_screen` (HTTP 409 in Light Studio). Light Studio draws at most
 one desk and one display (on the desk, or hanging in a room without one) and keeps
 the desk's id and place; a room with other pieces opens read-only. A new room is
-empty: no furniture and no display. `STATE_SCHEMAS["desk_layout"]` is 8, so a rollback restores the
-pre-upgrade layout.
+empty: no furniture and no display.
 
 ## Lamp controls
 

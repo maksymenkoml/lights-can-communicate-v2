@@ -291,7 +291,7 @@ class ProfileConfigurationIntegrationTests(unittest.TestCase):
             path.write_text(token)
             path.chmod(0o600)
         self.data = {
-            "version": 1, "state_dir": "state",
+            "version": 2, "state_dir": "state",
             "adapter": {
                 "targets_file": "targets.json", "token_file": "token",
                 "power_owner_token_file": "power-token", "hue_config_file": "hue.json",

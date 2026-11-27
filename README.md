@@ -6,10 +6,9 @@ Hue app and a Hue Sync Box as one virtual Hue bridge. The bridge is documented i
 release format are documented in [core/README.md](core/README.md). The commands
 below describe the original palette CLI, `lights_can_communicate_v2.py`.
 
-The only supported runtime is the NAS container profile: Docker Compose runs the
-virtual bridge, the adapter and Light Studio on a macvlan LAN network and a fixed
-core network, from the `container` section of `core.json`. A configuration
-without that section is rejected.
+The core runs as one container image, `ghcr.io/maksymenkoml/lights-can-communicate-v2`,
+with the virtual bridge, the adapter and Light Studio inside. See
+[Install on a Synology NAS](#install-on-a-synology-nas).
 
 Copy the stored palette of one Philips Hue light to one or two Govee LAN
 controllers. The runtime uses Python 3.10+ and its standard library only.
@@ -23,13 +22,39 @@ Sync and one for scenes without Sync. Each configuration has its own brightness
 corrections and fade zone. A lamp card can blink the lamp, rename a desk lamp,
 and choose whether the lamp follows Sync, keeps its own light or switches off
 during Sync. Its frontend is in `studio/static/` and its
-server is `studio/server.py`; it runs as the `studio` container of the NAS project.
+server is `studio/server.py`; it runs inside the core container.
 
 ![Light Studio in the Sync view: a colour-wheel demo picture on the monitor and the colours that Sync would send to the two Govee floor lamps and the monitor strip](docs/images/light-studio.png)
 
 *Sync view with the default six-light layout, captured locally without connected
 hardware. Without running Sync, the monitor shows a demo picture and the lamps
 preview the colours that Sync would send.*
+
+## Install on a Synology NAS
+
+You need DSM 7.2 with Container Manager, a free address on your home network
+outside the router's DHCP range, and the address of your router.
+
+1. In File Station, create a folder, for example `docker/lights-can-communicate-v2`.
+2. In Container Manager, open **Project > Create**. Name it
+   `lights-can-communicate-v2`, choose that folder, select
+   **Create docker-compose.yml** and paste
+   [deploy/synology/compose.yaml](deploy/synology/compose.yaml).
+3. Change the values marked `CHANGE`: the release version, `CORE_ADDRESS` (twice),
+   the network interface, your network and router, the time zone and the NAS
+   address for Light Studio.
+4. Select **Next** and **Done**. Container Manager downloads the image and starts
+   the core.
+5. Open Light Studio at `http://<NAS address>:19881`.
+
+The first start creates the configuration, the internal credentials and the
+virtual bridge identity in the `data` folder next to the project file. Keep that
+folder: it holds the pairings and all settings.
+
+**Update:** in the project, select **YAML configurations**, change the image
+version, save, then **Action > Build**. Before it starts a different version, the
+core copies its configuration and state to `data/backups/`.
+**Roll back:** set the previous version the same way.
 
 ## Development
 
