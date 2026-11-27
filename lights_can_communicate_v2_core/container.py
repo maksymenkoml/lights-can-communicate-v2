@@ -48,6 +48,8 @@ PYTHON = "python3"
 CONFIG_FILE = "core.json"
 # The core network of a version-1 project when it named none.
 V1_CORE_SUBNET = "172.30.250.0/29"
+# The names of the adapter on a version-1 project's Compose network.
+V1_ADAPTER_NAMES = frozenset({"adapter", "lights-can-communicate-v2-adapter"})
 VERSION_FILE = "version"
 BACKUPS = "backups"
 STATE = "state"
@@ -205,19 +207,27 @@ def first_start(data, env):
     })
 
 
-def _on_old_core(url, subnet):
-    """Whether ``url`` names a host on the old core network (default subnet if unset)."""
+def _migrated_adapter_url(url, subnet):
+    """``url`` with the fixed core address when it named the old adapter, else unchanged.
+
+    The old adapter was reached by an address on the old core network (its
+    ``core_subnet``, or the version-1 default) or by its Compose service or
+    container name; the port stays.
+    """
     try:
-        host = urlsplit(url).hostname
-        network = ipaddress.IPv4Network(subnet if isinstance(subnet, str) else V1_CORE_SUBNET)
-        return host is not None and ipaddress.IPv4Address(host) in network
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+        if host is None:
+            return url
+        if host not in V1_ADAPTER_NAMES:
+            network = ipaddress.IPv4Network(
+                subnet if isinstance(subnet, str) else V1_CORE_SUBNET)
+            if ipaddress.IPv4Address(host) not in network:
+                return url
     except ValueError:
-        return False
-
-
-def _with_host(url, host):
-    parts = urlsplit(url)
-    netloc = host if parts.port is None else f"{host}:{parts.port}"
+        return url
+    netloc = CORE_ADDRESS if port is None else f"{CORE_ADDRESS}:{port}"
     return urlunsplit(parts._replace(netloc=netloc))
 
 
@@ -240,10 +250,9 @@ def convert_v1(data):
         gateway = {key: value for key, value in gateway.items()
                    if key not in ("container_name", "image")}
         url = gateway.get("adapter_url")
-        if isinstance(url, str) and _on_old_core(url, container.get("core_subnet")):
-            # The gateway reached the adapter on the old core network; the adapter now
-            # binds to the fixed core address, with the same port.
-            gateway["adapter_url"] = _with_host(url, CORE_ADDRESS)
+        if isinstance(url, str):
+            # The adapter now binds to the fixed core address.
+            gateway["adapter_url"] = _migrated_adapter_url(url, container.get("core_subnet"))
         result["gateway"] = gateway
     for section in ("adapter", "setup"):
         value = result.get(section)
@@ -299,13 +308,13 @@ def _read_backup_config(data):
     return value if isinstance(value, dict) else {}
 
 
-def _state_dir(data, config):
-    """The state folder that ``config`` names, inside the data folder and outside backups."""
+def _state_dir(root, config):
+    """The state folder that ``config`` names, inside the resolved data folder ``root``
+    and outside its backups."""
     value = config.get("state_dir", STATE)
     if not isinstance(value, str) or not value or "\x00" in value:
         raise ConfigError("Invalid path for state_dir")
-    root = data.resolve()
-    state = (data / value).resolve()
+    state = (root / value).resolve()
     if not state.is_relative_to(root) or state == root:
         # A backup copies the whole state; a folder outside /data is not in the volume.
         raise ConfigError("state_dir must be a folder inside the data folder")
@@ -328,16 +337,16 @@ def _require_core_address(address):
         probe.close()
 
 
-def _token_paths(data, options, state):
-    """Token files named by the adapter section that lie outside the state folder."""
+def _token_paths(root, options, state):
+    """Token files named by the adapter section, inside the resolved data folder
+    ``root`` and outside the state folder."""
     found = []
     for key in ("token_file", "power_owner_token_file"):
         value = options.get(key) if isinstance(options, dict) else None
         if not isinstance(value, str) or not value or "\x00" in value:
             continue
-        path = (data / value).resolve()
-        if path.is_file() and path.is_relative_to(data.resolve()) and not path.is_relative_to(
-                state):
+        path = (root / value).resolve()
+        if path.is_file() and path.is_relative_to(root) and not path.is_relative_to(state):
             found.append(path)
     return found
 
@@ -349,9 +358,10 @@ def backup(data, previous, current, now=None):
     complete. Returns its path.
     """
     config = _read_backup_config(data)
+    resolved = data.resolve()
     # Validated before anything is written, so a refused layout leaves no trace.
-    state = _state_dir(data, config)
-    tokens = _token_paths(data, config.get("adapter"), state)
+    state = _state_dir(resolved, config)
+    tokens = _token_paths(resolved, config.get("adapter"), state)
     root = data / BACKUPS
     root.mkdir(mode=0o700, exist_ok=True)
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
@@ -365,11 +375,11 @@ def backup(data, previous, current, now=None):
         partial.chmod(0o700)
         shutil.copy2(data / CONFIG_FILE, partial / CONFIG_FILE)
         for token in tokens:
-            destination = partial / token.relative_to(data.resolve())
+            destination = partial / token.relative_to(resolved)
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             shutil.copy2(token, destination)
         if state.is_dir():
-            shutil.copytree(state, partial / state.relative_to(data.resolve()),
+            shutil.copytree(state, partial / state.relative_to(resolved),
                             ignore=_skip_large_logs)
         os.replace(partial, target)
     except BaseException:

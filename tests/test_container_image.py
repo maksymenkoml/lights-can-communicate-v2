@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -248,6 +249,16 @@ class VersionOneTests(DataFolderCase):
         config = self.prepare()
         self.assertEqual(config.gateway.environment()["PROBE_ADAPTER_URL"],
                          "http://172.30.250.3:19880")
+
+    def test_an_adapter_url_with_the_old_compose_name_follows_the_adapter(self):
+        for url in ("http://adapter:19880", "http://lights-can-communicate-v2-adapter:19880"):
+            with self.subTest(url=url):
+                shutil.rmtree(self.data, ignore_errors=True)
+                value = json.loads(json.dumps(V1))
+                value["gateway"]["adapter_url"] = url
+                self.seed(value)
+                self.assertEqual(self.prepare().gateway.adapter_url,
+                                 "http://172.30.250.3:19880")
 
     def test_an_unrelated_adapter_url_stays(self):
         value = json.loads(json.dumps(V1))
