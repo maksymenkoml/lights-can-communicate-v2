@@ -175,7 +175,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,power,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
+async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,power,syncBox=()=>({state:'none'}),roomsGate=null,hueBridge=null,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -205,7 +205,7 @@ async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=save
    if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/power'){assert.ok(power,'unexpected power change');const result=await power(JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
-   if(url==='/api/rooms'){requests.rooms.push(now);if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
+   if(url==='/api/rooms'){requests.rooms.push(now);const gate=roomsGate&&roomsGate(requests.rooms.length);if(gate)await gate;if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
    if(url.startsWith('/api/rooms/')){const body=JSON.parse(options.body);requests.roomPosts.push({url,body});const result=roomPost?await roomPost(url.slice(11),body,server):null;return result?response(result.status,result.body):response(200,roomsAnswer())}
    const [route,query]=url.split('?');assert.equal(route,'/api/layout');
    const asked=query?decodeURIComponent(query.replace(/^room=/,'')):FIRST;
@@ -853,6 +853,24 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
 });
 
 async function openCard(app){app.dispatch(app.stage.querySelector('[data-chip-action="more"]'),'pointerdown');await app.settle()}
+// A Play bar turns from its lamp card, not from a button on its chip.
+test('Rotate 90° is a row of the card of a bar lamp; the chip has only the card button',async()=>{
+ const app=await harness();
+ app.run('select("play-left")');await app.settle();
+ assert.equal(app.stage.querySelector('[data-chip-action="rotate"]'),null);
+ assert.ok(app.stage.querySelector('[data-chip-action="more"]'));
+ await openCard(app);
+ const row=app.$('#object-menu [data-menu="rotate"]');assert.ok(row);assert.equal(row.textContent.trim(),'Rotate 90°');
+ const before=app.run('lamps.find(l=>l.id==="play-left").vertical');
+ await app.click(row);
+ assert.equal(app.run('lamps.find(l=>l.id==="play-left").vertical'),!before);
+ assert.ok(app.$('#object-menu [data-menu="rotate"]'),'the card stays open to rotate back');
+ await app.click(app.$('#object-menu [data-menu="rotate"]'));
+ assert.equal(app.run('lamps.find(l=>l.id==="play-left").vertical'),before);
+ app.run('closeObjectMenu();select("govee-left")');await app.settle();await openCard(app);
+ assert.equal(app.$('#object-menu [data-menu="rotate"]'),null,'a floor lamp does not rotate');
+});
+
 const SYNC_IDLE={sync:{state:'idle',reason:'no_source',blockers:[]}};
 
 test('a lamp chip is one button that opens the card, and the scene has no correction rail',async()=>{
@@ -1630,6 +1648,22 @@ test('a first visit while the box syncs also starts in the Sync view without a f
  const app=await harness({syncBox:syncingBox()});
  assert.equal(app.run('mode'),'sync');
  assert.equal(app.$('#app').querySelector('.mode-fade'),null);
+});
+
+// The box can answer before the room list: the page waits for its room before it
+// settles the view, so neither a room without the box nor the Sync room fades at start.
+test('a box answer that arrives before the room list settles no view until the room is known',async()=>{
+ for(const [room,want] of [[BEDROOM,'placement'],[OFFICE,'sync']]){
+  let release;
+  const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',room]]),syncBox:syncingBox(),roomsGate:n=>n===1?new Promise(done=>{release=done}):null});
+  await app.advance(100);
+  assert.equal(app.run('viewSettled'),false,'no view settles before the rooms answer');
+  assert.equal(app.run('mode'),'placement');
+  release();await app.advance(100);
+  assert.equal(app.run('mode'),want);
+  assert.equal(app.$('#app').querySelector('.mode-fade'),null,'the first view shows without a fade');
+  assert.equal(app.$('#app').classList.contains('no-sync'),room===BEDROOM);
+ }
 });
 
 test('a lamp that is off is not a problem: an owner Off during Sync shows the grey power mark without a status',async()=>{

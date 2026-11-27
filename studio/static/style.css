@@ -71,7 +71,7 @@ h1,h2,p{margin:0}
 .lamp .object-edge{stroke:#ffffff;stroke-opacity:.5;stroke-width:1;fill:none;pointer-events:none}
 .furniture-select{fill:none;stroke:var(--accent);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0;pointer-events:none}
 .desk-group.chosen .furniture-select,.cabinet-group.chosen .furniture-select,.monitor-group.chosen .furniture-select,.box-group.chosen .furniture-select{opacity:1}
-.stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}.app .scene-snapshot.snapshot-light .stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}
+.stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}
 .sync-mode .lamp{cursor:grab}.sync-mode .lamp:active{cursor:grabbing}
 .app.placing .stage,.app.placing .lamp{cursor:crosshair}
 .app.placing .lamp.chosen .outline{opacity:0}.app.placing .placement-ghost .outline{opacity:1;stroke-dasharray:5 5}.placement-ghost{opacity:.6;pointer-events:none}
@@ -434,12 +434,16 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
  #object-menu.card,#object-menu .card-pages,#object-menu .card-page,.obj-chip .chev path{transition:none}
 }
 
-/* Sync bar at the bottom centre: the Sync status, Start/Stop, messages and the connect steps.
-   Messages and the card open above the bar. */
-.sync-bar{position:absolute;left:0;right:0;bottom:25px;margin:0 auto;width:max-content;max-width:calc(100% - 24px);z-index:6;flex-direction:column-reverse!important;padding:7px!important}
+/* Sync bar at the bottom centre: the Sync status and Start/Stop. The bar keeps its size;
+   messages and the card (box details, connect steps) pop up above it on their own. */
+.sync-bar{position:absolute;left:0;right:0;bottom:25px;margin:0 auto;width:max-content;max-width:calc(100% - 24px);z-index:6;padding:7px!important}
+
+.sync-pop{position:absolute;left:50%;translate:-50% 0;bottom:calc(100% + 8px);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.sync-pop>*{pointer-events:auto}
+.sync-bar #box-card{width:320px;max-width:calc(100vw - 24px);margin:0;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.sync-bar .box-said{margin:0;width:max-content;max-width:calc(100vw - 24px);border:1px solid var(--line);border-radius:var(--r-panel);box-shadow:var(--shadow)}
 .box-corner{display:flex;flex-direction:column;align-items:stretch;min-width:0;padding:5px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);border-radius:var(--r-panel);pointer-events:auto;font-size:var(--fs-ui);color:var(--text);animation:card-in .18s cubic-bezier(.2,.8,.2,1) both;transition:width .2s ease}
 .box-corner[hidden]{display:none}
-.box-corner.open{width:320px}
 .box-bar{display:flex;align-items:center;justify-content:space-between;gap:2px}
 .box-corner button{display:flex;align-items:center;gap:7px;height:35px;padding:0 12px 0 9px;border-radius:var(--r-ctl);color:var(--text);font-weight:500;white-space:nowrap;transition:background .15s ease,color .15s ease}
 .box-corner button:hover:not(:disabled){background:var(--soft);color:var(--accent)}
@@ -449,10 +453,10 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-corner .box-start:hover:not(:disabled){filter:brightness(1.08)}
 .box-corner .box-connect{color:var(--accent)}
 .box-said[hidden],.box-act[hidden]{display:none}
-.box-said{display:flex;align-items:center;gap:7px;margin:0 0 2px;padding:6px 10px;border-radius:var(--r-ctl);font-weight:500;animation:card-in .18s ease both}
+.box-said{display:flex;align-items:center;gap:7px;margin:0;padding:6px 10px;border-radius:var(--r-ctl);font-weight:500;animation:card-in .18s ease both}
 .box-said[data-kind=ok]{color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--surface))}
 .box-said[data-kind=bad]{color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
-#box-card{margin:-7px -7px 7px;border-bottom:1px solid var(--line);font-size:var(--fs-ui)}
+#box-card{font-size:var(--fs-ui)}
 #box-card[hidden]{display:none}
 #box-card svg{width:16px;height:16px;flex:none}
 #box-card.opening{animation:card-in .18s cubic-bezier(.2,.8,.2,1) both}
@@ -477,7 +481,13 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-ring b{font-size:var(--fs-ui);font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
 .box-track{fill:none;stroke:var(--line);stroke-width:2.5}
 .box-arc{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-dasharray:119.4;transition:stroke-dashoffset 1s linear}
-@media(max-width:550px){.box-corner.open{width:calc(100vw - 60px)}}
+/* On a phone the bar shares the bottom row with Objects and undo/redo: it shows the
+   status dot and the action icon only. */
+@media(max-width:550px){
+ .sync-bar{bottom:20px;padding:4px!important}
+ .sync-bar .box-bar button{padding:0 10px}
+ .sync-bar .box-bar button span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+}
 @media (prefers-reduced-motion:reduce){.box-corner,.box-said,#box-card.opening{animation:none}.box-arc{transition:none}}
 #box-card .card-row svg path,.note svg path{fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 /* The status is the left of the bar: dot and words; it opens the box details. */

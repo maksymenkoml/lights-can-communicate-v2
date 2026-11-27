@@ -26,7 +26,8 @@ const draftKey=id=>!id||id===FIRST_ROOM?'light-studio-grid-v3':'light-studio-gri
 // The room this browser edits; the server's first room until the rooms are known.
 let currentRoom=ROOM_ID.test(store.get(ROOM_KEY)||'')?store.get(ROOM_KEY):null,KEY=draftKey(currentRoom);
 // /api/rooms: the rooms in order, the Sync Box's room and where each light is.
-let roomsInfo=null,roomsOpen=false,roomEditing=null,roomAdding=false,roomConfirm=null,roomNote=null,roomDragged=null,roomLayouts={},moveOpen=false;
+// roomsKnown: the room list answered, or the page fell back to one room without it.
+let roomsKnown=false,roomsInfo=null,roomsOpen=false,roomEditing=null,roomAdding=false,roomConfirm=null,roomNote=null,roomDragged=null,roomLayouts={},moveOpen=false;
 const SAVE_DELAY_MS=300,RETRY_MS=3000,DISCOVERY_POLL_MS=3000;
 // About 20 updates a second: Sync frames arrive at 15-25 Hz and a loopback answer takes a few ms.
 const LIVE_POLL_MS=50,LIVE_DEADLINE_MS=1000,LIVE_FRESH_MS=1500;
@@ -603,7 +604,7 @@ function handlesSvg(geo){
    m.push({axis:'v',x:f.left-12,y1:740,y2:f.ref,text:l.h+' cm',edit:'h',value:l.h,leader:f.left});
    m.push({axis:'h',x1:cx,x2:f.x,y:758,text:signed(l.x-s.x),edit:'x',value:l.x-s.x});
   }
-  const actions=(l.shape==='bar'?[{id:'rotate',label:'Rotate 90°'}]:[]).concat([{id:'more',label:'Lamp settings'}]);
+  const actions=[{id:'more',label:'Lamp settings'}];
   chip=chipSvg(f.x,f.top-6,l.name,chipStatus(l),actions);
  }
  let lines='',labels='';
@@ -1138,11 +1139,11 @@ function setMode(m){
  animation.onfinish=()=>{if(modeFade===fade)modeFade=null;layer.remove()};
 }
 // The Sync state the page follows: the one Start or Stop is switching to, else the box's.
-function syncTarget(){const busy=boxBusy??box.changing??null;return busy===null?box.syncing===true:busy===true}
+function syncTarget(){return (boxBusy??box.changing??box.syncing)===true}
 let viewSettled=false;
 function followSync(){
  // Until the page knows its room it cannot tell whether that room has Sync.
- if(roomsInfo&&!currentRoom)return;
+ if(!roomsKnown||roomsInfo&&!currentRoom)return;
  const want=syncHere()&&syncTarget()?'sync':'placement';
  // The first known box state is the page's starting view, without a fade.
  const fade=viewSettled;if(box.state!=='unknown')viewSettled=true;
@@ -1223,6 +1224,7 @@ function cardMenu(l){
   +powerField(l)+connectedField(l)
   +(syncHere()?'<div class="card-field'+(l.unbound?' disabled':'')+'"><span>During Sync</span>'+seg('role-',[['sync','Sync'],['own','Own light']].concat(isRole(l.id)?[['off','Off']]:[]),syncRole(l),l.unbound)+'</div>':'')
   +'<div class="card-list"><button class="card-row" data-menu="blink"'+(l.unbound?' disabled title="Not connected"':'')+'>'+iconSvg('blink')+'<span>Blink</span></button>'
+  +(l.shape==='bar'?'<button class="card-row" data-menu="rotate">'+iconSvg('rotate')+'<span>Rotate 90°</span></button>':'')
   +'<button class="card-row" data-menu="calibrate">'+iconSvg('calibrate')+'<span>Calibrate</span><em>'+calSummary(l)+'</em>'+iconSvg('next')+'</button>'
   +(movable(l)?'<button class="card-row" data-menu="move">'+iconSvg('room')+'<span>Move to room</span>'+iconSvg('next')+'</button>':'')+'</div>'
   +'<div class="card-list card-end"><button class="card-row danger" data-menu="remove">'+iconSvg('remove')+'<span>Remove from layout</span></button></div>';
@@ -1354,6 +1356,7 @@ function menuAction(id){
  if(id==='disconnect-cancel'){const f=menu.querySelector('[data-connected-field]');if(f)f.outerHTML=connectedField(l);return true}
  if(id==='disconnect-ok'){changeLink(l,'disconnect');return true}
  if(id==='blink'){if(!l.unbound){const row=menu.querySelector('[data-menu="blink"]');row?.classList.remove('pulsing');void row?.offsetWidth;row?.classList.add('pulsing');setTimeout(()=>row?.classList.remove('pulsing'),1000);blinkLamp(l)}return true}
+ if(id==='rotate'){rotateSelected();return true}
  if(id==='calibrate'){openCalibrate(l);return true}
  if(id==='move'){openMovePage(l);return true}
  if(id==='move-back'){closeMovePage();return true}
@@ -2006,6 +2009,8 @@ async function connectLayout(retried=false){
   if(!saved.layout||hasLocalEdits)save();else setDraftState('saved');
  }catch{
   if(generation!==roomGeneration)return;
+  // Without the room list the page edits one room, which has Sync.
+  if(!roomsKnown){roomsKnown=true;followSync()}
   serverReady=false;setDraftState('error');if(!offlineNotice)tell('Light Studio server is unavailable. The layout is kept in this browser.');offlineNotice=true;
   clearTimeout(retryTimer);retryTimer=setTimeout(connectLayout,RETRY_MS);
  }
@@ -2152,7 +2157,7 @@ stage.addEventListener('pointerdown',e=>{
  // lamp, and its click (below) switches the lamp on.
  if(e.target.closest('.health-badge.off')){e.preventDefault();e.stopPropagation();return}
  const action=e.target.closest('[data-chip-action]'),label=e.target.closest('[data-edit]');
- if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='rotate'){closeObjectMenu();rotateSelected()}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
+ if(action||label){e.preventDefault();skipClick=true;if(label){closeObjectMenu();startLabelEdit(label)}else if(action.dataset.chipAction==='auto'){resetZone()}else if(action.dataset.chipAction==='fade'){toggleFade()}else openObjectMenu(action);return}
  if(e.target.closest('.obj-chip')){e.preventDefault();skipClick=true;return}
  const grip=e.target.closest('[data-handle]');
  // The lamp card stays open until its chip or Esc closes it: a stray click must not lose
@@ -2450,7 +2455,7 @@ async function refreshRooms(follow=true){
  try{
   const r=await fetch('/api/rooms',{cache:'no-store'});if(!r.ok)return false;
   const b=await r.json();if(!validRooms(b))return false;
-  takeRooms(b);
+  takeRooms(b);roomsKnown=true;
   if(!currentRoom||roomsInfo.rooms.some(r=>r.id===currentRoom))applyRoomChrome();
   else if(follow){closeRooms();closePanel();closeObjectMenu();enterRoom(roomsInfo.rooms[0].id);tell('That room was deleted');connectLayout()}
   return true;

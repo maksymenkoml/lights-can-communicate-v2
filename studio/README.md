@@ -36,7 +36,7 @@ files and credentials are never served. The page makes no external requests.
   lamp, opens the lamp card beside the lamp, on the side of the nearer screen
   edge. The card shows the lamp, its Sync blocker with a hint, the Power switch, "During Sync:
   Sync / Own light / Off", Blink, "Calibrate ›" with the brightness correction
-  of the current view, and Remove. Removal always asks inline; removed lamps
+  of the current view, Rotate 90° for a Play bar, and Remove. Removal always asks inline; removed lamps
   return through "Found".
 - The view is not stored: neither in the layout nor in the browser.
 
@@ -291,7 +291,8 @@ hold (`live-output-hold`) reports Not syncing without contacting the adapter.
 The Sync bar at the bottom centre is one block for everything about Sync: one Sync
 status (a dot and its words), one action, short messages ("Connected", "The Sync
 Box did not respond") and, when opened, the connect steps or the box details.
-Messages and the opened card appear above the bar.
+The bar keeps its size; messages and the opened card pop up above it. On a phone
+the bar shows only the status dot and the action icon.
 
 | Situation | Status | Action |
 | --- | --- | --- |
