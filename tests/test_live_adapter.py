@@ -317,6 +317,54 @@ class LiveAdapterTests(unittest.TestCase):
         legacy.render()
         self.assertEqual([name for _, name, _ in self.sent], ["colorwc"])
 
+    def test_an_owner_power_change_during_sync_switches_dreamview_on_again(self):
+        # An owner Off held by Sync skips the lamp before its status is read, so the
+        # Off never marked DreamView as ended. A quick owner On (within the idle
+        # time) must still start DreamView again: a power cycle ends it on the lamp.
+        from govee_segments import razer_mode
+
+        selected = targets()
+        selected[0].update(segment_count=7)
+        controller = adapter.GoveeController(
+            selected, sender=self.send, clock=lambda: self.now, wall_clock=lambda: 1000
+        )
+
+        class Owner:
+            revisions, off = {}, set()
+
+            def revision(self, light):
+                return self.revisions.get(light, 0)
+
+            def allowed(self, light):
+                return light not in self.off
+
+        owner = controller.power_owner = Owner()
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.set_streaming(True)
+        state = {"on": True, "bri": 254, "colormode": "rgb", "segments": [[120, 0, 0]]}
+        controller.submit(command(state=state, transitiontime=0))
+        controller.render()
+        light = selected[0]["light"]
+        self.assertIn(("razer", razer_mode(True)), [(n, d) for _, n, d in self.sent])
+        # The owner switches the lamp off, then on again a few seconds later.
+        owner.off.add(light)
+        owner.revisions[light] = 1
+        for sequence, now in enumerate((1, 2, 3), start=2):
+            self.now = now
+            controller.update_statuses({LEFT: ({"onOff": 0}, self.now)})
+            controller.submit(command(sequence=sequence, state=state, transitiontime=0))
+            controller.render()
+        owner.off.discard(light)
+        owner.revisions[light] = 2
+        self.sent.clear()
+        self.now = 4
+        controller.update_statuses({LEFT: ({"onOff": 1}, self.now)})
+        controller.submit(command(sequence=5, state=state, transitiontime=0))
+        controller.render()
+        names = [(n, d) for _, n, d in self.sent]
+        self.assertEqual(names[0], ("razer", razer_mode(True)),
+                         "the lamp left DreamView with the power cycle")
+
     def test_streaming_uses_dreamview_at_the_stream_rate(self):
         from govee_segments import razer_colors
 
