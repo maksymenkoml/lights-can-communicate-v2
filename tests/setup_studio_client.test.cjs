@@ -1417,7 +1417,7 @@ test('no switch chooses the view; the Sync status and Start/Stop are in the Sync
  assert.ok(app.$('.header .brand #draft-status'));assert.equal(app.$('.brand #room-switch'),null);
  assert.ok(app.$('.header > .room > #room-switch .room-icon'),'the room button has a home icon');
  assert.deepEqual(app.$('#room-switch').children.map(n=>n.id||n.getAttribute('class')),['room-icon','room-name','room-box','room-chevron']);
- assert.match(fs.readFileSync(path.join(STATIC,'style.css'),'utf8'),/\.app\.no-sync #sync-box\{display:none\}/,'a room without the Sync Box hides the bar');
+ assert.match(fs.readFileSync(path.join(STATIC,'style.css'),'utf8'),/\.app\.no-sync #sync-box,\.app\.room-pending #sync-box\{display:none\}/,'a room without the Sync Box, or a room not known yet, hides the bar');
 });
 
 test('without a box the corner shows Connect, and the adapter status only once Sync is attempted',async()=>{
@@ -1659,10 +1659,16 @@ test('a box answer that arrives before the room list settles no view until the r
   await app.advance(100);
   assert.equal(app.run('viewSettled'),false,'no view settles before the rooms answer');
   assert.equal(app.run('mode'),'placement');
+  assert.ok(app.$('#app').classList.contains('room-pending'),'the Sync bar is hidden until the room is known');
+  const sent=()=>app.requests.box.filter(r=>r.body).length,before=sent();
+  const act=app.$('#sync-box [data-box]');assert.ok(act,'the box answered with its Stop action');
+  await app.click(act);
+  assert.equal(sent(),before,'no box action before the room is known');
   release();await app.advance(100);
   assert.equal(app.run('mode'),want);
   assert.equal(app.$('#app').querySelector('.mode-fade'),null,'the first view shows without a fade');
   assert.equal(app.$('#app').classList.contains('no-sync'),room===BEDROOM);
+  assert.ok(!app.$('#app').classList.contains('room-pending'));
  }
 });
 

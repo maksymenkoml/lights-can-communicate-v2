@@ -1141,9 +1141,12 @@ function setMode(m){
 // The Sync state the page follows: the one Start or Stop is switching to, else the box's.
 function syncTarget(){return (boxBusy??box.changing??box.syncing)===true}
 let viewSettled=false;
+const roomPending=()=>!roomsKnown||!!roomsInfo&&!currentRoom;
 function followSync(){
- // Until the page knows its room it cannot tell whether that room has Sync.
- if(!roomsKnown||roomsInfo&&!currentRoom)return;
+ // Until the page knows its room it cannot tell whether that room has Sync: the Sync
+ // bar stays hidden and the view unsettled.
+ const pending=roomPending();$('#app').classList.toggle('room-pending',pending);
+ if(pending)return;
  const want=syncHere()&&syncTarget()?'sync':'placement';
  // The first known box state is the page's starting view, without a fade.
  const fade=viewSettled;if(box.state!=='unknown')viewSettled=true;
@@ -2405,6 +2408,7 @@ async function toggleSync(){
  if(r.status!==200&&r.body?.state==='ready')boxSay('The Sync Box did not respond','bad');
 }
 function boxClick(e){
+ if(roomPending())return;
  const ip=e.target.closest('[data-box-ip]');if(ip){pairBox(ip.dataset.boxIp);return}
  const b=e.target.closest('[data-box]');if(!b||b.disabled)return;
  const id=b.dataset.box;
@@ -2462,7 +2466,7 @@ async function refreshRooms(follow=true){
  }catch{return false}
 }
 function applyRoomChrome(){
- if(roomsInfo&&!currentRoom)return;
+ if(roomPending()){followSync();return}
  $('#app').classList.toggle('no-sync',!syncHere());followSync();
  paintTitle();if(roomsOpen)paintRooms();
 }
