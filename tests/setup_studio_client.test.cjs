@@ -175,7 +175,7 @@ const json=(app,source)=>JSON.parse(app.run('JSON.stringify('+source+')'));
 const response=(status,body)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(body)});
 async function settle(){for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));}
 
-async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,power,syncBox=()=>({state:'none'}),hueBridge=null,hidden=false,reducedMotion=false}={}){
+async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=saved(),revision='r1',storage=new Map(),live=liveOk(),discovery={connected:true,devices:[discovered()],providers:{govee:'ready',hue:'ready'}},onPost,layoutGet,identify,calibrate,lights,power,syncBox=()=>({state:'none'}),roomsGate=null,hueBridge=null,hidden=false,reducedMotion=false}={}){
  let now=0,timerId=0;const timers=new Map();
  const clock={setTimeout:(fn,delay=0)=>{timers.set(++timerId,{fn,at:now+Math.max(0,delay),delay});return timerId},clearTimeout:id=>timers.delete(id)};
  const {document}=createDom(clock);document.hidden=hidden;
@@ -186,6 +186,8 @@ async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=save
  const roomsAnswer=()=>structuredClone(server.index);
  const posts=[],requests={layout:0,discovery:[],live:[],box:[],hue:[],rooms:[],roomPosts:[],otherLayouts:[]};
  const context={structuredClone,AbortController,console,
+  // Enough of CSS.escape for the plain ids the page builds selectors from.
+  CSS:{escape:value=>String(value).replace(/[^\w-]/g,c=>'\\'+c)},
   setTimeout:clock.setTimeout,clearTimeout:clock.clearTimeout,
   requestAnimationFrame:fn=>clock.setTimeout(()=>fn(now),16),
   performance:{now:()=>now},document,innerWidth:1400,innerHeight:900,
@@ -203,7 +205,7 @@ async function harness({rooms=null,roomPost=null,roomsDown=()=>false,layout=save
    if(url.startsWith('/api/lights/')){assert.ok(lights,'unexpected light change');const result=await lights(url,JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/power'){assert.ok(power,'unexpected power change');const result=await power(JSON.parse(options.body));return response(result.status,result.body)}
    if(url==='/api/identify'){assert.ok(identify,'unexpected Blink');const result=await identify(JSON.parse(options.body));return response(result.status,result.body)}
-   if(url==='/api/rooms'){requests.rooms.push(now);if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
+   if(url==='/api/rooms'){requests.rooms.push(now);const gate=roomsGate&&roomsGate(requests.rooms.length);if(gate)await gate;if(roomsDown(requests.rooms.length))return response(503,{});return response(200,roomsAnswer())}
    if(url.startsWith('/api/rooms/')){const body=JSON.parse(options.body);requests.roomPosts.push({url,body});const result=roomPost?await roomPost(url.slice(11),body,server):null;return result?response(result.status,result.body):response(200,roomsAnswer())}
    const [route,query]=url.split('?');assert.equal(route,'/api/layout');
    const asked=query?decodeURIComponent(query.replace(/^room=/,'')):FIRST;
@@ -463,11 +465,11 @@ test('Found shows unavailable lamps after the lamps that can be placed, with the
 
 test('valid saved positions far from the desk load unchanged and widen the room',async()=>{
  const remote=saved();remote.devices[0].positionCm={x:-200,height:300};remote.devices[3].positionCm={x:400,height:300};
- const app=await harness({layout:remote});await app.advance(1000);
+ const app=await harness({layout:remote,syncBox:fakeBox(BOX).api});await app.advance(1000);
  assert.deepEqual(json(app,"lamps.filter(l=>['govee-left','play-left'].includes(l.id)).map(l=>[l.x,l.h])"),[[-300,240],[300,300]]);
  const [left,,width]=app.stage.getAttribute('viewBox').split(' ').map(Number);
  assert.ok(left<=500-300*3.3&&left+width>=500+300*3.3,'both lamps are inside the room view');
- await app.click(app.$('#sync-tool'));await app.click(app.$('#sync-tool'));await app.advance(300);
+ await startSync(app);await stopSync(app);await app.advance(300);
  assert.equal(app.posts.length,0,'loading and viewing never rewrite positions');
  app.lamp('play-center').focus();await app.press(app.lamp('play-center'),'ArrowRight');await app.advance(300);
  const body=app.posts.at(-1).body;
@@ -588,8 +590,8 @@ test('the lamp card removes with a confirmation and sets Own light during Sync',
 test('Own light is shown in Sync view and device rows cannot change their Sync role',async()=>{
  const remote=saved();remote.devices[3].syncRole='own';
  remote.devices.push({id:discovered().id,name:'Third <lamp>',model:'H6076',shape:'floor',zones:7,scale:45,positionCm:{x:150,height:60}});
- const app=await harness({layout:remote});
- await app.click(app.$('#sync-tool'));assert.equal(app.run('mode'),'sync');
+ const app=await harness({layout:remote,syncBox:syncingBox()});
+ assert.equal(app.run('mode'),'sync','the page shows the Sync view while the Sync Box syncs');
  app.run('select("play-left")');await app.settle();
  assert.match(app.stage.querySelector('.obj-chip').textContent,/own light/);
  app.run('select("'+discovered().id+'")');await app.settle();
@@ -669,8 +671,8 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  let answer=liveOk({lamps:{'play-left':lit([[255,0,0]]),'govee-left':lit([[0,0,255],[0,0,255],[0,0,255],[0,255,0],[0,255,0],[0,255,0],[255,255,255]]),
   'hue-monitor':lit(Array.from({length:9},(_,i)=>[i*20,0,0])),'play-center':lit([[9,9,9]],{on:false}),'play-right':lit([[9,9,9]],{stale:true}),'govee-right':lit(Array(7).fill([1,2,3]),{included:false})}});
  const unverified=liveOk({lamps:{'play-left':lit([[255,0,0]],{source:'unknown'})}});
- const app=await harness({live:()=>answer});
- await app.click(app.$('#sync-tool'));
+ const app=await harness({live:()=>answer,syncBox:syncingBox()});
+ assert.equal(app.run('mode'),'sync');
  const writes=app.stage.writes,node=app.lamp('play-left');
  assert.equal(node.querySelector('[data-beam]').style.getPropertyValue('--beam'),'#ff0000');
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),'1');
@@ -690,7 +692,7 @@ test('live colours repaint existing nodes without rebuilding the room or saving'
  assert.equal(app.lamp('play-left'),node);
  answer=liveOk({sync:{state:'off'},lamps:{'play-left':lit([[0,128,0]],{source:'scene-output'})}});
  await app.advance(200);
- assert.equal(app.$('#sync-status span').textContent,'Not syncing');
+ assert.equal(app.$('#sync-status span').textContent,'Waiting for frames','the box syncs, the adapter has stopped');
  assert.equal(node.querySelector('[data-sync-power]').getAttribute('opacity'),app.run('opacityText(lampLevel(demoColors(lamps.find(l=>l.id==="play-left"))))'),'the Sync view previews the demo picture instead of the scene');
  assert.equal(app.stage.writes,writes);
  answer=unverified;await app.advance(200);
@@ -710,8 +712,8 @@ test('a lamp outside Sync shows its own scene, never Sync output',async()=>{
 
 test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  const hues=['#ff0000','#00ff00','#0000ff','#ffff00','#00ffff','#ff00ff','#ffffff'];
- const app=await harness({live:liveOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]]),'hue-monitor':lit(Array(9).fill([9,9,9]))}})});
- await app.click(app.$('#sync-tool'));
+ const app=await harness({live:liveOk({lamps:{'govee-left':lit([[10,0,0],[0,20,0],[0,0,30],[40,40,0],[0,50,50],[60,0,60],[70,70,70]]),'hue-monitor':lit(Array(9).fill([9,9,9]))}}),syncBox:syncingBox()});
+ assert.equal(app.run('mode'),'sync');
  app.run('select("govee-left")');await app.settle();
  const rays=[...app.stage.querySelectorAll('#sync-links .ray')];
  assert.ok(rays.length>0&&rays.length<7,'zones below the Sync zone have no ray');
@@ -720,26 +722,37 @@ test('a selected lamp shows rays in the hue of its emitted zones',async()=>{
  assert.equal(app.stage.querySelectorAll('#sync-links .ray').length,rays.length,'the monitor shows every lit lamp');
 });
 
-test('while Sync runs the view without Sync shows a demo scene instead of the Sync colours',async()=>{
+test('Sync output the Sync Box does not report shows a demo scene; once the box syncs the page shows Sync and cannot leave it',async()=>{
  const remote=saved();remote.devices.find(r=>r.id==='play-left').sceneScale=50;
- const app=await harness({layout:remote,live:liveOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'}),'play-center':lit([[0,255,0]],{on:false})}})});
+ // The adapter streams Sync output while the box still reports Sync off (it starts elsewhere).
+ const box=fakeBox(BOX);
+ const app=await harness({layout:remote,syncBox:box.api,live:liveOk({lamps:{'play-left':lit([[255,0,0]]),'play-right':lit([[0,0,255]],{source:'scene-output'}),'play-center':lit([[0,255,0]],{on:false})}})});
+ assert.equal(app.run('mode'),'placement');
  const beam=id=>app.lamp(id).querySelector('[data-beam]').style.getPropertyValue('--beam');
  assert.match(beam('play-left'),/^#ffd[56]a[9a]$/,'a Sync lamp shows the demo warm white, not its Sync red');
  assert.equal(app.lamp('play-left').querySelector('[data-sync-power]').getAttribute('opacity'),String(+Math.sqrt(128/255).toFixed(3)),'at its correction without Sync');
  assert.equal(beam('play-right'),'#0000ff','own light stays as it is');
  assert.equal(app.lamp('play-center').querySelector('[data-sync-power]').getAttribute('opacity'),'0','a lamp that is off stays dark');
  assert.equal(app.stage.querySelector('[data-scene-demo]').getAttribute('opacity'),'1','the screen says Demo');
- await app.click(app.$('#sync-tool'));
+ box.status={...BOX,syncing:true};await app.advance(3000);
+ assert.equal(app.run('mode'),'sync','the next box poll takes the page into the Sync view');
  assert.equal(beam('play-left'),'#ff0000','the Sync view shows the real Sync colours');
- await app.click(app.$('#sync-tool'));
+ assert.equal(app.$('#sync-tool'),null,'no switch shows the view without Sync while Sync runs');
+ await app.advance(6000);
+ assert.equal(app.run('mode'),'sync','the view stays with Sync while the box syncs');
+ assert.equal(app.run('scenePreview()'),false,'no demo scene in the Sync view');
+ box.status={...BOX,syncing:false};await app.advance(3000);
+ assert.equal(app.run('mode'),'placement','Sync that stops elsewhere takes the page back');
+ assert.match(beam('play-left'),/^#ffd[56]a[9a]$/);
  const off=await harness({live:liveOk({sync:{state:'off',reason:'explicit_stop'},lamps:{'play-right':lit([[0,0,255]],{source:'scene-output'})}})});
  assert.equal(off.stage.querySelector('[data-scene-demo]').getAttribute('opacity'),'0','without Sync the scene is real');
 });
 
 test('without running Sync the Sync view previews the demo picture on the screen and every Sync lamp',async()=>{
- const app=await harness({live:liveOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'}),'play-left':lit([[0,255,0]],{source:'scene-output',on:false})}})});
+ const app=await harness({syncBox:fakeBox(BOX).api,live:liveOk({sync:{state:'off'},lamps:{'govee-left':lit(Array(7).fill([0,255,0]),{source:'scene-output'}),'play-left':lit([[0,255,0]],{source:'scene-output',on:false})}})});
  assert.equal(app.lamp('govee-left').querySelector('[data-beam]').style.getPropertyValue('--beam'),'#00ff00','the view without Sync shows the scene');
- await app.click(app.$('#sync-tool'));
+ // Sync has just started on the box; the adapter has no frames yet.
+ await startSync(app);
  assert.equal(app.stage.querySelector('#screen-demo-image').getAttribute('opacity'),'1');
  assert.equal(app.stage.querySelector('#screen-image').getAttribute('opacity'),'0');
  assert.equal(app.stage.querySelectorAll('#screen-demo-image path').length,90,'a colour wheel of wedges');
@@ -795,18 +808,22 @@ test('dim zones glow faintly in their hue and black zones emit no light',async()
  assert.equal(play.querySelector('[data-sync-power]').getAttribute('opacity'),'0.501','a dim Play glows faintly');
 });
 
-test('the room view is a local preference and never part of the layout',async()=>{
- const storage=new Map();
- const app=await harness({storage});
- await app.click(app.$('#sync-tool'));await app.click(app.$('#scene-toggle'));
- assert.equal(storage.get('light-studio-view-v1'),'sync');assert.equal(storage.get('light-studio-dark-scene-v1'),'true');
- assert.ok(app.$('#app').classList.contains('dark-scene'));
- await app.advance(2000);assert.equal(app.posts.length,0);
- const again=await harness({storage});assert.equal(again.run('mode'),'sync');
+test('the view follows Sync and is stored neither in the browser nor in the layout',async()=>{
+ // Keys from the old view switch and the removed dark scene are cleared on start.
+ const storage=new Map([['light-studio-view-v1','sync'],['light-studio-dark-scene-v1','true']]);
+ const app=await harness({storage,syncBox:fakeBox(BOX).api});
+ assert.equal(storage.has('light-studio-view-v1'),false);assert.equal(storage.has('light-studio-dark-scene-v1'),false);
+ assert.equal(app.run('mode'),'placement','an old stored Sync view does not come back while Sync is off');
+ assert.equal(app.$('#scene-toggle'),null);assert.ok(!app.$('#app').classList.contains('dark-scene'),'there is no dark scene');
+ await startSync(app);
+ assert.ok(app.$('#app').classList.contains('sync-mode'));
+ assert.deepEqual([...storage.keys()].filter(k=>/view|dark/.test(k)),[],'the view is never written to the browser');
+ await app.advance(2000);assert.equal(app.posts.length,0,'nor to the layout');
+ const again=await harness({storage});assert.equal(again.run('mode'),'placement','a new page starts from the Sync state, not a remembered view');
 });
 
 test('each view edits its own correction, fade zone and fade switch',async()=>{
- const app=await harness();
+ const app=await harness({syncBox:fakeBox(BOX).api});
  const left=()=>json(app,'lamps.find(l=>l.id==="govee-left")');
  assert.equal(app.run('view()'),'scene');
  app.run('select("govee-left")');await openCard(app);
@@ -825,7 +842,7 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
  app.dispatch(app.stage,'pointerup');await app.advance(300);
  body=app.posts.at(-1).body;
  assert.equal(body.sceneZone.points[3].u,90/80);assert.equal(body.syncZone,null,'the Sync zone stays automatic');
- await app.click(app.$('#sync-tool'));
+ await startSync(app);
  assert.equal(app.run('corr(lamps.find(l=>l.id==="govee-left"))'),65,'the Sync view shows the Sync correction');
  const gains=()=>json(app,'syncProjection(lamps.find(l=>l.id==="govee-left")).map(r=>r.gain)');
  assert.ok(gains().some(g=>g<1),'the Sync fade dims lower zones');
@@ -836,6 +853,24 @@ test('each view edits its own correction, fade zone and fade switch',async()=>{
 });
 
 async function openCard(app){app.dispatch(app.stage.querySelector('[data-chip-action="more"]'),'pointerdown');await app.settle()}
+// A Play bar turns from its lamp card, not from a button on its chip.
+test('Rotate 90° is a row of the card of a bar lamp; the chip has only the card button',async()=>{
+ const app=await harness();
+ app.run('select("play-left")');await app.settle();
+ assert.equal(app.stage.querySelector('[data-chip-action="rotate"]'),null);
+ assert.ok(app.stage.querySelector('[data-chip-action="more"]'));
+ await openCard(app);
+ const row=app.$('#object-menu [data-menu="rotate"]');assert.ok(row);assert.equal(row.textContent.trim(),'Rotate 90°');
+ const before=app.run('lamps.find(l=>l.id==="play-left").vertical');
+ await app.click(row);
+ assert.equal(app.run('lamps.find(l=>l.id==="play-left").vertical'),!before);
+ assert.ok(app.$('#object-menu [data-menu="rotate"]'),'the card stays open to rotate back');
+ await app.click(app.$('#object-menu [data-menu="rotate"]'));
+ assert.equal(app.run('lamps.find(l=>l.id==="play-left").vertical'),before);
+ app.run('closeObjectMenu();select("govee-left")');await app.settle();await openCard(app);
+ assert.equal(app.$('#object-menu [data-menu="rotate"]'),null,'a floor lamp does not rotate');
+});
+
 const SYNC_IDLE={sync:{state:'idle',reason:'no_source',blockers:[]}};
 
 test('a lamp chip is one button that opens the card, and the scene has no correction rail',async()=>{
@@ -913,8 +948,8 @@ test('a Hue lamp calibrates its brightness only; Reset and Esc save nothing',asy
 });
 
 test('during Sync the brightness changes the running Sync and Cancel restores it',async()=>{
- const app=await harness({calibrate:()=>assert.fail('no test light during Sync')});
- await app.click(app.$('#sync-tool'));
+ const app=await harness({calibrate:()=>assert.fail('no test light during Sync'),syncBox:syncingBox()});
+ assert.equal(app.run('mode'),'sync');
  app.run('select("govee-left")');await openCard(app);
  await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
  assert.equal(app.$('#object-menu select.cal-ref'),null,'no Compare with during Sync');
@@ -944,8 +979,8 @@ test('ending a test waits for the update still on its way',async()=>{
 
 test('Reset during Sync keeps the colour calibration it does not show',async()=>{
  const remote=saved();remote.devices.find(r=>r.id==='govee-left').calibration={warmth:50,tint:-10,lowLight:20};
- const app=await harness({layout:remote,calibrate:()=>assert.fail('no test light during Sync')});
- await app.click(app.$('#sync-tool'));
+ const app=await harness({layout:remote,calibrate:()=>assert.fail('no test light during Sync'),syncBox:syncingBox()});
+ assert.equal(app.run('mode'),'sync');
  app.run('select("govee-left")');await openCard(app);
  await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
  const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.advance(300);
@@ -971,17 +1006,17 @@ test('a test stops when Sync starts',async()=>{
 test('the correction without Sync is the lamp\'s own value, never the Sync one',async()=>{
  const remote=saved();remote.devices.find(r=>r.id==='play-left').scale=70;
  for(const r of remote.devices)delete r.sceneScale;
- const app=await harness({layout:remote});
+ const app=await harness({layout:remote,syncBox:fakeBox(BOX).api});
  const lamp=id=>json(app,'lamps.find(l=>l.id==="'+id+'")');
  assert.equal(lamp('play-left').sceneScale,70,'a row without it starts from a copy of the Sync correction');
- await app.click(app.$('#sync-tool'));
+ await startSync(app);
  app.run('select("play-left")');await openCard(app);
  await app.click(app.$('#object-menu [data-menu="calibrate"]'));
  const bri=app.$('#object-menu [data-cal="correction"]');bri.value='30';app.dispatch(bri,'input');
  await app.click(app.$('#object-menu [data-menu="cal-save"]'));await app.advance(300);
  const row=app.posts.at(-1).body.devices.find(r=>r.id==='play-left');
  assert.equal(row.scale,30);assert.equal(row.sceneScale,70,'a Sync correction change keeps the one without Sync');
- await app.click(app.$('#sync-tool'));
+ await stopSync(app);
  assert.equal(app.run('corr(lamps.find(l=>l.id==="play-left"))'),70);
  await app.click(app.$('#list-toggle'));
  await app.click(app.$('#lamp-panel').querySelector('[data-place]'));
@@ -1306,14 +1341,14 @@ test('an unlit lens or zone shows black under the light',async()=>{
 });
 
 test('the desk, monitor and zone are edited in place and saved in layout units',async()=>{
- const app=await harness();
+ const app=await harness({syncBox:fakeBox(BOX).api});
  app.run('select("desk")');app.run('changeField("height",90)');
  await app.advance(300);
  const body=app.posts.at(-1).body;
  assert.deepEqual(body.furniture,[{id:'piece-00000001',kind:'desk',x:100,width:160,height:90}]);assert.deepEqual(body.devices[2].positionCm,{x:100,height:115},'the monitor rides on the tabletop');
  app.run('select("monitor")');app.run('changeField("inches",34)');await app.advance(300);
  assert.equal(app.posts.at(-1).body.screen.inches,34);assert.equal(app.posts.at(-1).body.monitorInches,undefined);
- await app.click(app.$('#sync-tool'));app.run('select("zone")');
+ await startSync(app);app.run('select("zone")');
  const before=app.run('JSON.stringify(zonePoints())');
  app.run('drag={handle:"zp-3",before:snapshot(),moved:false};dragHandle("zp-3",{x:500+90*3.3,y:740-70*3.3});');
  app.dispatch(app.stage,'pointerup');await app.advance(300);
@@ -1357,13 +1392,32 @@ const status=app=>app.$('#sync-status span').textContent;
 const action=app=>{const act=app.$('#sync-box .box-act');return act.hidden?'':act.textContent.trim()};
 const actionButton=app=>app.$('#sync-box .box-act button');
 const said=app=>{const el=app.$('#sync-box .box-said');return el.hidden?'':el.textContent.trim()};
+// The settings view follows the Sync Box: a box that syncs from the start puts the page in
+// the Sync view at its first poll; Start Sync and Stop Sync switch it on a ready box.
+const syncingBox=()=>fakeBox({...BOX,syncing:true}).api;
+async function startSync(app){
+ assert.equal(action(app),'Start Sync');await app.click(actionButton(app));
+ assert.equal(app.run('mode'),'sync','Start Sync shows the Sync view');
+}
+async function stopSync(app){
+ assert.equal(action(app),'Stop Sync');await app.click(actionButton(app));
+ assert.equal(app.run('mode'),'placement','Stop Sync shows the view without Sync');
+}
 
-test('the toolbar has only the Settings switch; the Sync status is in the corner',async()=>{
- const app=await harness();
- assert.equal(app.$('#sync-tool .sync-word').textContent,'Settings');
- assert.equal(app.$('#sync-tool').getAttribute('aria-label'),'Show the Sync settings');
- assert.equal(app.$('.toolbar #sync-status'),null);
- assert.ok(app.$('#sync-box .box-bar #sync-status'));
+test('no switch chooses the view; the Sync status and Start/Stop are in the Sync bar at the bottom',async()=>{
+ const app=await harness({syncBox:fakeBox(BOX).api});
+ for(const gone of ['#sync-tool','#scene-toggle','.toolbar'])assert.equal(app.$(gone),null,gone+' is gone');
+ const bar=app.$('#sync-box');
+ assert.ok(bar.classList.contains('sync-bar')&&bar.classList.contains('box-corner'));
+ assert.equal(bar.parentNode,app.$('#app'),'the bar is not in the header');assert.equal(bar.closest('.header'),null);
+ assert.ok(bar.querySelector('.box-bar #sync-status'),'the Sync status');
+ assert.equal(action(app),'Start Sync');assert.ok(bar.querySelector('.box-bar .box-act [data-box="toggle"]'),'Start/Stop beside it');
+ assert.ok(bar.querySelector('.box-said')&&bar.querySelector('#box-card'),'the bar keeps its line and card');
+ // The header: the app name and the draft status on the left, the room button on the right.
+ assert.ok(app.$('.header .brand #draft-status'));assert.equal(app.$('.brand #room-switch'),null);
+ assert.ok(app.$('.header > .room > #room-switch .room-icon'),'the room button has a home icon');
+ assert.deepEqual(app.$('#room-switch').children.map(n=>n.id||n.getAttribute('class')),['room-icon','room-name','room-box','room-chevron']);
+ assert.match(fs.readFileSync(path.join(STATIC,'style.css'),'utf8'),/\.app\.no-sync #sync-box,\.app\.room-pending #sync-box\{display:none\}/,'a room without the Sync Box, or a room not known yet, hides the bar');
 });
 
 test('without a box the corner shows Connect, and the adapter status only once Sync is attempted',async()=>{
@@ -1537,6 +1591,97 @@ test('the corner follows the box and stops asking while the page is hidden',asyn
  assert.equal(app.requests.box.length,asked);
  await app.visible(true);
  assert.equal(app.requests.box.length,asked+1);
+});
+
+test('Start Sync shows the Sync view before the box answers, Stop leaves it, a failed Start returns',async()=>{
+ let release=null;const box=fakeBox(BOX);
+ const hold=(url,body)=>url==='/api/sync-box/sync'?new Promise(done=>{release=()=>done(box.api(url,body))}):box.api(url,body);
+ const app=await harness({syncBox:hold});
+ const view=()=>app.run('mode')+(app.$('#app').classList.contains('sync-mode')?'+class':'');
+ const fade=()=>app.$('#app').querySelector('.scene-snapshot.mode-fade');
+ assert.equal(view(),'placement');assert.equal(fade(),null,'the first box state needs no fade');
+ await app.click(actionButton(app));
+ assert.equal(app.requests.box.at(-1).url,'/api/sync-box/sync');
+ assert.equal(view(),'sync+class','the view switches at the press, before the answer');
+ assert.ok(fade(),'the old view fades out over the new one');
+ await app.advance(3000);
+ assert.equal(view(),'sync+class','a poll that still reads Sync off does not take the view back');
+ assert.equal(fade(),null,'the fade is gone after 600 ms');
+ release();await app.settle();
+ assert.equal(view(),'sync+class');assert.equal(action(app),'Stop Sync');
+ await app.click(actionButton(app));
+ assert.equal(view(),'placement','Stop switches back at the press');
+ release();await app.settle();
+ assert.equal(view(),'placement');assert.equal(action(app),'Start Sync');
+ // A refused Start: the box keeps Sync off and the view returns.
+ box.silent=true;
+ await app.click(actionButton(app));assert.equal(view(),'sync+class');
+ release();await app.settle();
+ assert.equal(view(),'placement','a refused Start returns to the view without Sync');
+ assert.equal(said(app),'The Sync Box did not respond');
+ // A box that went offline: no Sync, no Sync view.
+ box.silent=false;box.offline=true;
+ await app.click(actionButton(app));release();await app.settle();
+ assert.equal(view(),'placement');assert.equal(status(app),'Sync Box offline');
+ // With reduced motion the view switches without the fade.
+ const still=await harness({syncBox:fakeBox(BOX).api,reducedMotion:true});
+ await startSync(still);
+ assert.equal(still.$('#app').querySelector('.mode-fade'),null);
+});
+
+test('a page that opens while the box syncs starts in the Sync view without a fade',async()=>{
+ const app=await harness({syncBox:syncingBox(),storage:new Map([['light-studio-room-v1','room-00000001']])});
+ assert.equal(app.run('mode'),'sync');assert.ok(app.$('#app').classList.contains('sync-mode'));
+ assert.equal(app.$('#app').querySelector('.mode-fade'),null);
+ const unknown=await harness({syncBox:()=>({status:503,body:{}})});
+ assert.equal(unknown.run('mode'),'placement','a box that cannot be read is not Sync');
+ // The box switching for another page: the view shows the state it switches to.
+ const starting=await harness({syncBox:()=>({...BOX,changing:true}),storage:new Map([['light-studio-room-v1','room-00000001']])});
+ assert.equal(starting.run('mode'),'sync','a Start from another page shows Sync');
+ const stopping=await harness({syncBox:()=>({...BOX,syncing:true,changing:false}),storage:new Map([['light-studio-room-v1','room-00000001']])});
+ assert.equal(stopping.run('mode'),'placement','a Stop from another page shows the view without Sync');
+});
+
+// In a browser without a remembered room the rooms arrive before the page picks its
+// room; the view waits for the room, so the first box state still applies without a fade.
+test('a first visit while the box syncs also starts in the Sync view without a fade',async()=>{
+ const app=await harness({syncBox:syncingBox()});
+ assert.equal(app.run('mode'),'sync');
+ assert.equal(app.$('#app').querySelector('.mode-fade'),null);
+});
+
+// A failed room lookup is the single-room fallback: connectLayout() stops at the room
+// list, keeps the browser's layout and shows the Sync bar for its one room.
+test('without the room list the page falls back to one room with the Sync bar and Start working',async()=>{
+ const box=fakeBox({...BOX,syncing:false});
+ const app=await harness({roomsDown:()=>true,syncBox:box.api});await app.advance(100);
+ assert.equal(app.requests.layout,0,'the layout waits for the room list');
+ assert.ok(!app.$('#app').classList.contains('room-pending'),'the Sync bar shows');
+ assert.ok(!app.$('#app').classList.contains('no-sync'));
+ await startSync(app);
+ assert.ok(app.requests.box.some(r=>r.body),'Start reaches the box');
+});
+
+// The box can answer before the room list: the page waits for its room before it
+// settles the view, so neither a room without the box nor the Sync room fades at start.
+test('a box answer that arrives before the room list settles no view until the room is known',async()=>{
+ for(const [room,want] of [[BEDROOM,'placement'],[OFFICE,'sync']]){
+  let release;
+  const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',room]]),syncBox:syncingBox(),roomsGate:n=>n===1?new Promise(done=>{release=done}):null});
+  await app.advance(100);
+  assert.equal(app.run('viewSettled'),false,'no view settles before the rooms answer');
+  assert.equal(app.run('mode'),'placement');
+  assert.ok(app.$('#app').classList.contains('room-pending'),'the Sync bar is hidden until the room is known');
+  const sent=()=>app.requests.box.filter(r=>r.body).length,before=sent();
+  const act=app.$('#sync-box [data-box]');assert.ok(act,'the box answered with its Stop action');
+  await app.click(act);
+  assert.equal(sent(),before,'no box action before the room is known');
+  release();await app.advance(100);
+  assert.equal(app.run('mode'),want);
+  assert.equal(app.$('#app').querySelector('.mode-fade'),null,'the first view shows without a fade');
+  assert.equal(app.$('#app').classList.contains('no-sync'),room===BEDROOM);
+  assert.ok(!app.$('#app').classList.contains('room-pending'));
+ }
 });
 
 test('a lamp that is off is not a problem: an owner Off during Sync shows the grey power mark without a status',async()=>{
@@ -1805,7 +1950,7 @@ function twoRooms(extra={}){return {rooms:[{id:OFFICE,name:'Office'},{id:BEDROOM
 test('the room cards switch rooms; each room has its own layout, draft and Sync settings',async()=>{
  const storage=new Map([['light-studio-view-v1','sync']]);
  const layout=saved();layout.devices=layout.devices.filter(d=>d.id!=='govee-right');
- const app=await harness({rooms:twoRooms(),layout,storage});await app.advance(100);
+ const app=await harness({rooms:twoRooms(),layout,storage,syncBox:syncingBox()});await app.advance(100);
  assert.equal(app.$('#room-name').textContent,'Office');
  assert.equal(app.$('#room-box').hidden,false,'the Sync Box room is marked');
  assert.equal(app.run('mode'),'sync');assert.ok(!app.$('#app').classList.contains('no-sync'));
@@ -1822,7 +1967,8 @@ test('the room cards switch rooms; each room has its own layout, draft and Sync 
  assert.deepEqual(json(app,'lamps.map(l=>l.id)'),['govee-right']);
  assert.equal(app.storage.get('light-studio-room-v1'),BEDROOM);
  assert.ok(app.$('#app').classList.contains('no-sync'),'Sync settings stay in the Sync Box room');
- assert.equal(app.run('mode'),'placement');assert.equal(app.storage.get('light-studio-view-v1'),'sync','the view choice is kept');
+ assert.equal(app.run('mode'),'placement','the view without Sync while the box syncs another room');
+ assert.equal(app.storage.has('light-studio-view-v1'),false,'no view is stored');
  assert.equal(app.run('past.length'),0,'undo history belongs to its room');
  app.lamp('govee-right').focus();await app.press(app.lamp('govee-right'),'ArrowRight');await app.advance(300);
  assert.equal(app.posts.at(-1).room,BEDROOM);assert.equal(app.posts.at(-1).body.devices[0].positionCm.x,145);
@@ -1920,6 +2066,24 @@ test('the room cards say so when the rooms cannot be read',async()=>{
  const cards=app.$('#room-cards');assert.equal(cards.hidden,false);
  assert.match(cards.textContent,/Light Studio server is unavailable/);
  assert.equal(cards.querySelector('[data-room-add]'),null,'nothing to add to without the rooms');
+});
+
+test('in a room without the Sync Box the view stays without Sync while the box syncs, and the Sync bar is hidden',async()=>{
+ const box=fakeBox({...BOX,syncing:true});
+ const app=await harness({rooms:twoRooms(),storage:new Map([['light-studio-room-v1',BEDROOM]]),syncBox:box.api});await app.advance(100);
+ assert.equal(app.$('#room-name').textContent,'Bedroom');
+ assert.equal(app.run('mode'),'placement');assert.ok(!app.$('#app').classList.contains('sync-mode'));
+ assert.ok(app.$('#app').classList.contains('no-sync'),'the Sync bar is hidden here');
+ await app.advance(6000);assert.equal(app.run('mode'),'placement','box polls do not bring the Sync view');
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ await app.click(app.$('#room-cards').querySelector('[data-room-go="'+OFFICE+'"]'));await app.advance(0);
+ assert.equal(app.run('mode'),'sync','the Sync Box room shows Sync');assert.ok(!app.$('#app').classList.contains('no-sync'));
+ await stopSync(app);
+ await app.click(app.$('#room-switch'));await app.advance(0);
+ await app.click(app.$('#room-cards').querySelector('[data-room-go="'+BEDROOM+'"]'));await app.advance(0);
+ box.status={...BOX,syncing:true};await app.advance(3000);
+ assert.equal(app.run('mode'),'placement','Sync started elsewhere does not change this room');
+ assert.ok(app.$('#app').classList.contains('no-sync'));
 });
 
 test('without a registered Sync Box no room shows the Sync settings',async()=>{
@@ -2192,6 +2356,43 @@ test('Found lists the lamps that can be placed and leaves unsupported devices ou
  const rows=[...app.$('#lamp-panel').querySelectorAll('.lp-row.found')];
  assert.equal(rows.length,1);
  assert.ok(rows[0].querySelector('[data-place]'),'the supported lamp is listed');
+});
+
+test('hovering a furniture or Sync Box row frames it in the room; leaving the panel clears it; a click selects the box',async()=>{
+ const app=await harness({syncBox:fakeBox(BOX).api});await app.advance(100);
+ await app.click(app.$('#list-toggle'));await app.advance(0);
+ const panel=app.$('#lamp-panel'),stage=app.stage;
+ // The mini DOM lays nothing out: give each drawn shape a screen box, and the hit areas
+ // and selection lines a larger one that the frame must leave out.
+ const SHAPE={left:100,top:200,right:180,bottom:240,width:80,height:40},WIDE={left:0,top:0,right:900,bottom:900,width:900,height:900};
+ const layOut=id=>{const g=stage.querySelector('[data-select="'+id+'"]');assert.ok(g,id+' is drawn');
+  for(const n of g.querySelectorAll('rect,path,ellipse,circle,line,polygon,polyline'))n.getBoundingClientRect=()=>n.getAttribute('fill')==='transparent'||n.closest('.furniture-select')?WIDE:SHAPE;return g};
+ const mark=()=>stage.querySelector('#list-mark');
+ const frame=()=>['x','y','width','height'].map(k=>+mark().getAttribute(k));
+ for(const id of ['desk','box']){
+  const group=layOut(id),row=panel.querySelector('[data-list-lamp="'+id+'"]');assert.ok(row,id+' row');
+  app.dispatch(row.querySelector('.lp-name')||row,'mouseover');await app.settle();
+  assert.ok(group.classList.contains('list-hover'),id+' is marked');
+  assert.ok(mark(),id+' gets the frame');assert.equal(stage.querySelectorAll('#list-mark').length,1,'one frame at a time');
+  assert.ok(mark().classList.contains('outline')&&mark().classList.contains('list-mark'));
+  assert.equal(mark().getAttribute('pointer-events'),'none');
+  assert.deepEqual(frame(),[90,190,100,60],'round what is drawn, 10 px out, without the hit area');
+ }
+ assert.ok(!stage.querySelector('[data-select="desk"]').classList.contains('list-hover'),'the next row takes the mark over');
+ const lampRow=panel.querySelector('[data-list-lamp="govee-left"]');
+ app.dispatch(lampRow,'mouseover');await app.settle();
+ assert.equal(mark(),null,'a lamp row marks the lamp without a frame');assert.ok(app.lamp('govee-left').classList.contains('list-hover'));
+ layOut('box');app.dispatch(panel.querySelector('[data-list-lamp="box"]'),'mouseover');await app.settle();assert.ok(mark());
+ app.dispatch(panel,'mouseleave');await app.settle();
+ assert.equal(mark(),null,'leaving the panel removes the frame');
+ assert.equal(stage.querySelectorAll('.list-hover').length,0);
+ // The Sync Box row is a button that selects the box.
+ const boxRow=panel.querySelector('[data-list-lamp="box"]');
+ assert.equal(boxRow.getAttribute('role'),'button');assert.equal(boxRow.getAttribute('tabindex'),'0');assert.ok(!boxRow.classList.contains('active'));
+ await app.click(boxRow.querySelector('.lp-name'));
+ assert.equal(app.run('selected'),'box');
+ assert.ok(panel.querySelector('[data-list-lamp="box"]').classList.contains('active'),'the selected box row is marked');
+ assert.equal(app.requests.box.filter(r=>r.url!=='/api/sync-box').length,0,'selecting the box asks nothing of it');
 });
 
 test('the Objects panel lists lamps and furniture; the desk and display are removed with a confirmation and come back',async()=>{
