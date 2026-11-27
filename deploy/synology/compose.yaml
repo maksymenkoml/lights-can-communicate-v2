@@ -2,8 +2,9 @@
 #
 # Container Manager > Project > Create: choose a folder (for example
 # /volume1/docker/lights-can-communicate-v2), "Create docker-compose.yml",
-# paste this file and change the values marked CHANGE. To update, change the
-# image version and run Action > Build; to roll back, set the previous version.
+# paste this file and change the values marked CHANGE. To update, stop the
+# project, change the image version in YAML Configurations, save and choose
+# "Build and start the project"; to roll back, set the previous version.
 # The data folder keeps the bridge identity, pairings and settings across both.
 
 services:

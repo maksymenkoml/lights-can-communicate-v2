@@ -51,9 +51,11 @@ The first start creates the configuration, the internal credentials and the
 virtual bridge identity in the `data` folder next to the project file. Keep that
 folder: it holds the pairings and all settings.
 
-**Update:** in the project, select **YAML configurations**, change the image
-version, save, then **Action > Build**. Before it starts a different version, the
-core copies its configuration and state to `data/backups/`.
+**Update:** open the project and select **Stop** (the YAML is read-only while
+the project runs). In **YAML Configurations**, change the version at the end of
+the `image:` line, select **Save**, then **Build and start the project**. Before it
+starts a different version, the core copies its configuration and state to
+`data/backups/`.
 **Roll back:** set the previous version the same way.
 
 ## Development
