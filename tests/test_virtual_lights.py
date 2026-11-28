@@ -22,11 +22,13 @@ from lights_can_communicate_v2_core.light_registry import LightRegistry  # noqa:
 THIRD = "device-" + "c" * 32
 FOURTH = "device-" + "d" * 32
 HUE = "device-" + "e" * 32
+STRIP = "device-" + "f" * 32
+STRIP_LIGHT = "a0000000-0000-4000-8000-00000000000f"
 HUE_LIGHT = "a0000000-0000-4000-8000-00000000000a"
 HUE_SERVICE = "b0000000-0000-4000-8000-00000000000b"
 
 
-def registry(*, third_model="H6008", fourth=False, remove_third=False, hue=False):
+def registry(*, third_model="H6008", fourth=False, remove_third=False, hue=False, strip=False):
     result = LightRegistry.from_dict(sample()).with_govee_light(
         THIRD, "CC:CC:CC:CC:CC:CC:CC:CC", "192.168.10.52", third_model)
     if fourth:
@@ -35,6 +37,9 @@ def registry(*, third_model="H6008", fourth=False, remove_third=False, hue=False
     if hue:
         result = result.with_hue_light(HUE, sample()["hue"]["area_id"], HUE_LIGHT, HUE_SERVICE,
                                        3, "LCX005")
+    if strip:
+        # A gradient strip in a room without the Sync Box: for scenes only.
+        result = result.with_scene_hue_light(STRIP, STRIP_LIGHT, "LCX005", "room")
     if remove_third:
         result = result.without_light(THIRD)
     return result
@@ -89,11 +94,28 @@ class HuePlanTests(unittest.TestCase):
         self.assertEqual(virtual_lights.hue_plan(registry().to_dict()), [])
         lights = virtual_lights.hue_plan(registry(fourth=True, hue=True).to_dict())
         self.assertEqual(lights, [{"slot": "9", "light": HUE, "seed": HUE, "model": "LCX005",
-                                   "channels": 3}])
+                                   "channels": 3, "gradient": True}])
         self.assertEqual(virtual_lights.default_name(lights[0]), "Hue LCX005 eeee")
         # Govee planning is unchanged by the Hue light.
         self.assertEqual(virtual_lights.plan(registry(fourth=True, hue=True).to_dict()),
                          virtual_lights.plan(registry(fourth=True).to_dict()))
+
+    def test_a_gradient_model_is_a_gradient_light_also_for_scenes_only(self):
+        # A Hue gradient strip in a room without the Sync Box has no channels; its
+        # model still makes it a gradient light, as the Hue app should show it.
+        base = registry().to_dict()
+        cases = (("LCX005", True), ("LCX006", True), ("440400982841", False),
+                 ("unknown", False))
+        for model, gradient in cases:
+            with self.subTest(model=model):
+                data = LightRegistry.from_dict(base).with_scene_hue_light(
+                    HUE, HUE_LIGHT, model, "room").to_dict()
+                (light,) = virtual_lights.hue_plan(data)
+                self.assertEqual((light["channels"], light["gradient"]), (0, gradient))
+        # Several streamed channels make a gradient light whatever the model says.
+        data = LightRegistry.from_dict(base).with_hue_light(
+            HUE, sample()["hue"]["area_id"], HUE_LIGHT, HUE_SERVICE, 3, "unknown").to_dict()
+        self.assertTrue(virtual_lights.hue_plan(data)[0]["gradient"])
 
     def test_the_signature_follows_an_enrolled_hue_light(self):
         with tempfile.TemporaryDirectory(prefix="tmp_virtual_signature_") as folder:
@@ -180,15 +202,35 @@ def fixture_request(g):
     room = [reference() for reference in groups["1"].lights]
     area = [reference() for reference in groups["90"].lights]
     assert {lamp.id_v1 for lamp in area} == set("123456"), sorted(lamp.id_v1 for lamp in area)
+    if phase in ("enrolled", "rebuilt"):
+        strip = lights["10"]
+        assert strip in room and strip not in area
+        assert strip.modelid == "LCX006", strip.modelid
+        assert strip.protocol_cfg["points_capable"] == 5
+        assert len(strip.state["gradient"]["points"]) == 5
     if phase == "enrolled":
-        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+        # The color bulb an earlier gateway made for the strip: the next start
+        # turns it into a gradient light in place.
+        state.joinpath("strip-id.txt").write_text(strip.uniqueid)
+        strip.modelid = "LCT015"
+        strip.config["archetype"] = "sultanbulb"
+        strip.protocol_cfg = {"proxy_color_kind": "xy"}
+        strip.state.pop("gradient")
+        g["configManager"].bridgeConfig.save_config(backup=False)
+    if phase == "rebuilt":
+        # The same saved light, not a new one (a new light gets a new unique id).
+        assert strip.uniqueid == state.joinpath("strip-id.txt").read_text()
+        assert strip.config["archetype"] == "huelightstrip"
+        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+    elif phase == "enrolled":
+        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
         third, fourth, hue = lights["7"], lights["8"], lights["9"]
         assert third in room and fourth in room and hue in room
         assert hue not in area
         assert hue.modelid == "LCX006", hue.modelid
         assert hue.protocol_cfg["proxy_color_kind"] == "gradient"
         assert hue.state["reachable"] is True
-        assert g["hue_slots"] == {"9": "device-" + "e" * 32}
+        assert g["hue_slots"] == {"9": "device-" + "e" * 32, "10": "device-" + "f" * 32}
         assert third.modelid == "LCT015", third.modelid
         assert fourth.modelid == "915005987201", fourth.modelid
         assert lights["1"].modelid == "915005987201"
@@ -201,9 +243,10 @@ def fixture_request(g):
         assert lights["9"].state["reachable"] is False
         assert lights["7"].state["reachable"] is False
         assert lights["8"].state["reachable"] is False
+        assert lights["10"].state["reachable"] is False
         assert lights["1"].state["reachable"] is True
     else:
-        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "8", "9"}
+        assert set(g["selected_slots"]) == {"1", "2", "3", "4", "5", "6", "8", "9", "10"}
         third = lights["7"]
         assert third.id_v2 == state.joinpath("third-id.txt").read_text()
         assert third.state["reachable"] is False
@@ -225,9 +268,10 @@ class VirtualLightsBootstrapTests(unittest.TestCase):
             state = Path(folder)
             path = state / "tmp_virtual_driver.py"
             path.write_text(driver)
-            for phase, current in (("enrolled", registry(fourth=True, hue=True)),
+            for phase, current in (("enrolled", registry(fourth=True, hue=True, strip=True)),
+                                   ("rebuilt", registry(fourth=True, hue=True, strip=True)),
                                    ("removed", registry(fourth=True, remove_third=True,
-                                                        hue=True)),
+                                                        hue=True, strip=True)),
                                    ("missing", None)):
                 with self.subTest(phase=phase):
                     if current is None:

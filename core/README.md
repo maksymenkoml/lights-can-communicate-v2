@@ -448,9 +448,13 @@ migrated lamps keep slots 1 and 2 and their UUIDs. A light enrolled later gets
 the virtual slot from its registry entry and a UUID seeded from its registry ID
 (`uuid5(URL, "smart-lighting-probe/<seed>")`). A segmented light is a gradient
 light in the gradient mode; any other light is a color bulb (`LCT015`). A Hue
-light enrolled later mirrors its native light: a gradient light (`LCX006`) with
-several channels, else a color bulb; its scenes and power go to its native
-light through the adapter. New
+light enrolled later mirrors its native light: a gradient light (`LCX006`) for
+a gradient model (one with several zones in Light Studio, such as `LCX005`) or
+several channels, else a color bulb. A gradient strip in a room without the
+Sync Box (no channels, scenes only) is a gradient light too, and a color bulb
+that an earlier gateway made for it becomes a gradient light in place at the
+next start, keeping its IDs, name, room and scenes. Its scenes and power go to
+its native light through the adapter. New
 lights join the Room group of their room (see "Rooms"), so Hue app scenes, group
 power and the Hue app reach them, but not the Entertainment area: the Sync Box pairing and the sampler stay
 as they are, and Sync drives the new light by projection. Scene output, power

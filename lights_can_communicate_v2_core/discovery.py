@@ -23,6 +23,15 @@ _PROFILES = {
 }
 
 
+def hue_zones(model):
+    """Return the zones of a Hue model Light Studio knows, else None.
+
+    A model with several zones is a gradient light, whether or not it streams.
+    """
+    profile = _PROFILES.get(("hue", model))
+    return profile[1] if profile else None
+
+
 def _label(value, limit, fallback=""):
     if not isinstance(value, str):
         return fallback
