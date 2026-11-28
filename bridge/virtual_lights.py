@@ -48,14 +48,6 @@ def _registry_class():
     return LightRegistry
 
 
-def _gradient_model(model):
-    """Whether the native Hue model is a gradient light (several zones)."""
-    _core_path()
-    from lights_can_communicate_v2_core.discovery import hue_zones
-
-    return (hue_zones(model) or 1) > 1
-
-
 def load(state):
     """Return the validated registry data of the state directory, or None."""
     path = Path(state) / REGISTRY_FILE
@@ -102,6 +94,9 @@ def hue_plan(data):
     """
     if data is None:
         return []
+    _core_path()
+    from lights_can_communicate_v2_core.discovery import hue_zones
+
     lights = []
     for item in data["lights"]:
         if item["provider"] != "hue" or item["id"] in MIGRATED_HUE:
@@ -109,7 +104,7 @@ def hue_plan(data):
         model, channels = item["hue"].get("model", "unknown"), len(item["hue"]["channels"])
         lights.append({"slot": item["virtual"]["id_v1"], "light": item["id"],
                        "seed": item["virtual"]["seed"], "model": model, "channels": channels,
-                       "gradient": channels > 1 or _gradient_model(model)})
+                       "gradient": channels > 1 or (hue_zones(model) or 1) > 1})
     return sorted(lights, key=lambda item: int(item["slot"]))
 
 

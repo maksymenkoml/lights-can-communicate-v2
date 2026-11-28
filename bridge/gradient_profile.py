@@ -1,5 +1,6 @@
 """Opt-in Signe capability profile without replacing existing virtual resources."""
 
+import colorsys
 import copy
 import math
 
@@ -35,16 +36,57 @@ def validate_gradient(value):
             raise ValueError("Invalid gradient chromaticity")
 
 
+def _rgb_xy(rgb):
+    """CIE xy of an sRGB colour with channels 0-1."""
+    linear = [((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92 for c in rgb]
+    x = 0.4124 * linear[0] + 0.3576 * linear[1] + 0.1805 * linear[2]
+    y = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    z = 0.0193 * linear[0] + 0.1192 * linear[1] + 0.9505 * linear[2]
+    return x / (x + y + z), y / (x + y + z)
+
+
+def _kelvin_xy(kelvin):
+    """CIE xy of the Planckian locus (Kim et al. cubic spline, 1667-25000 K)."""
+    t = min(25000, max(1667, kelvin))
+    if t <= 4000:
+        x = -0.2661239e9 / t**3 - 0.2343589e6 / t**2 + 0.8776956e3 / t + 0.179910
+    else:
+        x = -3.0258469e9 / t**3 + 2.1070379e6 / t**2 + 0.2226347e3 / t + 0.240390
+    if t <= 2222:
+        y = -1.1063814 * x**3 - 1.34811020 * x**2 + 2.18555832 * x - 0.20219683
+    elif t <= 4000:
+        y = -0.9549476 * x**3 - 1.37418593 * x**2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x**3 - 5.87338670 * x**2 + 3.75112997 * x - 0.37001483
+    return x, y
+
+
+def _active_xy(state):
+    """CIE xy of the colour the light shows now, in its active colour mode."""
+    try:
+        mode = state.get("colormode", "xy")
+        if mode == "ct":
+            return _kelvin_xy(1_000_000 / min(1000, max(100, float(state["ct"]))))
+        if mode == "hs":
+            hue = min(65535, max(0, float(state["hue"]))) / 65535
+            sat = min(254, max(0, float(state["sat"]))) / 254
+            return _rgb_xy(colorsys.hsv_to_rgb(hue, sat, 1))
+        x, y = state["xy"]
+        return float(x), float(y)
+    except (KeyError, TypeError, ValueError):
+        return 0.3127, 0.3290
+
+
 def configure_hue_gradient(lamp):
     """Make the virtual light of a native Hue gradient light a gradient light.
 
     An earlier gateway made a color bulb for a gradient light outside the
     Entertainment area. The light changes in place, so its ids, name, room and
-    scenes stay. Its current color stays the output until the next change.
-    Return whether it changed.
+    scenes stay. Its current color stays the output until the next change, and
+    every section starts with that color.
     """
     if lamp.modelid == HUE_GRADIENT_MODEL:
-        return False
+        return
     lamp.modelid = HUE_GRADIENT_MODEL
     # An archetype the owner chose in the Hue app stays.
     if lamp.config.get("archetype") == "sultanbulb":
@@ -52,9 +94,8 @@ def configure_hue_gradient(lamp):
     lamp.protocol_cfg["points_capable"] = 5
     kind = lamp.state.get("colormode", "xy")
     lamp.protocol_cfg["proxy_color_kind"] = kind if kind in {"ct", "hs"} else "xy"
-    x, y = lamp.state.get("xy", [0.3127, 0.3290])
+    x, y = (round(value, 4) for value in _active_xy(lamp.state))
     lamp.state["gradient"] = {"points": [{"color": {"xy": {"x": x, "y": y}}} for _ in range(5)]}
-    return True
 
 
 def configure_signe(lamp, enabled):
