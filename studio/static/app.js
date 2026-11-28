@@ -1464,8 +1464,8 @@ function calPageHtml(l){
   html+='<label class="card-field"><span>Compare with</span><span class="card-select"><select class="cal-ref" aria-label="Compare with">'+refs+'</select>'+iconSvg('down')+'</span></label>'
    +'<div class="card-field"><span>Test light</span>'+seg('cal-level-',[['bright','Bright'],['dim','Dim']],c.level)+'</div>';
  }
- else if(c.mode==='plain'&&connected(l)&&!l.unbound&&aloneInRoom(l))html+='<p class="note card-note">No other lamp in this room to compare with</p>';
  html+='<div class="card-sliders">'+calSlider('correction','Brightness',0,100,c.correction,calText('correction',c.correction),c.view==='sync'?'with Sync':'without Sync');
+ if(c.mode==='plain'&&connected(l)&&!l.unbound&&aloneInRoom(l))html+='<p class="note card-note">No other lamp in this room to compare with</p>';
  if(isGoveeRole(l))html+=c.mode==='test'?CAL_SLIDERS.map(([k,label,lo,hi])=>calSlider(k,label,CALIBRATION[k][0],CALIBRATION[k][1],c.values[k],calText(k,c.values[k]),'',[lo,hi])).join(''):c.mode==='live'?'<p class="note card-note">Turn Sync off to calibrate color</p>':'';
  return html+'</div><div class="card-foot">'+btn(iconSvg('reset')+'Reset',{'data-menu':'cal-reset',disabled:!calChanged(c)},'quiet')+'<span class="card-gap"></span>'+btn('Cancel',{'data-menu':'cal-cancel'})+btn('Save',{'data-menu':'cal-save'},'primary')+'</div>';
 }
