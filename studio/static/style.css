@@ -1,5 +1,5 @@
 /* Light Studio. Drafting look: Commissioner, cool paper, navy ink, teal accent.
-   The light/dark switch previews the room; it is not a theme of the controls. */
+   One light scene; the controls have no theme of their own. */
 @font-face{font-family:Commissioner;font-style:normal;font-weight:400 600;font-display:swap;src:url(/fonts/commissioner-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 
 :root{color-scheme:light;--edge:#8994a5;--beam:#b5c7e6}
@@ -20,7 +20,7 @@ h1,h2,p{margin:0}
 .mark{display:flex;align-items:center;gap:3px;height:24px}
 .mark i{height:12px;width:3px;background:var(--accent);border-radius:2px}
 .mark i:nth-child(2){height:22px}
-.room{padding-left:17px;margin-left:9px;border-left:1px solid var(--line);color:var(--muted);font-weight:400;letter-spacing:-.1px}
+.room{display:flex;align-items:center;pointer-events:auto}
 .header button{pointer-events:auto}
 .stage{position:absolute;inset:80px 40px 95px;width:calc(100% - 80px);height:calc(100% - 175px);touch-action:none;overflow:visible}
 .scene-background{position:absolute;inset:0;z-index:-1}
@@ -37,10 +37,6 @@ h1,h2,p{margin:0}
 .lamp.chosen .outline,.lamp:focus-visible .outline{opacity:1}
 
 .axis{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 6;opacity:.18;vector-effect:non-scaling-stroke;pointer-events:none}
-.toolbar{position:absolute;bottom:25px;left:50%;transform:translateX(-50%);display:flex;gap:3px;padding:6px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);z-index:6}
-.tool{height:39px;width:42px;display:grid;place-items:center;color:var(--muted)}
-.tool:hover,.tool.active{background:var(--soft);color:var(--accent)}
-.tool-separator{align-self:center;width:1px;height:19px;background:var(--line);margin:0 5px}
 .list-control{position:absolute;bottom:25px;left:30px;z-index:6}
 .list-toggle{display:flex;align-items:center;gap:10px;height:51px;padding:0 15px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow)}
 .list-toggle svg{width:17px;height:17px;color:var(--muted)}
@@ -52,13 +48,8 @@ h1,h2,p{margin:0}
 .toast{position:absolute;bottom:95px;left:50%;transform:translateX(-50%);background:var(--surface);color:var(--text);border:1px solid var(--line);padding:11px 16px;box-shadow:var(--shadow);z-index:12;opacity:0;pointer-events:none;transition:opacity .15s}
 .toast.show{opacity:1}
 @media(max-width:850px){.stage{inset:80px 15px 100px;width:calc(100% - 30px);height:calc(100% - 180px)}.list-control{left:18px}.history{right:18px}}
-@media(max-width:550px){.app{min-height:650px}.mark{gap:2px}.mark i{width:2px}.room{margin-left:3px;padding-left:10px}.stage{inset:94px 0 105px;width:100%;height:calc(100% - 199px)}.list-control{left:12px;bottom:20px}.list-toggle{width:43px;height:45px;padding:0;justify-content:center}.list-toggle .count,.list-toggle .list-word{display:none}.toolbar{bottom:20px;padding:4px}.tool{height:35px;width:34px}.tool-separator{margin:0 2px}.history{bottom:20px;right:12px;padding:4px;gap:0}.history button{height:35px;width:29px}.history button svg{width:15px;height:15px}.toast{bottom:158px;max-width:calc(100% - 30px);white-space:nowrap}}
+@media(max-width:550px){.app{min-height:650px}.mark{gap:2px}.mark i{width:2px}.stage{inset:94px 0 105px;width:100%;height:calc(100% - 199px)}.list-control{left:12px;bottom:20px}.list-toggle{width:43px;height:45px;padding:0;justify-content:center}.list-toggle .count,.list-toggle .list-word{display:none}.sync-bar{bottom:20px}.history{bottom:20px;right:12px;padding:4px;gap:0}.history button{height:35px;width:29px}.history button svg{width:15px;height:15px}.toast{bottom:158px;max-width:calc(100% - 30px);white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
-.scene-toggle{height:39px;width:39px;display:grid;place-items:center;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--muted)}
-.scene-toggle:hover,.scene-toggle[aria-pressed=true]{color:var(--accent);background:var(--soft)}
-.scene-toggle svg{width:17px;height:17px}
-.scene-toggle .sun{display:none}.scene-toggle[aria-pressed=true] .moon{display:none}.scene-toggle[aria-pressed=true] .sun{display:block}
-@property --scene-sweep{syntax:'<number>';inherits:false;initial-value:0}
 /* Live light eases between Sync updates (about 20 a second), so colour changes read as motion, not steps. */
 @property --beam{syntax:'<color>';inherits:true;initial-value:#b5c7e6}
 [data-beam]{transition:--beam 120ms linear}
@@ -70,9 +61,7 @@ h1,h2,p{margin:0}
 .lamp.lamp-wash{transition:--beam 120ms linear,opacity .28s ease}
 [data-sync-power],.lamp-wash>g{transition:opacity 120ms linear}
 .lamp [data-beam] stop,#screen-colors stop{transition:stop-color 120ms linear,stop-opacity 120ms linear}
-.scene-snapshot{position:absolute;inset:0;z-index:2;pointer-events:none;mask-repeat:no-repeat;mask-size:100% 100%;will-change:mask-image}
-.scene-snapshot.motion-halo.reveal-light{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),transparent calc(var(--scene-sweep)*100% - 14%),#000 calc(var(--scene-sweep)*100% + 14%))}
-.scene-snapshot.motion-halo.reveal-dark{mask-image:radial-gradient(ellipse farthest-corner at var(--sweep-x,88%) var(--sweep-y,0%),#000 calc(var(--scene-sweep)*100% - 14%),transparent calc(var(--scene-sweep)*100% + 14%))}
+.scene-snapshot{position:absolute;inset:0;z-index:2;pointer-events:none}
 .app .scene-snapshot.snapshot-light .stage{--edge:#8994a5;--line:#dce1e8;--muted:#9299a5}
 
 .lamp .render-emission{fill:none;stroke:var(--beam);stroke-linecap:round;stroke-linejoin:round}
@@ -82,7 +71,7 @@ h1,h2,p{margin:0}
 .lamp .object-edge{stroke:#ffffff;stroke-opacity:.5;stroke-width:1;fill:none;pointer-events:none}
 .furniture-select{fill:none;stroke:var(--accent);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0;pointer-events:none}
 .desk-group.chosen .furniture-select,.cabinet-group.chosen .furniture-select,.monitor-group.chosen .furniture-select,.box-group.chosen .furniture-select{opacity:1}
-.stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}.app.dark-scene .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--glass-top:#324355;--glass-bottom:#1b2635}.app .scene-snapshot.snapshot-light .stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}.app .scene-snapshot.snapshot-dark .stage{--wood-top:#89755e;--wood-front:#70573f;--wood-edge:#a68d6e;--furniture-metal:#495666;--glass-top:#324355;--glass-bottom:#1b2635}
+.stage{--wood-top:#d7b891;--wood-front:#b9926c;--wood-edge:#edd3b2;--furniture-metal:#7c8999;--glass-top:#b9c8d9;--glass-bottom:#7d90aa}
 .sync-mode .lamp{cursor:grab}.sync-mode .lamp:active{cursor:grabbing}
 .app.placing .stage,.app.placing .lamp{cursor:crosshair}
 .app.placing .lamp.chosen .outline{opacity:0}.app.placing .placement-ghost .outline{opacity:1;stroke-dasharray:5 5}.placement-ghost{opacity:.6;pointer-events:none}
@@ -102,16 +91,9 @@ h1,h2,p{margin:0}
 .handle:hover .glyph,.handle.active .glyph{stroke:#fff}
 .handle .glyph{fill:none;stroke:var(--accent);stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 
-.tool.sync-switch{width:auto;display:flex;align-items:center;gap:8px;padding:0 10px 0 11px}
-.sync-word{font-weight:500}
 .switch{position:relative;width:26px;height:15px;background:var(--line);transition:background .2s ease}
 .switch i{position:absolute;top:2px;left:2px;width:11px;height:11px;background:#fff;box-shadow:0 1px 2px #1d2b4833;transition:transform .2s ease}
-.tool.sync-switch.active .switch{background:var(--accent)}
-.tool.sync-switch.active .switch i{transform:translateX(11px)}
 
-.toolbar .scene-toggle{width:42px;height:39px;border:0;background:none}
-.toolbar .scene-toggle:hover,.toolbar .scene-toggle[aria-pressed=true]{background:var(--soft);color:var(--accent)}
-@media (max-width:550px){.toolbar .scene-toggle{width:34px;height:35px}.sync-word{display:none}.tool.sync-switch{padding:0 8px}}
 
 .stage{-webkit-user-select:none;user-select:none}
 .obj-chip{pointer-events:all}
@@ -201,8 +183,8 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
    dimension tags). Scene labels are drawn at screen size (see labelUnit in app.js). */
 :root{--fs-title:15px;--fs-ui:13px;--fs-small:12px}
 .brand{font-size:var(--fs-title);font-weight:600;letter-spacing:-.2px}
-.room,.draft-status{font-size:var(--fs-ui)}
-.list-toggle,.sync-word,.list-word{font-size:var(--fs-ui)}
+.draft-status{font-size:var(--fs-ui)}
+.list-toggle,.list-word{font-size:var(--fs-ui)}
 .object-menu,.toast,.ui-tooltip{font-size:var(--fs-ui)}
 .placement-hint,.card .card-sub,.card .card-alert{font-size:var(--fs-small)}
 .card .card-name{font-size:var(--fs-title)}
@@ -211,8 +193,8 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 .tag-text{font-size:var(--fs-small)}
 
 /* Radii: panels 8, controls 5, pills 3 */
-.toolbar,.list-toggle,.history,.object-menu,.toast{border-radius:var(--r-panel)}
-.tool,.toolbar .scene-toggle,.history button,.placement-hint,.card .card-name,.card .card-alert,.ui-tooltip,.dim-input{border-radius:var(--r-ctl)}
+.list-toggle,.history,.object-menu,.toast{border-radius:var(--r-panel)}
+.history button,.placement-hint,.card .card-name,.card .card-alert,.ui-tooltip,.dim-input{border-radius:var(--r-ctl)}
 .switch,.switch i{border-radius:3px}
 .obj-chip>rect{rx:5px;ry:5px;stroke:#0e223533}
 .lamp .outline,.furniture-select{rx:4px;ry:4px}
@@ -262,26 +244,18 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 .note[hidden]{display:none}
 .note svg{flex:none;width:14px;height:14px;margin-top:1px}
 
-/* The light snapshot used by the scene transition must match the live light scene */
+/* The snapshot used by the Sync-view fade must match the live scene */
 
 
-/* Night scene in navy */
-.app.dark-scene>.scene-background,.app .scene-snapshot.snapshot-dark .scene-background{background-color:#0f1c2a}
-.app.dark-scene #stage,.app .scene-snapshot.snapshot-dark .stage{--line:#24394d;--muted:#a3b5c7;--halo:#0f1c2a;--tag-text:#d3dee8;--accent:#5cc6cd;--soft:#5cc6cd22;--zone-off:#2c4256;--edge:#7f97ae}
-.app.dark-scene #stage .obj-chip>rect,.app .scene-snapshot.snapshot-dark .obj-chip>rect{fill:#1a2a3c;stroke:#2f465c}
-.app.dark-scene #stage .obj-chip text,.app .scene-snapshot.snapshot-dark .obj-chip text{fill:#e6eef5}
-.app.dark-scene #stage .obj-chip .chip-status,.app .scene-snapshot.snapshot-dark .obj-chip .chip-status{fill:#a3b5c7}
-.app.dark-scene #stage .handle:hover .glyph,.app .scene-snapshot.snapshot-dark .handle:hover .glyph,.app.dark-scene #stage .handle.active .glyph,.app .scene-snapshot.snapshot-dark .handle.active .glyph{stroke:#0f1c2a}
 
 /* Light scene in half-tone: glow reads as light */
-.app:not(.dark-scene)>.scene-background,.app .scene-snapshot.snapshot-light .scene-background{background-color:#c9d3db}
-.app:not(.dark-scene) #stage,.app .scene-snapshot.snapshot-light .stage{--halo:#c9d3db;--canvas:#c9d3db;--zone-off:#8e9cab}
-.app:not(.dark-scene) #stage .lamp .render-wash,.app .scene-snapshot.snapshot-light .lamp .render-wash{opacity:calc(var(--wash-a,.7)*var(--wash-boost,1));filter:url(#wall-wash) saturate(1.5) brightness(1.15)}
-.app:not(.dark-scene) #stage .lamp .render-bloom,.app .scene-snapshot.snapshot-light .lamp .render-bloom{opacity:calc(var(--wash-a,.38)*var(--wash-boost,1));filter:url(#bloom) saturate(1.5) brightness(1.15)}
+.app>.scene-background,.app .scene-snapshot.snapshot-light .scene-background{background-color:#c9d3db}
+.app #stage,.app .scene-snapshot.snapshot-light .stage{--halo:#c9d3db;--canvas:#c9d3db;--zone-off:#8e9cab}
+.app #stage .lamp .render-wash,.app .scene-snapshot.snapshot-light .lamp .render-wash{opacity:calc(var(--wash-a,.7)*var(--wash-boost,1));filter:url(#wall-wash) saturate(1.5) brightness(1.15)}
+.app #stage .lamp .render-bloom,.app .scene-snapshot.snapshot-light .lamp .render-bloom{opacity:calc(var(--wash-a,.38)*var(--wash-boost,1));filter:url(#bloom) saturate(1.5) brightness(1.15)}
 
 #hover-tag .tag-text{font-weight:500}
 
-.scene-snapshot.mode-fade{mask-image:none}
 @keyframes ray-in{from{opacity:0}}
 @keyframes ray-out{to{opacity:0}}
 .ray-ghost{pointer-events:none}
@@ -293,14 +267,14 @@ body{font-family:Commissioner,system-ui,sans-serif;font-size:var(--fs-ui);font-f
 .sync-status:not([data-level=ok]) span{color:color-mix(in srgb,var(--s-color) 75%,var(--text))}
 @media (prefers-reduced-motion:reduce){.sync-status i{animation:none!important}}
 
-.header{height:auto;top:22px;left:30px;right:30px;padding:0;align-items:flex-start}
-.brand{display:flex;align-items:center;gap:0;transition:color .3s}
+.header{height:auto;top:22px;left:30px;right:30px;padding:0;align-items:center}
+/* The mark, then the name with the saved mark, and the author's byline under the name. */
+.brand{display:grid;grid-template-columns:auto auto;align-items:center;justify-content:start;row-gap:1px;transition:color .3s}
+.brand-line{display:flex;align-items:center}
+.byline{grid-column:2;justify-self:start;font-size:var(--fs-small);font-weight:400;letter-spacing:.15px;line-height:1.2;color:var(--muted);text-decoration:none;opacity:.8;pointer-events:auto;transition:color .2s,opacity .2s}
+.byline:hover,.byline:focus-visible{color:var(--accent);opacity:1}
 .brand .mark{margin-right:10px}
 .brand .app-name{color:var(--text)}
-.brand .room{color:var(--muted)}
-.app.dark-scene .brand .app-name{color:#e6eef5}
-.app.dark-scene .brand .room,.app.dark-scene .draft-status{color:#a3b5c7}
-.app.dark-scene .mark i{background:#5cc6cd}
 
 .lamp-panel{position:absolute;z-index:8;width:304px;max-height:min(540px,calc(100% - 180px));overflow:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-panel,8px);background:var(--surface);box-shadow:var(--shadow);color:var(--text)}
 .lamp-panel[hidden]{display:none}
@@ -345,6 +319,8 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 @keyframes lp-flash{0%,40%{background:var(--soft)}}
 #stage .lamp.list-hover .outline{opacity:1!important;stroke:var(--accent)}
 #stage .lamp.list-hover{opacity:1!important}
+#stage .list-hover{opacity:1!important}
+#stage .list-mark{opacity:1;rx:4px;ry:4px}
 @media(max-width:720px){.lamp-panel{left:12px!important;right:12px!important;width:auto}}
 
 .ghost-label{font-size:var(--fs-small);font-weight:500;fill:var(--tag-text,#1d3348);paint-order:stroke;stroke:var(--halo,#ebf0f3);stroke-width:4px;stroke-linejoin:round;text-anchor:middle}
@@ -353,7 +329,6 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .empty-room[hidden]{display:none}
 .empty-room .btn{box-shadow:var(--shadow)}
 .empty-room p{margin:0;font-size:var(--fs-title);font-weight:500;color:var(--text)}
-.app.dark-scene .empty-room p{color:#e6eef5}
 
 .card .card-set{margin:0 0 10px;border-top:1px solid var(--line)}
 .card .set-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:38px;border-bottom:1px solid var(--line);font-size:var(--fs-ui);white-space:nowrap}
@@ -380,8 +355,6 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .obj-chip .chip-sep{stroke:var(--line);vector-effect:non-scaling-stroke}
 .obj-chip .chip-btn rect{fill:transparent}
 .obj-chip .chip-btn:hover rect{fill:var(--soft)}
-.app.dark-scene #stage .obj-chip .chip-main:hover .chip-hit,.app.dark-scene #stage .obj-chip .chip-main.open .chip-hit,.app.dark-scene #stage .obj-chip .chip-btn:hover rect{fill:#5cc6cd22}
-.app.dark-scene #stage .obj-chip .chip-sep{stroke:#2f465c}
 
 /* Lamp card: a list of equal rows; Calibrate slides in as the second page. */
 #object-menu.card{width:280px;padding:0;overflow:hidden;transition:height .28s ease,left .28s ease}
@@ -439,8 +412,8 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .calibrating #stage .cal-keep [data-sync-power],.calibrating #stage [data-wash-for].cal-keep,.calibrating #stage [data-wash-for].cal-keep>g{opacity:1!important}
 .calibrating #stage .cal-keep linearGradient stop{stop-color:#ffe6c4!important;stop-opacity:1!important}
 .calibrating #stage .cal-keep [data-beam],.calibrating #stage [data-wash-for].cal-keep{--beam:#ffe6c4!important}
-.calibrating #stage,.calibrating .toolbar,.calibrating .list-control,.calibrating .history{pointer-events:none}
-.calibrating .toolbar,.calibrating .list-control,.calibrating .history{opacity:.35}
+.calibrating #stage,.calibrating #sync-box,.calibrating .list-control,.calibrating .history{pointer-events:none}
+.calibrating #sync-box,.calibrating .list-control,.calibrating .history{opacity:.35}
 
 #object-menu .card-select select:focus{outline:none}
 #object-menu .card-select select:focus-visible{box-shadow:0 0 0 2px var(--soft)}
@@ -465,10 +438,16 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
  #object-menu.card,#object-menu .card-pages,#object-menu .card-page,.obj-chip .chev path{transition:none}
 }
 
-/* Sync Box corner: one block for the box, its Sync status, messages and the connect steps. */
+/* Sync bar at the bottom centre: the Sync status and Start/Stop. The bar keeps its size;
+   messages and the card (box details, connect steps) pop up above it on their own. */
+.sync-bar{position:absolute;left:0;right:0;bottom:25px;margin:0 auto;width:max-content;max-width:calc(100% - 24px);z-index:6;padding:7px!important}
+
+.sync-pop{position:absolute;left:50%;translate:-50% 0;bottom:calc(100% + 8px);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.sync-pop>*{pointer-events:auto}
+.sync-bar #box-card{width:320px;max-width:calc(100vw - 24px);margin:0;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.sync-bar .box-said{width:max-content;max-width:calc(100vw - 24px);border:1px solid var(--line);border-radius:var(--r-panel);box-shadow:var(--shadow)}
 .box-corner{display:flex;flex-direction:column;align-items:stretch;min-width:0;padding:5px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);border-radius:var(--r-panel);pointer-events:auto;font-size:var(--fs-ui);color:var(--text);animation:card-in .18s cubic-bezier(.2,.8,.2,1) both;transition:width .2s ease}
 .box-corner[hidden]{display:none}
-.box-corner.open{width:320px}
 .box-bar{display:flex;align-items:center;justify-content:space-between;gap:2px}
 .box-corner button{display:flex;align-items:center;gap:7px;height:35px;padding:0 12px 0 9px;border-radius:var(--r-ctl);color:var(--text);font-weight:500;white-space:nowrap;transition:background .15s ease,color .15s ease}
 .box-corner button:hover:not(:disabled){background:var(--soft);color:var(--accent)}
@@ -478,10 +457,10 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-corner .box-start:hover:not(:disabled){filter:brightness(1.08)}
 .box-corner .box-connect{color:var(--accent)}
 .box-said[hidden],.box-act[hidden]{display:none}
-.box-said{display:flex;align-items:center;gap:7px;margin:2px 0 0;padding:6px 10px;border-radius:var(--r-ctl);font-weight:500;animation:card-in .18s ease both}
+.box-said{display:flex;align-items:center;gap:7px;padding:6px 10px;font-weight:500;animation:card-in .18s ease both}
 .box-said[data-kind=ok]{color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--surface))}
 .box-said[data-kind=bad]{color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
-#box-card{margin:5px -5px -5px;border-top:1px solid var(--line);font-size:var(--fs-ui)}
+#box-card{font-size:var(--fs-ui)}
 #box-card[hidden]{display:none}
 #box-card svg{width:16px;height:16px;flex:none}
 #box-card.opening{animation:card-in .18s cubic-bezier(.2,.8,.2,1) both}
@@ -506,7 +485,13 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-ring b{font-size:var(--fs-ui);font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
 .box-track{fill:none;stroke:var(--line);stroke-width:2.5}
 .box-arc{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-dasharray:119.4;transition:stroke-dashoffset 1s linear}
-@media(max-width:550px){.box-corner.open{width:calc(100vw - 60px)}}
+/* On a phone the bar shares the bottom row with Objects and undo/redo: it shows the
+   status dot and the action icon only. */
+@media(max-width:550px){
+ .sync-bar{bottom:20px;padding:4px!important}
+ .sync-bar .box-bar button{padding:0 10px}
+ .sync-bar .box-bar button span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+}
 @media (prefers-reduced-motion:reduce){.box-corner,.box-said,#box-card.opening{animation:none}.box-arc{transition:none}}
 #box-card .card-row svg path,.note svg path{fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 /* The status is the left of the bar: dot and words; it opens the box details. */
@@ -521,14 +506,15 @@ button.lp-row:hover,div.lp-row[data-list-lamp]:hover{background:color-mix(in srg
 .box-info span{color:var(--muted);font-size:var(--fs-small)}
 
 /* Rooms: the room name opens the room cards. */
-.brand .room{display:flex;align-items:center;pointer-events:auto}
-.room-switch{display:flex;align-items:center;gap:6px;height:30px;margin:-3px 0 -3px -8px;padding:0 8px;border-radius:var(--r-ctl);color:inherit;font:inherit}
-.room-switch:hover,.room-switch[aria-expanded=true]{background:color-mix(in srgb,var(--surface) 70%,transparent);color:var(--text)}
-.app.dark-scene .room-switch:hover,.app.dark-scene .room-switch[aria-expanded=true]{background:#ffffff14;color:#e6eef5}
+/* The room button sits in the top-right corner and looks like the Objects button. */
+.room-switch{display:flex;align-items:center;gap:10px;height:51px;padding:0 15px;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);color:var(--text);font:inherit;font-size:var(--fs-ui);font-weight:400}
+.room-switch:hover,.room-switch[aria-expanded=true]{border-color:var(--accent)}
+.room-icon{width:17px;height:17px;flex:none;color:var(--muted)}
+.room-box{color:var(--muted)}
 .room-box svg{display:block;width:16px;height:16px}
-.room-chevron{width:14px;height:14px;transition:transform .2s}
+.room-chevron{width:14px;height:14px;color:var(--muted);transition:transform .2s}
 .room-switch[aria-expanded=true] .room-chevron{transform:rotate(180deg)}
-.app.no-sync #sync-box,.app.no-sync #sync-tool,.app.no-sync .toolbar .tool-separator{display:none}
+.app.no-sync #sync-box,.app.room-pending #sync-box{display:none}
 .lp-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:6px 0 0;border-top:1px solid var(--line);font-size:var(--fs-small);color:var(--muted)}
 .room-cards{position:absolute;z-index:9;width:max-content;max-width:calc(100% - 24px);padding:12px;border:1px solid var(--line);border-radius:var(--r-panel);background:var(--surface);box-shadow:var(--shadow);color:var(--text);font-size:var(--fs-ui)}
 .rc-grid{display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,150px));grid-auto-rows:1fr;gap:10px}

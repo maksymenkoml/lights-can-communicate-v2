@@ -33,7 +33,7 @@ from entertainment_stream import (  # noqa: E402
     SLOT_CHANNELS,
 )
 from flask import abort, g, jsonify, request  # noqa: E402
-from gradient_profile import configure_signe, validate_gradient  # noqa: E402
+from gradient_profile import configure_hue_gradient, configure_signe, validate_gradient  # noqa: E402
 from hue_names import (  # noqa: E402
     AREA_NAME,
     MONITOR_NAME,
@@ -120,8 +120,9 @@ registry_data = load_registry(state)
 govee_lights, _retired = plan(registry_data)
 govee_slots = {item["slot"]: item["light"] for item in govee_lights}
 # A Hue light enrolled after the migration (see virtual_lights.hue_plan) gets its
-# registry slot and seed. It mirrors its native light: a gradient light for several
-# channels, else a color bulb. Like a later Govee light it joins the room only.
+# registry slot and seed. It mirrors its native light: a gradient light for a
+# gradient model or several channels, else a color bulb. Like a later Govee light it
+# joins the room only.
 hue_lights = hue_plan(registry_data) if include_strip and include_hue_play else []
 hue_slots = {item["slot"]: item["light"] for item in hue_lights}
 gradient_slots = {item["slot"] for item in govee_lights if GRADIENT_MODE and item["segmented"]}
@@ -157,7 +158,7 @@ for item in govee_lights:
     configure_signe(lamp, identifier in gradient_slots)
 for item in hue_lights:
     identifier = item["slot"]
-    gradient = item["channels"] > 1
+    gradient = item["gradient"]
     if identifier not in config["lights"]:
         neutral = {"x": 0.3127, "y": 0.3290}
         lamp = Light.Light(
@@ -179,6 +180,9 @@ for item in hue_lights:
                 "points": [{"color": {"xy": dict(neutral)}} for _ in range(5)]}
         config["lights"][identifier] = lamp
         config["groups"]["0"].add_light(lamp)
+    elif gradient:
+        # A gradient light that an earlier gateway made a color bulb becomes one.
+        configure_hue_gradient(config["lights"][identifier])
     config["lights"][identifier].state["reachable"] = True
 for identifier, lamp in config["lights"].items():
     # A removed light keeps its virtual light for a rejoin, and so does a light
