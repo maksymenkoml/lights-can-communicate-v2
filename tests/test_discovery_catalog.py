@@ -146,6 +146,13 @@ class CatalogTests(unittest.TestCase):
         self.scan(ip="192.168.1.30")
         self.assertEqual(self.one()["name"], "Living room")
 
+    def test_hue_zones_name_the_gradient_models(self):
+        from lights_can_communicate_v2_core.discovery import hue_zones
+
+        self.assertEqual([hue_zones(model) for model in
+                          ("LCX005", "LCX006", "440400982841", "unknown", None)],
+                         [9, 9, 1, None, None])
+
     def test_profiles_expose_configuration_without_output_permission(self):
         self.scan()
         row = self.one()

@@ -29,7 +29,7 @@ MIGRATED_HUE_SLOTS = {"3": "hue-monitor", "4": "play-left", "5": "play-center",
                       "6": "play-right"}
 
 
-def _registry_class():
+def _core_path():
     # The release mounts the archive next to this module. The development
     # Compose file mounts the package there, and a source checkout has it one
     # level up.
@@ -39,9 +39,21 @@ def _registry_class():
                           (here.parent, (here.parent / PACKAGE).is_dir())):
         if present and str(path) not in sys.path:
             sys.path.append(str(path))
+
+
+def _registry_class():
+    _core_path()
     from lights_can_communicate_v2_core.light_registry import LightRegistry
 
     return LightRegistry
+
+
+def _gradient_model(model):
+    """Whether the native Hue model is a gradient light (several zones)."""
+    _core_path()
+    from lights_can_communicate_v2_core.discovery import hue_zones
+
+    return (hue_zones(model) or 1) > 1
 
 
 def load(state):
@@ -83,16 +95,21 @@ def plan(data):
 def hue_plan(data):
     """Return the Hue lights enrolled after the migration, in slot order.
 
-    Each is ``{slot, light, seed, model, channels}``. A light with several channels
-    is a gradient light, any other one a color bulb, like its native light.
+    Each is ``{slot, light, seed, model, channels, gradient}``. Like its native
+    light, a light is a gradient light when its model has several zones or it
+    streams several channels, and a color bulb otherwise. A gradient light outside
+    the Entertainment area (no channels, for scenes only) is a gradient light too.
     """
     if data is None:
         return []
-    lights = [{"slot": item["virtual"]["id_v1"], "light": item["id"],
-               "seed": item["virtual"]["seed"], "model": item["hue"].get("model", "unknown"),
-               "channels": len(item["hue"]["channels"])}
-              for item in data["lights"]
-              if item["provider"] == "hue" and item["id"] not in MIGRATED_HUE]
+    lights = []
+    for item in data["lights"]:
+        if item["provider"] != "hue" or item["id"] in MIGRATED_HUE:
+            continue
+        model, channels = item["hue"].get("model", "unknown"), len(item["hue"]["channels"])
+        lights.append({"slot": item["virtual"]["id_v1"], "light": item["id"],
+                       "seed": item["virtual"]["seed"], "model": model, "channels": channels,
+                       "gradient": channels > 1 or _gradient_model(model)})
     return sorted(lights, key=lambda item: int(item["slot"]))
 
 
@@ -114,7 +131,8 @@ def signature(state):
     lights, retired = plan(data)
     return (tuple((item["slot"], item["light"], item["segmented"]) for item in lights),
             tuple(sorted(retired)),
-            tuple((item["slot"], item["light"], item["channels"]) for item in hue_plan(data)),
+            tuple((item["slot"], item["light"], item["channels"], item["gradient"])
+                  for item in hue_plan(data)),
             tuple(sorted(migrated_hue_slots(data))))
 
 

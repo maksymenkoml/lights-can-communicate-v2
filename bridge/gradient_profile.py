@@ -4,6 +4,8 @@ import copy
 import math
 
 SIGNE_MODEL = "915005987201"
+# The gateway's gradient lightstrip model; it stands for every native Hue gradient light.
+HUE_GRADIENT_MODEL = "LCX006"
 
 
 def validate_gradient(value):
@@ -31,6 +33,28 @@ def validate_gradient(value):
             or x + y > 1.0001
         ):
             raise ValueError("Invalid gradient chromaticity")
+
+
+def configure_hue_gradient(lamp):
+    """Make the virtual light of a native Hue gradient light a gradient light.
+
+    An earlier gateway made a color bulb for a gradient light outside the
+    Entertainment area. The light changes in place, so its ids, name, room and
+    scenes stay. Its current color stays the output until the next change.
+    Return whether it changed.
+    """
+    if lamp.modelid == HUE_GRADIENT_MODEL:
+        return False
+    lamp.modelid = HUE_GRADIENT_MODEL
+    # An archetype the owner chose in the Hue app stays.
+    if lamp.config.get("archetype") == "sultanbulb":
+        lamp.config["archetype"] = "huelightstrip"
+    lamp.protocol_cfg["points_capable"] = 5
+    kind = lamp.state.get("colormode", "xy")
+    lamp.protocol_cfg["proxy_color_kind"] = kind if kind in {"ct", "hs"} else "xy"
+    x, y = lamp.state.get("xy", [0.3127, 0.3290])
+    lamp.state["gradient"] = {"points": [{"color": {"xy": {"x": x, "y": y}}} for _ in range(5)]}
+    return True
 
 
 def configure_signe(lamp, enabled):
