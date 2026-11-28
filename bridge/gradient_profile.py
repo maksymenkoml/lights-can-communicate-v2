@@ -94,7 +94,7 @@ def configure_hue_gradient(lamp):
     lamp.protocol_cfg["points_capable"] = 5
     kind = lamp.state.get("colormode", "xy")
     lamp.protocol_cfg["proxy_color_kind"] = kind if kind in {"ct", "hs"} else "xy"
-    x, y = (round(value, 4) for value in _active_xy(lamp.state))
+    x, y = _active_xy(lamp.state)
     lamp.state["gradient"] = {"points": [{"color": {"xy": {"x": x, "y": y}}} for _ in range(5)]}
 
 

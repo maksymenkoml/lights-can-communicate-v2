@@ -141,8 +141,11 @@ class HueGradientProfileTests(unittest.TestCase):
             with self.subTest(state=state):
                 lamp = self.lamp(**state)
                 configure_hue_gradient(lamp)
-                self.assertEqual(lamp.state["gradient"]["points"],
-                                 [{"color": {"xy": {"x": x, "y": y}}}] * 5)
+                points = lamp.state["gradient"]["points"]
+                self.assertEqual(len(points), 5)
+                for point in points:
+                    self.assertAlmostEqual(point["color"]["xy"]["x"], x, places=4)
+                    self.assertAlmostEqual(point["color"]["xy"]["y"], y, places=4)
                 validate_gradient(lamp.state["gradient"])
 
 
