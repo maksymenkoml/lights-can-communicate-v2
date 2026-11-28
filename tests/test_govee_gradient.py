@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 FOLDER = Path(__file__).resolve().parents[1] / "bridge"
 sys.path.insert(0, str(FOLDER))
-from gradient_profile import configure_signe, validate_gradient  # noqa: E402
+from gradient_profile import configure_hue_gradient, configure_signe, validate_gradient  # noqa: E402
 
 
 def gradient_stream():
@@ -95,6 +95,58 @@ class GradientProfileTests(unittest.TestCase):
         configure_signe(lamp, False)
         self.assertEqual(lamp.modelid, "LCT015")
         self.assertFalse(lamp.state["on"])
+
+
+class HueGradientProfileTests(unittest.TestCase):
+    def lamp(self, **state):
+        return SimpleNamespace(
+            id_v1="9", id_v2="stable-id", name="Lightstrip 27", modelid="LCT015",
+            state={"on": True, "bri": 120, "colormode": "xy", "xy": [0.2, 0.3], **state},
+            config={"archetype": "sultanbulb", "function": "mixed"},
+            protocol_cfg={"proxy_color_kind": "xy"}, function="mixed")
+
+    def test_a_color_bulb_of_a_gradient_light_becomes_a_gradient_light_in_place(self):
+        from live_adapter import normalize_state
+
+        lamp = self.lamp()
+        configure_hue_gradient(lamp)
+        self.assertEqual((lamp.id_v1, lamp.id_v2, lamp.name), ("9", "stable-id", "Lightstrip 27"))
+        self.assertEqual(lamp.modelid, "LCX006")
+        self.assertEqual(lamp.config["archetype"], "huelightstrip")
+        self.assertEqual(lamp.protocol_cfg["points_capable"], 5)
+        self.assertEqual(lamp.state["gradient"]["points"],
+                         [{"color": {"xy": {"x": 0.2, "y": 0.3}}}] * 5)
+        self.assertEqual((lamp.state["on"], lamp.state["bri"]), (True, 120))
+        # The current color stays the output until the next change.
+        payload = {**lamp.state, "_color_kind": lamp.protocol_cfg["proxy_color_kind"]}
+        self.assertEqual(lamp.protocol_cfg["proxy_color_kind"], "xy")
+        self.assertIn("rgb", normalize_state(payload, 0.65, 1))
+        # A second start changes nothing.
+        before = (dict(lamp.protocol_cfg), dict(lamp.config), dict(lamp.state))
+        configure_hue_gradient(lamp)
+        self.assertEqual((dict(lamp.protocol_cfg), dict(lamp.config), dict(lamp.state)), before)
+
+    def test_white_light_and_the_owner_archetype_stay(self):
+        lamp = self.lamp(colormode="ct", ct=400)
+        lamp.config["archetype"] = "huelightstriptv"
+        configure_hue_gradient(lamp)
+        self.assertEqual(lamp.protocol_cfg["proxy_color_kind"], "ct")
+        self.assertEqual(lamp.config["archetype"], "huelightstriptv")
+
+    def test_the_sections_start_with_the_color_the_light_shows(self):
+        # The stored xy (0.2, 0.3) is stale outside the xy mode.
+        for state, (x, y) in (({"colormode": "ct", "ct": 400}, (0.4765, 0.4137)),
+                              ({"colormode": "hs", "hue": 0, "sat": 254}, (0.6401, 0.33)),
+                              ({"colormode": "ct", "ct": "broken"}, (0.3127, 0.329))):
+            with self.subTest(state=state):
+                lamp = self.lamp(**state)
+                configure_hue_gradient(lamp)
+                points = lamp.state["gradient"]["points"]
+                self.assertEqual(len(points), 5)
+                for point in points:
+                    self.assertAlmostEqual(point["color"]["xy"]["x"], x, places=4)
+                    self.assertAlmostEqual(point["color"]["xy"]["y"], y, places=4)
+                validate_gradient(lamp.state["gradient"])
 
 
 class GradientStreamTests(unittest.TestCase):

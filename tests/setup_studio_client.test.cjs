@@ -947,6 +947,18 @@ test('a Hue lamp calibrates its brightness only; Reset and Esc save nothing',asy
  await app.advance(300);assert.equal(app.posts.length,0);
 });
 
+test('a lamp alone in its room calibrates its brightness without a test light',async()=>{
+ const layout=saved();for(const r of layout.devices)if(r.id!=='play-center')r.enabled=false;
+ const app=await harness({layout,live:liveOk(SYNC_IDLE),calibrate:()=>assert.fail('no test light without a lamp to compare with')});
+ app.run('select("play-center")');await openCard(app);
+ await app.click(app.$('#object-menu [data-menu="calibrate"]'));await app.advance(20);
+ assert.equal(app.$('#object-menu select.cal-ref'),null,'no Compare with');
+ assert.equal(app.$('#object-menu .card-note').textContent,'No other lamp in this room to compare with');
+ const s=app.$('#object-menu [data-cal="correction"]');s.value='30';app.dispatch(s,'input');await app.settle();
+ await app.click(app.$('#object-menu [data-menu="cal-save"]'));await app.advance(300);
+ assert.equal(app.posts.at(-1).body.devices.find(r=>r.id==='play-center').sceneScale,30,'Save keeps the brightness');
+});
+
 test('during Sync the brightness changes the running Sync and Cancel restores it',async()=>{
  const app=await harness({calibrate:()=>assert.fail('no test light during Sync'),syncBox:syncingBox()});
  assert.equal(app.run('mode'),'sync');
